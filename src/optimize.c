@@ -100,6 +100,13 @@ typedef struct InlineDebugParameterState {
     const Stmt* statement;
 } InlineDebugParameterState;
 
+typedef struct InlineDebugLocalState {
+    const Decl* declaration;
+    const Expr* value;
+    const Stmt* statement;
+    bool initial;
+} InlineDebugLocalState;
+
 typedef struct InlineDebugOrigin {
     const Expr* expression;
     const Decl* caller;
@@ -108,6 +115,8 @@ typedef struct InlineDebugOrigin {
     const ExprList* arguments;
     InlineDebugParameterState* parameter_states;
     size_t parameter_state_count;
+    InlineDebugLocalState* local_states;
+    size_t local_state_count;
 } InlineDebugOrigin;
 
 typedef struct InlineDebugScopeOrigin {
@@ -143,6 +152,7 @@ static size_t inline_debug_statement_origin_capacity;
 static void inline_debug_origins_clear(void) {
     for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
         rcc_free(inline_debug_origins[index].parameter_states);
+        rcc_free(inline_debug_origins[index].local_states);
     }
     rcc_free(inline_debug_origins);
     inline_debug_origins = NULL;
@@ -318,7 +328,9 @@ static void inline_debug_origin_add(const Expr* expression,
                                     SourceLoc call_location,
                                     const ExprList* arguments,
                                     const InlineDebugParameterState* states,
-                                    size_t state_count) {
+                                    size_t state_count,
+                                    const InlineDebugLocalState* local_states,
+                                    size_t local_state_count) {
     InlineDebugOrigin* origin;
     if (!expression || !caller || !callee) return;
     if (inline_debug_origin_count == inline_debug_origin_capacity) {
@@ -345,6 +357,13 @@ static void inline_debug_origin_add(const Expr* expression,
     if (state_count != 0u) {
         memcpy(origin->parameter_states, states,
                state_count * sizeof(*origin->parameter_states));
+    }
+    origin->local_state_count = local_state_count;
+    origin->local_states = local_state_count == 0u
+        ? NULL : rcc_alloc(local_state_count * sizeof(*origin->local_states));
+    if (local_state_count != 0u) {
+        memcpy(origin->local_states, local_states,
+               local_state_count * sizeof(*origin->local_states));
     }
 }
 
@@ -380,7 +399,9 @@ static void inline_debug_origin_copy_to_clone(const Expr* source,
         SourceLoc call_location;
         const ExprList* arguments;
         InlineDebugParameterState* states = NULL;
+        InlineDebugLocalState* local_states = NULL;
         size_t state_count;
+        size_t local_state_count;
         if (origin->expression != source ||
             !inline_debug_same_function(
                 origin->caller, inline_debug_clone_owner)) {
@@ -395,10 +416,19 @@ static void inline_debug_origin_copy_to_clone(const Expr* source,
             memcpy(states, origin->parameter_states,
                    state_count * sizeof(*states));
         }
+        local_state_count = origin->local_state_count;
+        if (local_state_count != 0u) {
+            local_states = rcc_alloc(
+                local_state_count * sizeof(*local_states));
+            memcpy(local_states, origin->local_states,
+                   local_state_count * sizeof(*local_states));
+        }
         inline_debug_origin_add(clone, inline_debug_clone_caller, callee,
                                 call_location, arguments, states,
-                                state_count);
+                                state_count, local_states,
+                                local_state_count);
         rcc_free(states);
+        rcc_free(local_states);
         return;
     }
 }
@@ -427,6 +457,37 @@ bool rcc_optimize_inline_debug_parameter_value(
         *parameter = origin->parameter_states[ordinal].declaration;
         *value = origin->parameter_states[ordinal].value;
         *statement = origin->parameter_states[ordinal].statement;
+        return true;
+    }
+    return false;
+}
+
+size_t rcc_optimize_inline_debug_local_value_count(const Expr* expression) {
+    for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
+        if (inline_debug_origins[index].expression == expression) {
+            return inline_debug_origins[index].local_state_count;
+        }
+    }
+    return 0u;
+}
+
+bool rcc_optimize_inline_debug_local_value(
+    const Expr* expression, size_t ordinal, const Decl** callee,
+    const Decl** local, const Expr** value, const Stmt** statement,
+    bool* initial) {
+    if (!expression || !callee || !local || !value || !statement ||
+        !initial) {
+        return false;
+    }
+    for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
+        const InlineDebugOrigin* origin = &inline_debug_origins[index];
+        if (origin->expression != expression) continue;
+        if (ordinal >= origin->local_state_count) return false;
+        *callee = origin->callee;
+        *local = origin->local_states[ordinal].declaration;
+        *value = origin->local_states[ordinal].value;
+        *statement = origin->local_states[ordinal].statement;
+        *initial = origin->local_states[ordinal].initial;
         return true;
     }
     return false;
@@ -3363,10 +3424,12 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     InlineScalarBinding bindings[INLINE_SCALAR_BINDING_LIMIT];
     InlineDebugParameterState parameter_mutations[
         INLINE_SCALAR_BINDING_LIMIT];
+    InlineDebugLocalState local_states[INLINE_SCALAR_BINDING_LIMIT];
     size_t binding_count = 0u;
     size_t parameter_count = 0u;
     size_t operation_count = 0u;
     size_t parameter_mutation_count = 0u;
+    size_t local_state_count = 0u;
     size_t index;
     size_t expansion_cost;
     bool has_reference_parameter = false;
@@ -3504,16 +3567,29 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             bindings[local_binding].argument = combined;
             bindings[local_binding].uses = 0u;
             bindings[local_binding].value_statement = operation->statement;
-            if (g_opts.debug_info && bindings[local_binding].parameter &&
-                bindings[local_binding].parameter->kind == DECL_PARAM) {
-                if (parameter_mutation_count >=
-                    INLINE_SCALAR_BINDING_LIMIT) return false;
-                parameter_mutations[parameter_mutation_count].declaration =
-                    bindings[local_binding].parameter;
-                parameter_mutations[parameter_mutation_count].value = combined;
-                parameter_mutations[parameter_mutation_count].statement =
-                    operation->statement;
-                ++parameter_mutation_count;
+            if (g_opts.debug_info && bindings[local_binding].parameter) {
+                const Decl* binding = bindings[local_binding].parameter;
+                if (binding->kind == DECL_PARAM) {
+                    if (parameter_mutation_count >=
+                        INLINE_SCALAR_BINDING_LIMIT) return false;
+                    parameter_mutations[parameter_mutation_count].declaration =
+                        binding;
+                    parameter_mutations[parameter_mutation_count].value =
+                        combined;
+                    parameter_mutations[parameter_mutation_count].statement =
+                        operation->statement;
+                    ++parameter_mutation_count;
+                } else if (binding->kind == DECL_VAR) {
+                    if (local_state_count >= INLINE_SCALAR_BINDING_LIMIT) {
+                        return false;
+                    }
+                    local_states[local_state_count].declaration = binding;
+                    local_states[local_state_count].value = combined;
+                    local_states[local_state_count].statement =
+                        operation->statement;
+                    local_states[local_state_count].initial = false;
+                    ++local_state_count;
+                }
             }
             continue;
         }
@@ -3544,6 +3620,20 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             bindings[binding_count].argument = value;
             bindings[binding_count].uses = 0u;
             bindings[binding_count].value_statement = NULL;
+            if (g_opts.debug_info) {
+                inline_debug_statement_origin_add(
+                    value, function, operation->statement);
+                if (local_state_count >= INLINE_SCALAR_BINDING_LIMIT) {
+                    return false;
+                }
+                local_states[local_state_count].declaration =
+                    operation->declaration;
+                local_states[local_state_count].value = value;
+                local_states[local_state_count].statement =
+                    operation->statement;
+                local_states[local_state_count].initial = true;
+                ++local_state_count;
+            }
             ++binding_count;
             continue;
         }
@@ -3577,11 +3667,13 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             value = combined;
         }
         if (bindings[local_binding].parameter &&
-            bindings[local_binding].parameter->kind == DECL_PARAM) {
+            (bindings[local_binding].parameter->kind == DECL_PARAM ||
+             bindings[local_binding].parameter->kind == DECL_VAR)) {
             inline_debug_statement_origin_add(
                 value, function, operation->statement);
             bindings[local_binding].value_statement = operation->statement;
-            if (g_opts.debug_info) {
+            if (g_opts.debug_info &&
+                bindings[local_binding].parameter->kind == DECL_PARAM) {
                 if (parameter_mutation_count >=
                     INLINE_SCALAR_BINDING_LIMIT) return false;
                 parameter_mutations[parameter_mutation_count].declaration =
@@ -3590,6 +3682,17 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                 parameter_mutations[parameter_mutation_count].statement =
                     operation->statement;
                 ++parameter_mutation_count;
+            } else if (g_opts.debug_info) {
+                if (local_state_count >= INLINE_SCALAR_BINDING_LIMIT) {
+                    return false;
+                }
+                local_states[local_state_count].declaration =
+                    bindings[local_binding].parameter;
+                local_states[local_state_count].value = value;
+                local_states[local_state_count].statement =
+                    operation->statement;
+                local_states[local_state_count].initial = false;
+                ++local_state_count;
             }
         }
         bindings[local_binding].argument = value;
@@ -3688,7 +3791,8 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             inline_debug_origin_add(clone, optimize_inline_caller, function,
                                     expression->loc, expression->call_args,
                                     parameter_mutations,
-                                    parameter_mutation_count);
+                                    parameter_mutation_count, local_states,
+                                    local_state_count);
         }
         *expression_out = clone;
     }

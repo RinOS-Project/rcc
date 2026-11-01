@@ -4317,10 +4317,15 @@ static bool debug_inline_local_constant_supported(const Decl* declaration) {
         declaration->var_is_static_local ||
         declaration->var_is_thread_local || declaration->var_is_vla ||
         declaration->var_cleanup || declaration->var_cleanups || !type ||
-        !type->is_const || type->is_volatile || type->is_reference ||
-        !declaration->var_debug_const_value_valid) {
+        type->is_volatile || type->is_reference || type->is_atomic) {
         return false;
     }
+    if (!type->is_const) {
+        return ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+                type->kind == TYPE_ENUM) &&
+            type->size > 0 && type->size <= 8;
+    }
+    if (!declaration->var_debug_const_value_valid) return false;
     if (declaration->var_debug_const_value_float) {
         return (type->kind == TYPE_FLOAT &&
                 declaration->var_debug_const_float_size == 4u) ||
@@ -4340,6 +4345,35 @@ static DebugInlineLocalOrigin* debug_inline_local_origin_find(
             origins->declaration == declaration) return origins;
     }
     return NULL;
+}
+
+static const ModuleDebugInlineLocalValue* debug_inline_local_value_find(
+    const ModuleDebugInlineCall* call, const Decl* declaration) {
+    if (!call || !declaration) return NULL;
+    for (size_t index = 0u; index < call->local_value_count; ++index) {
+        if (call->local_values[index].declaration == declaration) {
+            return &call->local_values[index];
+        }
+    }
+    return NULL;
+}
+
+static bool debug_inline_local_value_is_tracked(
+    const Module* module, const Decl* function, const Decl* declaration) {
+    if (!module || !function || !declaration) return false;
+    for (size_t call_index = 0u;
+         call_index < module->debug_inline_call_count; ++call_index) {
+        const ModuleDebugInlineCall* call =
+            &module->debug_inline_calls[call_index];
+        const ModuleDebugInlineLocalValue* value;
+        if (call->callee != function) continue;
+        value = debug_inline_local_value_find(call, declaration);
+        if (value && value->has_initial_value &&
+            value->has_mutated_value && value->mutations) {
+            return true;
+        }
+    }
+    return false;
 }
 
 typedef void (*DebugInlineLocalVisitor)(const Decl* declaration,
@@ -16008,7 +16042,8 @@ static bool debug_emit_inline_mutated_parameter_location(
     const ModuleDebugInlineCall* call,
     const ExprList* argument,
     const ModuleDebugInlineParameterValue* value,
-    DebugInlineParameterOrigin* origin) {
+    DebugInlineParameterOrigin* origin, bool local_value,
+    uint32_t local_initial_start) {
     typedef struct {
         uint32_t start;
         uint32_t end;
@@ -16027,6 +16062,8 @@ static bool debug_emit_inline_mutated_parameter_location(
     uint64_t list_size = 0u;
     uint32_t function_size;
     uint32_t function_end;
+    uint32_t initial_start = local_value
+        ? local_initial_start : (call ? call->code_start : 0u);
     uint32_t list_offset;
     int address_size = architecture == ARCH_X64 ? 8 : 4;
     if (!obj || !info || !mod || !filename || !function || !call ||
@@ -16115,8 +16152,8 @@ static bool debug_emit_inline_mutated_parameter_location(
         return false;
     }
     if (argument && argument->expr && !argument->cxx_temporary_owner &&
-        debug_inline_mutated_parameter_body_is_isolated(
-            call->callee, value) && value->declaration->type &&
+        (local_value || debug_inline_mutated_parameter_body_is_isolated(
+            call->callee, value)) && value->declaration->type &&
         ((unsigned int)value->declaration->type->size <=
              (unsigned int)address_size ||
          (architecture == ARCH_X86 &&
@@ -16196,14 +16233,15 @@ static bool debug_emit_inline_mutated_parameter_location(
                     &initial_expression_size, true);
         }
         if (have_initial_expression && initial_expression_size != 0u &&
-            call->code_start < entries[0].start &&
+            initial_start >= call->code_start &&
+            initial_start < entries[0].start &&
             initial_expression_size <= UINT16_MAX &&
             list_size <= UINT32_MAX -
                 ((uint64_t)address_size * 2u + 2u +
                  initial_expression_size)) {
             memmove(entries + 1u, entries,
                     entry_count * sizeof(*entries));
-            entries[0].start = call->code_start;
+            entries[0].start = initial_start;
             entries[0].end = entries[1].start;
             entries[0].expression_size = initial_expression_size;
             memcpy(entries[0].expression, initial_expression,
@@ -16250,7 +16288,7 @@ static bool debug_emit_inline_mutated_parameter_location(
     debug_line_address(locations, 0u, address_size);
     rcc_free(scoped_symbol);
     rcc_free(entries);
-    section_add_byte(info, 69u);
+    section_add_byte(info, local_value ? 70u : 69u);
     debug_line_u32(info, origin->die_offset);
     debug_line_u32(info, list_offset);
     return true;
@@ -16307,7 +16345,7 @@ static void debug_emit_inline_parameter_instances(
             if (origin) {
                 (void)debug_emit_inline_mutated_parameter_location(
                     obj, info, mod, filename, architecture,
-                    function, call, argument, value, origin);
+                    function, call, argument, value, origin, false, 0u);
             }
             if (argument) argument = argument->next;
             continue;
@@ -16957,6 +16995,7 @@ static void debug_emit_inline_parameter_instances(
 }
 
 typedef struct {
+    const Module* module;
     ObjSection* info;
     ObjSection* strings;
     DebugTypeContext* types;
@@ -16974,7 +17013,10 @@ static void debug_emit_inline_local_origin_decl(
     DebugInlineLocalOrigin* origin;
     if (!context || !context->info || !context->strings || !context->types ||
         !context->function || !context->origins ||
-        !debug_inline_local_constant_supported(local)) {
+        !debug_inline_local_constant_supported(local) ||
+        (!local->type->is_const &&
+         !debug_inline_local_value_is_tracked(
+             context->module, context->function, local))) {
         return;
     }
     type_entry = debug_type_find(context->types, local->type);
@@ -17003,11 +17045,13 @@ static void debug_emit_inline_local_origin_decl(
 }
 
 static void debug_emit_inline_local_origin(
-    ObjSection* info, ObjSection* strings, DebugTypeContext* types,
+    const Module* module, ObjSection* info, ObjSection* strings,
+    DebugTypeContext* types,
     const char* const* files, int file_count, const Decl* function,
     DebugInlineLocalOrigin** origins) {
     DebugInlineLocalOriginContext context;
     if (!function || !function->func_body || !origins) return;
+    context.module = module;
     context.info = info;
     context.strings = strings;
     context.types = types;
@@ -17020,12 +17064,38 @@ static void debug_emit_inline_local_origin(
 }
 
 static void debug_emit_inline_local_instance(
-    ObjSection* info, DebugInlineLocalOrigin* origins,
+    ObjectFile* obj, ObjSection* info, const Module* mod,
+    const char* filename, int architecture,
+    const ModuleSymbol* function_symbol,
+    const ModuleDebugInlineCall* call, DebugInlineLocalOrigin* origins,
     const Decl* function, const Decl* declaration) {
     DebugInlineLocalOrigin* origin = debug_inline_local_origin_find(
         origins, function, declaration);
-    if (!info || !origin ||
+    const ModuleDebugInlineLocalValue* value =
+        debug_inline_local_value_find(call, declaration);
+    if (!obj || !info || !origin ||
         !debug_inline_local_constant_supported(declaration)) return;
+    if (value && value->has_initial_value && value->has_mutated_value &&
+        value->initial_expression && value->initial_statement &&
+        value->mutations) {
+        ModuleDebugInlineParameterValue expression_value = {0};
+        ExprList initial_value = {0};
+        DebugInlineParameterOrigin local_origin = {0};
+        expression_value.declaration = declaration;
+        expression_value.has_mutated_value = true;
+        expression_value.mutations = value->mutations;
+        initial_value.expr = (Expr*)value->initial_expression;
+        local_origin.function = function;
+        local_origin.declaration = declaration;
+        local_origin.die_offset = origin->die_offset;
+        (void)debug_emit_inline_mutated_parameter_location(
+            obj, info, mod, filename, architecture, function_symbol, call,
+            &initial_value, &expression_value, &local_origin, true,
+            value->initial_start);
+        return;
+    }
+    if (!declaration->type->is_const ||
+        !declaration->var_debug_const_value_valid) return;
     if (declaration->var_debug_const_value_float) {
         section_add_byte(info, 62u);
         debug_line_u32(info, origin->die_offset);
@@ -17049,7 +17119,13 @@ static void debug_emit_inline_local_instance(
 }
 
 typedef struct {
+    ObjectFile* object;
     ObjSection* info;
+    const Module* module;
+    const char* filename;
+    int architecture;
+    const ModuleSymbol* function_symbol;
+    const ModuleDebugInlineCall* call;
     DebugInlineLocalOrigin* origins;
     const Decl* function;
 } DebugInlineLocalInstanceContext;
@@ -17059,15 +17135,28 @@ static void debug_emit_inline_local_instance_decl(
     DebugInlineLocalInstanceContext* context = opaque_context;
     if (!context) return;
     debug_emit_inline_local_instance(
-        context->info, context->origins, context->function, local);
+        context->object, context->info, context->module,
+        context->filename, context->architecture,
+        context->function_symbol, context->call, context->origins,
+        context->function, local);
 }
 
 static void debug_emit_inline_local_instances(
-    ObjSection* info, DebugInlineLocalOrigin* origins,
-    const Decl* function) {
+    ObjectFile* object, ObjSection* info, const Module* module,
+    const char* filename, int architecture,
+    const ModuleSymbol* function_symbol,
+    const ModuleDebugInlineCall* call,
+    DebugInlineLocalOrigin* origins, const Decl* function) {
     DebugInlineLocalInstanceContext context;
-    if (!info || !function || !function->func_body) return;
+    if (!object || !info || !module || !filename || !function_symbol ||
+        !call || !function || !function->func_body) return;
+    context.object = object;
     context.info = info;
+    context.module = module;
+    context.filename = filename;
+    context.architecture = architecture;
+    context.function_symbol = function_symbol;
+    context.call = call;
     context.origins = origins;
     context.function = function;
     debug_walk_inline_local_declarations(
@@ -17178,8 +17267,11 @@ static void debug_emit_inline_scope_tree_stmt(
         case STMT_DECL:
             if (!current_scope || current_scope_emitted) {
                 debug_emit_inline_local_instance(
-                    context->info, context->local_origins,
-                    context->function, statement->decl);
+                    context->object, context->info, context->module,
+                    context->filename, context->architecture,
+                    context->function_symbol, context->call,
+                    context->local_origins, context->function,
+                    statement->decl);
             }
             break;
         case STMT_IF:
@@ -17225,8 +17317,11 @@ static void debug_emit_inline_scope_tree_stmt(
                 if (handler->parameter &&
                     (!current_scope || current_scope_emitted)) {
                     debug_emit_inline_local_instance(
-                        context->info, context->local_origins,
-                        context->function, handler->parameter);
+                        context->object, context->info, context->module,
+                        context->filename, context->architecture,
+                        context->function_symbol, context->call,
+                        context->local_origins, context->function,
+                        handler->parameter);
                 }
                 debug_emit_inline_scope_tree_stmt(
                     context, handler->body, current_scope,
@@ -17332,7 +17427,9 @@ static void debug_emit_inline_call_tree(
         parameter_origins, call, function);
     if (mod->debug_verified_backend && !call->lexical_scopes) {
         debug_emit_inline_local_instances(
-            info, local_origins, call->callee);
+            obj, info, mod, filename,
+            g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86,
+            function, call, local_origins, call->callee);
     } else {
         debug_emit_inline_scope_tree(
             obj, info, files, file_count, mod, filename, info_section,
@@ -18473,6 +18570,15 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);   /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 70u);
+    debug_line_uleb(abbrev, 0x34u);   /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x02u);   /* DW_AT_location */
+    debug_line_uleb(abbrev, 0x06u);   /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -18578,7 +18684,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             debug_line_u32(info, (uint32_t)declaration->loc.column);
         }
         debug_emit_inline_local_origin(
-            info, strings, &types, files, file_count, callee,
+            mod, info, strings, &types, files, file_count, callee,
             &inline_local_origins);
         section_add_byte(info, 0u); /* end of abstract-origin children */
     }

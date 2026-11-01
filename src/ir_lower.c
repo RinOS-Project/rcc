@@ -1151,6 +1151,26 @@ static bool lower_debug_inline_expression_begin(
                 return false;
             }
         }
+        for (size_t ordinal = 0u;
+             ordinal < rcc_optimize_inline_debug_local_value_count(expression);
+             ++ordinal) {
+            const Decl* state_callee = NULL;
+            const Decl* local = NULL;
+            const Expr* current_value = NULL;
+            const Stmt* value_statement = NULL;
+            bool initial = false;
+            if (!rcc_optimize_inline_debug_local_value(
+                    expression, ordinal, &state_callee, &local,
+                    &current_value, &value_statement, &initial) ||
+                state_callee != callee || !local ||
+                !current_value || !value_statement ||
+                !rcc_ir_module_add_inline_local_value(
+                    context->module, call_index, local, current_value,
+                    value_statement, initial)) {
+                rcc_fatal("invalid optimized inline local-value origin");
+                return false;
+            }
+        }
     }
     if (context->active_debug_inline_call_plus_one != 0u &&
         context->active_debug_inline_call_plus_one <=
@@ -19418,6 +19438,27 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                     context->module, call_index, parameter, current_value,
                     value_statement)) {
                 rcc_fatal("invalid optimized inline parameter-value origin");
+                value = lower_invalid_value();
+                goto cleanup;
+            }
+        }
+        for (size_t ordinal = 0u;
+             ordinal < rcc_optimize_inline_debug_local_value_count(expression);
+             ++ordinal) {
+            const Decl* state_callee = NULL;
+            const Decl* local = NULL;
+            const Expr* current_value = NULL;
+            const Stmt* value_statement = NULL;
+            bool initial = false;
+            if (!rcc_optimize_inline_debug_local_value(
+                    expression, ordinal, &state_callee, &local,
+                    &current_value, &value_statement, &initial) ||
+                state_callee != inline_callee || !local ||
+                !current_value || !value_statement ||
+                !rcc_ir_module_add_inline_local_value(
+                    context->module, call_index, local, current_value,
+                    value_statement, initial)) {
+                rcc_fatal("invalid optimized inline local-value origin");
                 value = lower_invalid_value();
                 goto cleanup;
             }

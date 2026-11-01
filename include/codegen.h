@@ -109,6 +109,16 @@ typedef struct ModuleDebugInlineParameterValue {
     ModuleDebugInlineParameterMutation* mutations;
 } ModuleDebugInlineParameterValue;
 
+typedef struct ModuleDebugInlineLocalValue {
+    const Decl* declaration;
+    const Expr* initial_expression;
+    const Stmt* initial_statement;
+    uint32_t initial_start;
+    bool has_initial_value;
+    bool has_mutated_value;
+    ModuleDebugInlineParameterMutation* mutations;
+} ModuleDebugInlineLocalValue;
+
 typedef struct ModuleDebugInlineScope {
     const Stmt* scope;
     StmtDebugRange* code_ranges;
@@ -121,6 +131,9 @@ typedef struct ModuleDebugInlineCall {
     const ExprList* arguments;
     ModuleDebugInlineParameterValue* parameter_values;
     size_t parameter_value_count;
+    ModuleDebugInlineLocalValue* local_values;
+    size_t local_value_count;
+    size_t local_value_capacity;
     SourceLoc call_location;
     uint32_t code_start;
     uint32_t code_end;
@@ -309,6 +322,10 @@ bool module_set_debug_inline_parameter_value(
     Module* mod, size_t call_index, const Decl* declaration,
     const Expr* current_value_expression, const Stmt* current_value_statement,
     uint32_t current_value_start);
+bool module_set_debug_inline_local_value(
+    Module* mod, size_t call_index, const Decl* declaration,
+    const Expr* current_value_expression, const Stmt* current_value_statement,
+    uint32_t current_value_start, bool initial);
 void module_add_debug_inline_scope_range(Module* mod, const Decl* function,
                                          const Stmt* scope,
                                          uint32_t code_start,

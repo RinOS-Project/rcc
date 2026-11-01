@@ -1384,6 +1384,22 @@ static bool verified_append_debug_inline_calls(
                     return false;
                 }
             }
+            for (size_t value_index = 0u;
+                 value_index < call->local_value_count; ++value_index) {
+                const RccIrInlineLocalValue* value =
+                    &call->local_values[value_index];
+                /* The statement-to-PC pass below supplies the first
+                 * instruction after each local state becomes visible. */
+                if (!value->declaration || !value->value_expression ||
+                    !value->value_statement) {
+                    if (error && error_size != 0u) {
+                        snprintf(error, error_size,
+                                 "verified inline local value is incomplete");
+                    }
+                    rcc_free(global_index_plus_one);
+                    return false;
+                }
+            }
         }
     }
     if (encoded->source_range_count != 0u && !encoded->source_ranges) {
@@ -1453,6 +1469,26 @@ static bool verified_append_debug_inline_calls(
                 if (error && error_size != 0u) {
                     snprintf(error, error_size,
                              "verified inline parameter range has no formal");
+                }
+                verified_inline_scope_paths_free(scope_paths);
+                rcc_free(global_index_plus_one);
+                return false;
+            }
+        }
+        for (size_t value_index = 0u;
+             value_index < call->local_value_count; ++value_index) {
+            const RccIrInlineLocalValue* value =
+                &call->local_values[value_index];
+            if (value->value_statement != range->source_statement) continue;
+            if (!module_set_debug_inline_local_value(
+                    destination, global_index_plus_one[local_call_index] - 1u,
+                    (const Decl*)value->declaration,
+                    (const Expr*)value->value_expression,
+                    (const Stmt*)value->value_statement, code_end,
+                    value->initial)) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "verified inline local range is inconsistent");
                 }
                 verified_inline_scope_paths_free(scope_paths);
                 rcc_free(global_index_plus_one);
@@ -1568,6 +1604,28 @@ static void verified_emit_debug_sections(
                         mutation->expression, mutation->statement,
                         mutation->code_start)) {
                     rcc_fatal("verified DWARF inline parameter state is inconsistent");
+                }
+            }
+        }
+        for (size_t value_index = 0u;
+             value_index < call->local_value_count; ++value_index) {
+            const ModuleDebugInlineLocalValue* value =
+                &call->local_values[value_index];
+            if (value->has_initial_value &&
+                !module_set_debug_inline_local_value(
+                    debug_module, debug_index, value->declaration,
+                    value->initial_expression, value->initial_statement,
+                    value->initial_start, true)) {
+                rcc_fatal("verified DWARF inline local initializer is inconsistent");
+            }
+            for (const ModuleDebugInlineParameterMutation* mutation =
+                     value->mutations;
+                 mutation; mutation = mutation->next) {
+                if (!module_set_debug_inline_local_value(
+                        debug_module, debug_index, value->declaration,
+                        mutation->expression, mutation->statement,
+                        mutation->code_start, false)) {
+                    rcc_fatal("verified DWARF inline local state is inconsistent");
                 }
             }
         }

@@ -501,6 +501,9 @@ size_t module_begin_debug_inline_call(
     call->arguments = arguments;
     call->parameter_values = NULL;
     call->parameter_value_count = 0u;
+    call->local_values = NULL;
+    call->local_value_count = 0u;
+    call->local_value_capacity = 0u;
     debug_inline_capture_parameter_values(call, callee, arguments);
     call->call_location = call_location;
     call->code_start = code_start;
@@ -560,6 +563,80 @@ bool module_set_debug_inline_parameter_value(
         return true;
     }
     return false;
+}
+
+bool module_set_debug_inline_local_value(
+    Module* mod, size_t call_index, const Decl* declaration,
+    const Expr* current_value_expression, const Stmt* current_value_statement,
+    uint32_t current_value_start, bool initial) {
+    ModuleDebugInlineCall* call;
+    ModuleDebugInlineLocalValue* value = NULL;
+    if (!mod || call_index >= mod->debug_inline_call_count || !declaration ||
+        !current_value_expression || !current_value_statement) {
+        return false;
+    }
+    call = &mod->debug_inline_calls[call_index];
+    for (size_t index = 0u; index < call->local_value_count; ++index) {
+        if (call->local_values[index].declaration == declaration) {
+            value = &call->local_values[index];
+            break;
+        }
+    }
+    if (!value) {
+        size_t capacity;
+        if (call->local_value_count == call->local_value_capacity) {
+            capacity = call->local_value_capacity < 4u
+                ? 4u : call->local_value_capacity * 2u;
+            if (capacity < call->local_value_capacity ||
+                capacity > SIZE_MAX / sizeof(*call->local_values)) {
+                rcc_fatal("DWARF inline-local value table is too large");
+                return false;
+            }
+            call->local_values = rcc_realloc(
+                call->local_values, capacity * sizeof(*call->local_values));
+            call->local_value_capacity = capacity;
+        }
+        value = &call->local_values[call->local_value_count++];
+        memset(value, 0, sizeof(*value));
+        value->declaration = declaration;
+    }
+    if (initial) {
+        if (value->has_initial_value &&
+            value->initial_statement != current_value_statement) {
+            return false;
+        }
+        value->initial_expression = current_value_expression;
+        value->initial_statement = current_value_statement;
+        value->has_initial_value = true;
+        if (current_value_start > value->initial_start) {
+            value->initial_start = current_value_start;
+        }
+        return true;
+    }
+    {
+        ModuleDebugInlineParameterMutation* mutation;
+        for (mutation = value->mutations; mutation;
+             mutation = mutation->next) {
+            if (mutation->statement == current_value_statement) break;
+        }
+        if (!mutation) {
+            ModuleDebugInlineParameterMutation** tail = &value->mutations;
+            mutation = rcc_alloc(sizeof(*mutation));
+            mutation->expression = current_value_expression;
+            mutation->statement = current_value_statement;
+            mutation->code_start = current_value_start;
+            mutation->next = NULL;
+            while (*tail) tail = &(*tail)->next;
+            *tail = mutation;
+        } else {
+            mutation->expression = current_value_expression;
+            if (current_value_start > mutation->code_start) {
+                mutation->code_start = current_value_start;
+            }
+        }
+        value->has_mutated_value = true;
+    }
+    return true;
 }
 
 static void module_add_debug_inline_scope_range_to_call(
@@ -644,6 +721,8 @@ void codegen_free(Module* mod) {
             mod->debug_inline_calls[index].lexical_scopes;
         ModuleDebugInlineParameterValue* values =
             mod->debug_inline_calls[index].parameter_values;
+        ModuleDebugInlineLocalValue* local_values =
+            mod->debug_inline_calls[index].local_values;
         for (size_t value_index = 0u;
              value_index < mod->debug_inline_calls[index].parameter_value_count;
              ++value_index) {
@@ -656,6 +735,18 @@ void codegen_free(Module* mod) {
             }
         }
         rcc_free(values);
+        for (size_t value_index = 0u;
+             value_index < mod->debug_inline_calls[index].local_value_count;
+             ++value_index) {
+            ModuleDebugInlineParameterMutation* mutation =
+                local_values[value_index].mutations;
+            while (mutation) {
+                ModuleDebugInlineParameterMutation* next = mutation->next;
+                rcc_free(mutation);
+                mutation = next;
+            }
+        }
+        rcc_free(local_values);
         while (scope) {
             ModuleDebugInlineScope* next_scope = scope->next;
             StmtDebugRange* range = scope->code_ranges;

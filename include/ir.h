@@ -144,6 +144,13 @@ typedef struct {
 } RccIrInlineParameterValue;
 
 typedef struct {
+    const void* declaration;
+    const void* value_expression;
+    const void* value_statement;
+    bool initial;
+} RccIrInlineLocalValue;
+
+typedef struct {
     /* Borrowed declarations and filename; valid while the source AST lives. */
     const void* caller;
     const void* callee;
@@ -157,6 +164,9 @@ typedef struct {
     RccIrInlineParameterValue* parameter_values;
     size_t parameter_value_count;
     size_t parameter_value_capacity;
+    RccIrInlineLocalValue* local_values;
+    size_t local_value_count;
+    size_t local_value_capacity;
 } RccIrInlineCall;
 
 typedef struct {
@@ -277,6 +287,9 @@ size_t rcc_ir_module_add_inline_call(
 bool rcc_ir_module_add_inline_parameter_value(
     RccIrModule* module, size_t call_index, const void* declaration,
     const void* value_expression, const void* value_statement);
+bool rcc_ir_module_add_inline_local_value(
+    RccIrModule* module, size_t call_index, const void* declaration,
+    const void* value_expression, const void* value_statement, bool initial);
 RccIrFunction* rcc_ir_function_add(RccIrModule* module, const char* name,
                                   RccIrType return_type,
                                   const RccIrType* parameter_types,

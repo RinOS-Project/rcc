@@ -2924,6 +2924,22 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.ro \
+		tests/debug_info_inline_mutated_local.cpp \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x64.ro \
+		tests/debug_info_inline_mutated_local.cpp \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x64.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x64.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/debug-info-inline-expression/verify \
 		tests/debug_info_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
@@ -2947,6 +2963,10 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		--verify-inline-mutated-parameter \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.ro
+	$(TEST_OUT)/debug-info-inline-expression/verify \
+		--verify-inline-mutated-local \
+		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x64.ro
 	@echo "Bounded inline integer-expression DWARF tests completed"
 
 test-aqc: $(AQC_TARGET)

@@ -22,6 +22,11 @@ size_t rcc_optimize_inline_debug_parameter_value_count(
 bool rcc_optimize_inline_debug_parameter_value(
     const Expr* expression, size_t ordinal, const Decl** callee,
     const Decl** parameter, const Expr** value, const Stmt** statement);
+size_t rcc_optimize_inline_debug_local_value_count(const Expr* expression);
+bool rcc_optimize_inline_debug_local_value(
+    const Expr* expression, size_t ordinal, const Decl** callee,
+    const Decl** local, const Expr** value, const Stmt** statement,
+    bool* initial);
 size_t rcc_optimize_inline_debug_statement_count(const Expr* expression);
 bool rcc_optimize_inline_debug_statement(const Expr* expression,
                                          size_t ordinal,

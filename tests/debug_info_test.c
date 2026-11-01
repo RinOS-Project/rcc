@@ -2269,6 +2269,7 @@ static bool find_variable_location(const ObjSection* info,
                                   int64_t* frame_offset)
 {
     uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
+    bool found_abstract_origin = false;
     if (!info || !strings || !variable_name || !has_location ||
         !is_location_list || !frame_offset) return false;
     for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
@@ -2280,13 +2281,18 @@ static bool find_variable_location(const ObjSection* info,
         uint64_t expression_end;
         if (abbreviation != 3u && abbreviation != 4u &&
             abbreviation != 27u && abbreviation != 31u &&
-            abbreviation != 32u && abbreviation != 33u &&
+            abbreviation != 32u &&
+            abbreviation != 33u &&
             abbreviation != 39u && abbreviation != 54u &&
             abbreviation != 55u && abbreviation != 56u) continue;
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset >= strings->size ||
             strcmp((const char*)strings->data + name_offset,
                    variable_name) != 0) continue;
+        if (abbreviation == 32u) {
+            found_abstract_origin = true;
+            continue;
+        }
         has_expression = abbreviation == 3u || abbreviation == 4u ||
             abbreviation == 27u;
         *is_location_list = abbreviation == 39u;
@@ -2396,6 +2402,12 @@ static bool find_variable_location(const ObjSection* info,
              strcmp(variable_name, "aligned") != 0)) {
             continue;
         }
+        return true;
+    }
+    if (found_abstract_origin) {
+        *has_location = false;
+        *is_location_list = false;
+        *frame_offset = 0;
         return true;
     }
     return false;
@@ -6666,6 +6678,201 @@ static void verify_cxx_inline_mutated_parameter_location(
                     assert(!has_multiply);
                 }
             }
+            cursor = expression_end;
+        }
+        assert(previous_end == call_end);
+        assert(cursor + address_size * 2u <= locations->size);
+        for (uint64_t byte = cursor;
+             byte < cursor + address_size * 2u; ++byte) {
+            assert(locations->data[byte] == 0u);
+        }
+    }
+    objfile_free(object);
+}
+
+static int64_t evaluate_inline_mutated_local_expression(
+    const uint8_t* data, uint64_t size, uint64_t start, int64_t source_value) {
+    int64_t stack[32];
+    size_t stack_count = 0u;
+    uint64_t cursor = start;
+    while (cursor < size) {
+        uint8_t opcode = data[cursor++];
+        if (opcode >= 0x30u && opcode <= 0x4fu) {
+            assert(stack_count < sizeof(stack) / sizeof(stack[0]));
+            stack[stack_count++] = (int64_t)(opcode - 0x30u);
+        } else if (opcode >= 0x70u && opcode <= 0x8fu) {
+            int64_t ignored_offset;
+            assert(try_read_sleb(data, size, &cursor, &ignored_offset));
+            assert(stack_count < sizeof(stack) / sizeof(stack[0]));
+            stack[stack_count++] = 0;
+        } else if (opcode == 0x06u || opcode == 0x94u) {
+            if (opcode == 0x94u) {
+                assert(cursor < size);
+                ++cursor;
+            }
+            assert(stack_count > 0u);
+            stack[stack_count - 1u] = source_value;
+        } else if (opcode == 0x10u) {
+            uint64_t value;
+            assert(try_read_uleb(data, size, &cursor, &value));
+            assert(stack_count < sizeof(stack) / sizeof(stack[0]));
+            stack[stack_count++] = (int64_t)value;
+        } else if (opcode == 0x11u) {
+            int64_t value;
+            assert(try_read_sleb(data, size, &cursor, &value));
+            assert(stack_count < sizeof(stack) / sizeof(stack[0]));
+            stack[stack_count++] = value;
+        } else if (opcode == 0x23u) {
+            uint64_t value;
+            assert(try_read_uleb(data, size, &cursor, &value));
+            assert(stack_count > 0u);
+            stack[stack_count - 1u] += (int64_t)value;
+        } else if (opcode == 0x22u || opcode == 0x1eu ||
+                   opcode == 0x1cu || opcode == 0x1du ||
+                   opcode == 0x24u || opcode == 0x25u ||
+                   opcode == 0x26u) {
+            int64_t right;
+            assert(stack_count >= 2u);
+            right = stack[--stack_count];
+            if (opcode == 0x22u) stack[stack_count - 1u] += right;
+            else if (opcode == 0x1eu) stack[stack_count - 1u] *= right;
+            else if (opcode == 0x1cu) stack[stack_count - 1u] -= right;
+            else if (opcode == 0x1du) {
+                assert(right != 0);
+                stack[stack_count - 1u] /= right;
+            } else if (opcode == 0x24u) {
+                stack[stack_count - 1u] = (int64_t)(
+                    (uint64_t)stack[stack_count - 1u] << (unsigned)right);
+            } else if (opcode == 0x25u) {
+                stack[stack_count - 1u] = (int64_t)(
+                    (uint64_t)stack[stack_count - 1u] >> (unsigned)right);
+            } else {
+                stack[stack_count - 1u] >>= (unsigned)right;
+            }
+        } else if (opcode == 0x9fu) {
+            assert(cursor == size && stack_count == 1u);
+            return stack[0];
+        } else {
+            fprintf(stderr,
+                    "unsupported inline-local DWARF opcode 0x%02x at %llu\n",
+                    opcode, (unsigned long long)(cursor - 1u));
+            assert(0 && "unexpected inline-local DWARF expression");
+        }
+    }
+    assert(0 && "inline-local expression has no stack_value");
+    return 0;
+}
+
+static void verify_cxx_inline_mutated_local_location(
+    const char* path, uint16_t architecture) {
+    static const int64_t expected_values[] = {9, 16, 17, 34};
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* locations;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint32_t function_origin = UINT32_MAX;
+    uint32_t local_origin = UINT32_MAX;
+    uint32_t location_list = UINT32_MAX;
+    uint64_t call_start = 0u;
+    uint64_t call_end = 0u;
+    bool found_call = false;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info != NULL && strings != NULL && locations != NULL);
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t name_offset;
+        if (info->data[die] != 40u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_inline_mutated_local") == 0) {
+            function_origin = (uint32_t)die;
+            break;
+        }
+    }
+    for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
+        uint32_t name_offset;
+        if (info->data[die] != 32u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset, "evolving") == 0) {
+            local_origin = (uint32_t)die;
+            break;
+        }
+    }
+    assert(function_origin != UINT32_MAX && local_origin != UINT32_MAX);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 16u <= info->size; ++die) {
+        uint64_t low_pc_offset;
+        if (info->data[die] != 41u ||
+            read_u32(info->data, die + 1u) != function_origin) continue;
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset != low_pc_offset) continue;
+            assert(relocation->symbol_name != NULL &&
+                   strcmp(relocation->symbol_name,
+                          "debug_inline_mutated_local_entry") == 0);
+            assert(relocation->addend >= 0);
+            call_start = (uint64_t)relocation->addend;
+            call_end = call_start + read_u32(
+                info->data, low_pc_offset + address_size);
+            found_call = true;
+            break;
+        }
+    }
+    assert(found_call && call_end > call_start);
+    for (uint64_t die = 11u; die + 9u <= info->size; ++die) {
+        if (info->data[die] == 70u &&
+            read_u32(info->data, die + 1u) == local_origin) {
+            location_list = read_u32(info->data, die + 5u);
+            break;
+        }
+    }
+    assert(location_list < locations->size);
+    {
+        uint64_t cursor = location_list;
+        uint64_t previous_end = 0u;
+        for (size_t entry = 0u;
+             entry < sizeof(expected_values) / sizeof(expected_values[0]);
+             ++entry) {
+            const ObjReloc* start_relocation =
+                find_debug_section_relocation(locations, cursor);
+            const ObjReloc* end_relocation = find_debug_section_relocation(
+                locations, cursor + address_size);
+            uint64_t expression_size_offset;
+            uint16_t expression_size;
+            uint64_t expression_start;
+            uint64_t expression_end;
+            assert(start_relocation != NULL && end_relocation != NULL);
+            assert(start_relocation->symbol_name != NULL &&
+                   strcmp(start_relocation->symbol_name,
+                          "debug_inline_mutated_local_entry") == 0);
+            assert(end_relocation->symbol_name != NULL &&
+                   strcmp(end_relocation->symbol_name,
+                          "debug_inline_mutated_local_entry") == 0);
+            assert(start_relocation->addend >= (int64_t)call_start &&
+                   end_relocation->addend <= (int64_t)call_end &&
+                   end_relocation->addend > start_relocation->addend);
+            if (entry != 0u) {
+                assert(start_relocation->addend == (int64_t)previous_end);
+            }
+            previous_end = (uint64_t)end_relocation->addend;
+            expression_size_offset = cursor + address_size * 2u;
+            assert(expression_size_offset + 2u <= locations->size);
+            expression_size = (uint16_t)locations->data[
+                expression_size_offset] |
+                (uint16_t)((uint16_t)locations->data[
+                    expression_size_offset + 1u] << 8u);
+            expression_start = expression_size_offset + 2u;
+            expression_end = expression_start + expression_size;
+            assert(expression_size > 0u && expression_end <= locations->size);
+            assert(evaluate_inline_mutated_local_expression(
+                       locations->data, expression_end, expression_start,
+                       9) == expected_values[entry]);
             cursor = expression_end;
         }
         assert(previous_end == call_end);
@@ -19213,6 +19420,12 @@ int main(int argc, char** argv)
             "indirect_wide_parameter", "stable_indirect_wide_pointer",
             "debug_inline_mutated_indirect_wide_entry", 3u, false, false,
             false, false, false, 1u, 8u);
+        return 0;
+    }
+    if (argc == 4 &&
+        strcmp(argv[1], "--verify-inline-mutated-local") == 0) {
+        verify_cxx_inline_mutated_local_location(argv[2], ARCH_X86);
+        verify_cxx_inline_mutated_local_location(argv[3], ARCH_X64);
         return 0;
     }
     if (argc == 6 &&

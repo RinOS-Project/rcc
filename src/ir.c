@@ -163,6 +163,7 @@ void rcc_ir_module_destroy(RccIrModule* module) {
     }
     for (size_t index = 0u; index < module->inline_call_count; ++index) {
         rcc_free(module->inline_calls[index].parameter_values);
+        rcc_free(module->inline_calls[index].local_values);
     }
     rcc_free(module->inline_calls);
     rcc_free(module);
@@ -204,6 +205,9 @@ size_t rcc_ir_module_add_inline_call(
     module->inline_calls[index].parameter_values = NULL;
     module->inline_calls[index].parameter_value_count = 0u;
     module->inline_calls[index].parameter_value_capacity = 0u;
+    module->inline_calls[index].local_values = NULL;
+    module->inline_calls[index].local_value_count = 0u;
+    module->inline_calls[index].local_value_capacity = 0u;
     return index;
 }
 
@@ -234,6 +238,38 @@ bool rcc_ir_module_add_inline_parameter_value(
     call->parameter_values[call->parameter_value_count].value_statement =
         value_statement;
     ++call->parameter_value_count;
+    return true;
+}
+
+bool rcc_ir_module_add_inline_local_value(
+    RccIrModule* module, size_t call_index, const void* declaration,
+    const void* value_expression, const void* value_statement, bool initial) {
+    RccIrInlineCall* call;
+    size_t capacity;
+    if (!module || call_index >= module->inline_call_count || !declaration ||
+        !value_expression || !value_statement) {
+        return false;
+    }
+    call = &module->inline_calls[call_index];
+    if (call->local_value_count == call->local_value_capacity) {
+        capacity = call->local_value_capacity < 4u
+            ? 4u : call->local_value_capacity * 2u;
+        if (capacity < call->local_value_capacity ||
+            capacity > SIZE_MAX / sizeof(*call->local_values)) {
+            rcc_fatal("IR inline local-value table is too large");
+            return false;
+        }
+        call->local_values = rcc_realloc(
+            call->local_values, capacity * sizeof(*call->local_values));
+        call->local_value_capacity = capacity;
+    }
+    call->local_values[call->local_value_count].declaration = declaration;
+    call->local_values[call->local_value_count].value_expression =
+        value_expression;
+    call->local_values[call->local_value_count].value_statement =
+        value_statement;
+    call->local_values[call->local_value_count].initial = initial;
+    ++call->local_value_count;
     return true;
 }
 
@@ -1697,8 +1733,10 @@ bool rcc_ir_verify_module(const RccIrModule* module, char* error,
             !call->filename[0] || call->line == 0u ||
             call->parent_index_plus_one > index ||
             call->parameter_value_count > call->parameter_value_capacity ||
+            call->local_value_count > call->local_value_capacity ||
             (call->parameter_value_count != 0u &&
-             !call->parameter_values)) {
+             !call->parameter_values) ||
+            (call->local_value_count != 0u && !call->local_values)) {
             if (error && error_size != 0u) {
                 snprintf(error, error_size,
                          "IR inline-call record is invalid");
@@ -1714,6 +1752,19 @@ bool rcc_ir_verify_module(const RccIrModule* module, char* error,
                 if (error && error_size != 0u) {
                     snprintf(error, error_size,
                              "IR inline parameter-value record is invalid");
+                }
+                return false;
+            }
+        }
+        for (size_t value_index = 0u;
+             value_index < call->local_value_count; ++value_index) {
+            const RccIrInlineLocalValue* value =
+                &call->local_values[value_index];
+            if (!value->declaration || !value->value_expression ||
+                !value->value_statement) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "IR inline local-value record is invalid");
                 }
                 return false;
             }
