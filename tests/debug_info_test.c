@@ -6795,7 +6795,7 @@ static void verify_cxx_inline_mutated_local_location(
     int64_t source_frame_offset = 0;
     bool found_call = false;
     size_t entry_count = wide
-        ? (signed_wide || bitwise_wide ? 4u : 3u) : 4u;
+        ? (signed_wide ? 4u : bitwise_wide ? 6u : 3u) : 4u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -6912,12 +6912,25 @@ static void verify_cxx_inline_mutated_local_location(
                               source_frame_offset, source_frame_offset,
                               input, input);
                     uint64_t multiplied = (input + 8u) * wide_multiplier;
-                    uint64_t expected = entry == 0u ? input
-                        : entry == 1u ? input + 7u
-                        : signed_wide && entry == 2u ? input + 8u
-                        : bitwise_wide && entry == 3u
-                            ? multiplied ^ UINT64_C(0x8000000000000001)
-                            : multiplied;
+                    uint64_t expected;
+                    if (entry == 0u) {
+                        expected = input;
+                    } else if (entry == 1u) {
+                        expected = input + 7u;
+                    } else if (signed_wide && entry == 2u) {
+                        expected = input + 8u;
+                    } else {
+                        expected = multiplied;
+                        if (bitwise_wide && entry >= 3u) {
+                            expected ^= UINT64_C(0x8000000000000001);
+                        }
+                        if (bitwise_wide && entry >= 4u) {
+                            expected &= UINT64_C(0x7fffffffffffffff);
+                        }
+                        if (bitwise_wide && entry >= 5u) {
+                            expected |= UINT64_C(0x0100000000000001);
+                        }
+                    }
                     assert(actual == expected);
                 }
             } else {
@@ -11256,7 +11269,8 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
             temporary = stack[stack_size - 1u];
             stack[stack_size - 1u] = stack[stack_size - 2u];
             stack[stack_size - 2u] = temporary;
-        } else if (opcode == 0x1au || opcode == 0x1cu ||
+        } else if (opcode == 0x1au || opcode == 0x21u ||
+                   opcode == 0x1cu ||
                    opcode == 0x1eu || opcode == 0x22u ||
                    opcode == 0x25u || opcode == 0x27u ||
                    opcode == 0x2du) {
@@ -11267,6 +11281,8 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
             left = stack[--stack_size];
             if (opcode == 0x1au) {
                 stack[stack_size++] = left & right;
+            } else if (opcode == 0x21u) {
+                stack[stack_size++] = left | right;
             } else if (opcode == 0x1cu) {
                 stack[stack_size++] = left - right;
             } else if (opcode == 0x1eu) {
