@@ -12661,7 +12661,10 @@ remains a separate open item.
       independent TLS addresses/state and both destructors per thread. Native
       legacy execution and the GCC C++20 oracle also pass. Omitted trailing
       scalar aggregate members are value-initialized to zero in both the
-      namespace-scope and function-local cases.
+      namespace-scope and function-local cases. Normalize C++20 designated
+      aggregate initializers by member name, evaluate dynamic default-member
+      initializer expressions in declaration order, and keep later explicit
+      members correctly mapped in both TLS object forms.
 
 ## RCC continuation (2026-10-31, concurrent C++ aggregate atomics)
 

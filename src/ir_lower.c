@@ -2640,12 +2640,40 @@ static bool lower_static_local_dynamic_scalar_supported(
          type_is_floating((Type*)type) || type->kind == TYPE_PTR);
 }
 
+static const ExprList* lower_dynamic_tls_aggregate_field_initializer(
+    const Expr* initializer, const TypeField* field, size_t field_index,
+    bool designated) {
+    const ExprList* item;
+    if (!initializer || !field) return NULL;
+    if (designated) {
+        if (!field->name) return NULL;
+        for (item = initializer->compound_init; item; item = item->next) {
+            if (item->designator_kind == INIT_DESIGNATOR_FIELD &&
+                item->designator_field &&
+                strcmp(item->designator_field, field->name) == 0) {
+                return item;
+            }
+        }
+        return NULL;
+    }
+    item = initializer->compound_init;
+    while (item && field_index != 0u) {
+        item = item->next;
+        --field_index;
+    }
+    return item;
+}
+
 static bool lower_dynamic_tls_aggregate_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
     const Expr* initializer = declaration ? declaration->var_init : NULL;
     const TypeField* field;
     const ExprList* item;
+    size_t field_count = 0u;
+    size_t item_count = 0u;
+    bool has_field_designators = false;
+    bool has_positional_items = false;
     if (!declaration || declaration->kind != DECL_VAR ||
         !declaration->var_is_thread_local ||
         !declaration->var_dynamic_initializer ||
@@ -2659,15 +2687,32 @@ static bool lower_dynamic_tls_aggregate_initializer_supported(
         type->cxx_class->base_count != 0 ||
         type->cxx_class->virtual_base_count != 0 ||
         type->cxx_class->vtable_size != 0 ||
-        type->cxx_class->has_field_initializer ||
         type->cxx_class->has_user_constructor || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         initializer->compound_constructor ||
         initializer->compound_paren_init || !initializer->compound_init) {
         return false;
     }
+    if (type->cxx_class->has_field_initializer &&
+        !initializer->compound_cxx_default_member_normalized) {
+        return false;
+    }
+    for (item = initializer->compound_init; item; item = item->next) {
+        if (!item->expr || item->cxx_temporary_owner ||
+            item->cxx_temporary_cleanups) {
+            return false;
+        }
+        ++item_count;
+        if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+            has_field_designators = true;
+        } else if (item->designator_kind == INIT_DESIGNATOR_NONE) {
+            has_positional_items = true;
+        } else {
+            return false;
+        }
+    }
+    if (has_field_designators && has_positional_items) return false;
     field = type->fields;
-    item = initializer->compound_init;
     while (field) {
         const Type* field_type = field->type;
         if (!field_type || field->is_bitfield || field->offset < 0 ||
@@ -2682,15 +2727,39 @@ static bool lower_dynamic_tls_aggregate_initializer_supported(
                !field_type->cxx_is_member_pointer))) {
             return false;
         }
-        if (item && (item->designator_kind != INIT_DESIGNATOR_NONE ||
-                     !item->expr || item->cxx_temporary_owner ||
-                     item->cxx_temporary_cleanups)) {
-            return false;
-        }
+        ++field_count;
         field = field->next;
-        if (item) item = item->next;
     }
-    return !item;
+    if (!has_field_designators) return item_count <= field_count;
+    for (item = initializer->compound_init; item; item = item->next) {
+        const TypeField* match;
+        for (match = type->fields; match; match = match->next) {
+            if (match->name && item->designator_field &&
+                strcmp(match->name, item->designator_field) == 0) {
+                break;
+            }
+        }
+        if (!match) return false;
+        for (const ExprList* prior = initializer->compound_init;
+             prior != item; prior = prior->next) {
+            if (prior->designator_kind == INIT_DESIGNATOR_FIELD &&
+                prior->designator_field &&
+                strcmp(prior->designator_field,
+                       item->designator_field) == 0) {
+                return false;
+            }
+        }
+    }
+    if (initializer->compound_cxx_default_member_normalized) {
+        for (field = type->fields; field; field = field->next) {
+            if (field->initializer &&
+                !lower_dynamic_tls_aggregate_field_initializer(
+                    initializer, field, 0u, true)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 static bool lower_dynamic_tls_aggregate_initializer(
@@ -28298,6 +28367,8 @@ static bool lower_dynamic_tls_aggregate_initializer(
     RccIrBlock* initialize_block;
     RccIrBlock* done_block;
     RccIrInstruction* symbol;
+    size_t field_index = 0u;
+    bool has_field_designators;
     if (!context ||
         !lower_dynamic_tls_aggregate_initializer_supported(declaration)) {
         if (context) context->unsupported = true;
@@ -28341,22 +28412,31 @@ static bool lower_dynamic_tls_aggregate_initializer(
     object = lower_value(symbol->result, rcc_ir_type_pointer(0u), true);
     object.volatile_access = declaration->type->is_volatile;
 
+    has_field_designators = declaration->var_init->compound_init &&
+        declaration->var_init->compound_init->designator_kind ==
+            INIT_DESIGNATOR_FIELD;
     field = declaration->type->fields;
-    item = declaration->var_init->compound_init;
-    while (field && item) {
-        RccIrLowerValue value = lower_expression(context, item->expr);
-        RccIrLowerValue field_address;
-        value = lower_cast(context, value, field->type);
-        field_address = lower_byte_offset_address(
-            context, object, (uint64_t)field->offset);
-        if (!value.valid || !field_address.valid) return false;
-        field_address.volatile_access = field_address.volatile_access ||
-            field->type->is_volatile;
-        if (!lower_store_address(context, field_address, value)) return false;
+    while (field) {
+        item = lower_dynamic_tls_aggregate_field_initializer(
+            declaration->var_init, field, field_index,
+            has_field_designators);
+        if (item) {
+            RccIrLowerValue value = lower_expression(context, item->expr);
+            RccIrLowerValue field_address;
+            value = lower_cast(context, value, field->type);
+            field_address = lower_byte_offset_address(
+                context, object, (uint64_t)field->offset);
+            if (!value.valid || !field_address.valid) return false;
+            field_address.volatile_access = field_address.volatile_access ||
+                field->type->is_volatile;
+            if (!lower_store_address(context, field_address, value)) {
+                return false;
+            }
+        }
         field = field->next;
-        item = item->next;
+        ++field_index;
     }
-    if (item || context->unsupported) return false;
+    if (context->unsupported) return false;
 
     if (declaration->var_cleanups) {
         static const char suffix[] = "$rcc_static_cleanup";
