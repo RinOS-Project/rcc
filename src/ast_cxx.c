@@ -2629,6 +2629,14 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     if (mangle_context.namespace_scope == g_global_namespace) {
         mangle_context.namespace_scope = NULL;
     }
+    if (!cls) {
+        /* Namespace prefixes precede function parameter types in the
+         * substitution table. Reserve them before recording a repeated type. */
+        for (CxxNamespace* current = mangle_context.namespace_scope;
+             current && current->name; current = current->parent) {
+            ++mangle_context.class_type_index_base;
+        }
+    }
 
     if (func && cls && func->func_is_cxx_method && func->type) {
         is_const_method = func->type->is_const;

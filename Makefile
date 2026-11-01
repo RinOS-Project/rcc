@@ -6739,16 +6739,28 @@ test-cxx-adl-function-template-specialization: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s tests/cxx_adl_function_template_specialization.cpp
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5TokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5ShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization14consume_tokensENS_5TokenES0_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization14consume_shadesENS_5ShadeES0_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
 	$(GREP) -F -q "_ZN10nested_adl5inner14inspect_nestedINS0_11NestedTokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
 	$(GREP) -F -q "_ZN10nested_adl5inner19inspect_nested_enumINS0_11NestedShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
+	$(GREP) -F -q "_ZN10nested_adl5inner21consume_nested_tokensENS0_11NestedTokenES1_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
+	$(GREP) -F -q "_ZN10nested_adl5inner21consume_nested_shadesENS0_11NestedShadeES1_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5TokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5ShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization14consume_tokensENS_5TokenES0_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization14consume_shadesENS_5ShadeES0_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
 	$(GREP) -F -q "_ZN10nested_adl5inner14inspect_nestedINS0_11NestedTokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
 	$(GREP) -F -q "_ZN10nested_adl5inner19inspect_nested_enumINS0_11NestedShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
+	$(GREP) -F -q "_ZN10nested_adl5inner21consume_nested_tokensENS0_11NestedTokenES1_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
+	$(GREP) -F -q "_ZN10nested_adl5inner21consume_nested_shadesENS0_11NestedShadeES1_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5TokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5ShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization14consume_tokensENS_5TokenES0_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization14consume_shadesENS_5ShadeES0_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
 	$(GREP) -F -q "_ZN10nested_adl5inner14inspect_nestedINS0_11NestedTokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
 	$(GREP) -F -q "_ZN10nested_adl5inner19inspect_nested_enumINS0_11NestedShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
+	$(GREP) -F -q "_ZN10nested_adl5inner21consume_nested_tokensENS0_11NestedTokenES1_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
+	$(GREP) -F -q "_ZN10nested_adl5inner21consume_nested_shadesENS0_11NestedShadeES1_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-adl-function-template-specialization/gcc-host.exe tests/cxx_adl_function_template_specialization.cpp
 	$(TEST_OUT)/cxx-adl-function-template-specialization/gcc-host.exe
 
