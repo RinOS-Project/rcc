@@ -640,6 +640,7 @@ endif
 .PHONY: test-cxx-overload-ambiguous-diagnostics
 .PHONY: test-cxx-nullptr-bool-conversion
 .PHONY: test-cxx-braced-argument-overload
+.PHONY: test-cxx-reference-list-initialization
 .PHONY: test-cxx-initializer-list
 .PHONY: test-cxx-copy-list-explicit
 .PHONY: test-cxx-member-methods-invalid
@@ -1238,6 +1239,7 @@ CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
 CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
 CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
+CXX_REGRESSION_TARGETS += test-cxx-reference-list-initialization
 CXX_REGRESSION_TARGETS += test-cxx-initializer-list
 CXX_REGRESSION_TARGETS += test-cxx-overload-ambiguous-diagnostics
 CXX_REGRESSION_TARGETS += test-cxx-nullptr-bool-conversion
@@ -3191,6 +3193,70 @@ test-cxx-braced-argument-overload: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.ro)
 	@echo "C++ braced argument overload tests completed"
+
+test-cxx-reference-list-initialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-reference-list-initialization)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-reference-list-initialization/gcc-host \
+		tests/cxx_reference_list_initialization.cpp
+	$(TEST_OUT)/cxx-reference-list-initialization/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-reference-list-initialization/x86.s \
+		tests/cxx_reference_list_initialization.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-reference-list-initialization/x86.o \
+		$(TEST_OUT)/cxx-reference-list-initialization/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-reference-list-initialization/x64.s \
+		tests/cxx_reference_list_initialization.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-reference-list-initialization/x64.o \
+		$(TEST_OUT)/cxx-reference-list-initialization/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-reference-list-initialization/x64.o
+	$(CC) -o $(TEST_OUT)/cxx-reference-list-initialization/rcc-host \
+		tests/cxx_reference_list_initialization_run_test.c \
+		$(TEST_OUT)/cxx-reference-list-initialization/x64.o
+	$(TEST_OUT)/cxx-reference-list-initialization/rcc-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_reference_list_initialization_invalid.cpp, \
+		$(TEST_OUT)/cxx-reference-list-initialization/gcc-invalid.log)
+	$(GREP) -F -q "narrowing conversion" \
+		$(TEST_OUT)/cxx-reference-list-initialization/gcc-invalid.log
+	$(GREP) -F -q "cannot bind non-const lvalue reference" \
+		$(TEST_OUT)/cxx-reference-list-initialization/gcc-invalid.log
+	$(GREP) -F -q "invalid initialization of reference" \
+		$(TEST_OUT)/cxx-reference-list-initialization/gcc-invalid.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-reference-list-initialization/gcc-invalid.log,4)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-reference-list-initialization/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c \
+		-o $(TEST_OUT)/cxx-reference-list-initialization/invalid-x86.ro \
+		tests/cxx_reference_list_initialization_invalid.cpp, \
+		$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x86.log)
+	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
+		$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x86.log
+	$(GREP) -F -q "invalid C++ reference binding" \
+		$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x86.log
+	$(GREP) -F -q "C++ reference initializer list requires exactly one element" \
+		$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x86.log,4)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-reference-list-initialization/invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-reference-list-initialization/invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c \
+		-o $(TEST_OUT)/cxx-reference-list-initialization/invalid-x64.ro \
+		tests/cxx_reference_list_initialization_invalid.cpp, \
+		$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x64.log)
+	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
+		$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x64.log
+	$(GREP) -F -q "invalid C++ reference binding" \
+		$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x64.log
+	$(GREP) -F -q "C++ reference initializer list requires exactly one element" \
+		$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-reference-list-initialization/rcc-invalid-x64.log,4)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-reference-list-initialization/invalid-x64.ro)
+	@echo "C++ reference list-initialization tests completed"
 
 ifeq ($(OS),Windows_NT)
 CXX_INITIALIZER_LIST_HOST_LINK_FLAGS = -Wl,--image-base,0x400000

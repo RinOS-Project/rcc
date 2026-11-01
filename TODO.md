@@ -93,6 +93,17 @@
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
 
+## RCC continuation (2026-11-01, reference list initialization)
+
+- [x] Analyze the single clause inside a typed reference brace-initializer
+  instead of recursively analyzing the same compound expression. Apply list
+  narrowing to direct-list, copy-list, and braced function-argument reference
+  initialization. Preserve lvalue binding; reject narrowing, binding a
+  temporary to a non-const lvalue reference, and incorrect clause counts.
+  GCC C++20 and RCC i686/AMD64 generation and runtime, matching four-error
+  diagnostic expectations, and invalid-object absence pass in
+  `test-cxx-reference-list-initialization`.
+
 ## RCC continuation (2026-10-31, Annex G exceptional values)
 
 - [x] Exercise C99 Annex G G.6.3.3 `catanh` with positive/negative

@@ -35116,8 +35116,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
     if (rcc_parser_is_cxx_mode() && type->kind == TYPE_PTR &&
         type->is_reference) {
         Expr* binding_expression = initializer;
-        if (initializer->kind == EXPR_COMPOUND &&
-            !initializer->compound_type) {
+        bool list_initialization = initializer->kind == EXPR_COMPOUND &&
+            (!initializer->compound_type ||
+             (initializer->compound_type->kind == TYPE_PTR &&
+              initializer->compound_type->is_reference));
+        if (list_initialization) {
             ExprList* item = initializer->compound_init;
             if (!item || item->next ||
                 item->designator_kind != INIT_DESIGNATOR_NONE ||
@@ -35129,6 +35132,10 @@ static void sema_initializer(Type* type, Expr* initializer) {
             binding_expression = item->expr;
         }
         sema_expr(binding_expression);
+        if (list_initialization &&
+            sema_cxx_reject_list_narrowing(type, binding_expression)) {
+            return;
+        }
         if (!implicit_cast(binding_expression, type)) {
             rcc_error(initializer->loc,
                       "invalid C++ reference binding");
