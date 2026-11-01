@@ -316,6 +316,9 @@ static bool lower_zero_array_storage(
 static bool lower_array_initializer(
     RccIrLowerContext* context, RccIrValue base,
     const Type* array_type, const Expr* initializer);
+static RccIrLowerValue lower_array_element_address(
+    RccIrLowerContext* context, RccIrValue base,
+    const Type* element_type, uint64_t index);
 static bool lower_zero_struct_storage(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type);
@@ -2805,6 +2808,11 @@ static bool lower_dynamic_static_reference_temporary_supported(
 }
 
 static bool lower_dynamic_static_class_member_initializer_supported(
+    const Type* type, const ExprList* aggregate_item, unsigned depth);
+static bool lower_dynamic_static_array_member_initializer_supported(
+    const Type* type, const ExprList* aggregate_item, unsigned depth);
+
+static bool lower_dynamic_static_class_member_initializer_supported(
     const Type* type, const ExprList* aggregate_item, unsigned depth) {
     const Expr* initializer = aggregate_item
         ? aggregate_item->expr : NULL;
@@ -2862,6 +2870,11 @@ static bool lower_dynamic_static_class_member_initializer_supported(
                     field_type, item, depth + 1u)) {
                 return false;
             }
+        } else if (field_type->kind == TYPE_ARRAY) {
+            if (!lower_dynamic_static_array_member_initializer_supported(
+                    field_type, item, depth + 1u)) {
+                return false;
+            }
         } else if (!(type_is_integer((Type*)field_type) ||
               field_type->kind == TYPE_ENUM ||
               type_is_floating((Type*)field_type) ||
@@ -2889,6 +2902,101 @@ static bool lower_dynamic_static_class_member_initializer_supported(
                        item->designator_field) == 0) {
                 return false;
             }
+        }
+    }
+    return true;
+}
+
+static bool lower_dynamic_static_array_member_initializer_supported(
+    const Type* type, const ExprList* aggregate_item, unsigned depth) {
+    const Expr* initializer = aggregate_item
+        ? aggregate_item->expr : NULL;
+    const ExprList* item;
+    size_t item_count = 0u;
+    bool has_index_designators = false;
+    bool has_positional_items = false;
+    bool requires_complete_initializers = false;
+    int64_t cursor = 0;
+    if (!type || depth >= 32u || type->kind != TYPE_ARRAY ||
+        type->array_len <= 0 || type->array_len > 4096 ||
+        type->size <= 0 || type->size > 65536 || !type->base ||
+        type->base->size <= 0 || type->base->is_atomic ||
+        type->base->is_reference || type->base->cleanup_function ||
+        !initializer || initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor ||
+        initializer->compound_paren_init ||
+        aggregate_item->cxx_temporary_owner ||
+        aggregate_item->cxx_temporary_cleanups) {
+        return false;
+    }
+    requires_complete_initializers = type->base->cxx_class != NULL;
+    if (type->base->kind == TYPE_ARRAY) {
+        const Type* element = type->base;
+        while (element && element->kind == TYPE_ARRAY) {
+            element = element->base;
+        }
+        requires_complete_initializers =
+            element && element->cxx_class;
+    }
+    for (item = initializer->compound_init; item; item = item->next) {
+        int64_t index;
+        if (!item->expr || item->cxx_temporary_owner ||
+            item->cxx_temporary_cleanups) {
+            return false;
+        }
+        if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+            has_index_designators = true;
+            index = item->designator_index;
+        } else if (item->designator_kind == INIT_DESIGNATOR_NONE) {
+            has_positional_items = true;
+            index = cursor;
+        } else {
+            return false;
+        }
+        if (index < 0 || index >= type->array_len ||
+            (item->designator_kind == INIT_DESIGNATOR_NONE &&
+             cursor >= type->array_len)) {
+            return false;
+        }
+        if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+            cursor = index + 1;
+        } else {
+            ++cursor;
+        }
+        if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+            for (const ExprList* prior = initializer->compound_init;
+                 prior != item; prior = prior->next) {
+                if (prior->designator_kind == INIT_DESIGNATOR_INDEX &&
+                    prior->designator_index == item->designator_index) {
+                    return false;
+                }
+            }
+        }
+        ++item_count;
+    }
+    if (has_index_designators && has_positional_items) return false;
+    if (requires_complete_initializers &&
+        item_count != (size_t)type->array_len) {
+        return false;
+    }
+    for (item = initializer->compound_init; item; item = item->next) {
+        const Type* element_type = type->base;
+        if (element_type->kind == TYPE_ARRAY) {
+            if (!lower_dynamic_static_array_member_initializer_supported(
+                    element_type, item, depth + 1u)) {
+                return false;
+            }
+        } else if (element_type->cxx_class) {
+            if (!lower_dynamic_static_class_member_initializer_supported(
+                    element_type, item, depth + 1u)) {
+                return false;
+            }
+        } else if (!(type_is_integer((Type*)element_type) ||
+                     element_type->kind == TYPE_ENUM ||
+                     type_is_floating((Type*)element_type) ||
+                     (element_type->kind == TYPE_PTR &&
+                      !element_type->cxx_is_member_pointer))) {
+            return false;
         }
     }
     return true;
@@ -2950,6 +3058,12 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
         const Type* field_type = field->type;
         item = lower_dynamic_aggregate_field_initializer(
             initializer, field, field_count, has_field_designators);
+        if (!field_type || field->is_bitfield || field->offset < 0 ||
+            field->offset > type->size ||
+            field_type->size > type->size - field->offset ||
+            field_type->is_atomic || field_type->cleanup_function) {
+            return false;
+        }
         if (field_type && field_type->is_reference) {
             if (field_type->kind != TYPE_PTR || !field_type->base ||
                 !lower_dynamic_static_reference_temporary_supported(
@@ -2972,11 +3086,16 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
             field = field->next;
             continue;
         }
-        if (!field_type || field->is_bitfield || field->offset < 0 ||
-            field->offset > type->size ||
-            field_type->size > type->size - field->offset ||
-            field_type->is_atomic || field_type->is_reference ||
-            field_type->cleanup_function || field_type->cxx_class ||
+        if (field_type && field_type->kind == TYPE_ARRAY) {
+            if (!lower_dynamic_static_array_member_initializer_supported(
+                    field_type, item, 0u)) {
+                return false;
+            }
+            ++field_count;
+            field = field->next;
+            continue;
+        }
+        if (field_type->is_reference || field_type->cxx_class ||
             !(type_is_integer((Type*)field_type) ||
               field_type->kind == TYPE_ENUM ||
               type_is_floating((Type*)field_type) ||
@@ -10566,6 +10685,47 @@ static bool lower_register_partial_member_cleanup(
         context, cleanup_declaration, owner, field, object, true);
 }
 
+static bool lower_unregister_partial_array_cleanups_in_object(
+    RccIrLowerContext* context, const Type* array_type,
+    RccIrLowerValue object, unsigned depth) {
+    if (!context || !array_type || array_type->kind != TYPE_ARRAY ||
+        !array_type->base || array_type->array_len <= 0 ||
+        array_type->array_len > 4096 || !object.valid ||
+        object.type.kind != RCC_IR_TYPE_POINTER || depth >= 32u) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    for (int index = 0; index < array_type->array_len; ++index) {
+        RccIrLowerValue element = lower_array_element_address(
+            context, object.value, array_type->base, (uint64_t)index);
+        if (!element.valid) return false;
+        if (array_type->base->kind == TYPE_ARRAY) {
+            if (!lower_unregister_partial_array_cleanups_in_object(
+                    context, array_type->base, element, depth + 1u)) {
+                return false;
+            }
+        } else if (array_type->base->cxx_class &&
+                   array_type->base->cxx_nontrivial &&
+                   !lower_cxx_delete_subobject_cleanup_change(
+                       context, array_type->base, element, false,
+                       depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_partial_array_has_nontrivial_class(
+    const Type* array_type) {
+    const Type* element = array_type;
+    unsigned depth = 0u;
+    while (element && element->kind == TYPE_ARRAY && depth < 32u) {
+        element = element->base;
+        ++depth;
+    }
+    return element && element->cxx_class && element->cxx_nontrivial;
+}
+
 static bool lower_unregister_partial_member_cleanups_in_object(
     RccIrLowerContext* context, const Decl* cleanup_declaration,
     const Decl* owner, const Type* object_type,
@@ -10581,19 +10741,54 @@ static bool lower_unregister_partial_member_cleanups_in_object(
     for (const TypeField* field = object_type->fields;
          field; field = field->next) {
         RccIrLowerValue address;
-        if (!field->type || !field->type->cxx_class ||
-            !field->type->cxx_nontrivial) {
+        if (!field->type ||
+            (field->type->kind == TYPE_ARRAY
+                 ? !lower_partial_array_has_nontrivial_class(field->type)
+                 : (!field->type->cxx_class ||
+                    !field->type->cxx_nontrivial))) {
             continue;
+        }
+        if (field->offset < 0) {
+            context->unsupported = true;
+            return false;
         }
         address = lower_byte_offset_address(
             context, base, (uint64_t)field->offset);
-        if (!address.valid ||
-            !lower_change_partial_member_cleanup(
-                context, cleanup_declaration, owner, field, address, false)) {
+        if (!address.valid) return false;
+        if (field->type->kind == TYPE_ARRAY) {
+            if (!lower_unregister_partial_array_cleanups_in_object(
+                    context, field->type, address, 0u)) {
+                return false;
+            }
+        } else if (field->type->cxx_class &&
+                   field->type->cxx_nontrivial &&
+                   !lower_change_partial_member_cleanup(
+                       context, cleanup_declaration, owner, field,
+                       address, false)) {
             return false;
         }
     }
     return true;
+}
+
+static bool lower_register_partial_array_element_cleanup(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object) {
+    const Decl* owner = context
+        ? context->partial_construction_owner : NULL;
+    const Decl* cleanup_declaration = context &&
+        context->partial_construction_cleanup_declaration
+        ? context->partial_construction_cleanup_declaration : owner;
+    if (!owner || !type || !type->cxx_class ||
+        !type->cxx_nontrivial) {
+        return true;
+    }
+    if (!lower_unregister_partial_member_cleanups_in_object(
+            context, cleanup_declaration, owner, type, object)) {
+        return false;
+    }
+    return lower_cxx_delete_subobject_cleanup_change(
+        context, type, object, true, 0u);
 }
 
 static bool lower_register_partial_base_cleanup(
@@ -21732,6 +21927,10 @@ static bool lower_array_initializer(
             if (!address.valid || !lower_initialize_struct_storage(
                     context, address.value, array_type->base,
                     item->expr)) return false;
+            if (!lower_register_partial_array_element_cleanup(
+                    context, array_type->base, address)) {
+                return false;
+            }
             ++cursor;
             continue;
         }
@@ -22223,8 +22422,10 @@ static bool lower_cxx_emit_class_array_destructors(
     const Type* element_type, RccIrLowerValue array_address,
     unsigned depth) {
     RccIrInstruction* allocation;
+    RccIrInstruction* array_base_allocation;
     RccIrLowerValue index_address;
     RccIrLowerValue index_value;
+    RccIrLowerValue array_base_storage;
     RccIrLowerValue one;
     RccIrLowerValue next_index;
     RccIrBlock* condition_block;
@@ -22251,6 +22452,20 @@ static bool lower_cxx_emit_class_array_destructors(
         return false;
     }
     index_size = index_type.bit_width / 8u;
+    array_base_allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!array_base_allocation) return false;
+    rcc_ir_set_immediate(
+        array_base_allocation,
+        (uint64_t)(g_opts.target_arch == ARCH_X64 ? 8u : 4u));
+    array_base_allocation->alignment =
+        (uint32_t)(g_opts.target_arch == ARCH_X64 ? 8u : 4u);
+    array_base_storage = lower_value(
+        array_base_allocation->result, rcc_ir_type_pointer(0u), true);
+    if (!lower_store_address(context, array_base_storage, array_address)) {
+        return false;
+    }
     allocation = lower_append(context, RCC_IR_ALLOCA,
                               rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
     if (!allocation) return false;
@@ -22299,13 +22514,17 @@ static bool lower_cxx_emit_class_array_destructors(
     if (!lower_store_address(context, index_address, next_index)) {
         return false;
     }
-    operands[0] = array_address.value;
-    operands[1] = next_index.value;
     {
-        RccIrInstruction* address = lower_append(
+        RccIrLowerValue stable_array_base = lower_load_address(
+            context, array_base_storage, type_ptr(type_void));
+        RccIrInstruction* address;
+        RccIrLowerValue element_address;
+        if (!stable_array_base.valid) return false;
+        operands[0] = stable_array_base.value;
+        operands[1] = next_index.value;
+        address = lower_append(
             context, RCC_IR_GEP, rcc_ir_type_pointer(0u),
             operands, 2u, NULL, 0u);
-        RccIrLowerValue element_address;
         if (!address) return false;
         rcc_ir_set_immediate(address, (uint64_t)element_type->size);
         element_address = lower_value(
@@ -28982,7 +29201,8 @@ static bool lower_dynamic_static_aggregate_initializer(
                 symbol->symbol_is_tls = temporary_owner->var_is_thread_local;
                 value = lower_value(
                     symbol->result, rcc_ir_type_pointer(0u), true);
-            } else if (field->type->cxx_class) {
+            } else if (field->type->cxx_class ||
+                       field->type->kind == TYPE_ARRAY) {
                 const Decl* previous_partial_owner =
                     context->partial_construction_owner;
                 const Decl* previous_partial_cleanup_declaration =

@@ -3927,6 +3927,9 @@ static void verify_static_local_aggregate_object(const char* path)
     ObjSymbol* partial_member_destructor_count_symbol;
     ObjSymbol* partial_member_unwind_order_symbol;
     ObjSymbol* partial_member_final_cleanup_order_symbol;
+    ObjSymbol* partial_array_member_destructor_count_symbol;
+    ObjSymbol* partial_array_unwind_order_symbol;
+    ObjSymbol* partial_array_final_cleanup_order_symbol;
     size_t mapping_size;
     void* memory;
     int (RINOS_ABI *entry)(void);
@@ -3937,6 +3940,9 @@ static void verify_static_local_aggregate_object(const char* path)
     int (RINOS_ABI *partial_member_destructor_count)(void);
     int (RINOS_ABI *partial_member_unwind_order)(void);
     int (RINOS_ABI *partial_member_final_cleanup_order)(void);
+    int (RINOS_ABI *partial_array_member_destructor_count)(void);
+    int (RINOS_ABI *partial_array_unwind_order)(void);
+    int (RINOS_ABI *partial_array_final_cleanup_order)(void);
     const void* (RINOS_ABI *reference_temp_first_address)(void);
     const void* (RINOS_ABI *reference_temp_second_address)(void);
     const void* reference_temp_first;
@@ -3975,6 +3981,15 @@ static void verify_static_local_aggregate_object(const char* path)
     partial_member_final_cleanup_order_symbol = objfile_find_symbol(
         object,
         "verified_static_local_aggregate_partial_member_final_cleanup_order");
+    partial_array_member_destructor_count_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_partial_array_member_destructor_count");
+    partial_array_unwind_order_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_partial_array_unwind_order");
+    partial_array_final_cleanup_order_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_partial_array_final_cleanup_order");
     assert(text != NULL && entry_symbol != NULL &&
            entry_symbol->type == SYM_GLOBAL &&
            entry_symbol->binding == BIND_CODE && entry_symbol->section == 0 &&
@@ -4013,7 +4028,19 @@ static void verify_static_local_aggregate_object(const char* path)
            partial_member_final_cleanup_order_symbol != NULL &&
            partial_member_final_cleanup_order_symbol->type == SYM_GLOBAL &&
            partial_member_final_cleanup_order_symbol->binding == BIND_CODE &&
-           partial_member_final_cleanup_order_symbol->section == 0);
+           partial_member_final_cleanup_order_symbol->section == 0 &&
+           partial_array_member_destructor_count_symbol != NULL &&
+           partial_array_member_destructor_count_symbol->type == SYM_GLOBAL &&
+           partial_array_member_destructor_count_symbol->binding == BIND_CODE &&
+           partial_array_member_destructor_count_symbol->section == 0 &&
+           partial_array_unwind_order_symbol != NULL &&
+           partial_array_unwind_order_symbol->type == SYM_GLOBAL &&
+           partial_array_unwind_order_symbol->binding == BIND_CODE &&
+           partial_array_unwind_order_symbol->section == 0 &&
+           partial_array_final_cleanup_order_symbol != NULL &&
+           partial_array_final_cleanup_order_symbol->type == SYM_GLOBAL &&
+           partial_array_final_cleanup_order_symbol->binding == BIND_CODE &&
+           partial_array_final_cleanup_order_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, entry_symbol);
     memcpy(&entry, &address, sizeof(entry));
@@ -4047,6 +4074,17 @@ static void verify_static_local_aggregate_object(const char* path)
         memory, partial_member_final_cleanup_order_symbol);
     memcpy(&partial_member_final_cleanup_order, &address,
            sizeof(partial_member_final_cleanup_order));
+    address = symbol_address(
+        memory, partial_array_member_destructor_count_symbol);
+    memcpy(&partial_array_member_destructor_count, &address,
+           sizeof(partial_array_member_destructor_count));
+    address = symbol_address(memory, partial_array_unwind_order_symbol);
+    memcpy(&partial_array_unwind_order, &address,
+           sizeof(partial_array_unwind_order));
+    address = symbol_address(
+        memory, partial_array_final_cleanup_order_symbol);
+    memcpy(&partial_array_final_cleanup_order, &address,
+           sizeof(partial_array_final_cleanup_order));
     cxx_static_reference_guard_aborts = 0;
     cxx_static_reference_guard_releases = 0;
     verified_static_local_aggregate_destructions = 0;
@@ -4061,24 +4099,29 @@ static void verify_static_local_aggregate_object(const char* path)
            sizeof(reference_temp_second_value));
     assert(reference_temp_first_value == 79);
     assert(reference_temp_second_value == 97);
-    assert(cxx_static_reference_guard_aborts == 4);
-    assert(cxx_static_reference_guard_releases == 6);
+    assert(cxx_static_reference_guard_aborts == 5);
+    assert(cxx_static_reference_guard_releases == 7);
     assert(destructor_count() == 0);
     assert(reference_temp_destructor_count() == 2);
     assert(reference_temp_unwind_order_count() == 2);
     assert(partial_member_destructor_count() == 1);
     assert(partial_member_unwind_order() == 1);
     assert(partial_member_final_cleanup_order() == 0);
+    assert(partial_array_member_destructor_count() == 2);
+    assert(partial_array_unwind_order() == 2);
+    assert(partial_array_final_cleanup_order() == 0);
     assert(cxx_static_reference_atexit_registrations ==
-           registrations_before + 6);
+           registrations_before + 7);
     __cxa_finalize(&verified_dynamic_tls_dso_handle);
     assert(destructor_count() == 5);
     assert(reference_temp_destructor_count() == 4);
     assert(reference_temp_order_count() == 1);
     assert(partial_member_destructor_count() == 3);
     assert(partial_member_final_cleanup_order() == 2);
+    assert(partial_array_member_destructor_count() == 4);
+    assert(partial_array_final_cleanup_order() == 2);
     assert(cxx_static_reference_atexit_finalizations ==
-           finalizations_before + 6);
+           finalizations_before + 7);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

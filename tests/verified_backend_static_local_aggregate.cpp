@@ -20,6 +20,13 @@ static int partial_member_destructions;
 static int partial_member_unwind_order;
 static int partial_member_final_cleanup_order;
 #endif
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT
+static int partial_array_initializer_calls;
+static int partial_array_later_initializer_calls;
+static int partial_array_member_destructions;
+static int partial_array_unwind_order;
+static int partial_array_final_cleanup_order;
+#endif
 extern "C" {
 #ifdef RCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST
 extern int verified_static_local_aggregate_destructions;
@@ -121,6 +128,14 @@ static int make_static_aggregate_partial_member_later() {
     ++partial_member_later_initializer_calls;
     if (partial_member_later_initializer_calls == 1) throw 109;
     return 113;
+}
+#endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT
+static int make_static_aggregate_partial_array_later() {
+    ++partial_array_later_initializer_calls;
+    if (partial_array_later_initializer_calls == 1) throw 139;
+    return 151;
 }
 #endif
 
@@ -230,6 +245,39 @@ struct StaticLocalPartialAggregate {
     StaticLocalNestedPartialMember member;
     int later;
 };
+
+#endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT
+struct StaticLocalArrayPartialMember {
+    int value;
+
+    ~StaticLocalArrayPartialMember() {
+        if (partial_array_later_initializer_calls == 1) {
+            if (value == 137 && partial_array_member_destructions == 0) {
+                partial_array_unwind_order = 1;
+            } else if (value == 131 &&
+                       partial_array_member_destructions == 1 &&
+                       partial_array_unwind_order == 1) {
+                partial_array_unwind_order = 2;
+            }
+        } else if (partial_array_later_initializer_calls == 2) {
+            if (value == 137 && partial_array_member_destructions == 2) {
+                partial_array_final_cleanup_order = 1;
+            } else if (value == 131 &&
+                       partial_array_member_destructions == 3 &&
+                       partial_array_final_cleanup_order == 1) {
+                partial_array_final_cleanup_order = 2;
+            }
+        }
+        ++partial_array_member_destructions;
+    }
+};
+
+struct StaticLocalPartialArrayAggregate {
+    StaticLocalArrayPartialMember members[2];
+    int later;
+};
 #endif
 
 static const StaticLocalNontrivialClassReferenceAggregate&
@@ -250,6 +298,18 @@ static_local_partial_aggregate() {
          StaticLocalPartialMember{
              make_static_aggregate_partial_member_later()}},
         127};
+    return value;
+}
+#endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT
+static const StaticLocalPartialArrayAggregate&
+static_local_partial_array_aggregate() {
+    ++partial_array_initializer_calls;
+    static StaticLocalPartialArrayAggregate value{
+        {StaticLocalArrayPartialMember{131},
+         StaticLocalArrayPartialMember{137}},
+        make_static_aggregate_partial_array_later()};
     return value;
 }
 #endif
@@ -373,6 +433,35 @@ int main() {
         return 21;
     }
 #endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT
+    try {
+        (void)static_local_partial_array_aggregate();
+        return 22;
+    } catch (int error) {
+        if (error != 139) return 23;
+    }
+    if (partial_array_initializer_calls != 1 ||
+        partial_array_later_initializer_calls != 1 ||
+        partial_array_member_destructions != 2 ||
+        partial_array_unwind_order != 2) {
+        return 24;
+    }
+    const StaticLocalPartialArrayAggregate& first_partial_array =
+        static_local_partial_array_aggregate();
+    const StaticLocalPartialArrayAggregate& second_partial_array =
+        static_local_partial_array_aggregate();
+    if (&first_partial_array != &second_partial_array ||
+        first_partial_array.members[0].value != 131 ||
+        first_partial_array.members[1].value != 137 ||
+        first_partial_array.later != 151 ||
+        partial_array_initializer_calls != 3 ||
+        partial_array_later_initializer_calls != 2 ||
+        partial_array_member_destructions != 2 ||
+        partial_array_final_cleanup_order != 0) {
+        return 25;
+    }
+#endif
     return 0;
 }
 
@@ -424,5 +513,22 @@ verified_static_local_aggregate_partial_member_unwind_order() {
 extern "C" int
 verified_static_local_aggregate_partial_member_final_cleanup_order() {
     return partial_member_final_cleanup_order;
+}
+#endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT
+extern "C" int
+verified_static_local_aggregate_partial_array_member_destructor_count() {
+    return partial_array_member_destructions;
+}
+
+extern "C" int
+verified_static_local_aggregate_partial_array_unwind_order() {
+    return partial_array_unwind_order;
+}
+
+extern "C" int
+verified_static_local_aggregate_partial_array_final_cleanup_order() {
+    return partial_array_final_cleanup_order;
 }
 #endif

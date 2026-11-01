@@ -14167,6 +14167,8 @@ static void codegen_emit_static_local_cleanups64(Module* mod) {
         VLAScopeCodegen64* old_continue_vla = continue_vla_marker64;
         int stack_size = 0;
         uint32_t start;
+        codegen_reset_cleanup_plan_frame_offsets(
+            item->declaration->var_cleanups);
         codegen_assign_cleanup_plan(item->declaration->var_cleanups,
                                     &stack_size, 8);
         if (stack_size > INT_MAX - 15) {

@@ -24297,13 +24297,15 @@ endif
 test-verified-cxx-static-local-aggregate: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-static-local-aggregate)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror \
-		-DRCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT -o \
+		-DRCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT \
+		-DRCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT -o \
 		$(TEST_OUT)/verified-cxx-static-local-aggregate/gcc$(EXE_SUFFIX) \
 		tests/verified_backend_static_local_aggregate.cpp
 	$(TEST_OUT)/verified-cxx-static-local-aggregate/gcc$(EXE_SUFFIX)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-DRCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST \
 		-DRCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT \
+		-DRCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/x86.ro \
 		tests/verified_backend_static_local_aggregate.cpp > \
@@ -24312,6 +24314,7 @@ test-verified-cxx-static-local-aggregate: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RU
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-DRCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST \
 		-DRCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT \
+		-DRCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/x64.ro \
 		tests/verified_backend_static_local_aggregate.cpp > \
@@ -24320,6 +24323,7 @@ test-verified-cxx-static-local-aggregate: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RU
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-DRCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST \
 		-DRCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT \
+		-DRCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/x86-o2.ro \
 		tests/verified_backend_static_local_aggregate.cpp > \
@@ -24328,6 +24332,7 @@ test-verified-cxx-static-local-aggregate: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RU
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 		-DRCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST \
 		-DRCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT \
+		-DRCC_TEST_STATIC_LOCAL_PARTIAL_ARRAY_SUBOBJECT \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/x64-o2.ro \
 		tests/verified_backend_static_local_aggregate.cpp > \

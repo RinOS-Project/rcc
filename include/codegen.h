@@ -410,6 +410,7 @@ int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
                                           int stack_alignment);
 void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,
                                  int stack_alignment);
+void codegen_reset_cleanup_plan_frame_offsets(CxxCleanupPlan* plan);
 
 /* Object file output */
 struct ObjectFile;

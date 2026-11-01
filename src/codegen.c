@@ -20455,6 +20455,22 @@ void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,
     }
 }
 
+void codegen_reset_cleanup_plan_frame_offsets(CxxCleanupPlan* plan) {
+    /* Static cleanup callbacks use the same plan AST as the initializer
+     * function, so assign callback-local slots after the initializer code has
+     * already selected its own frame offsets. */
+    for (; plan; plan = plan->next) {
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            if (plan->index_decl) plan->index_decl->var_offset = 0;
+            codegen_reset_cleanup_plan_frame_offsets(plan->body);
+        } else if (plan->kind == CXX_CLEANUP_CONDITIONAL) {
+            codegen_reset_cleanup_plan_frame_offsets(plan->body);
+            codegen_reset_cleanup_plan_frame_offsets(
+                plan->alternate_body);
+        }
+    }
+}
+
 int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
                                           int stack_alignment) {
     int bytes = 0;
@@ -23163,6 +23179,8 @@ static void codegen_emit_static_local_cleanups32(Module* mod) {
         VLAScopeCodegen* old_continue_vla = continue_vla_marker;
         int stack_size = 0;
         uint32_t start;
+        codegen_reset_cleanup_plan_frame_offsets(
+            item->declaration->var_cleanups);
         codegen_assign_cleanup_plan(item->declaration->var_cleanups,
                                     &stack_size, 4);
         if (stack_size > INT_MAX - 15) {

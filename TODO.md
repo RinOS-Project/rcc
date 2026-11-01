@@ -13207,5 +13207,14 @@ remains a separate open item.
       `test-verified-cxx-static-local-aggregate` passes the GCC C++20 oracle,
       verified i686/AMD64 objects at `-O0`/`-O2` with zero fallback, and x86/x64
       native executions on Windows and WSL.
-- [ ] Extend verified partial-subobject unwind to array members and
-      constructor-built subobjects.
+- [x] Extend verified partial-subobject unwind to fixed-size array members
+      whose class elements are explicitly initialized. Register each completed
+      element, unwind the completed array prefix in reverse order when a later
+      member initializer throws, then unregister partial cleanup after full
+      initialization so exit cleanup runs once. The expanded
+      `test-verified-cxx-static-local-aggregate` passes the GCC C++20 oracle,
+      emits i686/AMD64 objects at `-O0`/`-O2` with zero fallback, and executes
+      verified x64 objects at both optimization levels on Windows and WSL.
+- [ ] Extend verified partial-subobject unwind to constructor-built subobjects,
+      including failure while a class element or nested member constructor is
+      still building its own subobjects.
