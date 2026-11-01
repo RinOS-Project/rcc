@@ -45,6 +45,11 @@ enum class NestedShade {
 };
 
 template <typename T>
+struct NestedBox {
+    T value;
+};
+
+template <typename T>
 int inspect_nested(const T&) {
     return 100;
 }
@@ -84,9 +89,13 @@ int consume_foreign_types(nested_adl::inner::NestedToken token,
 
 template <typename Scalar>
 int consume_foreign_template(Scalar value,
+                             nested_adl::inner::NestedBox<int> first,
+                             nested_adl::inner::NestedBox<long> second,
                              nested_adl::inner::NestedToken token,
                              nested_adl::inner::NestedShade shade) {
-    return static_cast<int>(value) + token.value + static_cast<int>(shade);
+    return static_cast<int>(value) + static_cast<int>(first.value) +
+           static_cast<int>(second.value) + token.value +
+           static_cast<int>(shade);
 }
 
 struct ForeignSignatureConsumer {
@@ -95,6 +104,8 @@ struct ForeignSignatureConsumer {
 
     template <typename Scalar>
     int consume_template(Scalar value,
+                         nested_adl::inner::NestedBox<int> first,
+                         nested_adl::inner::NestedBox<long> second,
                          nested_adl::inner::NestedToken token,
                          nested_adl::inner::NestedShade shade);
 };
@@ -107,9 +118,13 @@ int ForeignSignatureConsumer::consume(
 
 template <typename Scalar>
 int ForeignSignatureConsumer::consume_template(
-    Scalar value, nested_adl::inner::NestedToken token,
+    Scalar value, nested_adl::inner::NestedBox<int> first,
+    nested_adl::inner::NestedBox<long> second,
+    nested_adl::inner::NestedToken token,
     nested_adl::inner::NestedShade shade) {
-    return static_cast<int>(value) + token.value + static_cast<int>(shade);
+    return static_cast<int>(value) + static_cast<int>(first.value) +
+           static_cast<int>(second.value) + token.value +
+           static_cast<int>(shade);
 }
 
 }  // namespace cross_namespace
@@ -154,12 +169,15 @@ int invoke_ordinary_nested_class_and_enum_functions() {
 
 int invoke_foreign_namespace_types() {
     nested_adl::inner::NestedToken token{2};
+    nested_adl::inner::NestedBox<int> first_box{2};
+    nested_adl::inner::NestedBox<long> second_box{3};
     const auto shade = nested_adl::inner::NestedShade::Green;
     cross_namespace::ForeignSignatureConsumer consumer;
     return cross_namespace::consume_foreign_types(token, shade) +
            consumer.consume(token, shade) +
-           cross_namespace::consume_foreign_template(3, token, shade) +
-           consumer.consume_template(1, token, shade);
+           cross_namespace::consume_foreign_template(
+               3, first_box, second_box, token, shade) +
+           consumer.consume_template(1, first_box, second_box, token, shade);
 }
 
 int main() {
@@ -169,7 +187,7 @@ int main() {
                    invoke_nested_adl_function_template_specialization() == 24 &&
                    invoke_nested_adl_enum_function_template_specialization() == 34 &&
                    invoke_ordinary_nested_class_and_enum_functions() == 15 &&
-                   invoke_foreign_namespace_types() == 32
+                   invoke_foreign_namespace_types() == 42
         ? 0
         : 1;
 }

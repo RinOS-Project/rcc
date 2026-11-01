@@ -3223,7 +3223,16 @@ static bool cxx_mangle_member_template_name_substitution(
     CxxMemberTemplateMangleContext* context) {
     if (!context || !tmpl) return false;
     for (size_t index = 0; index < context->template_name_count; ++index) {
-        if (context->template_names[index] == tmpl) {
+        CxxTemplate* recorded = context->template_names[index];
+        const char* recorded_namespace = recorded && recorded->ns
+            ? cxx_namespace_qualified_name(recorded->ns) : "";
+        const char* current_namespace = tmpl->ns
+            ? cxx_namespace_qualified_name(tmpl->ns) : "";
+        if (recorded == tmpl ||
+            (recorded && recorded->name && tmpl->name &&
+             strcmp(recorded->name, tmpl->name) == 0 &&
+             recorded_namespace && current_namespace &&
+             strcmp(recorded_namespace, current_namespace) == 0)) {
             cxx_mangle_member_template_substitution(
                 buf, pos, context->template_name_indices[index]);
             return true;
@@ -3494,12 +3503,81 @@ static void cxx_mangle_template_type_append_impl(
     }
     if (context && context->signature_type_cursor_initialized &&
         (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
-        type->cxx_class && !type->cxx_class->templ) {
+        type->cxx_class && !type->cxx_dependent) {
+        CxxClass* cxx_class = type->cxx_class;
+        CxxTemplate* class_template = cxx_class->template_identity_tmpl
+            ? cxx_class->template_identity_tmpl : cxx_class->templ;
+        Type** class_template_args = cxx_class->template_identity_tmpl
+            ? cxx_class->template_identity_args : cxx_class->template_args;
+        int class_template_arg_count = cxx_class->template_identity_tmpl
+            ? cxx_class->template_identity_arg_count
+            : cxx_class->template_arg_count;
+        bool type_only_class_template = class_template &&
+            !cxx_class->enclosing_class && class_template->name &&
+            class_template_arg_count == class_template->param_count &&
+            class_template_arg_count > 0 && class_template_args;
+        for (int index = 0; type_only_class_template &&
+             index < class_template_arg_count; ++index) {
+            if (class_template->params[index].kind != TPARAM_TYPE) {
+                type_only_class_template = false;
+            }
+        }
+        if (type_only_class_template) {
+            size_t namespace_count = 0u;
+            CxxNamespace** namespace_stack = cxx_collect_namespace_components(
+                class_template->ns, false, &namespace_count);
+            size_t prefix_pos = *pos;
+            if (namespace_count > 0u) {
+                CXX_MANGLE_TEMPLATE_APPEND('N');
+            }
+            bool template_name_is_substitution =
+                cxx_mangle_member_template_name_substitution(
+                    buf, pos, class_template, context);
+            if (!template_name_is_substitution) {
+                bool has_namespace =
+                    cxx_mangle_namespace_prefix_append(
+                        buf, &prefix_pos, class_template->ns,
+                        &context->signature_type_context);
+                if (!has_namespace && namespace_count > 0u) {
+                    *pos = prefix_pos;
+                    CXX_MANGLE_TEMPLATE_APPEND('N');
+                    for (size_t index = namespace_count; index > 0u;
+                         --index) {
+                        mangle_name(buf, pos,
+                                    namespace_stack[index - 1u]->name);
+                    }
+                } else {
+                    *pos = prefix_pos;
+                }
+                mangle_name(buf, pos, class_template->name);
+                if (context->signature_type_context.
+                        next_substitution_index >
+                    context->next_substitution) {
+                    context->next_substitution =
+                        context->signature_type_context.
+                            next_substitution_index;
+                }
+                cxx_mangle_member_template_name_record(
+                    class_template, context);
+                context->signature_type_context.next_substitution_index =
+                    context->next_substitution;
+            }
+            CXX_MANGLE_TEMPLATE_APPEND('I');
+            for (int index = 0; index < class_template_arg_count; ++index) {
+                cxx_mangle_template_type_append(
+                    buf, pos, class_template_args[index], tmpl, context);
+            }
+            CXX_MANGLE_TEMPLATE_APPEND('E');
+            if (namespace_count > 0u) {
+                CXX_MANGLE_TEMPLATE_APPEND('E');
+            }
+            return;
+        }
         bool has_namespace = cxx_mangle_namespace_prefix_append(
-            buf, pos, type->cxx_class->ns,
+            buf, pos, cxx_class->ns,
             &context->signature_type_context);
         mangle_class_name_context(
-            buf, pos, type->cxx_class,
+            buf, pos, cxx_class,
             &context->signature_type_context);
         if (has_namespace) CXX_MANGLE_TEMPLATE_APPEND('E');
         return;
@@ -3798,13 +3876,39 @@ static void cxx_mangle_template_type_append_impl(
             cxx_mangle_member_template_name_substitution(
                 buf, pos, type->cxx_template, context);
         if (!template_name_is_substitution) {
-            if (namespace_count > 0u) CXX_MANGLE_TEMPLATE_APPEND('N');
-            for (size_t index = namespace_count; index > 0u; --index) {
-                mangle_name(buf, pos, namespace_stack[index - 1u]->name);
+            bool namespace_prefix_appended = false;
+            if (context && context->signature_type_cursor_initialized) {
+                namespace_prefix_appended =
+                    cxx_mangle_namespace_prefix_append(
+                        buf, pos, type->cxx_template->ns,
+                        &context->signature_type_context);
+                if (context->signature_type_context.
+                        next_substitution_index >
+                    context->next_substitution) {
+                    context->next_substitution =
+                        context->signature_type_context.
+                            next_substitution_index;
+                }
+            }
+            if (!namespace_prefix_appended) {
+                if (namespace_count > 0u) {
+                    CXX_MANGLE_TEMPLATE_APPEND('N');
+                }
+                for (size_t index = namespace_count; index > 0u; --index) {
+                    mangle_name(buf, pos,
+                                namespace_stack[index - 1u]->name);
+                }
             }
             mangle_name(buf, pos, type->cxx_template->name);
             cxx_mangle_member_template_name_record(
                 type->cxx_template, context);
+            if (context && context->signature_type_cursor_initialized &&
+                context->next_substitution >
+                    context->signature_type_context.
+                        next_substitution_index) {
+                context->signature_type_context.next_substitution_index =
+                    context->next_substitution;
+            }
         }
         CXX_MANGLE_TEMPLATE_APPEND('I');
         for (int index = 0; index < type->cxx_template_arg_count; ++index) {

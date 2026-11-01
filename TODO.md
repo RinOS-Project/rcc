@@ -12762,6 +12762,7 @@ remains a separate open item.
 # RCC continuation (2026-11-01, namespace substitutions in function-template signatures)
 - [x] 関数template specializationのsignatureで、所属namespace外のclass/enum型を
       反復parameterに使うfree/member関数templateをItanium ABIどおりにmangleする。
-      GCC/RCCでfreeの`S3_`・memberの`S4_`を一致させ、i686/AMD64 assemblyとhost実行、
+      `NestedBox<int>`から`NestedBox<long>`へのtemplate-name置換を含め、GCC/RCCでfreeの
+      `S3_`・memberの`S4_`を一致させ、i686/AMD64 assemblyとhost実行、
       Windows `test-cxx-adl-function-template-specialization`および
       `test-cxx-function-template-overloads`全体の通過を確認。
