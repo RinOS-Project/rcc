@@ -12820,3 +12820,13 @@ remains a separate open item.
       definitions, links against RCC-generated x86_64 code, and runs both call
       paths. GCC syntax, RCC i686/AMD64 object generation, the host link/runtime,
       and the full `test-cxx-conversion-operator` target pass.
+
+# RCC continuation (2026-11-01, external static data members)
+- [x] Keep non-inline in-class static data declarations unresolved, including
+      legacy initialized `static const` members; treat out-of-class definitions
+      as definitions and C++17 constexpr static members as inline definitions.
+      GCC C++14/C++20 syntax checks, RCC i686/AMD64 object generation in both
+      standards, verified backend compilation for both targets, and
+      RCC-generated callers linked against separate GCC definitions and
+      executed successfully in
+      `test-cxx-external-static-data-members`.

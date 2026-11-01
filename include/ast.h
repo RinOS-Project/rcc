@@ -1533,6 +1533,8 @@ struct Decl {
             bool var_is_being_constant_evaluated;
             bool var_is_constinit;  /* C++20 constant-initialized variable. */
             bool var_is_inline;     /* C++17 inline variable definition. */
+            bool var_is_cxx_static_member_declaration;
+                                      /* Class declaration is not a definition. */
             bool var_is_deprecated; /* C++17 deprecated variable declaration. */
             const char* var_deprecated_message;
             Expr* var_cleanup;       /* Validated C++ scope-exit expression. */

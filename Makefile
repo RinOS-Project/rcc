@@ -634,6 +634,7 @@ endif
 .PHONY: test-c23-function-type-attributes
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-exception-cleanup-verified test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
+.PHONY: test-cxx-external-static-data-members
 .PHONY: test-cxx-member-methods-invalid
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
@@ -24796,6 +24797,33 @@ test-cxx-conversion-nested-pointer-qualification: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_NESTED_POINTER_QUALIFICATION_SAFE -c -o $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/safe-x64.ro tests/cxx_conversion_nested_pointer_qualification.cpp
 
 test-cxx-conversion-operator: test-cxx-conversion-member-pointer-owner-path test-cxx-conversion-nested-pointer-qualification test-cxx-conversion-member-pointer-owner-ranking test-cxx-static-cast-conversion-operator
+
+test-cxx-external-static-data-members: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-external-static-data-members)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_EXTERNAL_STATIC_DATA_DEFINITIONS -fsyntax-only tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_EXTERNAL_STATIC_DATA_MAIN -fsyntax-only tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++14 -Wall -Wextra -Werror -fsyntax-only tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++14 -Wall -Wextra -Werror -DTEST_EXTERNAL_STATIC_DATA_DEFINITIONS -fsyntax-only tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++14 -Wall -Wextra -Werror -DTEST_EXTERNAL_STATIC_DATA_MAIN -fsyntax-only tests/cxx_external_static_data_members.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-external-static-data-members/x86.ro tests/cxx_external_static_data_members.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-external-static-data-members/x64.ro tests/cxx_external_static_data_members.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-external-static-data-members/x86-cxx14.ro tests/cxx_external_static_data_members.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-external-static-data-members/x64-cxx14.ro tests/cxx_external_static_data_members.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-external-static-data-members/x86-verified.ro tests/cxx_external_static_data_members.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-external-static-data-members/x64-verified.ro tests/cxx_external_static_data_members.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-external-static-data-members/caller.s tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_EXTERNAL_STATIC_DATA_DEFINITIONS -c -o $(TEST_OUT)/cxx-external-static-data-members/definitions.o tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_EXTERNAL_STATIC_DATA_MAIN -c -o $(TEST_OUT)/cxx-external-static-data-members/main.o tests/cxx_external_static_data_members.cpp
+	$(CXX) -c -o $(TEST_OUT)/cxx-external-static-data-members/caller.o $(TEST_OUT)/cxx-external-static-data-members/caller.s
+	$(CXX) -o $(TEST_OUT)/cxx-external-static-data-members/external-static-data$(EXE_SUFFIX) $(TEST_OUT)/cxx-external-static-data-members/caller.o $(TEST_OUT)/cxx-external-static-data-members/definitions.o $(TEST_OUT)/cxx-external-static-data-members/main.o
+	$(TEST_OUT)/cxx-external-static-data-members/external-static-data$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -S -o $(TEST_OUT)/cxx-external-static-data-members/caller-cxx14.s tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++14 -Wall -Wextra -Werror -DTEST_EXTERNAL_STATIC_DATA_DEFINITIONS -c -o $(TEST_OUT)/cxx-external-static-data-members/definitions-cxx14.o tests/cxx_external_static_data_members.cpp
+	$(CXX) -std=c++14 -Wall -Wextra -Werror -DTEST_EXTERNAL_STATIC_DATA_MAIN -c -o $(TEST_OUT)/cxx-external-static-data-members/main-cxx14.o tests/cxx_external_static_data_members.cpp
+	$(CXX) -c -o $(TEST_OUT)/cxx-external-static-data-members/caller-cxx14.o $(TEST_OUT)/cxx-external-static-data-members/caller-cxx14.s
+	$(CXX) -o $(TEST_OUT)/cxx-external-static-data-members/external-static-data-cxx14$(EXE_SUFFIX) $(TEST_OUT)/cxx-external-static-data-members/caller-cxx14.o $(TEST_OUT)/cxx-external-static-data-members/definitions-cxx14.o $(TEST_OUT)/cxx-external-static-data-members/main-cxx14.o
+	$(TEST_OUT)/cxx-external-static-data-members/external-static-data-cxx14$(EXE_SUFFIX)
 
 .PHONY: test-cxx-conversion-member-pointer-owner-ranking
 test-cxx-conversion-member-pointer-owner-ranking: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)

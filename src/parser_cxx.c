@@ -12363,11 +12363,13 @@ static void diagnose_unlowered_destructors(CxxClass* cls) {
     }
 }
 
-/* Publish in-class static data members as real global declarations.  They
- * retain a qualified source lookup name while their link name follows the
- * Itanium data-symbol spelling.  Static data members do not use the C
- * STORAGE_STATIC linkage rule: the `static` keyword belongs to the class
- * member, not to translation-unit visibility. */
+/* Publish in-class static data members as global declarations.  A non-inline
+ * in-class declaration is not a definition, even when a legacy constexpr
+ * member has an initializer for constant evaluation.  Keep the declaration
+ * available to lookup while preventing global-data emission from defining it.
+ * Static data members do not use the C STORAGE_STATIC linkage rule: the
+ * `static` keyword belongs to the class member, not to translation-unit
+ * visibility. */
 static void register_class_static_fields(CxxClass* cls) {
     struct CxxMember* member;
 
@@ -12385,7 +12387,14 @@ static void register_class_static_fields(CxxClass* cls) {
             source_name, active_namespace, cls));
         declaration->name = cxx_class_method_source_name(
             cls, source_name, declaration->loc);
-        declaration->storage = STORAGE_NONE;
+        if (declaration->var_is_constexpr &&
+            rcc_parser_cxx_standard_at_least(17)) {
+            declaration->var_is_inline = true;
+        }
+        declaration->var_is_cxx_static_member_declaration =
+            !declaration->var_is_inline;
+        declaration->storage = declaration->var_is_cxx_static_member_declaration
+            ? STORAGE_EXTERN : STORAGE_NONE;
         ast_add_decl(active_ast, declaration);
     }
 }
@@ -12460,11 +12469,18 @@ static void register_instantiated_class_static_fields(
                                            source->var_is_thread_local;
         declaration->var_is_inline = source && source->var_is_inline;
         declaration->var_is_constexpr = source && source->var_is_constexpr;
+        if (declaration->var_is_constexpr &&
+            rcc_parser_cxx_standard_at_least(17)) {
+            declaration->var_is_inline = true;
+        }
         declaration->var_is_constinit = source && source->var_is_constinit;
         declaration->var_is_deprecated = source && source->var_is_deprecated;
         declaration->var_deprecated_message = source
             ? source->var_deprecated_message : NULL;
-        declaration->storage = STORAGE_NONE;
+        declaration->var_is_cxx_static_member_declaration =
+            !declaration->var_is_inline;
+        declaration->storage = declaration->var_is_cxx_static_member_declaration
+            ? STORAGE_EXTERN : STORAGE_NONE;
         cxx_class_add_member(instance, declaration,
                              (AccessSpec)field->cxx_access, true);
         ast_add_decl(active_ast, declaration);
@@ -18602,7 +18618,15 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
             }
         }
     }
-    if (storage == STORAGE_EXTERN) declaration->storage = STORAGE_EXTERN;
+    if (storage == STORAGE_EXTERN && !initializer) {
+        declaration->storage = STORAGE_EXTERN;
+    } else {
+        /* An out-of-class declaration without `extern` is a definition even
+         * when it has no initializer.  An initializer also makes an explicit
+         * `extern` declaration a definition. */
+        declaration->storage = STORAGE_NONE;
+        declaration->var_is_cxx_static_member_declaration = false;
+    }
     if (is_inline) declaration->var_is_inline = true;
     return stmt_null(loc);
 }

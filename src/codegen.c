@@ -3057,6 +3057,11 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         if (codegen_global_variable(ast, declaration->name) != declaration) {
             continue;
         }
+        if (declaration->var_is_cxx_static_member_declaration) {
+            module_add_symbol(mod, decl_link_name(declaration), 0u, false,
+                              MODULE_SYMBOL_DATA, true);
+            continue;
+        }
         size = (uint32_t)declaration->type->size;
         alignment = declaration->type->align > 0
             ? (uint32_t)declaration->type->align : 1u;
