@@ -7908,6 +7908,7 @@ static bool gen64_cxx_constructor_argument_can_cache(
         !argument->expr->cxx_temporary_owner &&
         !argument->expr->cxx_temporary_cleanups && type && type->size <= 8 &&
         (type_is_integer(type) || type->kind == TYPE_ENUM ||
+         type_is_floating(type) ||
          type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) &&
         !type->cxx_is_member_pointer;
 }

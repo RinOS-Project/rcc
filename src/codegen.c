@@ -12592,6 +12592,7 @@ static bool gen_cxx_constructor_argument_can_cache32(
         !argument->expr->cxx_temporary_owner &&
         !argument->expr->cxx_temporary_cleanups && type && type->size <= 8 &&
         (type_is_integer(type) || type->kind == TYPE_ENUM ||
+         type_is_floating(type) ||
          type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) &&
         !type->cxx_is_member_pointer;
 }
@@ -12618,6 +12619,13 @@ static ExprList* gen_cxx_capture_constructor_arguments32(
             Expr* temporary_value;
             if (gen_is_integer64(value->type)) {
                 gen_expr_as_integer64(mod, value);
+                emit_mov_mem_reg(mod, EBP,
+                    argument->cxx_constructor_argument_offset, EAX);
+                emit_mov_mem_reg(mod, EBP,
+                    argument->cxx_constructor_argument_offset + 4, EDX);
+            } else if (gen_is_floating(value->type) &&
+                       gen_float_width(value->type) == 8) {
+                gen_expr(mod, value);
                 emit_mov_mem_reg(mod, EBP,
                     argument->cxx_constructor_argument_offset, EAX);
                 emit_mov_mem_reg(mod, EBP,
@@ -19739,6 +19747,7 @@ static void codegen_assign_constructor_argument_storage(
     if (!argument || !bytes || *bytes == INT_MAX ||
         argument->cxx_constructor_argument_offset != 0 || !type ||
         (!type_is_integer(type) && type->kind != TYPE_ENUM &&
+         !type_is_floating(type) &&
          type->kind != TYPE_PTR && type->kind != TYPE_NULLPTR) ||
         type->cxx_is_member_pointer || type->size > 8) {
         return;
