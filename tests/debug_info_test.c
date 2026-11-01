@@ -6767,6 +6767,15 @@ static int64_t evaluate_inline_mutated_local_expression(
     return 0;
 }
 
+static uint64_t arithmetic_shift_right_u64(uint64_t value,
+                                           unsigned int shift) {
+    assert(shift < 64u);
+    if (shift == 0u) return value;
+    return (value >> shift) |
+        ((value & UINT64_C(0x8000000000000000))
+             ? UINT64_MAX << (64u - shift) : 0u);
+}
+
 static void verify_cxx_inline_mutated_local_location(
     const char* path, uint16_t architecture, const char* function_name,
     const char* local_name, const char* entry_name,
@@ -6796,8 +6805,10 @@ static void verify_cxx_inline_mutated_local_location(
     bool found_call = false;
     size_t bitwise_start = signed_wide ? 4u : 3u;
     size_t entry_count = wide
-        ? bitwise_wide ? (signed_wide ? 7u : shifted_wide ? 8u : 6u)
-                       : (signed_wide ? 4u : 3u)
+        ? (bitwise_wide
+               ? signed_wide ? shifted_wide ? 9u : 7u
+                             : shifted_wide ? 8u : 6u
+               : signed_wide ? 4u : 3u)
         : 4u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
@@ -6927,17 +6938,27 @@ static void verify_cxx_inline_mutated_local_location(
                         if (bitwise_wide && entry >= bitwise_start) {
                             expected ^= UINT64_C(0x8000000000000001);
                         }
-                        if (bitwise_wide && entry >= bitwise_start + 1u) {
+                        if (shifted_wide && signed_wide && bitwise_wide &&
+                            entry >= bitwise_start + 1u) {
+                            expected = arithmetic_shift_right_u64(expected, 3u);
+                        }
+                        if (shifted_wide && signed_wide && bitwise_wide &&
+                            entry >= bitwise_start + 2u) {
+                            expected = arithmetic_shift_right_u64(expected, 33u);
+                        }
+                        if (bitwise_wide && entry >= bitwise_start +
+                                (signed_wide && shifted_wide ? 3u : 1u)) {
                             expected &= UINT64_C(0x7fffffffffffffff);
                         }
-                        if (bitwise_wide && entry >= bitwise_start + 2u) {
+                        if (bitwise_wide && entry >= bitwise_start +
+                                (signed_wide && shifted_wide ? 4u : 2u)) {
                             expected |= UINT64_C(0x0100000000000001);
                         }
-                        if (shifted_wide &&
+                        if (shifted_wide && !signed_wide &&
                             entry >= bitwise_start + 3u) {
                             expected <<= 1u;
                         }
-                        if (shifted_wide &&
+                        if (shifted_wide && !signed_wide &&
                             entry >= bitwise_start + 4u) {
                             expected >>= 3u;
                         }
@@ -11283,7 +11304,7 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
         } else if (opcode == 0x1au || opcode == 0x21u ||
                    opcode == 0x1cu ||
                    opcode == 0x1eu || opcode == 0x22u ||
-                   opcode == 0x24u || opcode == 0x25u ||
+                   opcode == 0x24u || opcode == 0x25u || opcode == 0x26u ||
                    opcode == 0x27u ||
                    opcode == 0x2du) {
             uint64_t left;
@@ -11309,6 +11330,10 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
                 assert(right < (architecture == ARCH_X64 ? 64u : 32u));
                 stack[stack_size++] = (architecture == ARCH_X64
                     ? left : (uint32_t)left) >> right;
+            } else if (opcode == 0x26u) {
+                assert(right < (architecture == ARCH_X64 ? 64u : 32u));
+                stack[stack_size++] = arithmetic_shift_right_u64(
+                    left, (unsigned int)right);
             } else if (opcode == 0x27u) {
                 stack[stack_size++] = left ^ right;
             } else {
@@ -11424,7 +11449,7 @@ static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
                    opcode == 0x1eu ||
                    opcode == 0x21u || opcode == 0x22u ||
                    opcode == 0x24u || opcode == 0x25u ||
-                   opcode == 0x27u || opcode == 0x2du) {
+                   opcode == 0x26u || opcode == 0x27u || opcode == 0x2du) {
             uint32_t left;
             uint32_t right;
             uint32_t value;
@@ -11444,6 +11469,12 @@ static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
                 case 0x25u:
                     assert(right < 32u);
                     value = left >> right;
+                    break;
+                case 0x26u:
+                    assert(right < 32u);
+                    value = right == 0u ? left : (left >> right) |
+                        ((left & UINT32_C(0x80000000))
+                             ? UINT32_MAX << (32u - right) : 0u);
                     break;
                 case 0x27u: value = left ^ right; break;
                 default: {
@@ -19540,12 +19571,12 @@ int main(int argc, char** argv)
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", true, true, 2u, true, false);
+            "stable_signed_wide_input", true, true, 2u, true, true);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", true, true, 2u, true, false);
+            "stable_signed_wide_input", true, true, 2u, true, true);
         return 0;
     }
     if (argc == 6 &&

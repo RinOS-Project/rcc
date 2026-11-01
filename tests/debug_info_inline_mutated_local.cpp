@@ -50,6 +50,8 @@ static inline long long debug_inline_mutated_signed_wide_local(
     ++signed_wide_evolving;
     signed_wide_evolving *= 2LL;
     signed_wide_evolving ^= -9223372036854775807LL;
+    signed_wide_evolving >>= 3LL;
+    signed_wide_evolving >>= 33LL;
     signed_wide_evolving &= 0x7fffffffffffffffLL;
     signed_wide_evolving |= 0x0100000000000001LL;
     return signed_wide_evolving + 5LL;
