@@ -2739,7 +2739,7 @@ static bool lower_static_local_dynamic_scalar_supported(
          type_is_floating((Type*)type) || type->kind == TYPE_PTR);
 }
 
-static const ExprList* lower_dynamic_tls_aggregate_field_initializer(
+static const ExprList* lower_dynamic_aggregate_field_initializer(
     const Expr* initializer, const TypeField* field, size_t field_index,
     bool designated) {
     const ExprList* item;
@@ -2763,7 +2763,7 @@ static const ExprList* lower_dynamic_tls_aggregate_field_initializer(
     return item;
 }
 
-static bool lower_dynamic_tls_aggregate_initializer_supported(
+static bool lower_dynamic_static_aggregate_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
     const Expr* initializer = declaration ? declaration->var_init : NULL;
@@ -2774,7 +2774,8 @@ static bool lower_dynamic_tls_aggregate_initializer_supported(
     bool has_field_designators = false;
     bool has_positional_items = false;
     if (!declaration || declaration->kind != DECL_VAR ||
-        !declaration->var_is_thread_local ||
+        (!declaration->var_is_thread_local &&
+         !declaration->var_is_static_local) ||
         !declaration->var_dynamic_initializer ||
         !declaration->var_reference_temporary_guard ||
         declaration->storage != STORAGE_STATIC || !type ||
@@ -2852,7 +2853,7 @@ static bool lower_dynamic_tls_aggregate_initializer_supported(
     if (initializer->compound_cxx_default_member_normalized) {
         for (field = type->fields; field; field = field->next) {
             if (field->initializer &&
-                !lower_dynamic_tls_aggregate_field_initializer(
+                !lower_dynamic_aggregate_field_initializer(
                     initializer, field, 0u, true)) {
                 return false;
             }
@@ -2861,7 +2862,7 @@ static bool lower_dynamic_tls_aggregate_initializer_supported(
     return true;
 }
 
-static bool lower_dynamic_tls_aggregate_initializer(
+static bool lower_dynamic_static_aggregate_initializer(
     RccIrLowerContext* context, const Decl* declaration);
 
 static bool lower_static_volatile_aggregate_supported(
@@ -3004,9 +3005,9 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 !declaration->var_is_static_local &&
                 (declaration->var_reference_temporary_guard ||
                  declaration->var_reference_temporary_owner) &&
-                (!lower_dynamic_tls_aggregate_initializer_supported(
+                (!lower_dynamic_static_aggregate_initializer_supported(
                      declaration) ||
-                 !lower_dynamic_tls_aggregate_initializer(
+                 !lower_dynamic_static_aggregate_initializer(
                      context, declaration))) {
                     context->unsupported = true;
                     return lower_invalid_value();
@@ -3032,7 +3033,7 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 declaration->type->cleanup_function ||
                 (declaration->var_is_static_local &&
                  !lower_static_local_dynamic_scalar_supported(declaration) &&
-                 !lower_dynamic_tls_aggregate_initializer_supported(
+                 !lower_dynamic_static_aggregate_initializer_supported(
                      declaration) &&
                  !lower_static_volatile_aggregate_supported(declaration) &&
                  (declaration->var_dynamic_initializer ||
@@ -28570,7 +28571,7 @@ static bool lower_static_local_scalar_initializer(
     return true;
 }
 
-static bool lower_dynamic_tls_aggregate_initializer(
+static bool lower_dynamic_static_aggregate_initializer(
     RccIrLowerContext* context, const Decl* declaration) {
     const Decl* guard;
     const Decl* cleanup_owner;
@@ -28586,7 +28587,7 @@ static bool lower_dynamic_tls_aggregate_initializer(
     size_t field_index = 0u;
     bool has_field_designators;
     if (!context ||
-        !lower_dynamic_tls_aggregate_initializer_supported(declaration)) {
+        !lower_dynamic_static_aggregate_initializer_supported(declaration)) {
         if (context) context->unsupported = true;
         return false;
     }
@@ -28604,9 +28605,9 @@ static bool lower_dynamic_tls_aggregate_initializer(
         context, "__cxa_guard_acquire", rcc_ir_type_integer(32u),
         &operand, 1u);
     initialize_block = rcc_ir_block_add(
-        context->function, "dynamic.tls.initialize");
+        context->function, "dynamic.static.aggregate.initialize");
     done_block = rcc_ir_block_add(
-        context->function, "dynamic.tls.initialized");
+        context->function, "dynamic.static.aggregate.initialized");
     if (!acquired.valid || !initialize_block || !done_block ||
         !lower_conditional_branch(
             context, acquired, initialize_block->id, done_block->id)) {
@@ -28624,7 +28625,7 @@ static bool lower_dynamic_tls_aggregate_initializer(
         NULL, 0u, NULL, 0u);
     if (!symbol) return false;
     rcc_ir_set_callee(symbol, decl_link_name(declaration));
-    symbol->symbol_is_tls = true;
+    symbol->symbol_is_tls = declaration->var_is_thread_local;
     object = lower_value(symbol->result, rcc_ir_type_pointer(0u), true);
     object.volatile_access = declaration->type->is_volatile;
 
@@ -28633,7 +28634,7 @@ static bool lower_dynamic_tls_aggregate_initializer(
             INIT_DESIGNATOR_FIELD;
     field = declaration->type->fields;
     while (field) {
-        item = lower_dynamic_tls_aggregate_field_initializer(
+        item = lower_dynamic_aggregate_field_initializer(
             declaration->var_init, field, field_index,
             has_field_designators);
         if (item) {
@@ -28708,13 +28709,18 @@ static bool lower_dynamic_tls_aggregate_initializer(
         registration_arguments[1] = object.value;
         registration_arguments[2] = dso_handle.value;
         registered = lower_cxx_runtime_call(
-            context, "__cxa_thread_atexit", rcc_ir_type_integer(32u),
+            context,
+            declaration->var_is_thread_local
+                ? "__cxa_thread_atexit" : "__cxa_atexit",
+            rcc_ir_type_integer(32u),
             registration_arguments, 3u);
         registration_failed = lower_truth(context, registered);
         failure_block = rcc_ir_block_add(
-            context->function, "dynamic.tls.cleanup.registration.failed");
+            context->function,
+            "dynamic.static.aggregate.cleanup.registration.failed");
         registered_block = rcc_ir_block_add(
-            context->function, "dynamic.tls.cleanup.registered");
+            context->function,
+            "dynamic.static.aggregate.cleanup.registered");
         if (!registered.valid || !registration_failed.valid ||
             !failure_block || !registered_block ||
             !lower_conditional_branch(
@@ -28802,8 +28808,9 @@ static bool lower_declaration(RccIrLowerContext* context,
         if (lower_static_volatile_aggregate_supported(declaration)) {
             return true;
         }
-        if (lower_dynamic_tls_aggregate_initializer_supported(declaration)) {
-            return lower_dynamic_tls_aggregate_initializer(
+        if (lower_dynamic_static_aggregate_initializer_supported(
+                declaration)) {
+            return lower_dynamic_static_aggregate_initializer(
                 context, declaration);
         }
         if (lower_static_local_dynamic_scalar_supported(declaration) &&

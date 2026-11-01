@@ -41,6 +41,7 @@ typedef struct VerifiedThreadExitState {
 static _Thread_local VerifiedThreadExitState*
     verified_thread_exit_state;
 int verified_dynamic_tls_aggregate_destructor_count;
+int verified_static_local_aggregate_destructions;
 static int verified_dynamic_tls_dso_handle;
 
 static int RINOS_ABI verified_thread_atexit(
@@ -81,6 +82,11 @@ extern void RINOS_ABI __cxa_guard_release(unsigned long long* guard);
 extern void RINOS_ABI __cxa_guard_abort(unsigned long long* guard);
 extern int cxx_static_reference_guard_aborts;
 extern int cxx_static_reference_guard_releases;
+extern int cxx_static_reference_atexit_registrations;
+extern int cxx_static_reference_atexit_finalizations;
+extern int RINOS_ABI __cxa_atexit(
+    VerifiedThreadExitCallback callback, void* object, void* dso);
+extern void RINOS_ABI __cxa_finalize(void* dso);
 extern int RINOS_ABI verified_runtime_setjmp(void* buffer) __asm__("setjmp");
 extern void RINOS_ABI verified_runtime_longjmp(
     void* buffer, int value) __asm__("longjmp");
@@ -465,6 +471,10 @@ static void* symbol_address(void* text_memory, const ObjSymbol* symbol)
 static void* verified_runtime_import_address(const char* symbol_name)
 {
     if (strcmp(symbol_name,
+               "verified_static_local_aggregate_destructions") == 0) {
+        return &verified_static_local_aggregate_destructions;
+    }
+    if (strcmp(symbol_name,
                "verified_dynamic_tls_aggregate_destructor_count") == 0) {
         return &verified_dynamic_tls_aggregate_destructor_count;
     }
@@ -482,6 +492,8 @@ static void* verified_runtime_import_address(const char* symbol_name)
         void (RINOS_ABI *longjmp_function)(void*, int);
         int (RINOS_ABI *guard_acquire)(unsigned long long*);
         void (RINOS_ABI *guard_action)(unsigned long long*);
+        int (RINOS_ABI *static_atexit)(
+            VerifiedThreadExitCallback, void*, void*);
         int (RINOS_ABI *thread_atexit)(
             VerifiedThreadExitCallback, void*, void*);
     } function;
@@ -548,6 +560,8 @@ static void* verified_runtime_import_address(const char* symbol_name)
         function.guard_action = __cxa_guard_release;
     } else if (strcmp(symbol_name, "__cxa_guard_abort") == 0) {
         function.guard_action = __cxa_guard_abort;
+    } else if (strcmp(symbol_name, "__cxa_atexit") == 0) {
+        function.static_atexit = __cxa_atexit;
     } else if (strcmp(symbol_name, "__cxa_thread_atexit") == 0) {
         function.thread_atexit = verified_thread_atexit;
     } else if (strcmp(symbol_name, "abort") == 0) {
@@ -3889,6 +3903,53 @@ static void verify_static_local_scalar_object(const char* path)
     objfile_free(object);
 }
 
+static void verify_static_local_aggregate_object(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* entry_symbol;
+    ObjSymbol* destructor_count_symbol;
+    size_t mapping_size;
+    void* memory;
+    int (RINOS_ABI *entry)(void);
+    int (RINOS_ABI *destructor_count)(void);
+    void* address;
+    int registrations_before = cxx_static_reference_atexit_registrations;
+    int finalizations_before = cxx_static_reference_atexit_finalizations;
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    entry_symbol = objfile_find_symbol(object, "main");
+    destructor_count_symbol = objfile_find_symbol(
+        object, "verified_static_local_aggregate_destructor_count");
+    assert(text != NULL && entry_symbol != NULL &&
+           entry_symbol->type == SYM_GLOBAL &&
+           entry_symbol->binding == BIND_CODE && entry_symbol->section == 0 &&
+           destructor_count_symbol != NULL &&
+           destructor_count_symbol->type == SYM_GLOBAL &&
+           destructor_count_symbol->binding == BIND_CODE &&
+           destructor_count_symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, entry_symbol);
+    memcpy(&entry, &address, sizeof(entry));
+    address = symbol_address(memory, destructor_count_symbol);
+    memcpy(&destructor_count, &address, sizeof(destructor_count));
+    cxx_static_reference_guard_aborts = 0;
+    cxx_static_reference_guard_releases = 0;
+    verified_static_local_aggregate_destructions = 0;
+    assert(entry() == 0);
+    assert(cxx_static_reference_guard_aborts == 1);
+    assert(cxx_static_reference_guard_releases == 1);
+    assert(destructor_count() == 0);
+    assert(cxx_static_reference_atexit_registrations ==
+           registrations_before + 1);
+    __cxa_finalize(&verified_dynamic_tls_dso_handle);
+    assert(destructor_count() == 1);
+    assert(cxx_static_reference_atexit_finalizations ==
+           finalizations_before + 1);
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 static void verify_static_local_tls_object(const char* path, uint16_t arch)
 {
     static const char* const required_runtime_symbols[] = {
@@ -6816,6 +6877,12 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--static-local-scalar-object") == 0) {
         verify_static_local_scalar_object(argv[2]);
         puts("Verified dynamic static-scalar exception retry passed");
+        return 0;
+    }
+    if (argc == 3 &&
+        strcmp(argv[1], "--static-local-aggregate-object") == 0) {
+        verify_static_local_aggregate_object(argv[2]);
+        puts("Verified dynamic static-aggregate exception retry passed");
         return 0;
     }
     if (argc == 9 &&

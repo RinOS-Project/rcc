@@ -767,6 +767,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-verified-cxx-automatic-array-cleanup
 .PHONY: test-verified-cxx-virtual-base-value
 .PHONY: test-verified-cxx-static-local-scalar
+.PHONY: test-verified-cxx-static-local-aggregate
 .PHONY: test-verified-cxx-dynamic-tls-aggregate
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
@@ -24293,6 +24294,81 @@ endif
 	$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host
 	@echo "C++ dynamic function-static scalar initialization tests completed"
 
+test-verified-cxx-static-local-aggregate: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-static-local-aggregate)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/gcc$(EXE_SUFFIX) \
+		tests/verified_backend_static_local_aggregate.cpp
+	$(TEST_OUT)/verified-cxx-static-local-aggregate/gcc$(EXE_SUFFIX)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DRCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/x86.ro \
+		tests/verified_backend_static_local_aggregate.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/x86.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-static-local-aggregate/x86.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DRCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/x64.ro \
+		tests/verified_backend_static_local_aggregate.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/x64.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-static-local-aggregate/x64.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-DRCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/x86-o2.ro \
+		tests/verified_backend_static_local_aggregate.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/x86-o2.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-static-local-aggregate/x86-o2.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-DRCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/x64-o2.ro \
+		tests/verified_backend_static_local_aggregate.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/x64-o2.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-static-local-aggregate/x64-o2.log,0)
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -I$(INCDIR) -o \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/verify \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/verified-cxx-static-local-aggregate/verify \
+		--static-local-aggregate-object \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/x64.ro
+	$(TEST_OUT)/verified-cxx-static-local-aggregate/verify \
+		--static-local-aggregate-object \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/x64-o2.ro
+ifeq ($(OS),Windows_NT)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/native-x86.s \
+		tests/verified_backend_static_local_aggregate.cpp
+	$(CC) -m32 -c -o \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x86.o \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x86.s
+	$(OBJDUMP) -f $(TEST_OUT)/verified-cxx-static-local-aggregate/native-x86.o > \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x86-arch.log
+	$(GREP) -F -q "pe-i386" \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-static-local-aggregate/native-x64.s \
+		tests/verified_backend_static_local_aggregate.cpp
+	$(CC) -c -o \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x64.o \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x64.o
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x64-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/verified-cxx-static-local-aggregate/native-x64-host
+else
+	$(call CXX_POSIX_EXCEPTION_ENTRY_TEST,verified-cxx-static-local-aggregate,verified_backend_static_local_aggregate.cpp,,)
+endif
+	@echo "Verified typed-SSA dynamic block-static aggregate initialization tests completed"
+
 test-verified-cxx-dynamic-tls-aggregate: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
@@ -24380,7 +24456,7 @@ else
 endif
 	@echo "C++ dynamic aggregate TLS initialization and cleanup tests completed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) $(VERIFIED_BACKEND_X86_RUNTIME_DEPS) test-rinvalidate-dynamic-tls test-verified-goto test-verified-atomic-vla-rmw test-verified-atomic-fetch-add test-verified-vla-local-bound test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-conditional-xvalue test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested test-verified-sysv-sse-pair-return test-verified-cxx-static-local-scalar test-verified-cxx-dynamic-tls-aggregate
+test-verified-backend: test-verified-cxx-static-local-aggregate
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

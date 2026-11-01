@@ -1178,7 +1178,8 @@
         floating, pointer, and volatile scalars; x64 legacy and verified
         execution pass at `-O0` and `-O2`, and all twelve functions emit without
         verified-backend fallback for i686/AMD64 at both optimization levels.
-        aggregate and object-destruction cases remain separate.
+        Scalar-field aggregate initialization is covered separately below;
+        class-valued fields and partial subobject destruction remain open.
   - [x] Support dynamically initialized function-local C++ `thread_local`
         integer and pointer scalars in legacy and verified backends. Keep each
         guard and object in TLS, register guard-abort cleanup before evaluating
@@ -13147,5 +13148,13 @@ remains a separate open item.
       abort the guard, and retry on the next access. The exception-cleanup and
       static-reference-subobjects targets pass i686/AMD64 generation and x64
       host runtime checks; the subobject test also passes its GCC C++20 oracle.
-- [ ] Extend this behavior to TLS, add verified-SSA lifetime/cleanup lowering,
-      and compare the throwing retry fixture directly with GCC on both targets.
+- [x] Lower dynamically initialized non-TLS block-static aggregates with
+      scalar fields through verified SSA. Preserve initializer order and guarded
+      throw/retry behavior, then register and run a user destructor exactly
+      once through `__cxa_atexit`. `test-verified-cxx-static-local-aggregate`
+      passes the GCC oracle and legacy x64 runtime, emits i686/AMD64 objects
+      without fallback at `-O0` and `-O2`, and executes verified x64 objects at
+      both optimization levels while checking guard and destructor counts.
+- [ ] Extend verified lowering to reference/class-valued aggregate fields and
+      partial-subobject cleanup, add TLS aggregate lifetime/cleanup, and compare
+      the throwing reference-temporary retry fixture directly with GCC.
