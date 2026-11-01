@@ -12989,7 +12989,7 @@ remains a separate open item.
       pointer/array-to-bool, and constructor parameters. Fix legacy x64 scalar
       initialization to convert integer/double values to the destination float
       representation. GCC C++20 positive/negative oracles, i686/AMD64 generation,
-      AMD64 runtime, 17 matching negative diagnostics per compiler/target, and
+      AMD64 runtime, 18 matching negative diagnostics per compiler/target, and
       absence of invalid object output pass in `test-cxx-list-narrowing`.
 - [x] Convert unscoped enums implicitly to floating types in scalar
       initialization and overload resolution, and preserve C++20
@@ -12998,6 +12998,11 @@ remains a separate open item.
       against a float conversion. GCC C++20, i686/AMD64
       generation, AMD64 runtime, diagnostic counts, and invalid-object absence
       pass in `test-cxx-list-narrowing`.
+- [x] Cover the top of the standard 64-bit unsigned range in list narrowing:
+      accept `2^64 - 2048` as an exact `double` initializer and reject
+      `ULLONG_MAX`. GCC C++20, i686/AMD64 diagnostics and generation, AMD64
+      runtime, diagnostic counts, and invalid-object absence pass in
+      `test-cxx-list-narrowing`.
 - [x] Prefer viable `std::initializer_list` constructors for class list-
       initialization and initializer-list parameters in ordinary function
       overloads. Materialize the RinOS `begin_`/`size_` ABI fields and const

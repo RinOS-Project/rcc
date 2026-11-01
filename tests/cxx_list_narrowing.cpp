@@ -48,6 +48,7 @@ int main() {
     float rounded_fraction{1.1};
     float exact_integer{16777216};
     double exact_wide_integer{9007199254740992ULL};
+    double exact_ull_boundary{18446744073709549568ULL};
     unsigned char exact_enum_byte{list_narrowing_byte_max};
     float exact_enum_float{list_narrowing_exact_float};
     float exact_unsigned_enum_float{
@@ -65,6 +66,7 @@ int main() {
     if (rounded_fraction != 1.1f) return 4;
     if (exact_integer != 16777216.0f) return 5;
     if (exact_wide_integer != 9007199254740992.0) return 6;
+    if (exact_ull_boundary != 18446744073709549568.0) return 15;
     if (exact_enum_byte != 255u) return 10;
     if (exact_enum_float != 16777216.0f) return 11;
     if (exact_unsigned_enum_float != 4026531840.0f) return 12;

@@ -45,6 +45,7 @@ int main() {
     unsigned char out_of_range{256};
     unsigned char array_out_of_range[1]{256};
     float inexact_integer{16777217};
+    double inexact_ull_max{18446744073709551615ULL};
     double runtime_fraction = 1.5;
     float runtime_narrow{runtime_fraction};
     float floating_overflow{1e100};
@@ -63,5 +64,6 @@ int main() {
            array_out_of_range[0] + (int)inexact_integer +
            (int)runtime_narrow + (int)floating_overflow +
            nonzero_integer + from_pointer + from_array + enum_negative +
-           (int)enum_inexact_float + (int)unsigned_enum_inexact_float;
+           (int)enum_inexact_float + (int)unsigned_enum_inexact_float +
+           (int)inexact_ull_max;
 }
