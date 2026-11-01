@@ -6770,7 +6770,8 @@ static int64_t evaluate_inline_mutated_local_expression(
 static void verify_cxx_inline_mutated_local_location(
     const char* path, uint16_t architecture, const char* function_name,
     const char* local_name, const char* entry_name,
-    const char* source_name, bool wide, bool signed_wide) {
+    const char* source_name, bool wide, bool signed_wide,
+    uint64_t wide_multiplier) {
     static const uint64_t wide_inputs[] = {
         0u, 1u, UINT64_C(0xfffffffe), UINT64_C(0xffffffff),
         UINT64_C(0x100000000), UINT64_C(0x7fffffffffffffff),
@@ -6912,7 +6913,7 @@ static void verify_cxx_inline_mutated_local_location(
                     uint64_t expected = entry == 0u ? input
                         : entry == 1u ? input + 7u
                         : signed_wide && entry == 2u ? input + 8u
-                                      : (input + 8u) * 2u;
+                                      : (input + 8u) * wide_multiplier;
                     assert(actual == expected);
                 }
             } else {
@@ -19482,28 +19483,28 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--verify-inline-mutated-local") == 0) {
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_local", "evolving",
-            "debug_inline_mutated_local_entry", NULL, false, false);
+            "debug_inline_mutated_local_entry", NULL, false, false, 0u);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_local", "evolving",
-            "debug_inline_mutated_local_entry", NULL, false, false);
+            "debug_inline_mutated_local_entry", NULL, false, false, 0u);
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_wide_local",
             "wide_evolving", "debug_inline_mutated_wide_local_entry",
-            "stable_wide_input", true, false);
+            "stable_wide_input", true, false, UINT64_C(0x100000001));
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_wide_local",
             "wide_evolving", "debug_inline_mutated_wide_local_entry",
-            "stable_wide_input", true, false);
+            "stable_wide_input", true, false, UINT64_C(0x100000001));
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", true, true);
+            "stable_signed_wide_input", true, true, 2u);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", true, true);
+            "stable_signed_wide_input", true, true, 2u);
         return 0;
     }
     if (argc == 6 &&
