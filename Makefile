@@ -24824,6 +24824,13 @@ test-cxx-external-static-data-members: $(RCXX_TARGET)
 	$(CXX) -c -o $(TEST_OUT)/cxx-external-static-data-members/caller-cxx14.o $(TEST_OUT)/cxx-external-static-data-members/caller-cxx14.s
 	$(CXX) -o $(TEST_OUT)/cxx-external-static-data-members/external-static-data-cxx14$(EXE_SUFFIX) $(TEST_OUT)/cxx-external-static-data-members/caller-cxx14.o $(TEST_OUT)/cxx-external-static-data-members/definitions-cxx14.o $(TEST_OUT)/cxx-external-static-data-members/main-cxx14.o
 	$(TEST_OUT)/cxx-external-static-data-members/external-static-data-cxx14$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_INLINE_STATIC_DATA_B -S -o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-b.s tests/cxx_inline_static_data_member_odr.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-a.s tests/cxx_inline_static_data_member_odr.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_INLINE_STATIC_DATA_MAIN -c -o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-main.o tests/cxx_inline_static_data_member_odr.cpp
+	$(CXX) -c -o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-a.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-a.s
+	$(CXX) -c -o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-b.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-b.s
+	$(CXX) -o $(TEST_OUT)/cxx-external-static-data-members/inline-static-odr$(EXE_SUFFIX) $(TEST_OUT)/cxx-external-static-data-members/inline-odr-a.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-b.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-main.o
+	$(TEST_OUT)/cxx-external-static-data-members/inline-static-odr$(EXE_SUFFIX)
 
 .PHONY: test-cxx-conversion-member-pointer-owner-ranking
 test-cxx-conversion-member-pointer-owner-ranking: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)

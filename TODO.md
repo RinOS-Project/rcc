@@ -12828,5 +12828,7 @@ remains a separate open item.
       GCC C++14/C++20 syntax checks, RCC i686/AMD64 object generation in both
       standards, verified backend compilation for both targets, and
       RCC-generated callers linked against separate GCC definitions and
-      executed successfully in
+      executed successfully in both language modes. Two RCC translation units
+      also link one inline static data member with a single shared address.
+      The tests run through
       `test-cxx-external-static-data-members`.
