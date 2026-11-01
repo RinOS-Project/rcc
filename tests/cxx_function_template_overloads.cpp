@@ -833,6 +833,15 @@ struct InheritedMemberHidingRankDerived : InheritedMemberUsingRankBase {
     int choose(int) { return 405; }
 };
 
+int choose_array_decay_with_cv(int (&)[3]) { return 406; }
+int choose_array_decay_with_cv(const int*) { return 407; }
+
+template<typename T, int N>
+int choose_array_decay_template_with_cv(T (&)[N]) { return 408; }
+
+template<typename T>
+int choose_array_decay_template_with_cv(const T*) { return 409; }
+
 struct InheritedMemberTemplateUsingHidingBase {
     template<typename T>
     int choose(T) { return 501; }
@@ -3953,6 +3962,11 @@ int main(void) {
     if (inherited_rank.choose(1L) != 404) return 139;
     InheritedMemberHidingRankDerived hiding_rank;
     if (hiding_rank.choose(inherited_short_argument) != 405) return 140;
+    int array_decay_values[3] = {};
+    if (choose_array_decay_with_cv(array_decay_values) != 406) return 141;
+    if (choose_array_decay_template_with_cv(array_decay_values) != 408) {
+        return 142;
+    }
     const int explicit_double_result =
         using_inherited_template.adjust<double>(3);
     if (explicit_double_result != 5) return 135;

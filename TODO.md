@@ -1,5 +1,15 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-11-01, array-decay overload ranking)
+
+- [x] Compare array-reference binding with array-to-pointer decay correctly
+  for `T (&)[N]` versus `T*` overloads. Equal exact-element sequences remain
+  ambiguous in ordinary and function-template overload sets, including after
+  template partial ordering; element qualification preserves the better
+  array-reference case. GCC C++20 agrees, and
+  `test-cxx-function-template-overloads` passes the i686/AMD64 diagnostics,
+  valid overload execution, and no-output checks.
+
 ## RCC continuation (2026-10-31, Annex G exceptional values)
 
 - [x] Exercise C99 Annex G G.6.3.3 `catanh` with positive/negative

@@ -39105,6 +39105,76 @@ static bool cxx_function_template_reference_adjustment_equivalent(
     return saw_reference_adjustment && !left_parameter && !right_parameter;
 }
 
+static bool cxx_function_template_array_decay_parameter_pair(
+    Type* left, Type* right) {
+    Type* array_type;
+    Type* pointer_type;
+    if (!left || !right) return false;
+    if (left->is_reference && right->kind == TYPE_PTR &&
+        !right->cxx_is_member_pointer) {
+        array_type = left->base;
+        pointer_type = right;
+    } else if (right->is_reference && left->kind == TYPE_PTR &&
+               !left->cxx_is_member_pointer) {
+        array_type = right->base;
+        pointer_type = left;
+    } else {
+        return false;
+    }
+    return array_type && array_type->kind == TYPE_ARRAY &&
+           array_type->base && pointer_type->base &&
+           type_is_same_template_argument(array_type->base,
+                                          pointer_type->base);
+}
+
+/* After overload resolution's array-to-pointer adjustment,
+ * `T (&)[N]` and `T*` can accept the same argument yet neither function
+ * template is more specialized.  Preserve that equivalence through
+ * partial-ordering fallback so the equally ranked candidates remain
+ * ambiguous, as required by [temp.deduct.partial]. */
+static bool cxx_function_template_array_decay_equivalent(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right) {
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+    bool saw_array_decay = false;
+    if (!left || !right || !left->instance || !right->instance ||
+        !left->tmpl || !right->tmpl ||
+        !left->instance->type || !right->instance->type ||
+        left->has_function_parameter_pack ||
+        right->has_function_parameter_pack ||
+        left->instance->type->kind != TYPE_FUNC ||
+        right->instance->type->kind != TYPE_FUNC ||
+        left->instance->type->variadic !=
+            right->instance->type->variadic ||
+        left->instance->type->has_prototype !=
+            right->instance->type->has_prototype) {
+        return false;
+    }
+    for (int index = 0; index < left->tmpl->param_count; ++index) {
+        if (left->tmpl->params[index].is_pack) return false;
+    }
+    for (int index = 0; index < right->tmpl->param_count; ++index) {
+        if (right->tmpl->params[index].is_pack) return false;
+    }
+    left_parameter = left->instance->type->params;
+    right_parameter = right->instance->type->params;
+    while (left_parameter && right_parameter) {
+        if (type_is_same_template_argument(left_parameter->type,
+                                           right_parameter->type)) {
+            /* Unchanged parameters do not affect this targeted adjustment. */
+        } else if (cxx_function_template_array_decay_parameter_pair(
+                       left_parameter->type, right_parameter->type)) {
+            saw_array_decay = true;
+        } else {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return saw_array_decay && !left_parameter && !right_parameter;
+}
+
 static bool cxx_function_template_array_bound_is_parameter(
     const CxxTemplate* tmpl, const Type* array_type) {
     const Expr* bound;
@@ -41201,6 +41271,7 @@ static int cxx_function_template_match_relation(
     bool conversions_incomparable;
     bool type_patterns_handled;
     bool type_patterns_equivalent;
+    bool array_decay_equivalent;
     if (!left || !right) return 0;
     conversion_relation = cxx_template_conversion_vector_relation(
         left, right, &conversions_incomparable);
@@ -41209,8 +41280,17 @@ static int cxx_function_template_match_relation(
     int repeated_nontype_relation =
         cxx_function_template_repeated_nontype_pattern_relation(left, right);
     if (repeated_nontype_relation != 0) return repeated_nontype_relation;
-    type_pattern_relation = cxx_function_template_type_pattern_relation(
-        left, right, &type_patterns_handled, &type_patterns_equivalent);
+    array_decay_equivalent =
+        cxx_function_template_array_decay_equivalent(left, right);
+    if (array_decay_equivalent) {
+        type_pattern_relation = 0;
+        type_patterns_handled = true;
+        type_patterns_equivalent = true;
+    } else {
+        type_pattern_relation = cxx_function_template_type_pattern_relation(
+            left, right, &type_patterns_handled,
+            &type_patterns_equivalent);
+    }
     if (type_patterns_handled && type_pattern_relation != 0) {
         return type_pattern_relation;
     }

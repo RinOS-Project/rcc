@@ -14643,6 +14643,43 @@ static bool cxx_same_user_conversion_produces_rvalue(
     return !result_type->is_reference || result_type->is_rvalue_reference;
 }
 
+/* Array-to-pointer decay is an lvalue transformation.  It is excluded when
+ * comparing standard conversion sequences for overload ranking, so an exact
+ * array-reference binding and decay to a pointer to the same element type are
+ * indistinguishable.  In particular, neither overload wins for
+ * `f(int (&)[N])` versus `f(int*)` when passed an `int[N]`. */
+static bool cxx_array_reference_and_decay_tie(
+    Expr* argument, Type* left_target, Type* right_target) {
+    Type* source = argument ? argument->type : NULL;
+    Type* reference_target;
+    Type* pointer_target;
+    if (source && source->kind == TYPE_PTR && source->is_reference) {
+        source = source->base;
+    }
+    if (!source || source->kind != TYPE_ARRAY || !left_target ||
+        !right_target) {
+        return false;
+    }
+    if (left_target->is_reference &&
+        right_target->kind == TYPE_PTR &&
+        !right_target->cxx_is_member_pointer) {
+        reference_target = left_target->base;
+        pointer_target = right_target;
+    } else if (right_target->is_reference &&
+               left_target->kind == TYPE_PTR &&
+               !left_target->cxx_is_member_pointer) {
+        reference_target = right_target->base;
+        pointer_target = left_target;
+    } else {
+        return false;
+    }
+    return reference_target && reference_target->kind == TYPE_ARRAY &&
+           pointer_target->base &&
+           cxx_same_parameter_type(source, reference_target, false) &&
+           cxx_same_parameter_type(source->base,
+                                   pointer_target->base, false);
+}
+
 static int cxx_conversion_vector_relation(
     const int* left, const int* right, Type* const* left_targets,
     Type* const* right_targets, TypeMethod* const* left_methods,
@@ -14656,6 +14693,12 @@ static int cxx_conversion_vector_relation(
         bool reference_source_is_rvalue = false;
         bool left_user_conversion = left[index] >= 3 && left[index] < 8;
         bool right_user_conversion = right[index] >= 3 && right[index] < 8;
+        bool array_reference_decay_tie =
+            index >= argument_offset && argument &&
+            cxx_array_reference_and_decay_tie(
+                argument->expr,
+                left_targets ? left_targets[index] : NULL,
+                right_targets ? right_targets[index] : NULL);
         if (left_user_conversion && right_user_conversion) {
             if (left_methods && right_methods && left_methods[index] &&
                 left_methods[index] == right_methods[index] &&
@@ -14669,7 +14712,7 @@ static int cxx_conversion_vector_relation(
             }
             /* Distinct user-defined conversion functions are not ordered by
              * the ranks of their trailing standard conversions. */
-        } else {
+        } else if (!array_reference_decay_tie) {
             if (left[index] < right[index]) left_better = true;
             if (left[index] > right[index]) right_better = true;
         }
