@@ -10,6 +10,21 @@
   `test-cxx-function-template-overloads` passes the i686/AMD64 diagnostics,
   valid overload execution, and no-output checks.
 
+## RCC continuation (2026-11-01, braced argument overload viability)
+
+- [x] Keep untyped braced arguments contextual through ordinary function and
+  constructor candidate ranking. Check scalar conversion ranks, aggregate
+  clause-count viability, nested aggregate lists, constructor-list viability,
+  direct reference binding for one-element lists, temporary binding for
+  multi-element lists, selected scalar list normalization, and aggregate
+  ambiguity. GCC C++20 and RCC i686/AMD64 generation, AMD64 execution, negative
+  diagnostics, and no-object checks pass in
+  `test-cxx-braced-argument-overload`.
+- [ ] Complete `std::initializer_list` constructor preference and function or
+  constructor template deduction from braced-init-list elements; add broader
+  GCC C++20 cases before claiming complete list-initialization overload
+  conformance.
+
 ## RCC continuation (2026-10-31, Annex G exceptional values)
 
 - [x] Exercise C99 Annex G G.6.3.3 `catanh` with positive/negative
@@ -12892,11 +12907,12 @@ remains a separate open item.
       representation. GCC C++20 positive/negative oracles, i686/AMD64 generation,
       AMD64 runtime, 11 matching negative diagnostics per compiler/target, and
       absence of invalid object output pass in `test-cxx-list-narrowing`.
-- [ ] Resolve braced-init-list arguments while building function and constructor
-      overload candidates. Implement candidate viability, initializer-list
-      preference, narrowing-aware candidate ranking, and template deduction from
-      list elements; cover ambiguous and invalid calls against GCC C++20 before
-      claiming full list-initialization overload support.
+- [ ] Implement `std::initializer_list` constructor preference and function or
+      constructor template deduction from braced-init-list elements. Compare the
+      remaining list-initialization ranking and narrowing boundaries with GCC
+      C++20 before claiming full conformance; ordinary candidate viability and
+      selected scalar/aggregate list handling are tracked in the 2026-11-01
+      continuation above.
 - [ ] Extend list narrowing constant evaluation beyond 64-bit integer values and
       through user-defined conversion sequences; compare the remaining standard
       cases with GCC C++20.

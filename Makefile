@@ -636,6 +636,7 @@ endif
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-external-static-data-members
 .PHONY: test-cxx-prvalue-scalar-conversion-cleanup
+.PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-member-methods-invalid
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
@@ -1230,6 +1231,7 @@ CXX_REGRESSION_TARGETS += test-array-to-void-pointer
 CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
 CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
 CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
+CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the
@@ -2973,6 +2975,59 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log,11)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro)
 	@echo "C++ list-initialization narrowing tests completed"
+
+test-cxx-braced-argument-overload: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-braced-argument-overload)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-braced-argument-overload/gcc-host \
+		tests/cxx_braced_argument_overload.cpp
+	$(TEST_OUT)/cxx-braced-argument-overload/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-braced-argument-overload/x86.s \
+		tests/cxx_braced_argument_overload.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-braced-argument-overload/x86.o \
+		$(TEST_OUT)/cxx-braced-argument-overload/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-braced-argument-overload/x64.s \
+		tests/cxx_braced_argument_overload.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-braced-argument-overload/x64.o \
+		$(TEST_OUT)/cxx-braced-argument-overload/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-braced-argument-overload/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-braced-argument-overload/x64-host \
+		tests/cxx_braced_argument_overload_run_test.c \
+		$(TEST_OUT)/cxx-braced-argument-overload/x64.o
+	$(TEST_OUT)/cxx-braced-argument-overload/x64-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_braced_aggregate_overload_ambiguous.cpp, \
+		$(TEST_OUT)/cxx-braced-argument-overload/gcc-ambiguous.log)
+	$(GREP) -F -q "call of overloaded 'choose" \
+		$(TEST_OUT)/cxx-braced-argument-overload/gcc-ambiguous.log
+	$(GREP) -F -q "narrowing conversion" \
+		$(TEST_OUT)/cxx-braced-argument-overload/gcc-ambiguous.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o \
+		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x86.ro \
+		tests/cxx_braced_aggregate_overload_ambiguous.cpp, \
+		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x86.log)
+	$(GREP) -F -q "ambiguous overload" \
+		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x86.log
+	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
+		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o \
+		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.ro \
+		tests/cxx_braced_aggregate_overload_ambiguous.cpp, \
+		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.log)
+	$(GREP) -F -q "ambiguous overload" \
+		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.log
+	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
+		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.ro)
+	@echo "C++ braced argument overload tests completed"
 
 test-cxx-defaulted-equality: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-defaulted-equality)
