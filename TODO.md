@@ -13038,5 +13038,8 @@ remains a separate open item.
       non-constant integer conversions, and floating-to-integer conversions.
       GCC C++20 and RCC i686/AMD64 diagnostics, no-object checks, and AMD64
       runtime parity pass in `test-cxx-list-narrowing`.
-- [ ] Extend integer constant-value narrowing checks beyond the current 64-bit
-      evaluator range and compare remaining C++20 boundary cases with GCC.
+- [ ] Extend integer-constant narrowing if RCC adds supported integer types
+      wider than 64 bits, such as GNU `__int128` or a future increase to
+      C23 `BITINT_MAXWIDTH`. Current supported C++20 integer types and C23
+      `_BitInt` widths are capped at 64 bits; the standard 64-bit upper-bound
+      narrowing cases are covered above.
