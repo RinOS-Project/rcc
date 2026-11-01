@@ -26,6 +26,8 @@ static inline unsigned long long debug_inline_mutated_wide_local(
     wide_evolving ^= 0x8000000000000001ULL;
     wide_evolving &= 0x7fffffffffffffffULL;
     wide_evolving |= 0x0100000000000001ULL;
+    wide_evolving <<= 1ULL;
+    wide_evolving >>= 3ULL;
     return wide_evolving + 5ULL;
 }
 

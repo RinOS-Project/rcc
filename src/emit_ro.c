@@ -5395,7 +5395,7 @@ static bool debug_inline_parameter_frame_offset(
 }
 
 enum {
-    DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY = 512,
+    DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY = 4096,
     DEBUG_INLINE_I686_U64_DIVMOD_EXPRESSION_CAPACITY = 16384
 };
 
@@ -12340,6 +12340,27 @@ static bool debug_inline_parameter_integer_expression(
                 expression_size, NULL)) {
             return true;
         }
+    }
+
+    if (architecture == ARCH_X86 && parameter_type->size == 8u &&
+        (source_expression->kind == EXPR_LSHIFT ||
+         source_expression->kind == EXPR_RSHIFT)) {
+        size_t wide_size = 0u;
+        for (unsigned int word = 0u; word < 2u; ++word) {
+            if (!debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression, word != 0u, expression,
+                    expression_capacity, &wide_size, 0u) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &wide_size, 0x9fu) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &wide_size, 0x93u) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &wide_size, 4u)) {
+                return false;
+            }
+        }
+        *expression_size = wide_size;
+        return true;
     }
 
     if (architecture == ARCH_X86 &&
