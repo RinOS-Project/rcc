@@ -162,12 +162,7 @@ static long long sum_wide_array_constructor_argument(
 
 static WideArrayConstructorArgument
 make_wide_array_constructor_argument() {
-    WideArrayConstructorArgument value;
-    value.values[0] = 11;
-    value.values[1] = 22;
-    value.values[2] = 33;
-    value.values[3] = 44;
-    return value;
+    return WideArrayConstructorArgument{{11, 22, 33, 44}};
 }
 
 struct WideConstructorArgumentReuse {
@@ -301,12 +296,10 @@ int main() {
     if (sum_nested_wide_constructor_argument(
             make_nested_wide_constructor_argument()) != 110) return 48;
 
-    WideArrayConstructorArgument wide_array_argument;
-    wide_array_argument.values[0] = next_wide_aggregate_first();
-    wide_array_argument.values[1] = next_wide_aggregate_second();
-    wide_array_argument.values[2] = next_wide_aggregate_third();
-    wide_array_argument.values[3] = 404;
-    WideArrayConstructorArgumentReuse wide_array_reused(wide_array_argument);
+    WideArrayConstructorArgumentReuse wide_array_reused(
+        WideArrayConstructorArgument{{
+            next_wide_aggregate_first(), next_wide_aggregate_second(),
+            next_wide_aggregate_third(), 404}});
     if (wide_array_reused.from_initializer_first != 101 ||
         wide_array_reused.from_initializer_second != 202 ||
         wide_array_reused.from_body_third != 303 ||

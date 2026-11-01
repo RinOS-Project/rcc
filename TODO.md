@@ -12867,12 +12867,16 @@ remains a separate open item.
       32-byte nested/fixed-array aggregates are evaluated once; GCC C++20,
       i686/AMD64 legacy generation,
       i686 COFF assembly, AMD64 host execution, and constructor/conversion
-      regression suites pass. Typed SSA now reads validated scalar members from
+      regression suites pass; C17 brace-elision/mixed initializer and C++ inline
+      aggregate suites pass. Typed SSA now reads validated scalar members from
       aggregate parameters, classifies x86_64 SysV MEMORY arguments, and emits
       the corresponding stack-by-value call metadata. Typed SSA reads nested
       scalar members and compile-time-bounded scalar array elements from those
-      parameters. The fixture also passes aggregates through an ordinary C++
-      function and passes sret-returned aggregates directly by value. The
-      focused gate emits verified i686/AMD64 objects with zero fallback.
+      parameters. The fixture initializes fixed-array members with standard
+      nested C++ braces; semantic analysis resolves each untyped braced list
+      after its destination subobject is known. It also passes aggregates
+      through an ordinary C++ function and passes sret-returned aggregates
+      directly by value. The focused gate emits verified i686/AMD64 objects
+      with zero fallback.
       Broader aggregate parameter expressions, qualifiers, and nontrivial
       aggregates remain in the open typed-SSA aggregate item.

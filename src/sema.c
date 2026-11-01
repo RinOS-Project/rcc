@@ -28388,10 +28388,16 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_COMPOUND:
-            if (!expr->compound_type ||
-                !type_is_complete(expr->compound_type) ||
-                expr->compound_type->kind == TYPE_FUNC ||
-                expr->compound_type->kind == TYPE_VOID) {
+            if (!expr->compound_type && rcc_parser_is_cxx_mode()) {
+                /* A C++ braced-init-list gets its type from the destination
+                 * aggregate subobject.  It can be visited while the parser
+                 * analyzes its surrounding functional-style construction,
+                 * before sema_initializer supplies that destination. */
+                expr->type = NULL;
+            } else if (!expr->compound_type ||
+                       !type_is_complete(expr->compound_type) ||
+                       expr->compound_type->kind == TYPE_FUNC ||
+                       expr->compound_type->kind == TYPE_VOID) {
                 rcc_error(expr->loc,
                           "compound literal requires a complete object type");
                 expr->type = type_int;
@@ -33769,6 +33775,17 @@ static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
     if (!type || type->cxx_dependent || !initializer) return;
+    /* A nested C++ braced-init-list has no type until the containing
+     * aggregate selects its destination subobject.  Retain that contextual
+     * type on the compound node so later semantic/codegen visits do not
+     * mistake the list for an untyped C compound literal. */
+    if (rcc_parser_is_cxx_mode() &&
+        initializer->kind == EXPR_COMPOUND &&
+        !initializer->compound_type &&
+        (type->kind == TYPE_ARRAY || type->kind == TYPE_STRUCT ||
+         type->kind == TYPE_UNION)) {
+        initializer->compound_type = type;
+    }
     /* A typed C++ class expression can appear inside a scalar initializer,
      * for example `int value = Converter{argument}`.  Its compound node is
      * the class prvalue itself, not a scalar braced-init-list.  Analyze the
