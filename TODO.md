@@ -1031,14 +1031,14 @@
         the prvalue once at the end of the full-expression. GCC C++20, RCC
         i686/AMD64 legacy output and x64 execution, and verified backend object
         generation pass in `test-cxx-prvalue-scalar-conversion-cleanup`.
-  - [x] Evaluate side-effecting integer, enum, and object-pointer constructor
-        arguments once when their size fits the target word and member
-        initializers and the constructor body use the parameters. GCC C++20,
-        i686 assembly generation/assembly, AMD64 runtime, and verified
-        i686/AMD64 object generation pass in
+  - [x] Evaluate side-effecting integer and enum values up to 64 bits plus
+        target-width object pointers once when member initializers and the
+        constructor body use the parameters. GCC C++20, i686 assembly
+        generation/assembly, AMD64 runtime, and verified i686/AMD64 object
+        generation pass in
         `test-cxx-prvalue-scalar-conversion-cleanup`.
   - [ ] Extend constructor-argument caching to floating values, values wider
-        than the target word, and expressions carrying class temporary cleanup.
+        than 64 bits, and expressions carrying class temporary cleanup.
         Preserve exactly-once evaluation across nested member initializers and
         both legacy target backends; add runtime coverage for each ABI case.
   - [x] Support static-duration reference temporaries, including initialization

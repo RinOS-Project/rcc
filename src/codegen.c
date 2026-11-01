@@ -12590,7 +12590,7 @@ static bool gen_cxx_constructor_argument_can_cache32(
     return argument && argument->cxx_constructor_argument_offset < 0 &&
         !argument->cxx_temporary_owner && argument->expr &&
         !argument->expr->cxx_temporary_owner &&
-        !argument->expr->cxx_temporary_cleanups && type && type->size <= 4 &&
+        !argument->expr->cxx_temporary_cleanups && type && type->size <= 8 &&
         (type_is_integer(type) || type->kind == TYPE_ENUM ||
          type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) &&
         !type->cxx_is_member_pointer;
@@ -12616,10 +12616,18 @@ static ExprList* gen_cxx_capture_constructor_arguments32(
         if (gen_cxx_constructor_argument_can_cache32(argument)) {
             Decl* temporary_decl;
             Expr* temporary_value;
-            gen_expr(mod, value);
-            emit_store_typed32(mod, EBP,
-                argument->cxx_constructor_argument_offset, EAX,
-                value->type);
+            if (gen_is_integer64(value->type)) {
+                gen_expr_as_integer64(mod, value);
+                emit_mov_mem_reg(mod, EBP,
+                    argument->cxx_constructor_argument_offset, EAX);
+                emit_mov_mem_reg(mod, EBP,
+                    argument->cxx_constructor_argument_offset + 4, EDX);
+            } else {
+                gen_expr(mod, value);
+                emit_store_typed32(mod, EBP,
+                    argument->cxx_constructor_argument_offset, EAX,
+                    value->type);
+            }
             temporary_decl = decl_var("__rcc_constructor_argument",
                                       value->type, NULL, value->loc);
             temporary_decl->var_offset =
@@ -19732,7 +19740,7 @@ static void codegen_assign_constructor_argument_storage(
         argument->cxx_constructor_argument_offset != 0 || !type ||
         (!type_is_integer(type) && type->kind != TYPE_ENUM &&
          type->kind != TYPE_PTR && type->kind != TYPE_NULLPTR) ||
-        type->cxx_is_member_pointer || type->size > stack_alignment) {
+        type->cxx_is_member_pointer || type->size > 8) {
         return;
     }
     size = type->size > 0 ? type->size : stack_alignment;
