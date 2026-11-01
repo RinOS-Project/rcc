@@ -110,3 +110,26 @@ extern "C" int debug_inline_mutated_dereference_source_entry(int input_value)
     return debug_inline_mutated_dereference_source_parameter(
         *stable_pointer_source);
 }
+
+extern "C" void debug_inline_mutated_pointer_chain_source_observe(
+    int*** value);
+
+static inline int debug_inline_mutated_pointer_chain_source_parameter(
+    int pointer_chain_source_parameter)
+{
+    pointer_chain_source_parameter += 5;
+    return pointer_chain_source_parameter * 2;
+}
+
+extern "C" int debug_inline_mutated_pointer_chain_source_entry(
+    int input_value)
+{
+    int stable_pointer_chain_scalar = input_value;
+    int* stable_pointer_chain_level_one = &stable_pointer_chain_scalar;
+    int** stable_pointer_chain_level_two =
+        &stable_pointer_chain_level_one;
+    debug_inline_mutated_pointer_chain_source_observe(
+        &stable_pointer_chain_level_two);
+    return debug_inline_mutated_pointer_chain_source_parameter(
+        **stable_pointer_chain_level_two);
+}

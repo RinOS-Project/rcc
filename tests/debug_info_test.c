@@ -6362,7 +6362,7 @@ static void verify_cxx_inline_mutated_parameter_location(
     unsigned expected_entries, bool final_mutation_has_multiply,
     bool initial_expression_has_add, bool wide_i686,
     bool signed_wide_i686, bool initial_reference_source,
-    bool initial_pointer_dereference_source) {
+    unsigned int initial_pointer_dereference_depth) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6497,7 +6497,7 @@ static void verify_cxx_inline_mutated_parameter_location(
             assert(locations->data[expression_start] ==
                    (architecture == ARCH_X64 ? 0x76u : 0x75u));
             if (initial_reference_source ||
-                initial_pointer_dereference_source) {
+                initial_pointer_dereference_depth > 0u) {
                 uint64_t source_offset_cursor = expression_start + 1u;
                 int64_t expression_frame_offset;
                 assert(try_read_sleb(
@@ -6508,10 +6508,14 @@ static void verify_cxx_inline_mutated_parameter_location(
                     assert(source_offset_cursor < expression_end &&
                            locations->data[source_offset_cursor++] == 0x06u);
                 } else {
-                    assert(source_offset_cursor + 2u <= expression_end &&
-                           locations->data[source_offset_cursor++] == 0x94u &&
-                           locations->data[source_offset_cursor++] ==
-                               address_size);
+                    for (unsigned int depth = 0u;
+                         depth < initial_pointer_dereference_depth; ++depth) {
+                        assert(source_offset_cursor + 2u <= expression_end &&
+                               locations->data[source_offset_cursor++] ==
+                                   0x94u &&
+                               locations->data[source_offset_cursor++] ==
+                                   address_size);
+                    }
                 }
                 assert(source_offset_cursor + 2u <= expression_end &&
                        locations->data[source_offset_cursor++] == 0x94u &&
@@ -6582,15 +6586,20 @@ static void verify_cxx_inline_mutated_parameter_location(
                         assert(initial_offset < expression_end &&
                                locations->data[initial_offset++] == 0x06u);
                     }
-                    if (initial_pointer_dereference_source) {
-                        assert(initial_offset + 2u <= expression_end &&
-                               locations->data[initial_offset++] == 0x94u &&
-                               locations->data[initial_offset++] ==
-                                   address_size);
+                    if (initial_pointer_dereference_depth > 0u) {
+                        for (unsigned int depth = 0u;
+                             depth < initial_pointer_dereference_depth;
+                             ++depth) {
+                            assert(initial_offset + 2u <= expression_end &&
+                                   locations->data[initial_offset++] ==
+                                       0x94u &&
+                                   locations->data[initial_offset++] ==
+                                       address_size);
+                        }
                     }
                     assert(locations->data[initial_offset] == 0x94u &&
                            locations->data[initial_offset + 1u] == 4u);
-                    if (initial_pointer_dereference_source) {
+                    if (initial_pointer_dereference_depth > 0u) {
                         initial_offset += 2u;
                         if (architecture == ARCH_X64) {
                             static const uint8_t signed_i32_normalization[] = {
@@ -19122,6 +19131,20 @@ int main(int argc, char** argv)
             "dereference_source_parameter", "stable_pointer_source",
             "debug_inline_mutated_dereference_source_entry", 2u, false,
             false, false, false, false, true);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[2], ARCH_X86,
+            "debug_inline_mutated_pointer_chain_source_parameter",
+            "pointer_chain_source_parameter",
+            "stable_pointer_chain_level_two",
+            "debug_inline_mutated_pointer_chain_source_entry", 2u, false,
+            false, false, false, false, 2u);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[3], ARCH_X64,
+            "debug_inline_mutated_pointer_chain_source_parameter",
+            "pointer_chain_source_parameter",
+            "stable_pointer_chain_level_two",
+            "debug_inline_mutated_pointer_chain_source_entry", 2u, false,
+            false, false, false, false, 2u);
         return 0;
     }
     if (argc == 6 &&
