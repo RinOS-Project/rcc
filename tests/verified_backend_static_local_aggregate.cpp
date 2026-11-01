@@ -27,6 +27,15 @@ static int partial_array_member_destructions;
 static int partial_array_unwind_order;
 static int partial_array_final_cleanup_order;
 #endif
+#ifdef RCC_TEST_STATIC_LOCAL_CONSTRUCTOR_SUBOBJECT
+static int constructor_member_initializer_calls;
+static int constructor_parent_body_calls;
+static int constructor_mode_calls;
+static int constructor_leaf_destructions;
+static int constructor_child_destructions;
+static int constructor_unwind_order;
+static int constructor_final_cleanup_order;
+#endif
 extern "C" {
 #ifdef RCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST
 extern int verified_static_local_aggregate_destructions;
@@ -136,6 +145,13 @@ static int make_static_aggregate_partial_array_later() {
     ++partial_array_later_initializer_calls;
     if (partial_array_later_initializer_calls == 1) throw 139;
     return 151;
+}
+#endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_CONSTRUCTOR_SUBOBJECT
+static int make_static_aggregate_constructor_mode() {
+    ++constructor_mode_calls;
+    return constructor_mode_calls == 1 ? 1 : 0;
 }
 #endif
 
@@ -280,6 +296,55 @@ struct StaticLocalPartialArrayAggregate {
 };
 #endif
 
+#ifdef RCC_TEST_STATIC_LOCAL_CONSTRUCTOR_SUBOBJECT
+struct StaticLocalConstructorBuiltLeaf {
+    int value;
+
+    explicit StaticLocalConstructorBuiltLeaf(int initial) noexcept
+        : value(initial) {}
+
+    ~StaticLocalConstructorBuiltLeaf() {
+        if (constructor_mode_calls == 1 &&
+            constructor_leaf_destructions == 0) {
+            constructor_unwind_order = 1;
+        } else if (constructor_mode_calls == 2 &&
+                   constructor_child_destructions == 1 &&
+                   constructor_leaf_destructions == 1 &&
+                   constructor_final_cleanup_order == 1) {
+            constructor_final_cleanup_order = 2;
+        }
+        ++constructor_leaf_destructions;
+    }
+};
+
+struct StaticLocalConstructorThrowingChild {
+    int value;
+
+    StaticLocalConstructorThrowingChild() : value(191) {
+        if (make_static_aggregate_constructor_mode()) throw 167;
+    }
+
+    ~StaticLocalConstructorThrowingChild() {
+        if (constructor_mode_calls == 2 &&
+            constructor_leaf_destructions == 1 &&
+            constructor_child_destructions == 0) {
+            constructor_final_cleanup_order = 1;
+        }
+        ++constructor_child_destructions;
+    }
+};
+
+struct StaticLocalConstructorBuiltMember {
+    StaticLocalConstructorBuiltLeaf leaf;
+    StaticLocalConstructorThrowingChild child;
+
+    StaticLocalConstructorBuiltMember() : leaf(181), child() {
+        ++constructor_parent_body_calls;
+    }
+};
+
+#endif
+
 static const StaticLocalNontrivialClassReferenceAggregate&
 static_local_nontrivial_class_reference_aggregate() {
     static StaticLocalNontrivialClassReferenceAggregate value{
@@ -310,6 +375,15 @@ static_local_partial_array_aggregate() {
         {StaticLocalArrayPartialMember{131},
          StaticLocalArrayPartialMember{137}},
         make_static_aggregate_partial_array_later()};
+    return value;
+}
+#endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_CONSTRUCTOR_SUBOBJECT
+static const StaticLocalConstructorBuiltMember&
+static_local_constructor_built_member() {
+    ++constructor_member_initializer_calls;
+    static StaticLocalConstructorBuiltMember value{};
     return value;
 }
 #endif
@@ -462,6 +536,35 @@ int main() {
         return 25;
     }
 #endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_CONSTRUCTOR_SUBOBJECT
+    try {
+        (void)static_local_constructor_built_member();
+        return 26;
+    } catch (int error) {
+        if (error != 167) return 27;
+    }
+    if (constructor_member_initializer_calls != 1 ||
+        constructor_parent_body_calls != 0 || constructor_mode_calls != 1 ||
+        constructor_leaf_destructions != 1 ||
+        constructor_child_destructions != 0 || constructor_unwind_order != 1) {
+        return 28;
+    }
+    const StaticLocalConstructorBuiltMember& first_constructor_member =
+        static_local_constructor_built_member();
+    const StaticLocalConstructorBuiltMember& second_constructor_member =
+        static_local_constructor_built_member();
+    if (&first_constructor_member != &second_constructor_member ||
+        first_constructor_member.leaf.value != 181 ||
+        first_constructor_member.child.value != 191 ||
+        constructor_member_initializer_calls != 3 ||
+        constructor_parent_body_calls != 1 || constructor_mode_calls != 2 ||
+        constructor_leaf_destructions != 1 ||
+        constructor_child_destructions != 0 ||
+        constructor_final_cleanup_order != 0) {
+        return 29;
+    }
+#endif
     return 0;
 }
 
@@ -530,5 +633,27 @@ verified_static_local_aggregate_partial_array_unwind_order() {
 extern "C" int
 verified_static_local_aggregate_partial_array_final_cleanup_order() {
     return partial_array_final_cleanup_order;
+}
+#endif
+
+#ifdef RCC_TEST_STATIC_LOCAL_CONSTRUCTOR_SUBOBJECT
+extern "C" int
+verified_static_local_aggregate_constructor_leaf_destructor_count() {
+    return constructor_leaf_destructions;
+}
+
+extern "C" int
+verified_static_local_aggregate_constructor_child_destructor_count() {
+    return constructor_child_destructions;
+}
+
+extern "C" int
+verified_static_local_aggregate_constructor_unwind_order() {
+    return constructor_unwind_order;
+}
+
+extern "C" int
+verified_static_local_aggregate_constructor_final_cleanup_order() {
+    return constructor_final_cleanup_order;
 }
 #endif

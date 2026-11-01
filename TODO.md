@@ -13215,6 +13215,18 @@ remains a separate open item.
       `test-verified-cxx-static-local-aggregate` passes the GCC C++20 oracle,
       emits i686/AMD64 objects at `-O0`/`-O2` with zero fallback, and executes
       verified x64 objects at both optimization levels on Windows and WSL.
-- [ ] Extend verified partial-subobject unwind to constructor-built subobjects,
-      including failure while a class element or nested member constructor is
-      still building its own subobjects.
+- [x] Extend verified partial-subobject unwind to a nested member constructor
+      that throws while building its own object. A guarded function-static class
+      constructor completes a leaf member, then a nested member constructor
+      throws once.
+      Verify guard abort and retry, destruction of only the completed leaf on
+      failure, stable object identity after retry, and child-before-leaf cleanup
+      at exit. Add guarded static-storage initialization for zero-argument user
+      constructors, registering the complete-object destructor only after the
+      constructor returns. The GCC C++20 oracle and verified i686/AMD64
+      `-O0`/`-O2` builds pass with zero fallback; generated AMD64 execution
+      passes on Windows and WSL.
+- [ ] Extend constructor-built partial-subobject unwind to fixed-size arrays of
+      class elements. If a later element's constructor throws while building a
+      nested subobject, unwind that element's completed children and the earlier
+      completed array prefix, then verify retry and reverse-order exit cleanup.

@@ -350,6 +350,10 @@ static bool lower_volatile_local_aggregate_supported(
     const Decl* declaration);
 static bool lower_static_volatile_aggregate_supported(
     const Decl* declaration);
+static bool lower_cleanup_initializer_supported(const Expr* initializer);
+static bool lower_cleanup_initializer_may_throw(const Expr* initializer);
+static bool lower_cleanup_constructor_call_supported(
+    const Expr* initializer);
 
 static const Decl* lower_direct_aggregate_declaration(
     const Expr* expression) {
@@ -3002,6 +3006,38 @@ static bool lower_dynamic_static_array_member_initializer_supported(
     return true;
 }
 
+static bool lower_dynamic_static_class_constructor_initializer_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    const Expr* initializer = declaration ? declaration->var_init : NULL;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        (!declaration->var_is_thread_local &&
+         !declaration->var_is_static_local) ||
+        !declaration->var_dynamic_initializer ||
+        !declaration->var_reference_temporary_guard ||
+        declaration->storage != STORAGE_STATIC || !type ||
+        type->kind != TYPE_STRUCT || !type->cxx_class ||
+        !type->cxx_class->has_user_constructor ||
+        type->size <= 0 || type->size > 65536 || type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (type->align & (type->align - 1)) != 0 ||
+        type->cxx_class->base_count != 0 ||
+        type->cxx_class->virtual_base_count != 0 ||
+        type->cxx_class->vtable_size != 0 ||
+        !lower_struct_type_supported(type) || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        !initializer->compound_constructor ||
+        initializer->compound_constructor->parameter_count != 0 ||
+        initializer->compound_init || initializer->compound_paren_init ||
+        !lower_cleanup_constructor_call_supported(initializer) ||
+        !lower_cleanup_initializer_supported(initializer) ||
+        (declaration->var_cleanups &&
+         !lower_cxx_destructor_cleanup_hook_supported(type))) {
+        return false;
+    }
+    return true;
+}
+
 static bool lower_dynamic_static_aggregate_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
@@ -3012,6 +3048,10 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
     size_t item_count = 0u;
     bool has_field_designators = false;
     bool has_positional_items = false;
+    if (lower_dynamic_static_class_constructor_initializer_supported(
+            declaration)) {
+        return true;
+    }
     if (!declaration || declaration->kind != DECL_VAR ||
         (!declaration->var_is_thread_local &&
          !declaration->var_is_static_local) ||
@@ -29075,11 +29115,15 @@ static bool lower_dynamic_static_aggregate_initializer(
     size_t field_index = 0u;
     bool has_field_designators;
     bool track_partial_members;
+    bool constructor_initializer;
     if (!context ||
         !lower_dynamic_static_aggregate_initializer_supported(declaration)) {
         if (context) context->unsupported = true;
         return false;
     }
+    constructor_initializer =
+        lower_dynamic_static_class_constructor_initializer_supported(
+            declaration);
     guard = declaration->var_reference_temporary_guard;
     symbol = lower_append(
         context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
@@ -29109,7 +29153,8 @@ static bool lower_dynamic_static_aggregate_initializer(
             context, "__cxa_guard_abort", guard_address, true)) {
         return false;
     }
-    track_partial_members = declaration->var_cleanups != NULL &&
+    track_partial_members = !constructor_initializer &&
+        declaration->var_cleanups != NULL &&
         lower_cleanup_initializer_may_throw(declaration->var_init);
     symbol = lower_append(
         context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
@@ -29120,10 +29165,22 @@ static bool lower_dynamic_static_aggregate_initializer(
     object = lower_value(symbol->result, rcc_ir_type_pointer(0u), true);
     object.volatile_access = declaration->type->is_volatile;
 
-    has_field_designators = declaration->var_init->compound_init &&
-        declaration->var_init->compound_init->designator_kind ==
-            INIT_DESIGNATOR_FIELD;
-    field = declaration->type->fields;
+    if (constructor_initializer) {
+        if (!lower_initialize_struct_storage(
+                context, object.value, declaration->type,
+                declaration->var_init) ||
+            !lower_cxx_initialize_object_vtables(
+                context, object.value, declaration->type)) {
+            return false;
+        }
+        field = NULL;
+        has_field_designators = false;
+    } else {
+        has_field_designators = declaration->var_init->compound_init &&
+            declaration->var_init->compound_init->designator_kind ==
+                INIT_DESIGNATOR_FIELD;
+        field = declaration->type->fields;
+    }
     while (field) {
         item = lower_dynamic_aggregate_field_initializer(
             declaration->var_init, field, field_index,
