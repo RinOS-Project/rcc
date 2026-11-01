@@ -27746,8 +27746,7 @@ static bool lower_cxx_trivial_copy_storage_supported(
      * recursively addressable members whose values can be copied directly. */
     return type->kind != TYPE_UNION && type_is_scalar((Type*)type) &&
         !type->is_volatile && !type->is_atomic &&
-        !type->cxx_is_member_pointer &&
-        !lower_i686_wide_scalar_type(type);
+        !type->cxx_is_member_pointer;
 }
 
 static bool lower_cxx_copy_trivial_storage(
@@ -27814,10 +27813,19 @@ static bool lower_cxx_copy_trivial_storage(
         }
         return true;
     }
+    if (lower_i686_wide_scalar_type(type)) {
+        RccIrLowerValue destination_address = lower_value(
+            destination, rcc_ir_type_pointer(0u), true);
+        RccIrLowerValue source_address = lower_value(
+            source, rcc_ir_type_pointer(0u), true);
+        RccIrLowerWideValue value;
+        return lower_wide_scalar_load(
+                   context, source_address, type->is_unsigned, &value) &&
+            lower_wide_scalar_store(context, destination_address, value);
+    }
     if (type->kind == TYPE_UNION || !type_is_scalar((Type*)type) ||
         type->is_volatile || type->is_atomic ||
-        type->cxx_is_member_pointer ||
-        lower_i686_wide_scalar_type(type)) {
+        type->cxx_is_member_pointer) {
         context->unsupported = true;
         return false;
     }

@@ -15459,6 +15459,78 @@ bool rcc_sema_cxx_trivially_copyable(Type* type) {
     return sema_cxx_trivially_copyable(type, 0);
 }
 
+static bool sema_cxx_has_copy_move_constructor_for_lowering(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls) return false;
+    for (CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        TypeParam* parameter = constructor->parameters;
+        Type* parameter_type = parameter ? parameter->type : NULL;
+        if (!constructor->is_inherited &&
+            (!constructor->method ||
+             !constructor->method->member_template) &&
+            sema_cxx_copy_move_constructor_trailing_parameters_are_defaulted(
+                constructor) &&
+            parameter_type && parameter_type->kind == TYPE_PTR &&
+            parameter_type->is_reference && parameter_type->base &&
+            type_is_compatible(parameter_type->base, type)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* A class with a nontrivial destructor can still have a trivial implicit copy
+ * constructor.  This predicate describes the memberwise copy operation that
+ * the aggregate-copy lowering can emit; it deliberately excludes unions,
+ * virtual bases, and declared copy/move constructors whose behavior needs a
+ * real function call. */
+static bool sema_cxx_implicit_copy_constructor_lowerable(
+    Type* type, int depth) {
+    CxxClass* cls;
+    if (!type || depth > 32 || type->size <= 0 || type->is_volatile ||
+        type->is_atomic || type->is_reference ||
+        type->cxx_is_member_pointer) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len >= 0 && type->base &&
+            sema_cxx_implicit_copy_constructor_lowerable(
+                type->base, depth + 1);
+    }
+    if (type->kind != TYPE_STRUCT) {
+        return type->kind != TYPE_UNION && type_is_scalar(type) &&
+            !type_is_cxx_member_function_pointer(type);
+    }
+    if (!type_is_complete(type)) return false;
+    cls = type->cxx_class;
+    if (cls) {
+        if (cls->base_count < 0 || cls->virtual_base_count != 0 ||
+            cls->vtable_size != 0 ||
+            (cls->base_count != 0 && !cls->bases) ||
+            sema_cxx_has_copy_move_constructor_for_lowering(type)) {
+            return false;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_implicit_copy_constructor_lowerable(
+                    base->type, depth + 1)) {
+                return false;
+            }
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!field->type || field->is_bitfield ||
+            (field->type->kind == TYPE_PTR && field->type->is_reference) ||
+            !sema_cxx_implicit_copy_constructor_lowerable(
+                field->type, depth + 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool sema_cxx_type_has_trivial_default_constructor(
     const CxxClass* cls) {
     bool has_source_constructor = false;
@@ -35488,9 +35560,9 @@ static void sema_initializer(Type* type, Expr* initializer) {
     }
     /* A class with an ordinary converting constructor still receives an
      * implicit copy constructor.  Treat a same-type one-argument initializer
-     * as that copy only after proving the complete object is trivially
-     * copyable; otherwise the normal constructor overload path remains in
-     * charge and reports unsupported user-defined copy semantics. */
+     * as that copy only when its memberwise copy is safe to lower; a
+     * nontrivial destructor alone does not make the implicit copy operation
+     * nontrivial. */
     if (rcc_parser_is_cxx_mode() && type->cxx_class &&
         (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         initializer->compound_init &&
@@ -35500,7 +35572,8 @@ static void sema_initializer(Type* type, Expr* initializer) {
         Expr* source = initializer->compound_init->expr;
         sema_expr(source);
         if (source->type && type_is_compatible(type, source->type) &&
-            sema_cxx_trivially_copyable(type, 0)) {
+            (sema_cxx_trivially_copyable(type, 0) ||
+             sema_cxx_implicit_copy_constructor_lowerable(type, 0))) {
             initializer->compound_copy_init = true;
             return;
         }

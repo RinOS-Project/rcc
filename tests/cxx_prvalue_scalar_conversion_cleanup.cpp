@@ -137,6 +137,7 @@ struct NontrivialWideConstructorArgument {
 
     ~NontrivialWideConstructorArgument() {
         ++nontrivial_wide_destructor_evaluations;
+        first = -1;
     }
 };
 
@@ -459,6 +460,20 @@ int main() {
         nontrivial_wide_reused.from_body_sum != 2106) return 58;
     if (nontrivial_wide_factory_evaluations != 1) return 59;
     if (nontrivial_wide_destructor_evaluations != 1) return 60;
+
+    nontrivial_wide_destructor_evaluations = 0;
+    {
+        NontrivialWideConstructorArgument lvalue_argument{801, 802, 803};
+        NontrivialWideConstructorArgumentReuse copied_from_lvalue(
+            lvalue_argument);
+        if (copied_from_lvalue.from_initializer_first != 801 ||
+            copied_from_lvalue.from_initializer_second != 802 ||
+            copied_from_lvalue.from_body_third != 803 ||
+            copied_from_lvalue.from_body_sum != 2406 ||
+            lvalue_argument.first != 801 ||
+            nontrivial_wide_destructor_evaluations != 1) return 61;
+    }
+    if (nontrivial_wide_destructor_evaluations != 2) return 62;
 
     return 0;
 }
