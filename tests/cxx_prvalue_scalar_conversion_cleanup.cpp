@@ -229,6 +229,46 @@ struct NontrivialWideConstructorArgumentReuse {
     }
 };
 
+static int explicit_copy_wide_constructor_evaluations;
+static int explicit_copy_wide_destructor_evaluations;
+
+struct ExplicitCopyWideConstructorArgument {
+    long long first;
+    long long second;
+    long long third;
+
+    ExplicitCopyWideConstructorArgument(
+        long long initial_first, long long initial_second,
+        long long initial_third)
+        : first(initial_first), second(initial_second), third(initial_third) {}
+
+    ExplicitCopyWideConstructorArgument(
+        const ExplicitCopyWideConstructorArgument& other)
+        : first(other.first + 50), second(other.second), third(other.third) {
+        ++explicit_copy_wide_constructor_evaluations;
+    }
+
+    ~ExplicitCopyWideConstructorArgument() {
+        ++explicit_copy_wide_destructor_evaluations;
+        first = -1;
+    }
+};
+
+struct ExplicitCopyWideConstructorArgumentReuse {
+    long long from_initializer_first;
+    long long from_initializer_second;
+    long long from_body_third;
+    long long from_body_sum;
+
+    explicit ExplicitCopyWideConstructorArgumentReuse(
+        ExplicitCopyWideConstructorArgument value)
+        : from_initializer_first(value.first),
+          from_initializer_second(value.second) {
+        from_body_third = value.third;
+        from_body_sum = value.first + value.second + value.third;
+    }
+};
+
 struct NestedWideConstructorArgumentReuse {
     long long from_initializer_first;
     long long from_initializer_second;
@@ -474,6 +514,23 @@ int main() {
             nontrivial_wide_destructor_evaluations != 1) return 61;
     }
     if (nontrivial_wide_destructor_evaluations != 2) return 62;
+
+    explicit_copy_wide_constructor_evaluations = 0;
+    explicit_copy_wide_destructor_evaluations = 0;
+    {
+        ExplicitCopyWideConstructorArgument explicit_copy_source(
+            901, 902, 903);
+        ExplicitCopyWideConstructorArgumentReuse copied_explicitly(
+            explicit_copy_source);
+        if (copied_explicitly.from_initializer_first != 951 ||
+            copied_explicitly.from_initializer_second != 902 ||
+            copied_explicitly.from_body_third != 903 ||
+            copied_explicitly.from_body_sum != 2756 ||
+            explicit_copy_source.first != 901 ||
+            explicit_copy_wide_constructor_evaluations != 1 ||
+            explicit_copy_wide_destructor_evaluations != 1) return 63;
+    }
+    if (explicit_copy_wide_destructor_evaluations != 2) return 64;
 
     return 0;
 }

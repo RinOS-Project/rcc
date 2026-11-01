@@ -213,6 +213,7 @@ static bool lower_finalize_label_phis(RccIrLowerContext* context);
 static void lower_release_wide_states(RccIrLowerWideState* states);
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
+static const Type* lower_cxx_member_object_type(const Expr* expression);
 static RccIrLowerValue lower_expression_impl(
     RccIrLowerContext* context, const Expr* expression);
 static bool lower_typeof_runtime_evaluations(
@@ -3584,8 +3585,8 @@ static RccIrLowerValue lower_lvalue_address_impl(
             } else {
                 base = lower_lvalue_address(context, expression->member_base);
             }
-            aggregate_type = call_returns_reference_to_aggregate
-                ? member_base_type->base : member_base_type;
+            aggregate_type = lower_cxx_member_object_type(
+                expression->member_base);
         }
         if (!aggregate_type ||
             (aggregate_type->kind != TYPE_STRUCT &&
@@ -3714,12 +3715,8 @@ static RccIrLowerValue lower_lvalue_address(
     if (!address.valid || !expression) return address;
     volatile_access = expression->type && expression->type->is_volatile;
     if (expression->kind == EXPR_MEMBER) {
-        const Type* member_base_type = expression->member_base
-            ? expression->member_base->type : NULL;
-        object_type = member_base_type &&
-                member_base_type->kind == TYPE_PTR &&
-                member_base_type->is_reference
-            ? member_base_type->base : member_base_type;
+        object_type = lower_cxx_member_object_type(
+            expression->member_base);
     } else if (expression->kind == EXPR_PTR_MEMBER &&
                expression->member_base && expression->member_base->type &&
                expression->member_base->type->kind == TYPE_PTR) {
@@ -10583,6 +10580,9 @@ static bool lower_cleanup_constructor_call_supported(
     argument = initializer->compound_init;
     while (parameter || parameter_declaration || argument) {
         RccIrType ir_type;
+        bool reference_parameter = parameter && parameter->type &&
+            parameter->type->kind == TYPE_PTR &&
+            parameter->type->is_reference;
         bool aggregate_parameter = parameter && parameter->type &&
             lower_abi_is_aggregate(parameter->type);
         bool indirect_aggregate = parameter && parameter->type &&
@@ -10590,6 +10590,7 @@ static bool lower_cleanup_constructor_call_supported(
         if (++count > (unsigned)constructor->parameter_count ||
             !parameter || !parameter->type ||
             (!indirect_aggregate && !aggregate_parameter &&
+             !reference_parameter &&
              !lower_i686_wide_scalar_type(parameter->type) &&
              !lower_abi_native_scalar_type(parameter->type, &ir_type)) ||
             parameter->type->cxx_is_member_pointer ||
@@ -10600,7 +10601,11 @@ static bool lower_cleanup_constructor_call_supported(
             !type_is_compatible(parameter->type, abi_parameter->type) ||
             !argument || argument->designator_kind != INIT_DESIGNATOR_NONE ||
             !argument->expr ||
-            (aggregate_parameter
+            (reference_parameter
+                 ? (!parameter->type->base ||
+                    !type_is_compatible(
+                        parameter->type->base, argument->expr->type))
+                 : aggregate_parameter
                  ? (!type_is_compatible(
                         parameter->type, argument->expr->type) ||
                     (!indirect_aggregate &&
@@ -19394,6 +19399,38 @@ static bool lower_statement_has_goto_label(const Stmt* statement) {
     }
 }
 
+static const Type* lower_cxx_member_object_type(const Expr* expression) {
+    const Type* type = expression ? expression->type : NULL;
+    const Type* declared_type = NULL;
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        const CxxClass* cls = type->cxx_class;
+        if (!type->is_complete && cls && cls->type &&
+            cls->type->is_complete) {
+            return cls->type;
+        }
+        return type;
+    }
+    if (expression && expression->kind == EXPR_IDENT &&
+        expression->ident_decl) {
+        declared_type = expression->ident_decl->type;
+    }
+    if (type && type->kind == TYPE_PTR && type->is_reference && type->base &&
+        (type->base->kind == TYPE_STRUCT ||
+         type->base->kind == TYPE_UNION)) {
+        return type->base;
+    }
+    /* An lvalue reference parameter is represented as a pointer-valued
+     * identifier expression after semantic conversion.  Its declaration
+     * retains the reference type needed to recover the dot-member object. */
+    if (declared_type && declared_type->kind == TYPE_PTR &&
+        declared_type->is_reference && declared_type->base &&
+        (declared_type->base->kind == TYPE_STRUCT ||
+         declared_type->base->kind == TYPE_UNION)) {
+        return declared_type->base;
+    }
+    return type;
+}
+
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression) {
     RccIrLowerValue value;
@@ -22905,6 +22942,29 @@ static bool lower_cxx_constructor_initializer_expression_supported(
                 !lower_find_local(context, expression->ident_decl)) {
                 return false;
             }
+            if (expression->ident_decl->type->is_reference) {
+                const Type* reference_type =
+                    expression->ident_decl->type;
+                const Type* referred_type =
+                    reference_type->kind == TYPE_PTR
+                        ? reference_type->base : NULL;
+                if (referred_type && !referred_type->is_complete &&
+                    referred_type->cxx_class &&
+                    referred_type->cxx_class->type &&
+                    referred_type->cxx_class->type->is_complete) {
+                    referred_type = referred_type->cxx_class->type;
+                }
+                if (!referred_type || referred_type->is_atomic) {
+                    return false;
+                }
+                if (referred_type->kind == TYPE_STRUCT ||
+                    referred_type->kind == TYPE_UNION) {
+                    return !referred_type->is_volatile &&
+                        lower_storage_type_supported_ignoring_volatile_internal(
+                            referred_type, 0u);
+                }
+                return type_is_scalar((Type*)referred_type);
+            }
             if (type_is_scalar(expression->ident_decl->type)) {
                 return !expression->ident_decl->type->is_atomic;
             }
@@ -22928,6 +22988,10 @@ static bool lower_cxx_constructor_initializer_expression_supported(
             const Type* object_type = expression->member_base
                 ? expression->member_base->type : NULL;
             const TypeField* field = expression->member_field;
+            if (expression->kind == EXPR_MEMBER) {
+                object_type = lower_cxx_member_object_type(
+                    expression->member_base);
+            }
             if (expression->kind == EXPR_PTR_MEMBER) {
                 if (!object_type || object_type->kind != TYPE_PTR) {
                     return false;
@@ -23659,7 +23723,6 @@ static bool lower_cxx_initialize_constructor_members(
         }
         constant_initializer = value_initialize ||
             expr_eval_integer_constant((Expr*)source, &ignored_constant);
-
         if (!type_is_scalar(field->type) ||
             (value_initialize && field->type->is_reference) ||
             field->type->cxx_is_member_pointer ||

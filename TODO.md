@@ -13035,7 +13035,7 @@ remains a separate open item.
       generation and AMD64 runtime, and verified i686/AMD64 objects with zero
       fallback pass in `test-cxx-prvalue-scalar-conversion-cleanup`.
       Other aggregate parameter expression shapes and user-defined nontrivial
-      copies remain in the open typed-SSA aggregate item.
+      moves remain in the open typed-SSA aggregate item.
 - [x] Forward a nontrivial class prvalue directly as a by-value constructor
       parameter object, and copy an lvalue into a distinct parameter object
       when its implicit memberwise copy is lowerable. Reuse the parameter in
@@ -13044,6 +13044,13 @@ remains a separate open item.
       once. Include 64-bit fields in i686 lowering. GCC C++20, i686/AMD64 legacy
       generation, AMD64 host execution, and verified i686/AMD64 object
       generation with zero fallback pass in
+      `test-cxx-prvalue-scalar-conversion-cleanup`.
+- [x] Copy-construct a distinct destructor-bearing by-value parameter from an
+      lvalue by invoking its user-defined copy constructor. Preserve the source,
+      apply the copy constructor's member transformations, and destroy the
+      parameter copy after the call. Cover multiword fields on i686, GCC C++20,
+      i686/AMD64 legacy output, AMD64 execution, and verified i686/AMD64 object
+      generation with zero fallback in
       `test-cxx-prvalue-scalar-conversion-cleanup`.
 - [x] Preserve aliases when caching lvalue and xvalue arguments passed to C++
       reference constructor parameters. Capture the referent address so member
