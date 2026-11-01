@@ -1,6 +1,7 @@
 enum class Byte : unsigned char {};
 enum SignedByte : signed char {};
 enum class IntCode : int {};
+enum Plain { plain_zero };
 
 constexpr Byte global_byte{201};
 constexpr SignedByte global_signed_byte{-101};
@@ -19,6 +20,7 @@ static Byte make_byte() {
 
 int main() {
     Byte zero{};
+    Byte copy_empty = {};
     Byte low{0};
     Byte high{255};
     Byte from_bool{true};
@@ -26,10 +28,13 @@ int main() {
     SignedByte signed_low{-128};
     SignedByte signed_high{127};
     IntCode from_dynamic_int{dynamic_int()};
+    IntCode from_wide_constant{29LL};
+    Plain plain_empty{};
     Byte same_type{global_byte};
     Byte from_direct_expression = Byte{42};
 
     return static_cast<int>(zero) != 0 ||
+           static_cast<int>(copy_empty) != 0 ||
            static_cast<int>(low) != 0 ||
            static_cast<int>(high) != 255 ||
            static_cast<int>(from_bool) != 1 ||
@@ -37,6 +42,8 @@ int main() {
            static_cast<int>(signed_low) != -128 ||
            static_cast<int>(signed_high) != 127 ||
            static_cast<int>(from_dynamic_int) != 29 ||
+           static_cast<int>(from_wide_constant) != 29 ||
+           static_cast<int>(plain_empty) != 0 ||
            static_cast<int>(same_type) != 201 ||
            static_cast<int>(global_signed_byte) != -101 ||
            static_cast<int>(from_direct_expression) != 42 ||
