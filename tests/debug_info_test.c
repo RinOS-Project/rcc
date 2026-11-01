@@ -6112,12 +6112,17 @@ static void verify_cxx_inline_nested_local_constants(
     objfile_free(object);
 }
 
+static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
+    const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
+    int64_t left_frame_offset, int64_t right_frame_offset,
+    uint64_t left_value, uint64_t right_value);
+
 static void verify_cxx_inline_mutated_parameter_location(
     const char* path, uint16_t architecture, const char* function_name,
     const char* parameter_name, const char* source_local_name,
     const char* entry_name,
     unsigned expected_entries, bool final_mutation_has_multiply,
-    bool initial_expression_has_add) {
+    bool initial_expression_has_add, bool wide_i686) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6154,6 +6159,10 @@ static void verify_cxx_inline_mutated_parameter_location(
             function_origin = (uint32_t)die;
             break;
         }
+    }
+    if (function_origin == UINT32_MAX) {
+        fprintf(stderr, "missing inline subprogram origin: %s\n",
+                function_name);
     }
     assert(function_origin != UINT32_MAX);
     for (uint64_t die = 11u;
@@ -6247,6 +6256,33 @@ static void verify_cxx_inline_mutated_parameter_location(
             assert(expression_size >= 4u && expression_end <= locations->size);
             assert(locations->data[expression_start] ==
                    (architecture == ARCH_X64 ? 0x76u : 0x75u));
+            if (wide_i686) {
+                static const uint64_t input_values[] = {
+                    0u, 1u, UINT64_C(0xfffffffe),
+                    UINT64_C(0xffffffff), UINT64_C(0x100000000),
+                    UINT64_C(0x7fffffffffffffff),
+                    UINT64_C(0xfffffffffffffffd), UINT64_MAX
+                };
+                uint64_t increment = entry == 0u ? 2u
+                    : entry == 1u ? 5u : 6u;
+                assert(architecture == ARCH_X86 && entry < 3u &&
+                       expression_end >= expression_start + 2u &&
+                       locations->data[expression_end - 2u] == 0x93u &&
+                       locations->data[expression_end - 1u] == 4u);
+                for (size_t input_index = 0u;
+                     input_index < sizeof(input_values) /
+                         sizeof(input_values[0]); ++input_index) {
+                    uint64_t input = input_values[input_index];
+                    uint64_t actual =
+                        evaluate_inline_i686_u64_nested_frame_expression(
+                            locations->data, expression_end, expression_start,
+                            source_frame_offset, source_frame_offset,
+                            input, input);
+                    assert(actual == input + increment);
+                }
+                cursor = expression_end;
+                continue;
+            }
             assert(locations->data[expression_end - 1u] == 0x9fu);
             {
                 bool has_add = false;
@@ -10723,6 +10759,12 @@ static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
             assert(stack_size < sizeof(stack) / sizeof(stack[0]));
             stack[stack_size++] = (uint32_t)read_uleb(
                 data, expression_end, &offset);
+        } else if (opcode == 0x16u) { /* DW_OP_swap */
+            uint32_t temporary;
+            assert(stack_size >= 2u);
+            temporary = stack[stack_size - 1u];
+            stack[stack_size - 1u] = stack[stack_size - 2u];
+            stack[stack_size - 2u] = temporary;
         } else if (opcode == 0x1au || opcode == 0x1cu ||
                    opcode == 0x1eu ||
                    opcode == 0x21u || opcode == 0x22u ||
@@ -18726,21 +18768,26 @@ int main(int argc, char** argv)
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_parameter",
             "mutable_parameter", "stable_input",
-            "debug_inline_mutated_parameter_entry", 4u, true, true);
+            "debug_inline_mutated_parameter_entry", 4u, true, true, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_parameter",
             "mutable_parameter", "stable_input",
-            "debug_inline_mutated_parameter_entry", 4u, true, true);
+            "debug_inline_mutated_parameter_entry", 4u, true, true, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter", "stable_unsigned_input",
             "debug_inline_mutated_unsigned_parameter_entry", 2u, false,
-            false);
+            false, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter", "stable_unsigned_input",
             "debug_inline_mutated_unsigned_parameter_entry", 2u, false,
-            false);
+            false, false);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[2], ARCH_X86, "debug_inline_mutated_wide_parameter",
+            "wide_parameter", "stable_wide_input",
+            "debug_inline_mutated_wide_parameter_entry", 3u, false, true,
+            true);
         return 0;
     }
     if (argc == 10 &&

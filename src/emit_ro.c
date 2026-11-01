@@ -7553,34 +7553,77 @@ static bool debug_inline_parameter_i686_u64_comparison_expression(
              expression, capacity, expression_size, 0x29u));
 }
 
+static bool debug_inline_parameter_i686_u64_add_constant_source(
+    const Expr* expression, const Type* parameter_type,
+    const Expr** source_expression, uint64_t* accumulated_constant,
+    unsigned int depth) {
+    if (!expression || !parameter_type || !source_expression ||
+        !accumulated_constant || depth >= 32u || !expression->type ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->type, parameter_type, 0u)) {
+        return false;
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_decl) {
+        *source_expression = expression;
+        *accumulated_constant = 0u;
+        return true;
+    }
+    if (expression->kind == EXPR_CAST && expression->cast_expr &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->cast_expr->type, parameter_type, 0u)) {
+        return debug_inline_parameter_i686_u64_add_constant_source(
+            expression->cast_expr, parameter_type, source_expression,
+            accumulated_constant, depth + 1u);
+    }
+    if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) &&
+        expression->binary_lhs && expression->binary_rhs) {
+        uint64_t constant;
+        if (debug_inline_integer_literal_bits(
+                expression->binary_rhs, &constant, 0u) &&
+            debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                expression->binary_rhs->type, parameter_type, 0u) &&
+            debug_inline_parameter_i686_u64_add_constant_source(
+                expression->binary_lhs, parameter_type, source_expression,
+                accumulated_constant, depth + 1u)) {
+            if (expression->kind == EXPR_ADD) {
+                *accumulated_constant += constant;
+            } else {
+                *accumulated_constant -= constant;
+            }
+            return true;
+        }
+        if (expression->kind == EXPR_ADD &&
+            debug_inline_integer_literal_bits(
+                expression->binary_lhs, &constant, 0u) &&
+            debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                expression->binary_lhs->type, parameter_type, 0u) &&
+            debug_inline_parameter_i686_u64_add_constant_source(
+                expression->binary_rhs, parameter_type, source_expression,
+                accumulated_constant, depth + 1u)) {
+            *accumulated_constant += constant;
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool debug_inline_parameter_i686_u64_add_constant_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size) {
-    const Expr* source_expression_value;
-    const Expr* constant_expression;
+    const Expr* source_expression_value = NULL;
     const Decl* source;
     int64_t frame_offset;
-    uint64_t constant;
+    uint64_t constant = 0u;
     uint32_t low_constant;
     uint32_t high_constant;
     size_t size = 0u;
     const uint64_t sign_bit = UINT64_C(0x80000000);
     if (!mod || !parameter_type || !source_expression || !expression ||
-        !expression_size || source_expression->kind != EXPR_ADD ||
-        parameter_type->size != 8u ||
-        !source_expression->binary_lhs || !source_expression->binary_rhs) {
-        return false;
-    }
-    if (source_expression->binary_lhs->kind == EXPR_IDENT &&
-        source_expression->binary_lhs->ident_decl) {
-        source_expression_value = source_expression->binary_lhs;
-        constant_expression = source_expression->binary_rhs;
-    } else if (source_expression->binary_rhs->kind == EXPR_IDENT &&
-               source_expression->binary_rhs->ident_decl) {
-        source_expression_value = source_expression->binary_rhs;
-        constant_expression = source_expression->binary_lhs;
-    } else {
+        !expression_size || parameter_type->size != 8u ||
+        !debug_inline_parameter_i686_u64_add_constant_source(
+            source_expression, parameter_type, &source_expression_value,
+            &constant, 0u)) {
         return false;
     }
     source = source_expression_value->ident_decl;
@@ -7591,9 +7634,6 @@ static bool debug_inline_parameter_i686_u64_add_constant_expression(
             source->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression_value->type, parameter_type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            constant_expression->type, parameter_type, 0u) ||
-        !debug_inline_integer_literal_bits(constant_expression, &constant, 0u) ||
         !debug_inline_parameter_frame_offset(mod, source, &frame_offset) ||
         frame_offset > INT64_MAX - 4) {
         return false;
@@ -15806,8 +15846,10 @@ static bool debug_emit_inline_mutated_parameter_location(
     if (argument && argument->expr && !argument->cxx_temporary_owner &&
         debug_inline_mutated_parameter_body_is_isolated(
             call->callee, value) && value->declaration->type &&
-        (unsigned int)value->declaration->type->size <=
-            (unsigned int)address_size &&
+        ((unsigned int)value->declaration->type->size <=
+             (unsigned int)address_size ||
+         (architecture == ARCH_X86 &&
+          value->declaration->type->size == 8)) &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             value->declaration->type, argument->expr->type, 0u) &&
         debug_inline_parameter_initial_value_is_frame_pure(
@@ -15816,7 +15858,39 @@ static bool debug_emit_inline_mutated_parameter_location(
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
         size_t initial_expression_size = 0u;
         bool have_initial_expression = false;
-        if (argument->expr->kind == EXPR_IDENT &&
+        if (architecture == ARCH_X86 &&
+            value->declaration->type->size == 8 &&
+            argument->expr->kind == EXPR_IDENT) {
+            size_t piece_expression_size = 0u;
+            have_initial_expression =
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, argument->expr, false, initial_expression,
+                    sizeof(initial_expression), &piece_expression_size, 0u) &&
+                debug_inline_integer_expression_append_byte(
+                    initial_expression, sizeof(initial_expression),
+                    &piece_expression_size, 0x9fu) &&
+                debug_inline_integer_expression_append_byte(
+                    initial_expression, sizeof(initial_expression),
+                    &piece_expression_size, 0x93u) &&
+                debug_inline_integer_expression_append_byte(
+                    initial_expression, sizeof(initial_expression),
+                    &piece_expression_size, 4u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, argument->expr, true, initial_expression,
+                    sizeof(initial_expression), &piece_expression_size, 0u) &&
+                debug_inline_integer_expression_append_byte(
+                    initial_expression, sizeof(initial_expression),
+                    &piece_expression_size, 0x9fu) &&
+                debug_inline_integer_expression_append_byte(
+                    initial_expression, sizeof(initial_expression),
+                    &piece_expression_size, 0x93u) &&
+                debug_inline_integer_expression_append_byte(
+                    initial_expression, sizeof(initial_expression),
+                    &piece_expression_size, 4u);
+            if (have_initial_expression) {
+                initial_expression_size = piece_expression_size;
+            }
+        } else if (argument->expr->kind == EXPR_IDENT &&
             argument->expr->ident_decl) {
             const Decl* source = argument->expr->ident_decl;
             int64_t frame_offset;

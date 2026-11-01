@@ -2842,6 +2842,13 @@
         lifetimes across every optimized CFG edge, and CFI/unwind coverage for
         prologues and epilogues beyond current fixed-frame rules. General
         variable-location implementation remains incomplete.
+  - [x] i686 unsigned 64-bit mutable inline parameters accept addressable frame
+        inputs and pure constant add/subtract chains. Emit two 4-byte DWARF
+        pieces for the initial value and each mutation interval; lower wide
+        expressions with their inline call and statement provenance intact.
+        Evaluate all three ranges for eight carry/wrap boundary inputs in the
+        verified backend through `test-debug-info-inline-expression` (6
+        functions emitted, zero fallback).
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および

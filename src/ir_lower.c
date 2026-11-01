@@ -1081,6 +1081,105 @@ static RccIrInstruction* lower_append(
     return instruction;
 }
 
+static bool lower_debug_inline_expression_begin(
+    RccIrLowerContext* context, const Expr* expression,
+    size_t* previous_inline_call_plus_one,
+    const Stmt** previous_statement) {
+    const Decl* caller = NULL;
+    const Decl* callee = NULL;
+    const ExprList* arguments = NULL;
+    SourceLoc call_location = {NULL, 0, 0};
+    if (previous_inline_call_plus_one) {
+        *previous_inline_call_plus_one = context
+            ? context->active_debug_inline_call_plus_one : 0u;
+    }
+    if (previous_statement) {
+        *previous_statement = context ? context->current_statement : NULL;
+    }
+    if (!context || !g_opts.debug_info || !expression) {
+        return true;
+    }
+    if (rcc_optimize_inline_debug_info(
+            expression, &caller, &callee, &call_location, &arguments) &&
+        caller == context->declaration && call_location.filename &&
+        call_location.filename[0] && call_location.line > 0 &&
+        call_location.column >= 0) {
+        size_t call_index = rcc_ir_module_add_inline_call(
+            context->module, caller, callee, arguments,
+            call_location.filename, (uint32_t)call_location.line,
+            (uint32_t)call_location.column,
+            context->active_debug_inline_call_plus_one,
+            context->current_statement);
+        if (call_index == SIZE_MAX) {
+            rcc_fatal("invalid optimized inline debug origin");
+            return false;
+        }
+        context->active_debug_inline_call_plus_one = call_index + 1u;
+        for (size_t ordinal = 0u;
+             ordinal < rcc_optimize_inline_debug_parameter_value_count(
+                           expression);
+             ++ordinal) {
+            const Decl* state_callee = NULL;
+            const Decl* parameter = NULL;
+            const Expr* current_value = NULL;
+            const Stmt* value_statement = NULL;
+            if (!rcc_optimize_inline_debug_parameter_value(
+                    expression, ordinal, &state_callee, &parameter,
+                    &current_value, &value_statement) ||
+                state_callee != callee || !parameter ||
+                !current_value || !value_statement ||
+                !rcc_ir_module_add_inline_parameter_value(
+                    context->module, call_index, parameter, current_value,
+                    value_statement)) {
+                rcc_fatal(
+                    "invalid optimized inline parameter-value origin");
+                return false;
+            }
+        }
+    }
+    if (context->active_debug_inline_call_plus_one != 0u &&
+        context->active_debug_inline_call_plus_one <=
+            context->module->inline_call_count) {
+        const RccIrInlineCall* active_call =
+            &context->module->inline_calls[
+                context->active_debug_inline_call_plus_one - 1u];
+        size_t scope_count =
+            rcc_optimize_inline_debug_scope_count(expression);
+        for (size_t ordinal = 0u; ordinal < scope_count; ++ordinal) {
+            const Decl* scope_function = NULL;
+            const Stmt* scope = NULL;
+            if (rcc_optimize_inline_debug_scope(
+                    expression, ordinal, &scope_function, &scope) &&
+                scope_function == active_call->callee) {
+                context->current_statement = scope;
+                break;
+            }
+        }
+        for (size_t ordinal = 0u;
+             ordinal < rcc_optimize_inline_debug_statement_count(expression);
+             ++ordinal) {
+            const Decl* statement_function = NULL;
+            const Stmt* statement = NULL;
+            if (rcc_optimize_inline_debug_statement(
+                    expression, ordinal, &statement_function, &statement) &&
+                statement_function == active_call->callee) {
+                context->current_statement = statement;
+                break;
+            }
+        }
+    }
+    return true;
+}
+
+static void lower_debug_inline_expression_end(
+    RccIrLowerContext* context, size_t previous_inline_call_plus_one,
+    const Stmt* previous_statement) {
+    if (!context) return;
+    context->active_debug_inline_call_plus_one =
+        previous_inline_call_plus_one;
+    context->current_statement = previous_statement;
+}
+
 static RccIrLowerValue lower_integer_constant(RccIrLowerContext* context,
                                               RccIrType type,
                                               bool is_unsigned,
@@ -7189,15 +7288,24 @@ static bool lower_wide_scalar_expression_impl(
 static bool lower_wide_scalar_expression(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
+    size_t previous_inline_call_plus_one;
+    const Stmt* previous_statement;
+    bool success = false;
     if (result) memset(result, 0, sizeof(*result));
+    if (!lower_debug_inline_expression_begin(
+            context, expression, &previous_inline_call_plus_one,
+            &previous_statement)) {
+        if (context) context->unsupported = true;
+        goto cleanup;
+    }
     if (!lower_wide_scalar_expression_impl(context, expression, result)) {
         if (context) context->unsupported = true;
-        return false;
+        goto cleanup;
     }
     if (!lower_wide_scalar_value_valid(*result)) {
         context->unsupported = true;
         memset(result, 0, sizeof(*result));
-        return false;
+        goto cleanup;
     }
     if (expression->type && expression->type->is_bit_precise &&
         expression->type->bit_width < 64u) {
@@ -7207,30 +7315,30 @@ static bool lower_wide_scalar_expression(
         RccIrLowerValue shift;
         RccIrValue operands[2];
         RccIrInstruction* normalized;
-        if (width == 0u) return false;
+        if (width == 0u) goto cleanup;
         if (width < 32u) {
             mask = lower_integer_constant(
                 context, i32, true, (UINT32_C(1) << width) - 1u);
-            if (!mask.valid) return false;
+            if (!mask.valid) goto cleanup;
             operands[0] = result->low.value;
             operands[1] = mask.value;
             normalized = lower_append(
                 context, RCC_IR_AND, i32, operands, 2u, NULL, 0u);
-            if (!normalized) return false;
+            if (!normalized) goto cleanup;
             result->low = lower_value(normalized->result, i32, true);
             if (!expression->type->is_unsigned) {
                 shift = lower_integer_constant(
                     context, i32, true, 32u - width);
-                if (!shift.valid) return false;
+                if (!shift.valid) goto cleanup;
                 operands[0] = result->low.value;
                 operands[1] = shift.value;
                 normalized = lower_append(
                     context, RCC_IR_SHL, i32, operands, 2u, NULL, 0u);
-                if (!normalized) return false;
+                if (!normalized) goto cleanup;
                 operands[0] = normalized->result;
                 normalized = lower_append(
                     context, RCC_IR_ASHR, i32, operands, 2u, NULL, 0u);
-                if (!normalized) return false;
+                if (!normalized) goto cleanup;
                 result->low = lower_value(normalized->result, i32, false);
             }
         }
@@ -7240,44 +7348,48 @@ static bool lower_wide_scalar_expression(
             } else {
                 RccIrLowerValue sign_shift = lower_integer_constant(
                     context, i32, true, 31u);
-                if (!sign_shift.valid) return false;
+                if (!sign_shift.valid) goto cleanup;
                 operands[0] = result->low.value;
                 operands[1] = sign_shift.value;
                 normalized = lower_append(
                     context, RCC_IR_ASHR, i32, operands, 2u, NULL, 0u);
-                if (!normalized) return false;
+                if (!normalized) goto cleanup;
                 result->high = lower_value(normalized->result, i32, false);
             }
         } else {
             unsigned high_width = width - 32u;
             mask = lower_integer_constant(
                 context, i32, true, (UINT32_C(1) << high_width) - 1u);
-            if (!mask.valid) return false;
+            if (!mask.valid) goto cleanup;
             operands[0] = result->high.value;
             operands[1] = mask.value;
             normalized = lower_append(
                 context, RCC_IR_AND, i32, operands, 2u, NULL, 0u);
-            if (!normalized) return false;
+            if (!normalized) goto cleanup;
             result->high = lower_value(normalized->result, i32, true);
             if (!expression->type->is_unsigned) {
                 shift = lower_integer_constant(
                     context, i32, true, 32u - high_width);
-                if (!shift.valid) return false;
+                if (!shift.valid) goto cleanup;
                 operands[0] = result->high.value;
                 operands[1] = shift.value;
                 normalized = lower_append(
                     context, RCC_IR_SHL, i32, operands, 2u, NULL, 0u);
-                if (!normalized) return false;
+                if (!normalized) goto cleanup;
                 operands[0] = normalized->result;
                 normalized = lower_append(
                     context, RCC_IR_ASHR, i32, operands, 2u, NULL, 0u);
-                if (!normalized) return false;
+                if (!normalized) goto cleanup;
                 result->high = lower_value(normalized->result, i32, false);
             }
         }
         result->is_unsigned = expression->type->is_unsigned;
     }
-    return true;
+    success = true;
+cleanup:
+    lower_debug_inline_expression_end(
+        context, previous_inline_call_plus_one, previous_statement);
+    return success;
 }
 
 static RccIrOpcode lower_binary_opcode(ExprKind kind, bool is_unsigned) {
@@ -29835,8 +29947,11 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                  * EDX:EAX.  The verified bridge represents the value as two
                  * real i32 SSA words and only accepts operations for which
                  * carry/borrow and memory layout are modeled explicitly. */
-                if (!statement->return_val ||
-                    !lower_wide_scalar_expression(
+                if (!statement->return_val) {
+                    context->unsupported = true;
+                    return false;
+                }
+                if (!lower_wide_scalar_expression(
                         context, statement->return_val, &value)) {
                     context->unsupported = true;
                     return false;

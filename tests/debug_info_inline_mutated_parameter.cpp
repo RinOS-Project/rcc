@@ -32,3 +32,22 @@ extern "C" unsigned int debug_inline_mutated_unsigned_parameter_entry(
     debug_inline_mutated_unsigned_parameter_observe(&stable_unsigned_input);
     return debug_inline_mutated_unsigned_parameter(stable_unsigned_input);
 }
+
+static inline unsigned long long debug_inline_mutated_wide_parameter(
+    unsigned long long wide_parameter)
+{
+    wide_parameter += 3ULL;
+    ++wide_parameter;
+    return wide_parameter + 7ULL;
+}
+
+extern "C" void debug_inline_mutated_wide_parameter_observe(
+    unsigned long long* value);
+
+extern "C" unsigned long long debug_inline_mutated_wide_parameter_entry(
+    unsigned long long input_value)
+{
+    unsigned long long stable_wide_input = input_value;
+    debug_inline_mutated_wide_parameter_observe(&stable_wide_input);
+    return debug_inline_mutated_wide_parameter(stable_wide_input + 2ULL);
+}
