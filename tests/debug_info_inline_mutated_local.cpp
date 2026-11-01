@@ -28,6 +28,10 @@ static inline unsigned long long debug_inline_mutated_wide_local(
     wide_evolving |= 0x0100000000000001ULL;
     wide_evolving <<= 1ULL;
     wide_evolving >>= 3ULL;
+    wide_evolving <<= 31ULL;
+    wide_evolving >>= 32ULL;
+    wide_evolving <<= 33ULL;
+    wide_evolving >>= 63ULL;
     return wide_evolving + 5ULL;
 }
 

@@ -6807,7 +6807,9 @@ static void verify_cxx_inline_mutated_local_location(
     size_t entry_count = wide
         ? (bitwise_wide
                ? signed_wide ? shifted_wide ? 9u : 7u
-                             : shifted_wide ? 8u : 6u
+                             : shifted_wide
+                                   ? architecture == ARCH_X86 ? 11u : 12u
+                                   : 6u
                : signed_wide ? 4u : 3u)
         : 4u;
     assert(object != NULL && object->arch == architecture);
@@ -6961,6 +6963,32 @@ static void verify_cxx_inline_mutated_local_location(
                         if (shifted_wide && !signed_wide &&
                             entry >= bitwise_start + 4u) {
                             expected >>= 3u;
+                        }
+                        if (shifted_wide && !signed_wide) {
+                            if (entry >= bitwise_start + 5u) {
+                                expected <<= 31u;
+                            }
+                            if (architecture == ARCH_X86) {
+                                if (entry >= bitwise_start + 5u) {
+                                    expected >>= 32u;
+                                }
+                                if (entry >= bitwise_start + 6u) {
+                                    expected <<= 33u;
+                                }
+                                if (entry >= bitwise_start + 7u) {
+                                    expected >>= 63u;
+                                }
+                            } else {
+                                if (entry >= bitwise_start + 6u) {
+                                    expected >>= 32u;
+                                }
+                                if (entry >= bitwise_start + 7u) {
+                                    expected <<= 33u;
+                                }
+                                if (entry >= bitwise_start + 8u) {
+                                    expected >>= 63u;
+                                }
+                            }
                         }
                     }
                     assert(actual == expected);
