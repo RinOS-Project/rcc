@@ -19,11 +19,18 @@ static int global_reference_initializer() {
     return 53;
 }
 
+static ReferenceListObject global_reference_class_initializer() {
+    return ReferenceListObject{55};
+}
+
 ScalarReferenceMember global_dynamic_scalar_member{
     global_reference_initializer()};
 
 ClassReferenceMember global_class_member{
     ReferenceListObject{54}};
+
+ClassReferenceMember global_dynamic_class_member{
+    global_reference_class_initializer()};
 
 static int run_reference_list_initialization() {
     int source = 17;
@@ -57,6 +64,7 @@ static int run_reference_list_initialization() {
            global_scalar_member.value == 52 &&
            global_dynamic_scalar_member.value == 53 &&
            global_class_member.value.value == 54 &&
+           global_dynamic_class_member.value.value == 55 &&
            global_reference_initializer_calls == 1 &&
            side_effect_member.value == 51 && side_effect_source == 52;
 }

@@ -13129,8 +13129,8 @@ remains a separate open item.
       preserve direct/copy-list initialization and evaluate side effects once.
       For namespace-scope aggregates, emit a unique DATA object for each
       temporary, statically initialize constant scalar/class values, and place
-      dynamic scalar initialization before use in the global initializer
-      sequence. Compare GCC C++20 and RCC runtime results, i686/AMD64 output,
+      dynamic scalar/class-prvalue initialization before use in the global
+      initializer sequence. Compare GCC C++20 and RCC runtime results, i686/AMD64 output,
       narrowing/reference diagnostics, and invalid-object absence in
       `test-cxx-reference-list-initialization`; the braced-overload,
       initializer-list, and list-narrowing suites pass as well.
