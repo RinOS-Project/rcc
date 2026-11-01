@@ -124,6 +124,11 @@ struct WideConstructorArgument {
     long long third;
 };
 
+static long long sum_wide_constructor_argument(
+    WideConstructorArgument value) {
+    return value.first + value.second + value.third;
+}
+
 struct WideConstructorArgumentReuse {
     long long from_initializer_first;
     long long from_initializer_second;
@@ -195,6 +200,12 @@ int main() {
     if (wide_aggregate_first_evaluations != 1 ||
         wide_aggregate_second_evaluations != 1 ||
         wide_aggregate_third_evaluations != 1) return 42;
+    if (sum_wide_constructor_argument(WideConstructorArgument{
+            next_wide_aggregate_first(), next_wide_aggregate_second(),
+            next_wide_aggregate_third()}) != 606) return 43;
+    if (wide_aggregate_first_evaluations != 2 ||
+        wide_aggregate_second_evaluations != 2 ||
+        wide_aggregate_third_evaluations != 2) return 44;
 
     return 0;
 }
