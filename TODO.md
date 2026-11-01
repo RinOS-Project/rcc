@@ -13185,6 +13185,10 @@ remains a separate open item.
       viability, selected scalar/aggregate list handling, and C++17 fixed-
       underlying enum direct-list initialization are covered by the 2026-11-01
       continuations above.
+- [x] Verify that initializer-clause side effects run left to right and once
+      for aggregate, array, and `std::initializer_list` initialization.
+      GCC C++20 and RCC++ AMD64 runtime agree; RCC i686/AMD64 assembly and
+      `.ro` generation pass in `test-cxx-initializer-list`.
 - [x] Apply list-narrowing checks to selected user-defined conversion
       functions. Permit the integer constant-expression exception only when a
       `constexpr` conversion result fits; reject out-of-range constexpr results,

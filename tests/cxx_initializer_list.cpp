@@ -5,6 +5,14 @@ extern "C" void initializer_list_record_destroyed(int value);
 extern "C" void initializer_list_reset_counts(void);
 extern "C" int initializer_list_counts_are(int constructed, int destroyed);
 
+static int initializer_list_clause_evaluation_order;
+
+static int initializer_list_clause_value(int value) {
+    initializer_list_clause_evaluation_order =
+        initializer_list_clause_evaluation_order * 10 + value;
+    return value;
+}
+
 struct Tracked {
     int value;
 
@@ -20,6 +28,12 @@ struct Tracked {
 struct Pair {
     int first;
     int second;
+};
+
+struct OrderedInitializerAggregate {
+    int first;
+    int second;
+    int third;
 };
 
 struct InitializerListOnly {
@@ -252,6 +266,33 @@ static int test_initializer_list_preference(void) {
            initializer_list_counts_are(1, 0);
 }
 
+static int test_initializer_clause_evaluation_order(void) {
+    initializer_list_clause_evaluation_order = 0;
+    OrderedInitializerAggregate aggregate{
+        initializer_list_clause_value(1),
+        initializer_list_clause_value(2),
+        initializer_list_clause_value(3)};
+    if (initializer_list_clause_evaluation_order != 123 ||
+        aggregate.first != 1 || aggregate.second != 2 ||
+        aggregate.third != 3) return 0;
+
+    initializer_list_clause_evaluation_order = 0;
+    int array[3]{initializer_list_clause_value(1),
+                 initializer_list_clause_value(2),
+                 initializer_list_clause_value(3)};
+    if (initializer_list_clause_evaluation_order != 123 ||
+        array[0] != 1 || array[1] != 2 || array[2] != 3) return 0;
+
+    initializer_list_clause_evaluation_order = 0;
+    std::initializer_list<int> values{
+        initializer_list_clause_value(1),
+        initializer_list_clause_value(2),
+        initializer_list_clause_value(3)};
+    return initializer_list_clause_evaluation_order == 123 &&
+           values.size() == 3 && values.begin()[0] == 1 &&
+           values.begin()[1] == 2 && values.begin()[2] == 3;
+}
+
 int main(void) {
     int failures = 0;
     if (!test_argument_lifetime()) failures |= 1;
@@ -261,5 +302,6 @@ int main(void) {
     if (!test_empty_initializer_list_argument()) failures |= 32;
     if (!test_braced_initializer_list_default_arguments()) failures |= 64;
     if (!test_initializer_list_preference()) failures |= 16;
+    if (!test_initializer_clause_evaluation_order()) failures |= 128;
     return failures;
 }
