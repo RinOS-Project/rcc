@@ -7988,8 +7988,24 @@ static RccIrLowerValue lower_truth_expression(
             ? lower_value(combined->result, rcc_ir_type_integer(1u), true)
             : lower_invalid_value();
     }
+    if (expression && lower_i686_wide_scalar_type(expression->type)) {
+        RccIrLowerWideValue wide_value;
+        if (!lower_wide_scalar_expression(
+                context, expression, &wide_value)) {
+            return lower_invalid_value();
+        }
+        return lower_wide_scalar_truth(context, wide_value);
+    }
     value = lower_expression(context, expression);
     return lower_truth(context, value);
+}
+
+static RccIrLowerValue lower_condition_expression(
+    RccIrLowerContext* context, const Expr* expression) {
+    if (expression && lower_i686_wide_scalar_type(expression->type)) {
+        return lower_truth_expression(context, expression);
+    }
+    return lower_expression(context, expression);
 }
 
 static RccIrLowerValue lower_complex_pack(
@@ -19589,8 +19605,8 @@ static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
 }
 
 static bool lower_if(RccIrLowerContext* context, const Stmt* statement) {
-    RccIrLowerValue condition = lower_expression(context,
-                                                  statement->if_cond);
+    RccIrLowerValue condition = lower_condition_expression(
+        context, statement->if_cond);
     RccIrBlock* entry_block;
     RccIrBlock* then_block;
     RccIrBlock* else_block;
@@ -19777,7 +19793,7 @@ static bool lower_while_wide_ssa(
         lower_release_wide_states(baseline);
         return false;
     }
-    condition = lower_expression(context, statement->while_cond);
+    condition = lower_condition_expression(context, statement->while_cond);
     condition_state = lower_capture_wide_branch_states(context, baseline);
     if (!condition.valid || !condition_state || !lower_conditional_branch(
             context, condition, body_block->id, exit_block->id)) {
@@ -19917,7 +19933,7 @@ static bool lower_for_wide_ssa(
         return false;
     }
     if (statement->for_cond) {
-        condition = lower_expression(context, statement->for_cond);
+        condition = lower_condition_expression(context, statement->for_cond);
     } else {
         condition = lower_integer_constant(
             context, rcc_ir_type_integer(1u), true, 1u);
@@ -20143,7 +20159,7 @@ static bool lower_do_wide_ssa(
         lower_release_wide_states(baseline);
         return false;
     }
-    condition = lower_expression(context, statement->while_cond);
+    condition = lower_condition_expression(context, statement->while_cond);
     if (!condition.valid) {
         lower_release_wide_loop_edges(frame.breaks);
         lower_release_wide_loop_edges(frame.continues);
@@ -20219,7 +20235,7 @@ static bool lower_while(RccIrLowerContext* context,
     context->current = condition_block;
     context->terminated = false;
     lower_invalidate_wide_locals(context);
-    condition = lower_expression(context, statement->while_cond);
+    condition = lower_condition_expression(context, statement->while_cond);
     if (!condition.valid || !lower_conditional_branch(
             context, condition, body_block->id, exit_block->id)) {
         return false;
@@ -20297,7 +20313,7 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     context->current = condition_block;
     context->terminated = false;
     lower_invalidate_wide_locals(context);
-    condition = lower_expression(context, statement->while_cond);
+    condition = lower_condition_expression(context, statement->while_cond);
     if (!condition.valid || !lower_conditional_branch(
             context, condition, body_block->id, exit_block->id)) {
         return false;
@@ -20370,7 +20386,7 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     context->terminated = false;
     lower_invalidate_wide_locals(context);
     if (statement->for_cond) {
-        condition = lower_expression(context, statement->for_cond);
+        condition = lower_condition_expression(context, statement->for_cond);
     } else {
         condition = lower_integer_constant(
             context, rcc_ir_type_integer(1u), true, 1u);

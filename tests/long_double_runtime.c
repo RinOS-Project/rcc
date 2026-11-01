@@ -1,6 +1,23 @@
 #include <stdarg.h>
 #include <math.h>
 
+/* The generated header-only lgamma implementation updates this libc ABI
+ * object; the host runner intentionally links without the host libm. */
+int signgam = 0;
+
+/* The single-threaded runner needs writable errno state for inline math. */
+#ifdef __cplusplus
+int long_double_runtime_errno = 0;
+extern "C" int* __errno_location(void) {
+    return &long_double_runtime_errno;
+}
+#else
+int long_double_runtime_errno = 0;
+int* __errno_location(void) {
+    return &long_double_runtime_errno;
+}
+#endif
+
 static int near_long_double(long double actual, long double expected) {
     long double difference = actual - expected;
 
@@ -26,6 +43,30 @@ static long double return_long_double(long double value) {
     return value;
 }
 
+static int wide_integer_control_runtime(void) {
+    unsigned long long value = 1ULL << 40;
+    int taken = 0;
+
+    if (value) ++taken;
+    value = 1;
+    while (value) {
+        ++taken;
+        value = 0;
+    }
+    value = 1;
+    do {
+        ++taken;
+        value = 0;
+    } while (value);
+    value = 1;
+    for (int index = 0; value; ++index) {
+        ++taken;
+        value = 0;
+    }
+    if (value) return 1;
+    return taken == 4 ? 0 : 2;
+}
+
 int main(void) {
     long double value = return_long_double(
         read_long_double(2.25, 7, 3.5L, 4.5));
@@ -39,6 +80,7 @@ int main(void) {
     int exponent = 0;
     int original_round = fegetround();
 
+    if (wide_integer_control_runtime() != 0) return 32;
     if (value != 3.5L)
         return 1;
     if (rounding_tie != 1.0L)

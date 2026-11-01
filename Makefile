@@ -19652,43 +19652,55 @@ test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/long-double/verified-cxx-x64.log
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_ROOT)/public-base/RinOS-SDK/include \
+		-fverified-backend -v -c \
 		-o $(TEST_OUT)/long-double/verified-math-c-x86.ro \
 		tests/long_double_runtime.c \
 		>$(TEST_OUT)/long-double/verified-math-c-x86.log 2>&1
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-c-x86.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_ROOT)/public-base/RinOS-SDK/include \
+		-fverified-backend -v -c \
 		-o $(TEST_OUT)/long-double/verified-math-c-x64.ro \
 		tests/long_double_runtime.c \
 		>$(TEST_OUT)/long-double/verified-math-c-x64.log 2>&1
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-c-x64.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_ROOT)/public-base/RinOS-SDK/include \
+		-fverified-backend -v -c \
 		-o $(TEST_OUT)/long-double/verified-math-cxx-x86.ro \
 		tests/long_double_runtime.c \
 		>$(TEST_OUT)/long-double/verified-math-cxx-x86.log 2>&1
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-cxx-x86.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_ROOT)/public-base/RinOS-SDK/include \
+		-fverified-backend -v -c \
 		-o $(TEST_OUT)/long-double/verified-math-cxx-x64.ro \
 		tests/long_double_runtime.c \
 		>$(TEST_OUT)/long-double/verified-math-cxx-x64.log 2>&1
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-cxx-x64.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_ROOT)/public-base/RinOS-SDK/include \
 		-o $(TEST_OUT)/long-double/runtime-c-x86.s \
 		tests/long_double_runtime.c
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_ROOT)/public-base/RinOS-SDK/include \
 		-o $(TEST_OUT)/long-double/runtime-c-x64.s \
 		tests/long_double_runtime.c
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_ROOT)/public-base/RinOS-SDK/include \
 		-o $(TEST_OUT)/long-double/runtime-cxx-x86.s \
 		tests/long_double_runtime.c
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_ROOT)/public-base/RinOS-SDK/include \
 		-o $(TEST_OUT)/long-double/runtime-cxx-x64.s \
 		tests/long_double_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/runtime-c-x86.exe,$(TEST_OUT)/long-double/runtime-c-x86.s)
