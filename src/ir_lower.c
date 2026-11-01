@@ -22282,6 +22282,51 @@ static bool lower_cxx_constructor_initializer_expression_supported(
             return lower_cxx_constructor_initializer_expression_supported(
                 context, expression->member_base, depth + 1u);
         }
+        case EXPR_INDEX: {
+            const Expr* array_expression = expression->index_base;
+            const Type* array_type;
+            while (array_expression &&
+                   array_expression->kind == EXPR_CAST &&
+                   array_expression->cast_expr &&
+                   array_expression->cast_expr->type &&
+                   array_expression->cast_expr->type->kind == TYPE_ARRAY) {
+                array_expression = array_expression->cast_expr;
+            }
+            array_type = array_expression ? array_expression->type : NULL;
+            const Type* element_type = array_type &&
+                    array_type->kind == TYPE_ARRAY
+                ? array_type->base : NULL;
+            int64_t constant_index;
+            if (!array_type || array_type->kind != TYPE_ARRAY ||
+                array_type->array_len <= 0 ||
+                array_type->array_bound || array_type->size <= 0 ||
+                !element_type || element_type->size <= 0 ||
+                !type_is_scalar((Type*)element_type) ||
+                element_type->is_volatile || element_type->is_atomic ||
+                !expression->type ||
+                !type_is_scalar((Type*)expression->type) ||
+                expression->type->is_volatile ||
+                expression->type->is_atomic ||
+                !expression->index_expr ||
+                !expr_eval_integer_constant(
+                    (Expr*)expression->index_expr, &constant_index) ||
+                constant_index < 0 ||
+                (uint64_t)constant_index >=
+                    (uint64_t)array_type->array_len) {
+                return false;
+            }
+            if (array_expression != expression->index_base &&
+                (!expression->index_base->type ||
+                 expression->index_base->type->kind != TYPE_PTR ||
+                 !expression->index_base->type->base ||
+                 !type_is_compatible(
+                     (Type*)element_type,
+                     expression->index_base->type->base))) {
+                return false;
+            }
+            return lower_cxx_constructor_initializer_expression_supported(
+                context, expression->index_base, depth + 1u);
+        }
         case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:

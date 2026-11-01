@@ -133,6 +133,43 @@ static WideConstructorArgument make_wide_constructor_argument() {
     return WideConstructorArgument{11, 22, 33};
 }
 
+struct NestedWideConstructorArgument {
+    WideConstructorArgument inner;
+    long long fourth;
+};
+
+static long long sum_nested_wide_constructor_argument(
+    NestedWideConstructorArgument value) {
+    return value.inner.first + value.inner.second + value.inner.third +
+        value.fourth;
+}
+
+static NestedWideConstructorArgument
+make_nested_wide_constructor_argument() {
+    return NestedWideConstructorArgument{
+        WideConstructorArgument{11, 22, 33}, 44};
+}
+
+struct WideArrayConstructorArgument {
+    long long values[4];
+};
+
+static long long sum_wide_array_constructor_argument(
+    WideArrayConstructorArgument value) {
+    return value.values[0] + value.values[1] + value.values[2] +
+        value.values[3];
+}
+
+static WideArrayConstructorArgument
+make_wide_array_constructor_argument() {
+    WideArrayConstructorArgument value;
+    value.values[0] = 11;
+    value.values[1] = 22;
+    value.values[2] = 33;
+    value.values[3] = 44;
+    return value;
+}
+
 struct WideConstructorArgumentReuse {
     long long from_initializer_first;
     long long from_initializer_second;
@@ -144,6 +181,40 @@ struct WideConstructorArgumentReuse {
           from_initializer_second(value.second) {
         from_body_third = value.third;
         from_body_sum = value.first + value.second + value.third;
+    }
+};
+
+struct NestedWideConstructorArgumentReuse {
+    long long from_initializer_first;
+    long long from_initializer_second;
+    long long from_body_third;
+    long long from_body_fourth;
+    long long from_body_sum;
+
+    explicit NestedWideConstructorArgumentReuse(
+        NestedWideConstructorArgument value)
+        : from_initializer_first(value.inner.first),
+          from_initializer_second(value.inner.second) {
+        from_body_third = value.inner.third;
+        from_body_fourth = value.fourth;
+        from_body_sum = sum_nested_wide_constructor_argument(value);
+    }
+};
+
+struct WideArrayConstructorArgumentReuse {
+    long long from_initializer_first;
+    long long from_initializer_second;
+    long long from_body_third;
+    long long from_body_fourth;
+    long long from_body_sum;
+
+    explicit WideArrayConstructorArgumentReuse(
+        WideArrayConstructorArgument value)
+        : from_initializer_first(value.values[0]),
+          from_initializer_second(value.values[1]) {
+        from_body_third = value.values[2];
+        from_body_fourth = value.values[3];
+        from_body_sum = sum_wide_array_constructor_argument(value);
     }
 };
 
@@ -212,6 +283,40 @@ int main() {
         wide_aggregate_third_evaluations != 2) return 44;
     if (sum_wide_constructor_argument(
             make_wide_constructor_argument()) != 66) return 45;
+
+    NestedWideConstructorArgumentReuse nested_wide_reused(
+        NestedWideConstructorArgument{
+            WideConstructorArgument{
+                next_wide_aggregate_first(), next_wide_aggregate_second(),
+                next_wide_aggregate_third()},
+            404});
+    if (nested_wide_reused.from_initializer_first != 101 ||
+        nested_wide_reused.from_initializer_second != 202 ||
+        nested_wide_reused.from_body_third != 303 ||
+        nested_wide_reused.from_body_fourth != 404 ||
+        nested_wide_reused.from_body_sum != 1010) return 46;
+    if (wide_aggregate_first_evaluations != 3 ||
+        wide_aggregate_second_evaluations != 3 ||
+        wide_aggregate_third_evaluations != 3) return 47;
+    if (sum_nested_wide_constructor_argument(
+            make_nested_wide_constructor_argument()) != 110) return 48;
+
+    WideArrayConstructorArgument wide_array_argument;
+    wide_array_argument.values[0] = next_wide_aggregate_first();
+    wide_array_argument.values[1] = next_wide_aggregate_second();
+    wide_array_argument.values[2] = next_wide_aggregate_third();
+    wide_array_argument.values[3] = 404;
+    WideArrayConstructorArgumentReuse wide_array_reused(wide_array_argument);
+    if (wide_array_reused.from_initializer_first != 101 ||
+        wide_array_reused.from_initializer_second != 202 ||
+        wide_array_reused.from_body_third != 303 ||
+        wide_array_reused.from_body_fourth != 404 ||
+        wide_array_reused.from_body_sum != 1010) return 49;
+    if (wide_aggregate_first_evaluations != 4 ||
+        wide_aggregate_second_evaluations != 4 ||
+        wide_aggregate_third_evaluations != 4) return 50;
+    if (sum_wide_array_constructor_argument(
+            make_wide_array_constructor_argument()) != 110) return 51;
 
     return 0;
 }

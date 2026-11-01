@@ -12863,14 +12863,16 @@ remains a separate open item.
 ## RCC continuation (2026-11-01, wide aggregate constructor arguments)
 - [x] Cache complete trivially copyable aggregate constructor arguments larger
       than 64 bits in aligned frame storage and reuse the saved object in both
-      member initializers and the constructor body. A side-effecting 24-byte
-      aggregate is evaluated once; GCC C++20, i686/AMD64 legacy generation,
+      member initializers and the constructor body. Side-effecting 24-byte and
+      32-byte nested/fixed-array aggregates are evaluated once; GCC C++20,
+      i686/AMD64 legacy generation,
       i686 COFF assembly, AMD64 host execution, and constructor/conversion
       regression suites pass. Typed SSA now reads validated scalar members from
       aggregate parameters, classifies x86_64 SysV MEMORY arguments, and emits
-      the corresponding stack-by-value call metadata. The fixture also passes
-      the same 24-byte value through an ordinary C++ function, including a
-      sret-returned aggregate passed directly by value. The focused gate emits
-      verified i686/AMD64 objects with zero fallback. Broader aggregate
-      parameter expressions, qualifiers, and nontrivial aggregates remain in
-      the open typed-SSA aggregate item.
+      the corresponding stack-by-value call metadata. Typed SSA reads nested
+      scalar members and compile-time-bounded scalar array elements from those
+      parameters. The fixture also passes aggregates through an ordinary C++
+      function and passes sret-returned aggregates directly by value. The
+      focused gate emits verified i686/AMD64 objects with zero fallback.
+      Broader aggregate parameter expressions, qualifiers, and nontrivial
+      aggregates remain in the open typed-SSA aggregate item.
