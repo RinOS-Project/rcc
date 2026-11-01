@@ -502,6 +502,7 @@ typedef struct CxxMangleContext {
     size_t class_type_count;
     size_t class_type_index_base;
     size_t class_name_depth;
+    CxxNamespace* namespace_scope;
     CxxTemplate** template_names;
     size_t* template_name_indices;
     size_t template_name_count;
@@ -2407,6 +2408,27 @@ static void cxx_mangle_type_append_context(
                     rcc_fatal("C++ anonymous type cannot be mangled");
                 }
                 if (type->cxx_class) {
+                    CxxNamespace* class_namespace = type->cxx_class->ns;
+                    size_t namespace_count = 0u;
+                    CxxNamespace** namespace_stack =
+                        cxx_collect_namespace_components(
+                            class_namespace, false, &namespace_count);
+                    if (namespace_count > 0u) {
+                        cxx_mangle_type_char(buf, pos, 'N');
+                        if (context && context->namespace_scope ==
+                                          class_namespace) {
+                            /* Namespace prefixes are substitution candidates
+                             * in order, starting with S_ for the outermost. */
+                            cxx_mangle_append_substitution(
+                                buf, pos, namespace_count - 1u);
+                        } else {
+                            for (size_t index = namespace_count;
+                                 index > 0u; --index) {
+                                mangle_name(buf, pos,
+                                            namespace_stack[index - 1u]->name);
+                            }
+                        }
+                    }
                     if (context && context->class_name_depth > 0u) {
                         mangle_class_name_context(
                             buf, pos, type->cxx_class, context);
@@ -2416,6 +2438,32 @@ static void cxx_mangle_type_append_context(
                         mangle_class_name_context(
                             buf, pos, type->cxx_class, &class_context);
                     }
+                    if (namespace_count > 0u) {
+                        cxx_mangle_type_char(buf, pos, 'E');
+                    }
+                } else if (type->cxx_namespace &&
+                           type->cxx_namespace[0] != '\0') {
+                    const char* namespace_name = type->cxx_namespace;
+                    cxx_mangle_type_char(buf, pos, 'N');
+                    while (*namespace_name) {
+                        const char* separator = strstr(namespace_name, "::");
+                        size_t component_length = separator
+                            ? (size_t)(separator - namespace_name)
+                            : strlen(namespace_name);
+                        char* component;
+                        if (component_length == 0u) {
+                            rcc_fatal(
+                                "C++ class namespace component is invalid for mangling");
+                        }
+                        component = rcc_alloc(component_length + 1u);
+                        memcpy(component, namespace_name, component_length);
+                        component[component_length] = '\0';
+                        mangle_name(buf, pos, component);
+                        if (!separator) break;
+                        namespace_name = separator + 2;
+                    }
+                    mangle_name(buf, pos, type->tag);
+                    cxx_mangle_type_char(buf, pos, 'E');
                 } else {
                     mangle_name(buf, pos, type->tag);
                 }
@@ -2553,6 +2601,15 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     bool is_const_method = false;
     bool is_volatile_method = false;
     CxxRefQualifier ref_qualifier = CXX_REF_QUAL_NONE;
+
+    mangle_context.namespace_scope = ns;
+    if ((!mangle_context.namespace_scope ||
+         mangle_context.namespace_scope == g_global_namespace) && cls) {
+        mangle_context.namespace_scope = cls->ns;
+    }
+    if (mangle_context.namespace_scope == g_global_namespace) {
+        mangle_context.namespace_scope = NULL;
+    }
 
     if (func && cls && func->func_is_cxx_method && func->type) {
         is_const_method = func->type->is_const;
@@ -3797,6 +3854,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     }
     template_argument_context.class_type_index_base =
         cxx_mangle_free_template_substitution_base(mangling_namespace);
+    template_argument_context.namespace_scope = mangling_namespace;
     encode_member_signature = tmpl->member_method &&
         (!func->name || strcmp(func->name, "operator conversion") != 0);
     if ((encode_member_signature || !tmpl->member_method) &&
@@ -4082,6 +4140,7 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
     if (!variable || !tmpl) return NULL;
     argument_context.class_type_index_base =
         cxx_mangle_free_template_substitution_base(mangling_namespace);
+    argument_context.namespace_scope = mangling_namespace;
     base = cxx_mangle_name(variable->name, ns, NULL);
     if (!base || strlen(base) + 2u >= sizeof(buf)) {
         rcc_fatal("C++ variable template name is too long");

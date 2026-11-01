@@ -12258,6 +12258,13 @@ remains a separate open item.
       `noexcept` and member-function-pointer ref-qualifiers. Runtime, both-target
       function-template compilation, overload/ref-qualifier regression, and
       GCC C++20 `-pedantic-errors` checks pass.
+- [x] Preserve the declaring namespace when mangling class types used as
+      explicit function-template specialization arguments. Regress ADL
+      selection of an explicit specialization in one namespace and a nested
+      namespace, requiring GCC-identical `S_`/`S0_` Itanium substitutions,
+      i686/AMD64 assembly, and host execution in
+      `test-cxx-adl-function-template-specialization` and the full function-
+      template overload regression target.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
       function-template redeclarations, specializations, and the remaining
       C++20 candidate-set and overload-conformance cases.
