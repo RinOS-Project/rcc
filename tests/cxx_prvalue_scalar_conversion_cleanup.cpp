@@ -12,6 +12,9 @@ static int argument_source_constructions;
 static int argument_source_conversions;
 static int argument_source_destructions;
 static int premature_argument_source_destructions;
+static int wide_aggregate_first_evaluations;
+static int wide_aggregate_second_evaluations;
+static int wide_aggregate_third_evaluations;
 
 static int next_prvalue_value() {
     ++argument_evaluations;
@@ -36,6 +39,21 @@ static float next_prvalue_float_value() {
 static double next_prvalue_double_value() {
     ++double_argument_evaluations;
     return 27.25;
+}
+
+static long long next_wide_aggregate_first() {
+    ++wide_aggregate_first_evaluations;
+    return 101;
+}
+
+static long long next_wide_aggregate_second() {
+    ++wide_aggregate_second_evaluations;
+    return 202;
+}
+
+static long long next_wide_aggregate_third() {
+    ++wide_aggregate_third_evaluations;
+    return 303;
 }
 
 struct PrvalueScalarConversion {
@@ -100,6 +118,26 @@ struct ConstructorArgumentReuse {
     }
 };
 
+struct WideConstructorArgument {
+    long long first;
+    long long second;
+    long long third;
+};
+
+struct WideConstructorArgumentReuse {
+    long long from_initializer_first;
+    long long from_initializer_second;
+    long long from_body_third;
+    long long from_body_sum;
+
+    explicit WideConstructorArgumentReuse(WideConstructorArgument value)
+        : from_initializer_first(value.first),
+          from_initializer_second(value.second) {
+        from_body_third = value.third;
+        from_body_sum = value.first + value.second + value.third;
+    }
+};
+
 int main() {
     int direct = PrvalueScalarConversion{
         next_prvalue_value(), next_prvalue_pointer(),
@@ -146,6 +184,17 @@ int main() {
     if (argument_source_conversions != 2) return 38;
     if (argument_source_destructions != 2) return 39;
     if (premature_argument_source_destructions != 0) return 40;
+
+    WideConstructorArgumentReuse wide_reused(WideConstructorArgument{
+        next_wide_aggregate_first(), next_wide_aggregate_second(),
+        next_wide_aggregate_third()});
+    if (wide_reused.from_initializer_first != 101 ||
+        wide_reused.from_initializer_second != 202 ||
+        wide_reused.from_body_third != 303 ||
+        wide_reused.from_body_sum != 606) return 41;
+    if (wide_aggregate_first_evaluations != 1 ||
+        wide_aggregate_second_evaluations != 1 ||
+        wide_aggregate_third_evaluations != 1) return 42;
 
     return 0;
 }

@@ -12859,3 +12859,13 @@ remains a separate open item.
       AMD64 legacy host execution, and both verified targets with zero fallback.
       Constructor-general, constructor-body, constructor-initializer-body, and
       conversion-operator suites also pass.
+
+## RCC continuation (2026-11-01, wide aggregate constructor arguments)
+- [x] Cache complete trivially copyable aggregate constructor arguments larger
+      than 64 bits in aligned frame storage and reuse the saved object in both
+      member initializers and the constructor body. A side-effecting 24-byte
+      aggregate is evaluated once; GCC C++20, i686/AMD64 legacy generation,
+      i686 COFF assembly, AMD64 host execution, and constructor/conversion
+      regression suites pass. The verified backend gate pins its single current
+      fallback to this aggregate-parameter constructor; typed-SSA aggregate
+      parameter lowering remains open in the parent TODO.

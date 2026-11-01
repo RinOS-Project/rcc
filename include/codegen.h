@@ -396,6 +396,7 @@ int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
 int codegen_assign_cxx_constructor_storage(Decl* declaration,
                                           int initial_bytes,
                                           int stack_alignment);
+bool codegen_cxx_constructor_argument_cacheable_type(Type* type);
 int codegen_assign_global_initializer_storage(
     GlobalInitializer* initializers, int stack_alignment);
 ExprList* codegen_call_temporary_owners(void);

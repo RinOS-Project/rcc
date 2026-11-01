@@ -7905,11 +7905,7 @@ static bool gen64_cxx_constructor_argument_can_cache(
         ? argument->expr->type : NULL;
     return argument && argument->cxx_constructor_argument_offset < 0 &&
         !argument->cxx_temporary_owner && argument->expr &&
-        type && type->size <= 8 &&
-        (type_is_integer(type) || type->kind == TYPE_ENUM ||
-         type_is_floating(type) ||
-         type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) &&
-        !type->cxx_is_member_pointer;
+        codegen_cxx_constructor_argument_cacheable_type(type);
 }
 
 static ExprList* gen64_cxx_capture_constructor_arguments(
@@ -7932,10 +7928,23 @@ static ExprList* gen64_cxx_capture_constructor_arguments(
         if (gen64_cxx_constructor_argument_can_cache(argument)) {
             Decl* temporary_decl;
             Expr* temporary_value;
-            gen64_expr(mod, value);
-            emit64_store_typed(mod, RBP,
-                argument->cxx_constructor_argument_offset, RAX,
-                value->type);
+            if (value->type->kind == TYPE_STRUCT ||
+                value->type->kind == TYPE_UNION) {
+                if (value->kind == EXPR_VA_ARG ||
+                    !gen64_expr_is_lvalue(value)) {
+                    gen64_expr(mod, value);
+                } else {
+                    gen64_lvalue(mod, value);
+                }
+                gen64_copy_memory(mod, RBP,
+                    argument->cxx_constructor_argument_offset,
+                    RAX, 0, value->type->size);
+            } else {
+                gen64_expr(mod, value);
+                emit64_store_typed(mod, RBP,
+                    argument->cxx_constructor_argument_offset, RAX,
+                    value->type);
+            }
             temporary_decl = decl_var("__rcc_constructor_argument",
                                       value->type, NULL, value->loc);
             temporary_decl->var_offset =

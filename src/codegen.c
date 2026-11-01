@@ -12589,11 +12589,7 @@ static bool gen_cxx_constructor_argument_can_cache32(
         ? argument->expr->type : NULL;
     return argument && argument->cxx_constructor_argument_offset < 0 &&
         !argument->cxx_temporary_owner && argument->expr &&
-        type && type->size <= 8 &&
-        (type_is_integer(type) || type->kind == TYPE_ENUM ||
-         type_is_floating(type) ||
-         type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) &&
-        !type->cxx_is_member_pointer;
+        codegen_cxx_constructor_argument_cacheable_type(type);
 }
 
 static ExprList* gen_cxx_capture_constructor_arguments32(
@@ -12616,7 +12612,31 @@ static ExprList* gen_cxx_capture_constructor_arguments32(
         if (gen_cxx_constructor_argument_can_cache32(argument)) {
             Decl* temporary_decl;
             Expr* temporary_value;
-            if (gen_is_integer64(value->type)) {
+            if (value->type->kind == TYPE_STRUCT ||
+                value->type->kind == TYPE_UNION) {
+                int offset = 0;
+                if (value->kind == EXPR_VA_ARG ||
+                    !gen_expr_is_lvalue(value)) {
+                    gen_expr(mod, value);
+                } else {
+                    gen_lvalue(mod, value);
+                }
+                emit_mov_reg_reg(mod, ECX, EAX);
+                while (offset + 4 <= value->type->size) {
+                    emit_mov_reg_mem(mod, EAX, ECX, offset);
+                    emit_mov_mem_reg(mod, EBP,
+                        argument->cxx_constructor_argument_offset + offset,
+                        EAX);
+                    offset += 4;
+                }
+                while (offset < value->type->size) {
+                    emit_load_typed32(mod, EAX, ECX, offset, type_uchar);
+                    emit_store_typed32(mod, EBP,
+                        argument->cxx_constructor_argument_offset + offset,
+                        EAX, type_uchar);
+                    ++offset;
+                }
+            } else if (gen_is_integer64(value->type)) {
                 gen_expr_as_integer64(mod, value);
                 emit_mov_mem_reg(mod, EBP,
                     argument->cxx_constructor_argument_offset, EAX);
@@ -19737,6 +19757,42 @@ static void codegen_assign_initializer_temporary_storage(
                                 bytes, stack_alignment);
 }
 
+static bool codegen_constructor_argument_cacheable_type_impl(
+    Type* type, unsigned depth) {
+    if (!type || depth >= 64u || type->size <= 0 || type->is_volatile ||
+        type->is_atomic || type->is_reference ||
+        type->cxx_is_member_pointer) {
+        return false;
+    }
+    if (type_is_integer(type) || type->kind == TYPE_ENUM ||
+        type_is_floating(type) || type->kind == TYPE_NULLPTR ||
+        type->kind == TYPE_PTR) {
+        return type->size <= 8;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len > 0 &&
+            codegen_constructor_argument_cacheable_type_impl(
+                type->base, depth + 1u);
+    }
+    if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        !type->cxx_nontrivial &&
+        (!type->cxx_class || ast_cxx_is_aggregate(type))) {
+        for (TypeField* field = type->fields; field;
+             field = field->next) {
+            if (!codegen_constructor_argument_cacheable_type_impl(
+                    field->type, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+bool codegen_cxx_constructor_argument_cacheable_type(Type* type) {
+    return codegen_constructor_argument_cacheable_type_impl(type, 0u);
+}
+
 static void codegen_assign_constructor_argument_storage(
     ExprList* argument, int* bytes, int stack_alignment) {
     Type* type = argument && argument->expr ? argument->expr->type : NULL;
@@ -19744,11 +19800,8 @@ static void codegen_assign_constructor_argument_storage(
     int alignment;
     int64_t extent;
     if (!argument || !bytes || *bytes == INT_MAX ||
-        argument->cxx_constructor_argument_offset != 0 || !type ||
-        (!type_is_integer(type) && type->kind != TYPE_ENUM &&
-         !type_is_floating(type) &&
-         type->kind != TYPE_PTR && type->kind != TYPE_NULLPTR) ||
-        type->cxx_is_member_pointer || type->size > 8) {
+        argument->cxx_constructor_argument_offset != 0 ||
+        !codegen_cxx_constructor_argument_cacheable_type(type)) {
         return;
     }
     size = type->size > 0 ? type->size : stack_alignment;
