@@ -321,6 +321,43 @@ static ExplicitMoveWideConstructorArgument explicit_move_wide_prvalue_factory()
     return ExplicitMoveWideConstructorArgument(2601, 2602, 2603);
 }
 
+static int throwing_copy_parameter_constructor_evaluations;
+static int throwing_copy_parameter_destructor_evaluations;
+static int throwing_copy_parameter_should_throw;
+static int throwing_copy_parameter_callee_evaluations;
+
+struct ThrowingCopyFunctionParameter {
+    long long first;
+    long long second;
+    long long third;
+
+    ThrowingCopyFunctionParameter(
+        long long initial_first, long long initial_second,
+        long long initial_third)
+        : first(initial_first), second(initial_second), third(initial_third) {}
+
+    ThrowingCopyFunctionParameter(
+        const ThrowingCopyFunctionParameter& other)
+        : first(other.first), second(other.second), third(other.third) {
+        ++throwing_copy_parameter_constructor_evaluations;
+        if (throwing_copy_parameter_should_throw &&
+            throwing_copy_parameter_constructor_evaluations == 2) throw 93;
+    }
+
+    ~ThrowingCopyFunctionParameter() {
+        ++throwing_copy_parameter_destructor_evaluations;
+    }
+};
+
+static int consume_throwing_copy_parameters(
+    ThrowingCopyFunctionParameter first,
+    ThrowingCopyFunctionParameter second) {
+    ++throwing_copy_parameter_callee_evaluations;
+    return static_cast<int>(first.first) + static_cast<int>(first.second) +
+        static_cast<int>(first.third) + static_cast<int>(second.first) +
+        static_cast<int>(second.second) + static_cast<int>(second.third);
+}
+
 struct ExplicitMoveWideConstructorArgumentReuse {
     long long from_initializer_first;
     long long from_initializer_second;
@@ -803,6 +840,44 @@ int main() {
             explicit_move_wide_destructor_evaluations != 1) return 73;
     }
     if (explicit_move_wide_destructor_evaluations != 1) return 74;
+
+    throwing_copy_parameter_constructor_evaluations = 0;
+    throwing_copy_parameter_destructor_evaluations = 0;
+    throwing_copy_parameter_callee_evaluations = 0;
+    throwing_copy_parameter_should_throw = 1;
+    {
+        ThrowingCopyFunctionParameter first_source(2701, 2702, 2703);
+        ThrowingCopyFunctionParameter second_source(2801, 2802, 2803);
+        bool caught = false;
+        try {
+            (void)consume_throwing_copy_parameters(first_source, second_source);
+        } catch (int exception_value) {
+            caught = exception_value == 93;
+        }
+        if (!caught || first_source.first != 2701 ||
+            second_source.first != 2801 ||
+            throwing_copy_parameter_constructor_evaluations != 2 ||
+            throwing_copy_parameter_destructor_evaluations != 1 ||
+            throwing_copy_parameter_callee_evaluations != 0) return 91;
+    }
+    if (throwing_copy_parameter_destructor_evaluations != 3) return 92;
+
+    throwing_copy_parameter_constructor_evaluations = 0;
+    throwing_copy_parameter_destructor_evaluations = 0;
+    throwing_copy_parameter_callee_evaluations = 0;
+    throwing_copy_parameter_should_throw = 0;
+    {
+        ThrowingCopyFunctionParameter first_source(2901, 2902, 2903);
+        ThrowingCopyFunctionParameter second_source(3001, 3002, 3003);
+        int sum = consume_throwing_copy_parameters(
+            first_source, second_source);
+        if (sum != 17712 || first_source.first != 2901 ||
+            second_source.first != 3001 ||
+            throwing_copy_parameter_constructor_evaluations != 2 ||
+            throwing_copy_parameter_destructor_evaluations != 2 ||
+            throwing_copy_parameter_callee_evaluations != 1) return 94;
+    }
+    if (throwing_copy_parameter_destructor_evaluations != 4) return 95;
 
     return 0;
 }

@@ -13094,6 +13094,10 @@ remains a separate open item.
       cleanup. GCC C++20, i686/AMD64 legacy output, AMD64 execution, and verified
       i686/AMD64 object generation with zero fallback pass in
       `test-cxx-prvalue-scalar-conversion-cleanup`.
+- [x] If the second by-value argument copy in evaluation order throws, destroy
+      the earlier completed parameter temporary, but do not destroy the
+      incomplete object or enter the callee. GCC C++20 and RCC++ host runtime
+      pass; i686/AMD64 verified objects emit with zero fallback.
 - [x] Preserve aliases when caching lvalue and xvalue arguments passed to C++
       reference constructor parameters. Capture the referent address so member
       initializers and the constructor body continue to access the caller's
