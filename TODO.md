@@ -13065,8 +13065,8 @@ remains a separate open item.
       initializer-list function overload. GCC C++20, RCC i686/AMD64 diagnostics
       and no-object checks, and AMD64 runtime parity pass in
       `test-cxx-initializer-list`.
-- [x] Parse and contextually initialize C++ braced default arguments for scalar
-      parameters, `std::initializer_list` function parameters, and
+- [x] Parse and contextually initialize C++ braced default arguments for scalar,
+      reference, aggregate, and `std::initializer_list` function parameters, and
       `std::initializer_list` constructor parameters. Preserve list narrowing
       diagnostics, reject explicit constructors selected by copy-list
       initialization, make repeated semantic analysis of a materialized list

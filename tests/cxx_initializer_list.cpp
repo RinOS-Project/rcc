@@ -135,6 +135,18 @@ static int consume_scalar_default(int value = {6}) {
     return value;
 }
 
+struct DefaultedAggregate {
+    int value;
+};
+
+static int consume_reference_default(const int& value = {7}) {
+    return value;
+}
+
+static int consume_aggregate_default(DefaultedAggregate value = {4}) {
+    return value.value;
+}
+
 static int consume_defaulted_tracked(
     std::initializer_list<Tracked> values = {3, 4}) {
     return values.size() == 2 && values.begin()[0].value == 3 &&
@@ -205,6 +217,8 @@ static int test_braced_initializer_list_default_arguments(void) {
     lambda_tracked_result = tracked_lambda() && tracked_lambda();
     return consume_defaulted() == 2 && value.size == 2 &&
            consume_defaulted({9}) == 1 && consume_scalar_default() == 6 &&
+           consume_reference_default() == 7 &&
+           consume_aggregate_default() == 4 &&
            lambda() == 11 && lambda({12}) == 12 &&
            lambda_tracked_result && initializer_list_counts_are(4, 4);
 }
