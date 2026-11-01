@@ -92,6 +92,13 @@
   covered by `test-cxx-overloads` and `test-cxx-function-templates`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
+  - [x] Apply CWG 2627's bit-field-width exception to integer list narrowing,
+        including enum underlying types and conditional/comma bit-field
+        glvalues. Test accepted and rejected signedness/width boundaries in
+        `test-cxx-list-narrowing`: GCC 13.2 rejects the DR-valid positive cases
+        in both C++20 and C++23, so those are checked against the adopted rule;
+        RCC i686/AMD64 generation, AMD64 execution, and verified objects with
+        zero fallback pass.
 
 ## RCC continuation (2026-11-01, reference list initialization)
 

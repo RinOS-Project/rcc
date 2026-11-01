@@ -39,6 +39,9 @@ enum ListNarrowingUnsignedEnumValues : unsigned int {
 int main() {
     int source = 1;
     int source_array[1] = {1};
+    struct SignedWideBitfield { int value : 9; } signed_wide = {};
+    struct UnsignedWideBitfield { unsigned int value : 9; } unsigned_wide = {};
+    struct SignedNarrowBitfield { int value : 4; } signed_narrow = {};
     AggregateValue from_float{1.5};
     NestedAggregate nested_out_of_range{{256}};
     ConstructedValue constructor_from_float{1.5};
@@ -62,6 +65,10 @@ int main() {
     float enum_inexact_float{list_narrowing_inexact_float};
     float unsigned_enum_inexact_float{
         list_narrowing_unsigned_inexact_float};
+    signed char signed_bitfield_out_of_range{signed_wide.value};
+    unsigned char unsigned_bitfield_out_of_range{unsigned_wide.value};
+    unsigned char signed_bitfield_to_unsigned{signed_narrow.value};
+    bool signed_bitfield_to_bool{signed_narrow.value};
     return from_float.value + nested_out_of_range.nested.byte +
            sizeof(constructor_from_float) + out_of_range +
            array_out_of_range[0] + (int)inexact_integer +
@@ -69,5 +76,7 @@ int main() {
            nonzero_integer + from_pointer + from_array + enum_negative +
            signed_overflow + signed_underflow + negative_unsigned +
            (int)enum_inexact_float + (int)unsigned_enum_inexact_float +
-           (int)inexact_ull_max;
+           (int)inexact_ull_max + signed_bitfield_out_of_range +
+           unsigned_bitfield_out_of_range + signed_bitfield_to_unsigned +
+           signed_bitfield_to_bool;
 }

@@ -678,7 +678,8 @@ endif
 .PHONY: test-cxx-legacy-nothrow-constructor
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
-.PHONY: test-cxx-designated-initializer test-cxx-list-narrowing
+.PHONY: test-cxx-designated-initializer test-cxx-list-narrowing \
+	test-cxx-list-narrowing-bitfield-dr
 .PHONY: test-cxx-utf8-literals test-cxx-wide-literals
 .PHONY: test-c-wide-literals test-wide-literal-rin-format \
 	test-c-numeric-escape-ranges test-cxx-numeric-escape-ranges
@@ -3006,7 +3007,7 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
 
-test-cxx-list-narrowing: $(RCXX_TARGET)
+test-cxx-list-narrowing: $(RCXX_TARGET) test-cxx-list-narrowing-bitfield-dr
 	$(call MKDIR_P,$(TEST_OUT)/cxx-list-narrowing)
 	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/cxx-list-narrowing/gcc-host \
@@ -3051,7 +3052,7 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log)
 	$(GREP) -F -q "narrowing conversion" \
 		$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log
-	$(call CHECK_COUNT,narrowing conversion,$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log,21)
+	$(call CHECK_COUNT,narrowing conversion,$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log,25)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro \
@@ -3059,7 +3060,7 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log)
 	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log
-	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log,21)
+	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log,25)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
@@ -3068,7 +3069,7 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log)
 	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log
-	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log,21)
+	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log,25)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro)
 	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-host \
@@ -3137,6 +3138,38 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 	$(GREP) -F -q "requires a fixed underlying type in C++17" \
 		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-cxx14.log
 	@echo "C++ list-initialization narrowing tests completed"
+
+test-cxx-list-narrowing-bitfield-dr: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-list-narrowing-bitfield-dr)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x86.s \
+		tests/cxx_list_narrowing_bitfield_dr.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x86.o \
+		$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x64.s \
+		tests/cxx_list_narrowing_bitfield_dr.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x64.o \
+		$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x64.s
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/rcc-host \
+		$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x64.o
+	$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/rcc-host$(EXE_SUFFIX)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x86-verified.ro \
+		tests/cxx_list_narrowing_bitfield_dr.cpp \
+		>$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x86-verified.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x86-verified.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x64-verified.ro \
+		tests/cxx_list_narrowing_bitfield_dr.cpp \
+		>$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x64-verified.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-list-narrowing-bitfield-dr/x64-verified.log,0)
+	@echo "CWG 2627 bit-field list-narrowing tests completed"
 
 test-cxx-copy-list-explicit: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-copy-list-explicit)

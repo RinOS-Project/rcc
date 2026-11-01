@@ -34778,6 +34778,34 @@ static Type* sema_cxx_list_integer_type(Type* type) {
     return type;
 }
 
+static unsigned sema_cxx_list_bitfield_width(const Expr* expression) {
+    unsigned left_width;
+    unsigned right_width;
+    if (!expression) return 0;
+    switch (expression->kind) {
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return expression->member_field &&
+                   expression->member_field->is_bitfield
+                ? expression->member_field->bit_width : 0;
+        case EXPR_COND:
+            if (!expression->cxx_conditional_lvalue &&
+                !expression->cxx_conditional_xvalue) {
+                return 0;
+            }
+            left_width = sema_cxx_list_bitfield_width(
+                expression->cond_then);
+            right_width = sema_cxx_list_bitfield_width(
+                expression->cond_else);
+            if (!left_width || !right_width) return 0;
+            return left_width > right_width ? left_width : right_width;
+        case EXPR_COMMA:
+            return sema_cxx_list_bitfield_width(expression->binary_rhs);
+        default:
+            return 0;
+    }
+}
+
 static bool sema_cxx_integer_constant_fits_list_target(
     Expr* expression, Type* source, Type* target) {
     uint64_t bits;
@@ -34946,12 +34974,21 @@ static bool sema_cxx_list_narrowing_conversion(Type* destination,
          integer_source->kind == TYPE_ENUM) &&
         (type_is_integer(integer_target) ||
          integer_target->kind == TYPE_ENUM)) {
+        unsigned bitfield_width =
+            sema_cxx_list_bitfield_width(initializer);
         unsigned source_width = type_integer_width(integer_source);
         unsigned target_width = type_integer_width(integer_target);
         bool source_unsigned = integer_source->kind == TYPE_BOOL ||
                                integer_source->is_unsigned;
         bool target_unsigned = integer_target->kind == TYPE_BOOL ||
                                integer_target->is_unsigned;
+        if (bitfield_width && bitfield_width < source_width &&
+            (source_unsigned
+                ? (target_unsigned ? bitfield_width <= target_width
+                                   : bitfield_width < target_width)
+                : (!target_unsigned && bitfield_width <= target_width))) {
+            return false;
+        }
         bool whole_range_fits = source_width && target_width &&
             (source_unsigned
                 ? (target_unsigned ? source_width <= target_width
