@@ -2503,6 +2503,17 @@ void rcc_parser_validate_cxx_constructor_initializer(Type* type,
             }
         }
     }
+    /* Braced initialization can bind any number of clauses through a single
+     * std::initializer_list parameter. Do not compare source clause count to
+     * the constructor's ordinary parameter arity here; semantic analysis
+     * performs initializer-list phase selection and then checks the selected
+     * constructor precisely. */
+    if (parser_cxx_mode && type->cxx_class &&
+        (initializer->compound_direct_list_init ||
+         initializer->compound_copy_list_init ||
+         initializer->compound_value_init)) {
+        return;
+    }
     mask = rcc_parser_cxx_constructor_arity_mask(type);
     if (mask == 0u) return;
     if (!initializer->compound_value_init) {

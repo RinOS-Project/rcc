@@ -54,6 +54,16 @@
   explicitly selected constructor; GCC C++20 and RCC i686/AMD64 diagnostics,
   no-object checks, and AMD64 runtime parity pass in
   `test-cxx-copy-list-explicit`.
+- [x] Defer class braced-initializer clause-count validation until semantic
+  analysis selects the initializer-list constructor phase. Cover a non-template
+  initializer-list-only constructor with multiple clauses, explicit direct-list
+  acceptance, and explicit copy-list/function-argument rejection. GCC C++20,
+  RCC i686/AMD64 assembly and `.ro` output, AMD64 runtime, matching diagnostics,
+  and invalid-object absence pass in `test-cxx-initializer-list`.
+- [ ] Lower calls such as `values.size()` in a non-template constructor's
+  scalar member initializer when `values` is a `std::initializer_list`.
+  GCC accepts this case; RCC currently cannot include that constructor in its
+  safely lowerable arity set.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
 
