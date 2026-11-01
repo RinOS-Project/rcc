@@ -43,15 +43,19 @@
 - [x] Preserve copy-list initialization as a distinct semantic context and
   reject only when overload resolution selects an explicit constructor. Keep
   direct-list use valid; cover variable initialization, function arguments,
-  nested aggregate elements, and a better-ranked explicit candidate beside an
-  implicit candidate. GCC C++20 and RCC i686/AMD64 diagnostics, no-object
-  checks, and AMD64 runtime parity pass in
+  class-returning function declarations and braced returns, nested aggregate
+  elements, explicitly specified function-template arguments, and a better-
+  ranked explicit candidate beside an implicit candidate. GCC C++20 and RCC
+  i686/AMD64 diagnostics, no-object checks, and AMD64 runtime parity pass in
+  `test-cxx-copy-list-explicit`.
+- [x] Keep braced function arguments as non-deduced contexts for explicitly
+  specified function-template calls, then check the instantiated parameter's
+  list conversion. Accept the non-explicit-constructor case and diagnose an
+  explicitly selected constructor; GCC C++20 and RCC i686/AMD64 diagnostics,
+  no-object checks, and AMD64 runtime parity pass in
   `test-cxx-copy-list-explicit`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
-  boundaries with GCC before claiming complete conformance. Probes still find
-  class `return {…}` parsing/constructor-arity failures and explicitly
-  specified function-template calls with braced arguments rejected as having
-  no matching overload; cover those separately before closing this item.
+  boundaries with GCC before claiming complete conformance.
 
 ## RCC continuation (2026-10-31, Annex G exceptional values)
 

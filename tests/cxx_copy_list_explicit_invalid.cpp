@@ -7,6 +7,17 @@ static void accept(ExplicitValue value) {
     (void)value;
 }
 
+template <typename T>
+void accept_template(T value) {
+    (void)value;
+}
+
+ExplicitValue make_returned_value();
+
+ExplicitValue make_returned_value() {
+    return {2};
+}
+
 struct Aggregate {
     ExplicitValue value;
 };
@@ -22,5 +33,7 @@ ExplicitPreferred preferred_explicit = {static_cast<short>(6)};
 
 int main() {
     accept({4});
+    accept_template<ExplicitValue>({5});
+    (void)make_returned_value();
     return 0;
 }

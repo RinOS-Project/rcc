@@ -31588,6 +31588,7 @@ static void sema_stmt(Stmt* stmt) {
                     !stmt->return_val->compound_type && current_func_ret &&
                     current_func_ret != type_void) {
                     stmt->return_val->compound_type = current_func_ret;
+                    stmt->return_val->compound_copy_list_init = true;
                     rcc_parser_validate_cxx_constructor_initializer(
                         current_func_ret, stmt->return_val);
                 }

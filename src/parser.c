@@ -3862,6 +3862,11 @@ static Expr* parse_postfix_tail(Expr* e) {
                 do {
                     Expr* arg = parser_cxx_mode && check(TOK_LBRACE)
                         ? parse_initializer() : parse_assignment();
+                    if (parser_cxx_mode && arg &&
+                        arg->kind == EXPR_COMPOUND &&
+                        !arg->compound_type) {
+                        arg->compound_copy_list_init = true;
+                    }
                     if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
                         if (!arg) {
                             rcc_error(loc,
@@ -7121,6 +7126,10 @@ static Stmt* parse_return_stmt(void) {
     if (!check(TOK_SEMICOLON)) {
         val = parser_cxx_mode && check(TOK_LBRACE)
             ? parse_initializer() : parse_expression();
+        if (parser_cxx_mode && val && val->kind == EXPR_COMPOUND &&
+            !val->compound_type) {
+            val->compound_copy_list_init = true;
+        }
     }
     expect(TOK_SEMICOLON, ";");
 

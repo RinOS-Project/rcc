@@ -43623,7 +43623,19 @@ static bool prepare_cxx_function_template_match_impl(
                 bool has_dependent_nested_type =
                     cxx_function_template_find_dependent_nested_type(
                         parameter->decl->type, 0u, false);
-                if (!actual) return false;
+                if (!actual) {
+                    if (argument->expr &&
+                        argument->expr->kind == EXPR_COMPOUND &&
+                        !argument->expr->compound_type) {
+                        /* A braced-init-list is a non-deduced context for
+                         * ordinary function parameters. Keep it for the
+                         * instantiated parameter conversion check below;
+                         * template parameters left unresolved will still
+                         * reject this candidate after argument deduction. */
+                        continue;
+                    }
+                    return false;
+                }
                 int template_pack_index =
                     cxx_parser_template_parameter_pack_index(
                         tmpl, parameter->decl->type);
@@ -47150,10 +47162,14 @@ Expr* rcc_parse_cxx_template_call(void) {
             match(TOK_LPAREN);
             if (!check(TOK_RPAREN)) {
                 do {
-                    exprlist_append(&adl_call_arguments,
-                        check(TOK_LBRACE)
-                            ? rcc_parser_parse_initializer()
-                            : parse_assignment_expression());
+                    Expr* argument = check(TOK_LBRACE)
+                        ? rcc_parser_parse_initializer()
+                        : parse_assignment_expression();
+                    if (argument && argument->kind == EXPR_COMPOUND &&
+                        !argument->compound_type) {
+                        argument->compound_copy_list_init = true;
+                    }
+                    exprlist_append(&adl_call_arguments, argument);
                 } while (match(TOK_COMMA));
             }
             expect(TOK_RPAREN, ")");
@@ -47283,6 +47299,10 @@ Expr* rcc_parse_cxx_template_call(void) {
                     Expr* argument = check(TOK_LBRACE)
                         ? rcc_parser_parse_initializer()
                         : parse_assignment_expression();
+                    if (argument && argument->kind == EXPR_COMPOUND &&
+                        !argument->compound_type) {
+                        argument->compound_copy_list_init = true;
+                    }
                     if (match(TOK_ELLIPSIS)) {
                         if (!argument) {
                             rcc_error(loc,
@@ -50793,6 +50813,12 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
          * parenthesized initialization would steal the function signature. */
         return NULL;
     }
+
+    /* Empty parentheses after a class name form a function declarator in a
+     * declaration (`Value make_value();`), never an object initializer.
+     * Leave this case to the common declarator parser even when Value has a
+     * zero-argument constructor. */
+    if (paren_form && !paren_has_arguments) return NULL;
 
     if (aggregate_type && paren_form && paren_has_arguments &&
         !rcc_parser_cxx_standard_at_least(20)) {
