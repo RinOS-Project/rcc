@@ -13058,6 +13058,12 @@ remains a separate open item.
       Cover multiword fields on i686, GCC C++20, i686/AMD64 legacy output,
       AMD64 execution, and verified i686/AMD64 object generation with zero
       fallback in `test-cxx-prvalue-scalar-conversion-cleanup`.
+- [x] Pass lvalue and xvalue sources through ordinary function by-value
+      parameters with user-defined copy/move constructors. Verify source state,
+      parameter values, and exactly-once destruction after the call. GCC C++20,
+      i686/AMD64 legacy output, AMD64 execution, and verified i686/AMD64 object
+      generation with zero fallback pass in
+      `test-cxx-prvalue-scalar-conversion-cleanup`.
 - [x] Preserve aliases when caching lvalue and xvalue arguments passed to C++
       reference constructor parameters. Capture the referent address so member
       initializers and the constructor body continue to access the caller's

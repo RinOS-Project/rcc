@@ -269,6 +269,12 @@ struct ExplicitCopyWideConstructorArgumentReuse {
     }
 };
 
+static int explicit_copy_wide_parameter_sum(
+    ExplicitCopyWideConstructorArgument value) {
+    return static_cast<int>(value.first) +
+        static_cast<int>(value.second) + static_cast<int>(value.third);
+}
+
 static int explicit_move_wide_constructor_evaluations;
 static int explicit_move_wide_destructor_evaluations;
 
@@ -309,6 +315,12 @@ struct ExplicitMoveWideConstructorArgumentReuse {
         from_body_sum = value.first + value.second + value.third;
     }
 };
+
+static int explicit_move_wide_parameter_sum(
+    ExplicitMoveWideConstructorArgument value) {
+    return static_cast<int>(value.first) +
+        static_cast<int>(value.second) + static_cast<int>(value.third);
+}
 
 struct NestedWideConstructorArgumentReuse {
     long long from_initializer_first;
@@ -573,6 +585,20 @@ int main() {
     }
     if (explicit_copy_wide_destructor_evaluations != 2) return 64;
 
+    explicit_copy_wide_constructor_evaluations = 0;
+    explicit_copy_wide_destructor_evaluations = 0;
+    {
+        ExplicitCopyWideConstructorArgument explicit_copy_call_source(
+            701, 702, 703);
+        int copied_sum = explicit_copy_wide_parameter_sum(
+            explicit_copy_call_source);
+        if (copied_sum != 2156 ||
+            explicit_copy_call_source.first != 701 ||
+            explicit_copy_wide_constructor_evaluations != 1 ||
+            explicit_copy_wide_destructor_evaluations != 1) return 67;
+    }
+    if (explicit_copy_wide_destructor_evaluations != 2) return 68;
+
     explicit_move_wide_constructor_evaluations = 0;
     explicit_move_wide_destructor_evaluations = 0;
     {
@@ -590,6 +616,21 @@ int main() {
             explicit_move_wide_destructor_evaluations != 1) return 65;
     }
     if (explicit_move_wide_destructor_evaluations != 2) return 66;
+
+    explicit_move_wide_constructor_evaluations = 0;
+    explicit_move_wide_destructor_evaluations = 0;
+    {
+        ExplicitMoveWideConstructorArgument explicit_move_call_source(
+            801, 802, 803);
+        int moved_sum = explicit_move_wide_parameter_sum(
+            static_cast<ExplicitMoveWideConstructorArgument&&>(
+                explicit_move_call_source));
+        if (moved_sum != 2476 ||
+            explicit_move_call_source.first != -2 ||
+            explicit_move_wide_constructor_evaluations != 1 ||
+            explicit_move_wide_destructor_evaluations != 1) return 69;
+    }
+    if (explicit_move_wide_destructor_evaluations != 2) return 70;
 
     return 0;
 }
