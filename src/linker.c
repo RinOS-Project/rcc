@@ -16,6 +16,7 @@
 LinkerOpts g_linker_opts;
 
 static bool linker_section_selected(const ObjSection* section);
+static bool linker_section_emitted(const ObjSection* section);
 static ObjSection* object_section_at(const ObjectFile* object, int index);
 static uint64_t linker_comdat_hash(const char* key);
 static bool linker_comdat_contains(const Linker* ld, const char* key);
@@ -419,9 +420,27 @@ static LinkerInputSymbol* linker_input_symbol_get_or_insert(
 static void linker_input_symbol_update_object(Linker* ld,
                                               const ObjectFile* object)
 {
+    LinkerUndefinedRelocationIndex references = {0};
+    for (ObjSection* section = object->sections; section;
+         section = section->next) {
+        if (!linker_section_emitted(section)) continue;
+        for (ObjReloc* relocation = section->relocs; relocation;
+             relocation = relocation->next) {
+            LinkerUndefinedRelocationReference* reference;
+            if (relocation->symbol_name == NULL)
+                rcc_fatal("relocation has no linker symbol name");
+            reference = linker_undefined_relocation_add(
+                &references, relocation->symbol_name);
+            reference->retained_reference = true;
+        }
+    }
+
     for (ObjSymbol* symbol = object->symbols; symbol; symbol = symbol->next) {
         LinkerInputSymbol* indexed;
         if (symbol->type == SYM_UNDEF) {
+            if (linker_undefined_relocation_find(
+                    &references, symbol->name) == NULL)
+                continue;
             indexed = linker_input_symbol_get_or_insert(ld, symbol->name);
             if (indexed->undefined_count == SIZE_MAX)
                 rcc_fatal("too many references to linker input symbol");
@@ -433,13 +452,16 @@ static void linker_input_symbol_update_object(Linker* ld,
             owner = symbol->section < 0
                         ? NULL
                         : object_section_at(object, symbol->section);
-            if (owner && !linker_section_selected(owner)) continue;
+            if (symbol->section >= 0 &&
+                (!owner || !linker_section_emitted(owner)))
+                continue;
             indexed = linker_input_symbol_get_or_insert(ld, symbol->name);
             if (indexed->definition_count == SIZE_MAX)
                 rcc_fatal("too many definitions of linker input symbol");
             ++indexed->definition_count;
         }
     }
+    rcc_free(references.slots);
 }
 
 static bool linker_symbol_is_unresolved(const Linker* ld, const char* name)
@@ -457,9 +479,16 @@ static bool linker_symbol_is_unresolved(const Linker* ld, const char* name)
 
 static bool object_defines_symbol(const ObjectFile* obj, const char* name) {
     for (ObjSymbol* symbol = obj->symbols; symbol; symbol = symbol->next) {
-        if (strcmp(symbol->name, name) == 0 &&
-            (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
-            (symbol->section >= 0 || symbol->binding == BIND_ABS)) return true;
+        ObjSection* owner = NULL;
+        if (symbol->type != SYM_GLOBAL && symbol->type != SYM_WEAK)
+            continue;
+        if (symbol->section < 0) {
+            if (symbol->binding != BIND_ABS) continue;
+        } else {
+            owner = object_section_at(obj, symbol->section);
+            if (!owner || !linker_section_emitted(owner)) continue;
+        }
+        if (strcmp(symbol->name, name) == 0) return true;
     }
     return false;
 }
@@ -960,6 +989,12 @@ static bool linker_section_selected(const ObjSection* section) {
            section->comdat_selected;
 }
 
+static bool linker_section_emitted(const ObjSection* section) {
+    return section != NULL && linker_section_selected(section) &&
+           !(section->type >= SECT_DEBUG_LINE &&
+             section->type <= SECT_DEBUG_LOC);
+}
+
 static ObjSection* object_section_at(const ObjectFile* object, int index) {
     ObjSection* section = object->sections;
     while (section && index-- > 0) section = section->next;
@@ -1238,7 +1273,7 @@ bool linker_collect_symbols(Linker* ld) {
 
             if (sym->section >= 0) {
                 owner = object_section_at(obj, sym->section);
-                if (!owner || !linker_section_selected(owner)) {
+                if (!owner || !linker_section_emitted(owner)) {
                     continue;
                 }
             }
@@ -1411,7 +1446,7 @@ bool linker_resolve_symbols(Linker* ld) {
                 LinkerUndefinedRelocationReference* reference =
                     linker_undefined_relocation_add(
                         &references, relocation->symbol_name);
-                if (linker_section_selected(section))
+                if (linker_section_emitted(section))
                     reference->retained_reference = true;
             }
         }
@@ -1421,7 +1456,7 @@ bool linker_resolve_symbols(Linker* ld) {
             if (sym->type != SYM_UNDEF) continue;
             reference = linker_undefined_relocation_find(&references,
                                                           sym->name);
-            if (reference != NULL && !reference->retained_reference) continue;
+            if (reference == NULL || !reference->retained_reference) continue;
 
             /* Look for definition */
             GlobalSymbol* def = find_symbol(ld, sym->name);
