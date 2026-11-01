@@ -3938,14 +3938,14 @@ static void verify_static_local_aggregate_object(const char* path)
     verified_static_local_aggregate_destructions = 0;
     assert(entry() == 0);
     assert(cxx_static_reference_guard_aborts == 2);
-    assert(cxx_static_reference_guard_releases == 3);
+    assert(cxx_static_reference_guard_releases == 4);
     assert(destructor_count() == 0);
     assert(cxx_static_reference_atexit_registrations ==
-           registrations_before + 3);
+           registrations_before + 4);
     __cxa_finalize(&verified_dynamic_tls_dso_handle);
-    assert(destructor_count() == 3);
+    assert(destructor_count() == 4);
     assert(cxx_static_reference_atexit_finalizations ==
-           finalizations_before + 3);
+           finalizations_before + 4);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

@@ -13166,5 +13166,13 @@ remains a separate open item.
       and reinitialization on retry, then passes the GCC oracle and legacy x64
       runtime. It emits i686/AMD64 objects without fallback at `-O0` and `-O2`
       and executes verified x64 objects at both optimization levels.
-- [ ] Extend verified lowering to class-valued reference fields and
-      partial-subobject cleanup, and add TLS aggregate lifetime/cleanup.
+- [x] Extend verified lowering to reference fields bound to dynamically
+      returned trivially-copyable class prvalues. Direct returned aggregates
+      use the synthetic static temporary as the ABI result destination; other
+      supported aggregate results copy into that stable object. The expanded
+      `test-verified-cxx-static-local-aggregate` fixture passes the GCC oracle,
+      legacy x64 runtime, i686/AMD64 verified output at `-O0`/`-O2` with zero
+      fallback, and verified x64 runtime at both optimization levels.
+- [ ] Add lifetime cleanup for nontrivial class-valued reference temporaries,
+      unwind completed partial subobjects when a later initializer throws, and
+      cover TLS aggregate temporary lifetime and cleanup.

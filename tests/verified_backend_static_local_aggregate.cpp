@@ -4,6 +4,8 @@ static int default_member_first_calls;
 static int default_member_second_calls;
 static int reference_initializer_calls;
 static int reference_second_initializer_calls;
+static int reference_class_initializer_calls;
+static int reference_class_second_initializer_calls;
 extern "C" {
 #ifdef RCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST
 extern int verified_static_local_aggregate_destructions;
@@ -42,6 +44,20 @@ static int make_static_aggregate_reference_value() {
 static int make_static_aggregate_reference_second() {
     ++reference_second_initializer_calls;
     return 53;
+}
+
+struct StaticLocalReferenceValue {
+    int value;
+};
+
+static StaticLocalReferenceValue make_static_aggregate_reference_class_value() {
+    ++reference_class_initializer_calls;
+    return {67};
+}
+
+static int make_static_aggregate_reference_class_second() {
+    ++reference_class_second_initializer_calls;
+    return 71;
 }
 
 struct StaticLocalAggregate {
@@ -87,6 +103,23 @@ static_local_reference_aggregate() {
     static StaticLocalReferenceAggregate value{
         make_static_aggregate_reference_value(),
         make_static_aggregate_reference_second()};
+    return value;
+}
+
+struct StaticLocalClassReferenceAggregate {
+    const StaticLocalReferenceValue& reference;
+    int second;
+
+    ~StaticLocalClassReferenceAggregate() {
+        ++verified_static_local_aggregate_destructions;
+    }
+};
+
+static const StaticLocalClassReferenceAggregate&
+static_local_class_reference_aggregate() {
+    static StaticLocalClassReferenceAggregate value{
+        make_static_aggregate_reference_class_value(),
+        make_static_aggregate_reference_class_second()};
     return value;
 }
 
@@ -140,6 +173,20 @@ int main() {
         reference_second_initializer_calls != 1 ||
         verified_static_local_aggregate_destructions != 0) {
         return 9;
+    }
+    const StaticLocalClassReferenceAggregate& first_class_reference =
+        static_local_class_reference_aggregate();
+    const StaticLocalClassReferenceAggregate& second_class_reference =
+        static_local_class_reference_aggregate();
+    if (&first_class_reference != &second_class_reference ||
+        &first_class_reference.reference !=
+            &second_class_reference.reference ||
+        first_class_reference.reference.value != 67 ||
+        first_class_reference.second != 71 ||
+        reference_class_initializer_calls != 1 ||
+        reference_class_second_initializer_calls != 1 ||
+        verified_static_local_aggregate_destructions != 0) {
+        return 13;
     }
     return 0;
 }

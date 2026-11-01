@@ -2763,10 +2763,19 @@ static const ExprList* lower_dynamic_aggregate_field_initializer(
     return item;
 }
 
-static bool lower_dynamic_static_scalar_reference_temporary_supported(
+static bool lower_dynamic_static_reference_temporary_supported(
     const Decl* declaration, const ExprList* item) {
     const Decl* owner = item ? item->cxx_temporary_owner : NULL;
     const Type* type = owner ? owner->type : NULL;
+    bool scalar_type = type &&
+        (type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
+         type_is_floating((Type*)type) ||
+         (type->kind == TYPE_PTR && !type->cxx_is_member_pointer));
+    bool trivial_class_type = type && type->kind == TYPE_STRUCT &&
+        type->cxx_class && !type->cxx_nontrivial &&
+        !type->cleanup_function && !type->cleanup_field &&
+        rcc_sema_cxx_trivially_copyable((Type*)type) &&
+        lower_storage_type_supported_ignoring_volatile_internal(type, 0u);
     return declaration && declaration->var_is_static_local &&
         !declaration->var_is_thread_local && item &&
         item->cxx_temporary_static_storage &&
@@ -2774,11 +2783,8 @@ static bool lower_dynamic_static_scalar_reference_temporary_supported(
         !owner->var_is_thread_local && type && type->size > 0 &&
         !type->is_reference && !type->cleanup_function &&
         !type->is_atomic && type->kind != TYPE_ARRAY &&
-        type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
-        type->kind != TYPE_VECTOR &&
-        (type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
-         type_is_floating((Type*)type) ||
-         (type->kind == TYPE_PTR && !type->cxx_is_member_pointer));
+        type->kind != TYPE_UNION && type->kind != TYPE_VECTOR &&
+        (scalar_type || trivial_class_type);
 }
 
 static bool lower_dynamic_static_aggregate_initializer_supported(
@@ -2818,7 +2824,7 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
     for (item = initializer->compound_init; item; item = item->next) {
         if (!item->expr || item->cxx_temporary_cleanups ||
             (item->cxx_temporary_owner &&
-             !lower_dynamic_static_scalar_reference_temporary_supported(
+             !lower_dynamic_static_reference_temporary_supported(
                  declaration, item))) {
             return false;
         }
@@ -2839,8 +2845,11 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
             initializer, field, field_count, has_field_designators);
         if (field_type && field_type->is_reference) {
             if (field_type->kind != TYPE_PTR || !field_type->base ||
-                !lower_dynamic_static_scalar_reference_temporary_supported(
-                    declaration, item)) {
+                !lower_dynamic_static_reference_temporary_supported(
+                    declaration, item) || !item->cxx_temporary_owner ||
+                !type_is_compatible(
+                    field_type->base,
+                    item->cxx_temporary_owner->type)) {
                 return false;
             }
             ++field_count;
@@ -28675,18 +28684,49 @@ static bool lower_dynamic_static_aggregate_initializer(
             if (field->type->is_reference) {
                 const Decl* temporary_owner = item->cxx_temporary_owner;
                 RccIrLowerValue temporary_address;
-                value = lower_expression(context, item->expr);
-                value = lower_cast(context, value, temporary_owner->type);
                 symbol = lower_append(
                     context, RCC_IR_SYMBOL_ADDRESS,
                     rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
-                if (!value.valid || !symbol) return false;
+                if (!symbol) return false;
                 rcc_ir_set_callee(symbol, decl_link_name(temporary_owner));
                 temporary_address = lower_value(
                     symbol->result, rcc_ir_type_pointer(0u), true);
-                if (!lower_store_address(
-                        context, temporary_address, value)) {
-                    return false;
+                if (temporary_owner->type->kind == TYPE_STRUCT) {
+                    const Expr* initializer = item->expr;
+                    const Expr* previous_destination_expression =
+                        context->aggregate_result_destination_expression;
+                    RccIrLowerValue previous_destination =
+                        context->aggregate_result_destination;
+                    if (initializer && initializer->kind == EXPR_CALL &&
+                        initializer->type &&
+                        type_is_compatible(
+                            temporary_owner->type, initializer->type)) {
+                        context->aggregate_result_destination_expression =
+                            initializer;
+                        context->aggregate_result_destination =
+                            temporary_address;
+                    }
+                    value = lower_expression(context, initializer);
+                    context->aggregate_result_destination_expression =
+                        previous_destination_expression;
+                    context->aggregate_result_destination =
+                        previous_destination;
+                    if (!value.valid ||
+                        value.type.kind != RCC_IR_TYPE_POINTER ||
+                        (value.value != temporary_address.value &&
+                         !lower_copy_abi_aggregate_storage(
+                             context, temporary_address.value, value.value,
+                             temporary_owner->type))) {
+                        return false;
+                    }
+                } else {
+                    value = lower_expression(context, item->expr);
+                    value = lower_cast(context, value, temporary_owner->type);
+                    if (!value.valid ||
+                        !lower_store_address(
+                            context, temporary_address, value)) {
+                        return false;
+                    }
                 }
                 value = temporary_address;
             } else {
