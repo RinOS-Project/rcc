@@ -678,6 +678,9 @@ typedef struct ExprList {
     /* A temporary created for a non-trivial by-value parameter transfers
      * lifetime responsibility to the callee immediately before the call. */
     bool cxx_temporary_is_parameter_object;
+    /* Stack slot used to evaluate a scalar constructor argument once before
+     * it is reused by member-initializer lowering and the constructor call. */
+    int cxx_constructor_argument_offset;
     struct ExprList* cxx_temporary_next;
     struct ExprList* next;
 } ExprList;

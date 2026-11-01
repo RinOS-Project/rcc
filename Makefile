@@ -1228,6 +1228,7 @@ $(CXX_REGRESSION_TARGETS): $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 endif
 CXX_REGRESSION_TARGETS += test-array-to-void-pointer
 CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
+CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the

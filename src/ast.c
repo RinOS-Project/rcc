@@ -2210,6 +2210,7 @@ ExprList* exprlist_new(Expr* expr) {
     list->cxx_temporary_owner = NULL;
     list->cxx_temporary_cleanups = NULL;
     list->cxx_temporary_is_parameter_object = false;
+    list->cxx_constructor_argument_offset = 0;
     list->cxx_temporary_next = NULL;
     list->next = NULL;
     return list;
