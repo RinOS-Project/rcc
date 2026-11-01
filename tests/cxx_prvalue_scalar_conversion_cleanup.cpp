@@ -213,6 +213,45 @@ struct WideArrayConstructorArgumentReuse {
     }
 };
 
+struct VolatileWideConstructorArgument {
+    volatile long long first;
+    volatile long long second;
+    volatile long long third;
+};
+
+static VolatileWideConstructorArgument volatile_wide_argument{
+    1001, 1002, 1003};
+
+static void overwrite_volatile_wide_value(
+    volatile long long* destination, long long value) {
+    *destination = value;
+}
+
+struct VolatileWideConstructorArgumentReuse {
+    long long from_initializer;
+    long long from_body;
+    long long second_from_body;
+
+    explicit VolatileWideConstructorArgumentReuse(
+        VolatileWideConstructorArgument value)
+        : from_initializer(value.first) {
+        overwrite_volatile_wide_value(&value.first, 1004);
+        from_body = value.first;
+        second_from_body = value.second;
+    }
+};
+
+struct ConstWideConstructorArgumentReuse {
+    long long from_initializer;
+    long long from_body;
+
+    explicit ConstWideConstructorArgumentReuse(
+        const WideConstructorArgument value)
+        : from_initializer(value.first) {
+        from_body = value.second;
+    }
+};
+
 int main() {
     int direct = PrvalueScalarConversion{
         next_prvalue_value(), next_prvalue_pointer(),
@@ -312,6 +351,18 @@ int main() {
             make_wide_array_constructor_argument()) != 110) return 51;
     if (sum_wide_array_constructor_argument(
             {{11, 22, 33, 44}}) != 110) return 52;
+
+    VolatileWideConstructorArgumentReuse volatile_reused(
+        volatile_wide_argument);
+    if (volatile_reused.from_initializer != 1001 ||
+        volatile_reused.from_body != 1004 ||
+        volatile_reused.second_from_body != 1002 ||
+        volatile_wide_argument.first != 1001) return 53;
+
+    ConstWideConstructorArgumentReuse const_reused(
+        WideConstructorArgument{501, 502, 503});
+    if (const_reused.from_initializer != 501 ||
+        const_reused.from_body != 502) return 54;
 
     return 0;
 }

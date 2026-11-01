@@ -13020,8 +13020,15 @@ remains a separate open item.
       `f({{...}})` are parsed and contextually initialized as well. GCC C++20,
       legacy i686/AMD64 generation and runtime, and verified i686/AMD64 object
       generation with zero fallback pass.
-      Broader aggregate parameter expressions, qualifiers, and nontrivial
-      aggregates remain in the open typed-SSA aggregate item.
+- [x] Pass top-level-const and volatile-subobject trivial aggregates through
+      constructor parameters. Preserve volatile reads and writes when the
+      parameter is reused in a member initializer and constructor body; stage
+      volatile subobject reads before ABI chunk formation. GCC C++20,
+      i686/AMD64 legacy generation and assembly, AMD64 runtime, and verified
+      i686/AMD64 object generation with zero fallback pass in
+      `test-cxx-prvalue-scalar-conversion-cleanup`.
+      Broader aggregate parameter expressions and nontrivial aggregates remain
+      in the open typed-SSA aggregate item.
 
 ## C++ list-initialization follow-up
 - [x] Diagnose narrowing in C++20 scalar, array, nested aggregate, and selected

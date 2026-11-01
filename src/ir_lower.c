@@ -21462,7 +21462,8 @@ static bool lower_abi_integer_class_internal(const Type* type,
 
 static bool lower_abi_aggregate_supported(const Type* type) {
     if (!lower_abi_is_aggregate(type) ||
-        !lower_storage_type_supported_internal(type, 0u)) return false;
+        !lower_storage_type_supported_ignoring_volatile_internal(
+            type, 0u)) return false;
     if (g_opts.target_arch != ARCH_X64) return true;
     return type->size <= 16 &&
         lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
@@ -21568,7 +21569,8 @@ static bool lower_sysv_classify_aggregate(
     const Type* type, LowerSysvAggregateClass* result) {
     if (!type || !result || !lower_abi_is_aggregate(type) ||
         type->size <= 0 || type->cxx_nontrivial ||
-        !lower_storage_type_supported_internal(type, 0u)) return false;
+        !lower_storage_type_supported_ignoring_volatile_internal(
+            type, 0u)) return false;
     memset(result, 0, sizeof(*result));
     result->count = (type->size - 1) / 8 + 1;
     if (type->size > 16) {
@@ -22239,8 +22241,9 @@ static bool lower_copy_volatile_aggregate_storage(
         context->unsupported = true;
         return false;
     }
-    if (!g_opts.cxx_mode && !destination_volatile && !source_volatile &&
-        !type->is_volatile &&
+    if (!destination_volatile && !source_volatile && !type->is_volatile &&
+        !type->cxx_nontrivial && !type->cleanup_function &&
+        !type->cleanup_field &&
         lower_type_has_volatile_subobject(type, 0u)) {
         return lower_copy_aggregate_with_volatile_fields(
             context, destination.value, source.value, type,
@@ -22894,8 +22897,7 @@ static bool lower_cxx_constructor_initializer_expression_supported(
                 return false;
             }
             if (type_is_scalar(expression->ident_decl->type)) {
-                return !expression->ident_decl->type->is_volatile &&
-                    !expression->ident_decl->type->is_atomic;
+                return !expression->ident_decl->type->is_atomic;
             }
             return (expression->ident_decl->type->kind == TYPE_STRUCT ||
                     expression->ident_decl->type->kind == TYPE_UNION) &&
@@ -22925,7 +22927,7 @@ static bool lower_cxx_constructor_initializer_expression_supported(
                 field->offset < 0 || field->type->size <= 0 ||
                 field->offset > object_type->size ||
                 field->type->size > object_type->size - field->offset ||
-                field->type->is_volatile || field->type->is_atomic ||
+                field->type->is_atomic ||
                 expression->cxx_virtual_base_member_access) {
                 return false;
             }
@@ -26998,6 +27000,33 @@ static bool lower_cxx_emit_constructor_call(
                 rcc_free(memory_arguments);
                 context->unsupported = true;
                 return false;
+            }
+            if (lower_type_has_volatile_subobject(
+                    argument->expr->type, 0u)) {
+                RccIrInstruction* staging = lower_append(
+                    context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+                    NULL, 0u, NULL, 0u);
+                RccIrLowerValue staging_address;
+                if (!staging) {
+                    rcc_free(operands);
+                    rcc_free(memory_arguments);
+                    return false;
+                }
+                rcc_ir_set_immediate(
+                    staging, (uint64_t)parameter->type->size);
+                staging->alignment = parameter->type->align > 0
+                    ? (uint32_t)parameter->type->align : 0u;
+                staging_address = lower_value(
+                    staging->result, rcc_ir_type_pointer(0u), true);
+                if (!lower_copy_volatile_aggregate_storage(
+                        context, staging_address, aggregate,
+                        argument->expr->type, false,
+                        argument->expr->type->is_volatile)) {
+                    rcc_free(operands);
+                    rcc_free(memory_arguments);
+                    return false;
+                }
+                aggregate = staging_address;
             }
             for (size_t unit = 0u; unit < units; ++unit) {
                 RccIrLowerValue chunk = lower_load_aggregate_chunk(
