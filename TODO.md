@@ -12182,6 +12182,13 @@ remains a separate open item.
       expression. The verifier permits omission of the inline-call DIE for
       volatile and atomic cases that must preserve the original read
       semantics. Focused `test-debug-info-inline-expression` passed.
+- [x] Add mutable i686 64-bit inline parameters initialized through a stable
+      local pointer to an unsigned 64-bit scalar. Emit and evaluate separate
+      low/high 32-bit pieces across the initial value and nested constant
+      updates, including the high-word `DW_OP_plus_uconst` address adjustment;
+      verify eight carry/wrap inputs and the x64 8-byte dereference. Both
+      verified targets emitted 18 functions with zero fallback, and
+      `test-debug-info-inline-expression` passed.
 
 ## RCC continuation (2026-10-28, SDK inline assembly and C null constants)
 

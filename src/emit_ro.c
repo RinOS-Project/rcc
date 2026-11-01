@@ -7100,54 +7100,43 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         value->type->size == 8) {
         const Expr* source_expression = NULL;
         const Expr* constant_expression = NULL;
-        const Decl* source;
-        int64_t frame_offset;
+        uint8_t source_probe[64];
+        size_t source_probe_size = 0u;
         uint64_t constant_bits;
         uint32_t low_constant;
         uint32_t high_constant;
         bool is_add = value->kind == EXPR_ADD;
-        if (value->binary_lhs->kind == EXPR_IDENT &&
-            value->binary_lhs->ident_decl &&
-            debug_inline_integer_literal_bits(
+        if (debug_inline_integer_literal_bits(
                 value->binary_rhs, &constant_bits, 0u)) {
             source_expression = value->binary_lhs;
             constant_expression = value->binary_rhs;
-        } else if (is_add && value->binary_rhs->kind == EXPR_IDENT &&
-                   value->binary_rhs->ident_decl &&
-                   debug_inline_integer_literal_bits(
+        } else if (is_add && debug_inline_integer_literal_bits(
                        value->binary_lhs, &constant_bits, 0u)) {
             source_expression = value->binary_rhs;
             constant_expression = value->binary_lhs;
         }
         if (!source_expression || !constant_expression ||
-            !value->type ||
+            !source_expression->type ||
+            source_expression->type->size != 8 ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 source_expression->type, value->type, 0u) ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 constant_expression->type, value->type, 0u)) {
             return false;
         }
-        source = source_expression->ident_decl;
-        if (!source || (source->kind != DECL_VAR &&
-                        source->kind != DECL_PARAM) ||
-            source->var_is_global || source->var_is_static_local ||
-            source->var_is_thread_local || source->var_is_vla ||
-            !source->type || source->type->size != 8 ||
-            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-                source->type, value->type, 0u) ||
+        if (!debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression, false, source_probe,
+                sizeof(source_probe), &source_probe_size, depth + 1u) ||
             !debug_inline_integer_literal_bits(
-                constant_expression, &constant_bits, 0u) ||
-            !debug_inline_parameter_frame_offset(
-                mod, source, &frame_offset) ||
-            frame_offset > INT64_MAX - 4) {
+                constant_expression, &constant_bits, 0u)) {
             return false;
         }
         low_constant = (uint32_t)constant_bits;
         high_constant = (uint32_t)(constant_bits >> 32u);
         if (!high_word) {
-            return debug_inline_integer_expression_append_frame_u32(
-                       expression, capacity, expression_size, ARCH_X86,
-                       frame_offset) &&
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, source_expression, false, expression, capacity,
+                       expression_size, depth + 1u) &&
                 debug_inline_integer_expression_append_constu(
                     expression, capacity, expression_size, low_constant) &&
                 debug_inline_integer_expression_append_byte(
@@ -7166,9 +7155,9 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         }
         /* Flip the sign bit so signed DW_OP_lt detects low-word carry/borrow. */
         if (is_add) {
-            if (!debug_inline_integer_expression_append_frame_u32(
-                    expression, capacity, expression_size, ARCH_X86,
-                    frame_offset) ||
+            if (!debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression, false, expression, capacity,
+                    expression_size, depth + 1u) ||
                 !debug_inline_integer_expression_append_constu(
                     expression, capacity, expression_size, low_constant) ||
                 !debug_inline_integer_expression_append_byte(
@@ -7178,9 +7167,9 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
                     UINT32_C(0x80000000)) ||
                 !debug_inline_integer_expression_append_byte(
                     expression, capacity, expression_size, 0x27u) ||
-                !debug_inline_integer_expression_append_frame_u32(
-                    expression, capacity, expression_size, ARCH_X86,
-                    frame_offset) ||
+                !debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression, false, expression, capacity,
+                    expression_size, depth + 1u) ||
                 !debug_inline_integer_expression_append_constu(
                     expression, capacity, expression_size,
                     UINT32_C(0x80000000)) ||
@@ -7192,9 +7181,9 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
                     expression, capacity, expression_size, 0x22u)) {
                 return false;
             }
-        } else if (!debug_inline_integer_expression_append_frame_u32(
-                       expression, capacity, expression_size, ARCH_X86,
-                       frame_offset) ||
+        } else if (!debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, source_expression, false, expression, capacity,
+                       expression_size, depth + 1u) ||
                    !debug_inline_integer_expression_append_constu(
                        expression, capacity, expression_size,
                        UINT32_C(0x80000000)) ||
@@ -7214,6 +7203,93 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
             return false;
         }
         return true;
+    }
+    if (value->kind == EXPR_DEREF && value->unary_operand &&
+        value->type->size == 8 && !value->type->is_volatile &&
+        !value->type->is_atomic) {
+        const Expr* pointer_expression = value;
+        const Decl* pointer_declaration;
+        const Type* pointer_type;
+        uint8_t pointer_address[32];
+        size_t dereference_count = 0u;
+        size_t pointer_address_size;
+        int64_t frame_offset;
+        while (pointer_expression &&
+               pointer_expression->kind == EXPR_DEREF) {
+            const Type* dereferenced_pointer_type;
+            if (!pointer_expression->unary_operand ||
+                dereference_count >= 32u) {
+                return false;
+            }
+            dereferenced_pointer_type = pointer_expression->unary_operand->type;
+            if (!dereferenced_pointer_type ||
+                dereferenced_pointer_type->kind != TYPE_PTR ||
+                dereferenced_pointer_type->size != 4 ||
+                dereferenced_pointer_type->cxx_is_member_pointer ||
+                dereferenced_pointer_type->is_volatile ||
+                dereferenced_pointer_type->is_reference ||
+                dereferenced_pointer_type->is_atomic ||
+                !dereferenced_pointer_type->base ||
+                dereferenced_pointer_type->base->is_volatile ||
+                dereferenced_pointer_type->base->is_atomic ||
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    dereferenced_pointer_type->base,
+                    pointer_expression->type, 0u)) {
+                return false;
+            }
+            ++dereference_count;
+            pointer_expression = pointer_expression->unary_operand;
+        }
+        if (!pointer_expression || pointer_expression->kind != EXPR_IDENT ||
+            !pointer_expression->ident_decl || dereference_count == 0u) {
+            return false;
+        }
+        pointer_declaration = pointer_expression->ident_decl;
+        pointer_type = pointer_declaration->type;
+        if ((pointer_declaration->kind != DECL_VAR &&
+             pointer_declaration->kind != DECL_PARAM) ||
+            pointer_declaration->var_is_global ||
+            pointer_declaration->var_is_static_local ||
+            pointer_declaration->var_is_thread_local ||
+            pointer_declaration->var_is_vla || !pointer_type ||
+            pointer_type->kind != TYPE_PTR ||
+            pointer_type->cxx_is_member_pointer || pointer_type->size != 4 ||
+            pointer_type->is_volatile || pointer_type->is_reference ||
+            pointer_type->is_atomic ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                pointer_type, pointer_expression->type, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, pointer_declaration, &frame_offset)) {
+            return false;
+        }
+        pointer_address_size = debug_build_expr_breg(
+            pointer_address, ARCH_X86, frame_offset, 0u, false);
+        if (pointer_address_size == 0u || *expression_size > capacity ||
+            pointer_address_size > capacity - *expression_size) {
+            return false;
+        }
+        memcpy(expression + *expression_size, pointer_address,
+               pointer_address_size);
+        *expression_size += pointer_address_size;
+        for (size_t index = 0u; index < dereference_count; ++index) {
+            if (!debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x94u) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 4u)) {
+                return false;
+            }
+        }
+        if (high_word &&
+            (!debug_inline_integer_expression_append_byte(
+                 expression, capacity, expression_size, 0x23u) ||
+             !debug_expression_uleb(
+                 expression, capacity, expression_size, 4u))) {
+            return false;
+        }
+        return debug_inline_integer_expression_append_byte(
+                   expression, capacity, expression_size, 0x94u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 4u);
     }
     if (value->kind == EXPR_IDENT && value->ident_decl) {
         const Decl* source = value->ident_decl;
@@ -11912,6 +11988,31 @@ static bool debug_inline_parameter_i686_u64_logical_not_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_u64_expression_uses_indirect_source(
+    const Expr* expression, unsigned int depth) {
+    if (!expression || depth >= 32u) return false;
+    if (expression->kind == EXPR_DEREF) return true;
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+            return debug_inline_parameter_i686_u64_expression_uses_indirect_source(
+                       expression->binary_lhs, depth + 1u) ||
+                debug_inline_parameter_i686_u64_expression_uses_indirect_source(
+                    expression->binary_rhs, depth + 1u);
+        case EXPR_COMMA:
+            return debug_inline_parameter_i686_u64_expression_uses_indirect_source(
+                expression->binary_rhs, depth + 1u);
+        case EXPR_CAST:
+            return debug_inline_parameter_i686_u64_expression_uses_indirect_source(
+                expression->cast_expr, depth + 1u);
+        case EXPR_POS:
+            return debug_inline_parameter_i686_u64_expression_uses_indirect_source(
+                expression->unary_operand, depth + 1u);
+        default:
+            return false;
+    }
+}
+
 static bool debug_inline_parameter_integer_expression(
     const Module* mod, int architecture, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -12023,6 +12124,36 @@ static bool debug_inline_parameter_integer_expression(
             relocation_count == 0u) {
             return true;
         }
+    }
+
+    if (architecture == ARCH_X86 && parameter_type->size == 8u &&
+        (source_expression->kind == EXPR_ADD ||
+         source_expression->kind == EXPR_SUB) &&
+        debug_inline_parameter_i686_u64_expression_uses_indirect_source(
+            source_expression, 0u)) {
+        size_t wide_size = 0u;
+        if (!debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression, false, expression,
+                expression_capacity, &wide_size, 0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &wide_size, 0x9fu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &wide_size, 0x93u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &wide_size, 4u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression, true, expression,
+                expression_capacity, &wide_size, 0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &wide_size, 0x9fu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &wide_size, 0x93u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &wide_size, 4u)) {
+            return false;
+        }
+        *expression_size = wide_size;
+        return true;
     }
 
     /* A generic DWARF stack entry is only address-sized. On i686, preserve
@@ -15989,7 +16120,8 @@ static bool debug_emit_inline_mutated_parameter_location(
         bool have_initial_expression = false;
         if (architecture == ARCH_X86 &&
             value->declaration->type->size == 8 &&
-            argument->expr->kind == EXPR_IDENT) {
+            (argument->expr->kind == EXPR_IDENT ||
+             argument->expr->kind == EXPR_DEREF)) {
             size_t piece_expression_size = 0u;
             have_initial_expression =
                 debug_inline_parameter_i686_u64_append_word_expression(

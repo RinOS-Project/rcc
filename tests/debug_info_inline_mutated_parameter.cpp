@@ -158,3 +158,27 @@ extern "C" int debug_inline_mutated_pointer_chain3_source_entry(
     return debug_inline_mutated_pointer_chain3_source_parameter(
         ***stable_pointer_chain3_level_three);
 }
+
+static inline unsigned long long
+debug_inline_mutated_indirect_wide_parameter(
+    unsigned long long indirect_wide_parameter)
+{
+    indirect_wide_parameter += 3ULL;
+    ++indirect_wide_parameter;
+    return indirect_wide_parameter + 7ULL;
+}
+
+extern "C" void debug_inline_mutated_indirect_wide_observe(
+    unsigned long long** value);
+
+extern "C" unsigned long long debug_inline_mutated_indirect_wide_entry(
+    unsigned long long input_value)
+{
+    unsigned long long stable_indirect_wide_input = input_value;
+    unsigned long long* stable_indirect_wide_pointer =
+        &stable_indirect_wide_input;
+    debug_inline_mutated_indirect_wide_observe(
+        &stable_indirect_wide_pointer);
+    return debug_inline_mutated_indirect_wide_parameter(
+        *stable_indirect_wide_pointer);
+}

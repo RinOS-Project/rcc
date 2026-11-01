@@ -6353,7 +6353,8 @@ static void verify_cxx_inline_nested_local_constants(
 static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     int64_t left_frame_offset, int64_t right_frame_offset,
-    uint64_t left_value, uint64_t right_value);
+    uint64_t left_value, uint64_t right_value,
+    unsigned int pointer_dereference_depth);
 
 static void verify_cxx_inline_mutated_parameter_location(
     const char* path, uint16_t architecture, const char* function_name,
@@ -6362,7 +6363,8 @@ static void verify_cxx_inline_mutated_parameter_location(
     unsigned expected_entries, bool final_mutation_has_multiply,
     bool initial_expression_has_add, bool wide_i686,
     bool signed_wide_i686, bool initial_reference_source,
-    unsigned int initial_pointer_dereference_depth) {
+    unsigned int initial_pointer_dereference_depth,
+    unsigned int initial_pointer_scalar_size) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6379,6 +6381,8 @@ static void verify_cxx_inline_mutated_parameter_location(
     bool source_is_location_list = false;
     int64_t source_frame_offset = 0;
     assert(object != NULL && object->arch == architecture);
+    assert(initial_pointer_scalar_size == 4u ||
+           initial_pointer_scalar_size == 8u);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
@@ -6519,7 +6523,8 @@ static void verify_cxx_inline_mutated_parameter_location(
                 }
                 assert(source_offset_cursor + 2u <= expression_end &&
                        locations->data[source_offset_cursor++] == 0x94u &&
-                       locations->data[source_offset_cursor] == 4u);
+                       locations->data[source_offset_cursor] ==
+                           initial_pointer_scalar_size);
             }
             if (wide_i686) {
                 static const uint64_t unsigned_input_values[] = {
@@ -6541,8 +6546,9 @@ static void verify_cxx_inline_mutated_parameter_location(
                           sizeof(signed_input_values[0])
                     : sizeof(unsigned_input_values) /
                           sizeof(unsigned_input_values[0]);
-                uint64_t increment = entry == 0u ? 2u
-                    : entry == 1u ? 5u : 6u;
+                uint64_t increment = initial_pointer_dereference_depth > 0u
+                    ? entry == 0u ? 0u : entry == 1u ? 3u : 4u
+                    : entry == 0u ? 2u : entry == 1u ? 5u : 6u;
                 assert(architecture == ARCH_X86 && entry < 3u &&
                        expression_end >= expression_start + 2u &&
                        locations->data[expression_end - 2u] == 0x93u &&
@@ -6554,7 +6560,8 @@ static void verify_cxx_inline_mutated_parameter_location(
                         evaluate_inline_i686_u64_nested_frame_expression(
                             locations->data, expression_end, expression_start,
                             source_frame_offset, source_frame_offset,
-                            input, input);
+                            input, input,
+                            initial_pointer_dereference_depth);
                     assert(actual == input + increment);
                 }
                 cursor = expression_end;
@@ -6571,7 +6578,7 @@ static void verify_cxx_inline_mutated_parameter_location(
                     if (locations->data[byte] == 0x1eu) has_multiply = true;
                     if (byte + 1u < expression_end &&
                         locations->data[byte] == 0x94u &&
-                        locations->data[byte + 1u] == 4u) {
+                        locations->data[byte + 1u] != 0u) {
                         has_deref_size = true;
                     }
                 }
@@ -6598,10 +6605,12 @@ static void verify_cxx_inline_mutated_parameter_location(
                         }
                     }
                     assert(locations->data[initial_offset] == 0x94u &&
-                           locations->data[initial_offset + 1u] == 4u);
+                           locations->data[initial_offset + 1u] ==
+                               initial_pointer_scalar_size);
                     if (initial_pointer_dereference_depth > 0u) {
                         initial_offset += 2u;
-                        if (architecture == ARCH_X64) {
+                        if (architecture == ARCH_X64 &&
+                            initial_pointer_scalar_size == 4u) {
                             static const uint8_t signed_i32_normalization[] = {
                                 0x10u, 32u, 0x24u, 0x10u, 32u, 0x26u
                             };
@@ -6614,10 +6623,12 @@ static void verify_cxx_inline_mutated_parameter_location(
                                 sizeof(signed_i32_normalization)) == 0);
                             initial_offset +=
                                 sizeof(signed_i32_normalization);
+                        } else if (architecture == ARCH_X64) {
+                            assert(initial_pointer_scalar_size == 8u);
                         }
                         assert(initial_offset + 1u == expression_end &&
                                locations->data[initial_offset] == 0x9fu);
-                        assert(has_deref_size && !has_add && !has_multiply);
+                        assert(has_deref_size);
                     } else if (initial_expression_has_add) {
                         bool has_signed_two = false;
                         bool has_add_after_constant = false;
@@ -11034,13 +11045,15 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
 static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     int64_t left_frame_offset, int64_t right_frame_offset,
-    uint64_t left_value, uint64_t right_value) {
+    uint64_t left_value, uint64_t right_value,
+    unsigned int pointer_dereference_depth) {
     uint32_t stack[128];
     size_t stack_size = 0u;
     uint64_t result = 0u;
     uint64_t offset = expression_start;
     int64_t pending_frame_offset = 0;
     unsigned int piece_count = 0u;
+    unsigned int indirect_pointer_load_count = 0u;
     bool has_pending_frame_offset = false;
     while (offset < expression_end) {
         uint8_t opcode = data[offset++];
@@ -11051,26 +11064,55 @@ static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
         } else if (opcode == 0x94u) { /* DW_OP_deref_size */
             uint8_t access_size;
             uint32_t value;
-            assert(has_pending_frame_offset && offset < expression_end &&
+            assert(offset < expression_end &&
                    stack_size < sizeof(stack) / sizeof(stack[0]));
             access_size = data[offset++];
             assert(access_size == 4u);
-            if (pending_frame_offset == left_frame_offset) {
-                value = (uint32_t)left_value;
-            } else if (pending_frame_offset == left_frame_offset + 4) {
-                value = (uint32_t)(left_value >> 32u);
-            } else if (pending_frame_offset == right_frame_offset) {
-                value = (uint32_t)right_value;
+            if (has_pending_frame_offset) {
+                if (pointer_dereference_depth > 0u) {
+                    assert(pending_frame_offset == left_frame_offset);
+                    value = UINT32_C(0x1000);
+                    indirect_pointer_load_count = 0u;
+                } else if (pending_frame_offset == left_frame_offset) {
+                    value = (uint32_t)left_value;
+                } else if (pending_frame_offset == left_frame_offset + 4) {
+                    value = (uint32_t)(left_value >> 32u);
+                } else if (pending_frame_offset == right_frame_offset) {
+                    value = (uint32_t)right_value;
+                } else {
+                    assert(pending_frame_offset == right_frame_offset + 4);
+                    value = (uint32_t)(right_value >> 32u);
+                }
+                has_pending_frame_offset = false;
             } else {
-                assert(pending_frame_offset == right_frame_offset + 4);
-                value = (uint32_t)(right_value >> 32u);
+                uint32_t address;
+                uint32_t scalar_address;
+                assert(pointer_dereference_depth > 0u && stack_size > 0u);
+                address = stack[--stack_size];
+                if (indirect_pointer_load_count + 1u <
+                    pointer_dereference_depth) {
+                    ++indirect_pointer_load_count;
+                    value = address + UINT32_C(0x1000);
+                } else {
+                    scalar_address = UINT32_C(0x1000) *
+                        pointer_dereference_depth;
+                    assert(address == scalar_address ||
+                           address == scalar_address + 4u);
+                    value = address == scalar_address
+                        ? (uint32_t)left_value
+                        : (uint32_t)(left_value >> 32u);
+                }
             }
             stack[stack_size++] = value;
-            has_pending_frame_offset = false;
         } else if (opcode == 0x10u) { /* DW_OP_constu */
             assert(stack_size < sizeof(stack) / sizeof(stack[0]));
             stack[stack_size++] = (uint32_t)read_uleb(
                 data, expression_end, &offset);
+        } else if (opcode == 0x23u) { /* DW_OP_plus_uconst */
+            uint32_t value;
+            assert(stack_size > 0u);
+            value = (uint32_t)read_uleb(data, expression_end, &offset);
+            stack[stack_size - 1u] += value;
         } else if (opcode == 0x16u) { /* DW_OP_swap */
             uint32_t temporary;
             assert(stack_size >= 2u);
@@ -13579,7 +13621,7 @@ static void verify_inline_integer_expression_parameter(
             uint64_t actual = evaluate_inline_i686_u64_nested_frame_expression(
                 info->data, expression_end, expression_start,
                 left_frame_offset, right_frame_offset,
-                values[index].left, values[index].right);
+                values[index].left, values[index].right, 0u);
             uint64_t right_shifted = values[index].right << 1u;
             assert(actual == (is_subtract
                 ? values[index].left - right_shifted
@@ -19081,84 +19123,96 @@ int main(int argc, char** argv)
             argv[2], ARCH_X86, "debug_inline_mutated_parameter",
             "mutable_parameter", "stable_input",
             "debug_inline_mutated_parameter_entry", 4u, true, true, false,
-            false, false, false);
+            false, false, 0u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_parameter",
             "mutable_parameter", "stable_input",
             "debug_inline_mutated_parameter_entry", 4u, true, true, false,
-            false, false, false);
+            false, false, 0u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter", "stable_unsigned_input",
             "debug_inline_mutated_unsigned_parameter_entry", 2u, false,
-            false, false, false, false, false);
+            false, false, false, false, 0u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter", "stable_unsigned_input",
             "debug_inline_mutated_unsigned_parameter_entry", 2u, false,
-            false, false, false, false, false);
+            false, false, false, false, 0u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_wide_parameter",
             "wide_parameter", "stable_wide_input",
             "debug_inline_mutated_wide_parameter_entry", 3u, false, true,
-            true, false, false, false);
+            true, false, false, 0u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_parameter",
             "signed_wide_parameter", "stable_signed_wide_input",
             "debug_inline_mutated_signed_wide_parameter_entry", 3u, false,
-            true, true, true, false, false);
+            true, true, true, false, 0u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86,
             "debug_inline_mutated_reference_source_parameter",
             "reference_source_parameter", "stable_reference_alias",
             "debug_inline_mutated_reference_source_entry", 2u, false,
-            false, false, false, true, false);
+            false, false, false, true, 0u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64,
             "debug_inline_mutated_reference_source_parameter",
             "reference_source_parameter", "stable_reference_alias",
             "debug_inline_mutated_reference_source_entry", 2u, false,
-            false, false, false, true, false);
+            false, false, false, true, 0u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86,
             "debug_inline_mutated_dereference_source_parameter",
             "dereference_source_parameter", "stable_pointer_source",
             "debug_inline_mutated_dereference_source_entry", 2u, false,
-            false, false, false, false, true);
+            false, false, false, false, 1u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64,
             "debug_inline_mutated_dereference_source_parameter",
             "dereference_source_parameter", "stable_pointer_source",
             "debug_inline_mutated_dereference_source_entry", 2u, false,
-            false, false, false, false, true);
+            false, false, false, false, 1u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86,
             "debug_inline_mutated_pointer_chain_source_parameter",
             "pointer_chain_source_parameter",
             "stable_pointer_chain_level_two",
             "debug_inline_mutated_pointer_chain_source_entry", 2u, false,
-            false, false, false, false, 2u);
+            false, false, false, false, 2u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64,
             "debug_inline_mutated_pointer_chain_source_parameter",
             "pointer_chain_source_parameter",
             "stable_pointer_chain_level_two",
             "debug_inline_mutated_pointer_chain_source_entry", 2u, false,
-            false, false, false, false, 2u);
+            false, false, false, false, 2u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86,
             "debug_inline_mutated_pointer_chain3_source_parameter",
             "pointer_chain3_source_parameter",
             "stable_pointer_chain3_level_three",
             "debug_inline_mutated_pointer_chain3_source_entry", 2u, false,
-            false, false, false, false, 3u);
+            false, false, false, false, 3u, 4u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64,
             "debug_inline_mutated_pointer_chain3_source_parameter",
             "pointer_chain3_source_parameter",
             "stable_pointer_chain3_level_three",
             "debug_inline_mutated_pointer_chain3_source_entry", 2u, false,
-            false, false, false, false, 3u);
+            false, false, false, false, 3u, 4u);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[2], ARCH_X86,
+            "debug_inline_mutated_indirect_wide_parameter",
+            "indirect_wide_parameter", "stable_indirect_wide_pointer",
+            "debug_inline_mutated_indirect_wide_entry", 3u, false, false,
+            true, false, false, 1u, 4u);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[3], ARCH_X64,
+            "debug_inline_mutated_indirect_wide_parameter",
+            "indirect_wide_parameter", "stable_indirect_wide_pointer",
+            "debug_inline_mutated_indirect_wide_entry", 3u, false, false,
+            false, false, false, 1u, 8u);
         return 0;
     }
     if (argc == 6 &&
