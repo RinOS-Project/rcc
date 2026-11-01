@@ -22,6 +22,7 @@ static inline unsigned long long debug_inline_mutated_wide_local(
     unsigned long long wide_evolving = initial_value;
     wide_evolving += 7ULL;
     ++wide_evolving;
+    wide_evolving *= 2ULL;
     return wide_evolving + 5ULL;
 }
 

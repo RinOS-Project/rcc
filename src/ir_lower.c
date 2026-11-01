@@ -7415,11 +7415,12 @@ static bool lower_wide_scalar_expression_impl(
                             expression->type->is_unsigned, &value)) {
                         return false;
                     }
-                } else if (binary_kind == EXPR_MUL &&
-                           !lower_wide_scalar_multiply(
-                               context, left, right,
-                               expression->type->is_unsigned, &value)) {
-                    return false;
+                } else if (binary_kind == EXPR_MUL) {
+                    if (!lower_wide_scalar_multiply(
+                            context, left, right,
+                            expression->type->is_unsigned, &value)) {
+                        return false;
+                    }
                 } else if ((binary_kind == EXPR_DIV ||
                             binary_kind == EXPR_MOD) &&
                            !lower_wide_scalar_divmod(
@@ -7454,11 +7455,12 @@ static bool lower_wide_scalar_expression_impl(
         } else if (!lower_wide_scalar_expression(
                        context, expression->binary_rhs, &right)) {
             return false;
-        } else if (binary_kind == EXPR_MUL &&
-                   !lower_wide_scalar_multiply(
-                       context, left, right,
-                       expression->type->is_unsigned, &value)) {
-            return false;
+        } else if (binary_kind == EXPR_MUL) {
+            if (!lower_wide_scalar_multiply(
+                    context, left, right,
+                    expression->type->is_unsigned, &value)) {
+                return false;
+            }
         } else if ((binary_kind == EXPR_DIV ||
                     binary_kind == EXPR_MOD) &&
                    !lower_wide_scalar_divmod(

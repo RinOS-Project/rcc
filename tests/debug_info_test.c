@@ -6904,7 +6904,7 @@ static void verify_cxx_inline_mutated_local_location(
                               input, input);
                     uint64_t expected = entry == 0u ? input
                         : entry == 1u ? input + 7u
-                                      : input + 8u;
+                                      : (input + 8u) * 2u;
                     assert(actual == expected);
                 }
             } else {

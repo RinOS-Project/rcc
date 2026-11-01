@@ -1499,6 +1499,103 @@ static bool verified_append_debug_inline_calls(
     for (size_t call_index = 0u;
          call_index < source->inline_call_count; ++call_index) {
         const RccIrInlineCall* call = &source->inline_calls[call_index];
+        size_t global_plus_one = global_index_plus_one[call_index];
+        const ModuleDebugInlineCall* debug_call;
+        if (global_plus_one == 0u || call->local_value_count == 0u) continue;
+        debug_call = &destination->debug_inline_calls[global_plus_one - 1u];
+        for (size_t value_index = 0u;
+             value_index < call->local_value_count; ++value_index) {
+            const RccIrInlineLocalValue* value =
+                &call->local_values[value_index];
+            bool has_source_range = false;
+            uint32_t previous_end = debug_call->code_start;
+            uint32_t next_source_start = UINT32_MAX;
+            if (value->initial) continue;
+            for (size_t range_index = 0u;
+                 range_index < encoded->source_range_count; ++range_index) {
+                const RccX86CodeSourceRange* range =
+                    &encoded->source_ranges[range_index];
+                if (range->source_inline_call_index_plus_one !=
+                        call_index + 1u || !range->source_statement) {
+                    continue;
+                }
+                if (range->source_statement == value->value_statement) {
+                    has_source_range = true;
+                    break;
+                }
+            }
+            if (has_source_range) continue;
+
+            /* Inlining can fold the final local update into its return
+             * expression. In that case the update statement has no encoded
+             * source range of its own. Place its value at the first later
+             * instruction range in this inline call; consecutive folded
+             * updates share that PC boundary and the last value wins. */
+            for (size_t prior_index = value_index;
+                 prior_index > 0u; --prior_index) {
+                const RccIrInlineLocalValue* prior =
+                    &call->local_values[prior_index - 1u];
+                if (prior->declaration != value->declaration) continue;
+                for (size_t range_index = 0u;
+                     range_index < encoded->source_range_count;
+                     ++range_index) {
+                    const RccX86CodeSourceRange* range =
+                        &encoded->source_ranges[range_index];
+                    uint32_t range_end;
+                    if (range->source_inline_call_index_plus_one !=
+                            call_index + 1u ||
+                        range->source_statement != prior->value_statement ||
+                        range->offset > UINT32_MAX - range->size) {
+                        continue;
+                    }
+                    range_end = range->offset + range->size;
+                    if (function_symbol->value > UINT32_MAX - range_end) {
+                        continue;
+                    }
+                    if (function_symbol->value + range_end > previous_end) {
+                        previous_end = function_symbol->value + range_end;
+                    }
+                }
+                if (previous_end != debug_call->code_start) break;
+            }
+            for (size_t range_index = 0u;
+                 range_index < encoded->source_range_count; ++range_index) {
+                const RccX86CodeSourceRange* range =
+                    &encoded->source_ranges[range_index];
+                uint32_t range_start;
+                if (range->source_inline_call_index_plus_one !=
+                        call_index + 1u || !range->source_statement ||
+                    range->offset > UINT32_MAX - range->size ||
+                    function_symbol->value > UINT32_MAX - range->offset) {
+                    continue;
+                }
+                range_start = function_symbol->value + range->offset;
+                if (range_start >= previous_end &&
+                    range_start < debug_call->code_end &&
+                    range_start < next_source_start) {
+                    next_source_start = range_start;
+                }
+            }
+            if (next_source_start == UINT32_MAX) continue;
+            if (!module_set_debug_inline_local_value(
+                    destination, global_plus_one - 1u,
+                    (const Decl*)value->declaration,
+                    (const Expr*)value->value_expression,
+                    (const Stmt*)value->value_statement,
+                    next_source_start, false)) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "verified folded inline local state is inconsistent");
+                }
+                verified_inline_scope_paths_free(scope_paths);
+                rcc_free(global_index_plus_one);
+                return false;
+            }
+        }
+    }
+    for (size_t call_index = 0u;
+         call_index < source->inline_call_count; ++call_index) {
+        const RccIrInlineCall* call = &source->inline_calls[call_index];
         uint32_t local_start = UINT32_MAX;
         uint32_t local_end = 0u;
         size_t parent_plus_one = call->parent_index_plus_one;
