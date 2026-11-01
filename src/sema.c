@@ -4200,11 +4200,23 @@ static bool cxx_reference_object_compatible(const Type* source,
 }
 
 static bool sema_cxx_is_bitfield_expression(const Expr* expression) {
-    return expression &&
-           (expression->kind == EXPR_MEMBER ||
-            expression->kind == EXPR_PTR_MEMBER) &&
-           expression->member_field &&
-           expression->member_field->is_bitfield;
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return expression->member_field &&
+                   expression->member_field->is_bitfield;
+        case EXPR_COND:
+            return (expression->cxx_conditional_lvalue ||
+                    expression->cxx_conditional_xvalue) &&
+                   sema_cxx_is_bitfield_expression(expression->cond_then) &&
+                   sema_cxx_is_bitfield_expression(expression->cond_else);
+        case EXPR_COMMA:
+            return sema_cxx_is_bitfield_expression(
+                expression->binary_rhs);
+        default:
+            return false;
+    }
 }
 
 /* C qualification conversion may add cv at the directly pointed-to object,
@@ -4444,18 +4456,20 @@ static Type* implicit_cast_with_explicit_conversion(
 reference_binding_source:
         if (rcc_parser_is_cxx_mode() &&
             sema_cxx_is_bitfield_expression(e)) {
-            if (!target->is_rvalue_reference && referred->is_const) {
-                Expr* bitfield = ast_arena_alloc(sizeof(*bitfield));
-                Expr* value;
-                *bitfield = *e;
-                value = expr_cast(e->type, bitfield, e->loc);
-                value->cxx_cast_kind = CXX_CAST_STATIC;
-                sema_expr(value);
-                if (!value->type) return NULL;
-                *e = *value;
-                goto reference_binding_source;
-            }
-            return NULL;
+            bool binds_temporary =
+                (!target->is_rvalue_reference && referred->is_const) ||
+                (target->is_rvalue_reference && is_xvalue(e));
+            Expr* bitfield;
+            Expr* value;
+            if (!binds_temporary) return NULL;
+            bitfield = ast_arena_alloc(sizeof(*bitfield));
+            *bitfield = *e;
+            value = expr_cast(e->type, bitfield, e->loc);
+            value->cxx_cast_kind = CXX_CAST_STATIC;
+            sema_expr(value);
+            if (!value->type) return NULL;
+            *e = *value;
+            goto reference_binding_source;
         }
         source = e->type;
         source_object = source && source->is_reference

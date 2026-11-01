@@ -1046,9 +1046,12 @@
         the selected `int&` overload, while materializing value copies for
         const lvalue references to integral and scoped-enum bit-fields. Cover
         local and static-duration lifetime extension plus const-reference
-        function arguments. GCC C++20, RCC i686/AMD64 generation and AMD64
-        execution, invalid-object absence, and adjacent reference/overload
-        suites pass in `test-cxx-bitfields`,
+        function arguments. Preserve bit-field status through conditional and
+        comma expressions, reject their non-const lvalue-reference bindings,
+        and bind xvalue bit-fields to rvalue/const lvalue references through
+        value copies. GCC C++20, RCC i686/AMD64 generation and AMD64 execution,
+        invalid-object absence, and adjacent reference/overload suites pass in
+        `test-cxx-bitfields`,
         `test-cxx-function-template-references`, and `test-cxx-overloads`.
   - [x] Preserve the referred object's address when returning a volatile scalar
         through an ordinary non-template `int&&` reference function. Scalar
