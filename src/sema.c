@@ -98,6 +98,7 @@ static Decl* current_cxx_function_decl = NULL;
 static bool current_cxx_immediate_invocation_context = false;
 static bool current_cxx_static_variable_initializer = false;
 static bool current_cxx_global_variable_initializer = false;
+static bool current_cxx_static_local_initializer = false;
 static bool current_cxx_automatic_variable_initializer = false;
 static Decl* current_noexcept_resolution = NULL;
 static bool cxx_type_trait_nothrow_evaluation_unknown = false;
@@ -17475,8 +17476,37 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     }
 }
 
+static bool sema_cxx_clone_cleanup_plan_list(
+    const CxxCleanupPlan* source, CxxCleanupPlan** result,
+    unsigned depth) {
+    CxxCleanupPlan** tail;
+    if (!result || depth >= 64u) return false;
+    *result = NULL;
+    tail = result;
+    for (; source; source = source->next) {
+        CxxCleanupPlan* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *source;
+        copy->next = NULL;
+        copy->body = NULL;
+        copy->alternate_body = NULL;
+        if ((source->body &&
+             !sema_cxx_clone_cleanup_plan_list(
+                 source->body, &copy->body, depth + 1u)) ||
+            (source->alternate_body &&
+             !sema_cxx_clone_cleanup_plan_list(
+                 source->alternate_body, &copy->alternate_body,
+                 depth + 1u))) {
+            return false;
+        }
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return true;
+}
+
 static bool sema_cxx_collect_aggregate_reference_cleanups_expr(
-    Expr* expression, CxxCleanupPlan** cleanups, unsigned depth) {
+    Expr* expression, CxxCleanupPlan** cleanups, unsigned depth,
+    bool preserve_temporary_cleanups) {
     if (!expression || !cleanups) return true;
     if (depth >= 64u) return false;
     while (expression->kind == EXPR_CAST && expression->cast_expr) {
@@ -17486,15 +17516,25 @@ static bool sema_cxx_collect_aggregate_reference_cleanups_expr(
     for (ExprList* item = expression->compound_init; item;
          item = item->next) {
         if (!sema_cxx_collect_aggregate_reference_cleanups_expr(
-                item->expr, cleanups, depth + 1u)) {
+                item->expr, cleanups, depth + 1u,
+                preserve_temporary_cleanups)) {
             return false;
         }
         if (item->cxx_temporary_lifetime_extended &&
             item->cxx_temporary_cleanups) {
             CxxCleanupPlan* temporary_cleanups =
                 item->cxx_temporary_cleanups;
-            item->cxx_temporary_cleanups = NULL;
-            sema_cxx_cleanup_append(cleanups, temporary_cleanups);
+            if (preserve_temporary_cleanups) {
+                CxxCleanupPlan* aggregate_cleanups = NULL;
+                if (!sema_cxx_clone_cleanup_plan_list(
+                        temporary_cleanups, &aggregate_cleanups, 0u)) {
+                    return false;
+                }
+                sema_cxx_cleanup_append(cleanups, aggregate_cleanups);
+            } else {
+                item->cxx_temporary_cleanups = NULL;
+                sema_cxx_cleanup_append(cleanups, temporary_cleanups);
+            }
         }
     }
     return true;
@@ -17506,14 +17546,15 @@ static void sema_prepare_aggregate_reference_temporary_cleanup(
     CxxCleanupPlan* tail;
     Type* type = declaration ? declaration->type : NULL;
     if (!rcc_parser_is_cxx_mode() || !declaration || !type ||
-        declaration->kind != DECL_VAR || declaration->var_is_global ||
-        declaration->var_is_static_local ||
+        declaration->kind != DECL_VAR ||
+        (declaration->var_is_global && !declaration->var_is_static_local) ||
         declaration->var_is_thread_local || declaration->var_is_block_extern ||
         type->is_reference || !declaration->var_init) {
         return;
     }
     if (!sema_cxx_collect_aggregate_reference_cleanups_expr(
-            declaration->var_init, &temporary_cleanups, 0u)) {
+            declaration->var_init, &temporary_cleanups, 0u,
+            declaration->var_is_static_local)) {
         rcc_error(declaration->loc,
                   "aggregate reference temporary cleanup nesting limit exceeded");
         return;
@@ -17521,11 +17562,15 @@ static void sema_prepare_aggregate_reference_temporary_cleanup(
     if (!temporary_cleanups) return;
     if (!declaration->var_cleanups) {
         declaration->var_cleanups = temporary_cleanups;
+    } else {
+        tail = declaration->var_cleanups;
+        while (tail->next) tail = tail->next;
+        tail->next = temporary_cleanups;
+    }
+    if (declaration->var_is_static_local &&
+        !sema_attach_static_initializer_guard(declaration)) {
         return;
     }
-    tail = declaration->var_cleanups;
-    while (tail->next) tail = tail->next;
-    tail->next = temporary_cleanups;
 }
 
 static void sema_resolve_cxx_constructor_initializers(
@@ -34893,7 +34938,8 @@ static void sema_cxx_prepare_braced_aggregate_reference_temporary(
     int cleanup_budget = 4096;
     if (!rcc_parser_is_cxx_mode() ||
         (current_cxx_static_variable_initializer &&
-         !current_cxx_global_variable_initializer) ||
+         !current_cxx_global_variable_initializer &&
+         !current_cxx_static_local_initializer) ||
         !initializer || !source ||
         !element_type || element_type->kind != TYPE_PTR ||
         !element_type->is_reference || !element_type->base ||
@@ -34911,7 +34957,8 @@ static void sema_cxx_prepare_braced_aggregate_reference_temporary(
     nontrivial_class_temporary = class_temporary &&
         sema_cxx_type_has_destructor_cleanup(object_type, 0);
     if (nontrivial_class_temporary &&
-        !current_cxx_automatic_variable_initializer) {
+        !current_cxx_automatic_variable_initializer &&
+        !current_cxx_static_local_initializer) {
         return;
     }
     if (!scalar_temporary && !class_temporary) return;
@@ -34976,6 +35023,29 @@ static void sema_cxx_prepare_static_aggregate_reference_temporaries_expr(
             owner->var_offset = -1;
             item->cxx_temporary_static_storage = true;
         }
+        if (declaration->var_is_static_local &&
+            item->cxx_temporary_static_storage &&
+            item->cxx_temporary_owner &&
+            !item->cxx_temporary_cleanups &&
+            sema_cxx_type_has_destructor_cleanup(
+                item->cxx_temporary_owner->type, 0)) {
+            Decl* owner = item->cxx_temporary_owner;
+            Expr* object = expr_ident(
+                owner->name,
+                item->expr ? item->expr->loc : declaration->loc);
+            CxxCleanupPlan* cleanups = NULL;
+            int cleanup_budget = 4096;
+            object->ident_decl = owner;
+            object->type = owner->type;
+            if (!sema_cxx_append_object_cleanups(
+                    declaration, owner->type, object, &cleanups, 0,
+                    &cleanup_budget, true, true) || !cleanups) {
+                rcc_error(item->expr ? item->expr->loc : declaration->loc,
+                          "static aggregate reference temporary cleanup metadata is incomplete");
+                return;
+            }
+            item->cxx_temporary_cleanups = cleanups;
+        }
         sema_cxx_prepare_static_aggregate_reference_temporaries_expr(
             declaration, item->expr, sequence, depth + 1u);
     }
@@ -34984,7 +35054,8 @@ static void sema_cxx_prepare_static_aggregate_reference_temporaries_expr(
 static void sema_cxx_prepare_static_aggregate_reference_temporaries(
     Decl* declaration) {
     unsigned sequence = 0u;
-    if (!declaration || !declaration->var_is_global ||
+    if (!declaration ||
+        (!declaration->var_is_global && !declaration->var_is_static_local) ||
         declaration->var_is_thread_local || !declaration->var_init) {
         return;
     }
@@ -37094,6 +37165,8 @@ static void sema_decl(Decl* decl) {
                     current_cxx_static_variable_initializer;
                 bool saved_global_initializer_context =
                     current_cxx_global_variable_initializer;
+                bool saved_static_local_initializer_context =
+                    current_cxx_static_local_initializer;
                 bool saved_automatic_initializer_context =
                     current_cxx_automatic_variable_initializer;
                 current_cxx_static_variable_initializer =
@@ -37101,6 +37174,9 @@ static void sema_decl(Decl* decl) {
                     decl->var_is_thread_local;
                 current_cxx_global_variable_initializer =
                     is_global && !decl->var_is_thread_local;
+                current_cxx_static_local_initializer =
+                    decl->var_is_static_local &&
+                    !decl->var_is_thread_local;
                 current_cxx_automatic_variable_initializer =
                     !is_global && !decl->var_is_global &&
                     !decl->var_is_static_local &&
@@ -37111,6 +37187,8 @@ static void sema_decl(Decl* decl) {
                     saved_static_initializer_context;
                 current_cxx_global_variable_initializer =
                     saved_global_initializer_context;
+                current_cxx_static_local_initializer =
+                    saved_static_local_initializer_context;
                 current_cxx_automatic_variable_initializer =
                     saved_automatic_initializer_context;
                 if (decl->var_is_constinit) {

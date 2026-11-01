@@ -3,6 +3,8 @@ int cxx_static_reference_events = 0;
 int cxx_static_reference_expected_events = 45678231;
 int cxx_static_reference_comma_calls = 0;
 int cxx_static_reference_condition_calls = 0;
+int cxx_static_aggregate_reference_order = 0;
+int cxx_static_aggregate_reference_constructions = 0;
 }
 
 static void record_static_reference_event(int value) {
@@ -17,6 +19,40 @@ struct StaticReferenceSubobjectOwner {
         record_static_reference_event(value);
     }
 };
+
+struct StaticAggregateReferenceTemporary {
+    int* destruction_order;
+    int id;
+
+    StaticAggregateReferenceTemporary(int* order, int value)
+        : destruction_order(order), id(value) {
+        ++cxx_static_aggregate_reference_constructions;
+    }
+
+    ~StaticAggregateReferenceTemporary() {
+        *destruction_order = *destruction_order * 10 + id;
+    }
+};
+
+struct StaticAggregateReferenceMember {
+    const StaticAggregateReferenceTemporary& first;
+    const StaticAggregateReferenceTemporary& second;
+    int* destruction_order;
+
+    ~StaticAggregateReferenceMember() {
+        *destruction_order = *destruction_order * 10 + 3;
+    }
+};
+
+static StaticAggregateReferenceMember& local_aggregate_reference_member() {
+    static StaticAggregateReferenceMember value{
+        StaticAggregateReferenceTemporary{
+            &cxx_static_aggregate_reference_order, 1},
+        StaticAggregateReferenceTemporary{
+            &cxx_static_aggregate_reference_order, 2},
+        &cxx_static_aggregate_reference_order};
+    return value;
+}
 
 struct StaticReferenceBase {
     int value;
@@ -157,5 +193,16 @@ extern "C" int main() {
             &virtual_base != &local_polymorphic_virtual_base_reference()) {
         return 4;
     }
+    const StaticAggregateReferenceMember& first_aggregate_reference =
+            local_aggregate_reference_member();
+    const StaticAggregateReferenceMember& second_aggregate_reference =
+            local_aggregate_reference_member();
+    if (first_aggregate_reference.first.id != 1) {
+        return 5;
+    }
+    if (first_aggregate_reference.second.id != 2) return 6;
+    if (&first_aggregate_reference != &second_aggregate_reference) return 7;
+    if (cxx_static_aggregate_reference_order != 0) return 8;
+    if (cxx_static_aggregate_reference_constructions != 2) return 9;
     return 0;
 }

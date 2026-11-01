@@ -3,10 +3,89 @@ extern "C" int cxx_exception_cleanup_callee(int value);
 extern "C" int cxx_exception_cleanup_total = 0;
 extern "C" int cxx_exception_destructor_total = 0;
 extern "C" int cxx_exception_array_order = 0;
+extern "C" int cxx_exception_static_reference_order = 0;
+extern "C" int cxx_exception_static_reference_attempts = 0;
+extern "C" int cxx_exception_static_reference_constructions = 0;
+extern "C" int cxx_exception_static_reference_destructions = 0;
+extern "C" int cxx_exception_cleanup_static_local_reference_retry();
 extern "C" void* rin_malloc(unsigned long size);
 extern "C" void rin_free(void* pointer);
 extern "C" void rin_cpp_exception_register_current_cleanup(
     void (*callback)(void*), void* object);
+#ifndef RCC_CXX_EXCEPTION_CLEANUP_VERIFIED
+extern "C" void cxx_static_reference_retry_finalize();
+static int cxx_exception_static_reference_throw_second = 1;
+
+class StaticReferenceRetryTemporary {
+public:
+    explicit StaticReferenceRetryTemporary(int value) : value_(value) {
+        ++cxx_exception_static_reference_attempts;
+        if (value_ == 2 && cxx_exception_static_reference_throw_second) {
+            cxx_exception_static_reference_throw_second = 0;
+            throw 82;
+        }
+        ++cxx_exception_static_reference_constructions;
+    }
+
+    ~StaticReferenceRetryTemporary() {
+        ++cxx_exception_static_reference_destructions;
+        cxx_exception_static_reference_order =
+            cxx_exception_static_reference_order * 10 + value_;
+    }
+
+    int value() const { return value_; }
+
+private:
+    int value_;
+};
+
+class StaticReferenceRetryAggregate {
+public:
+    const StaticReferenceRetryTemporary& first;
+    const StaticReferenceRetryTemporary& second;
+
+    ~StaticReferenceRetryAggregate() {
+        cxx_exception_static_reference_order =
+            cxx_exception_static_reference_order * 10 + 3;
+    }
+};
+
+static StaticReferenceRetryAggregate& cxx_static_reference_retry_aggregate() {
+    static StaticReferenceRetryAggregate value{
+        StaticReferenceRetryTemporary{1}, StaticReferenceRetryTemporary{2}};
+    return value;
+}
+
+extern "C" int cxx_exception_cleanup_static_local_reference_retry() {
+    int caught = 0;
+    try {
+        (void)cxx_static_reference_retry_aggregate();
+    } catch (int value) {
+        caught = value;
+    }
+    if (caught != 82 || cxx_exception_static_reference_order != 1 ||
+        cxx_exception_static_reference_attempts != 2 ||
+        cxx_exception_static_reference_constructions != 1 ||
+        cxx_exception_static_reference_destructions != 1) {
+        return 1;
+    }
+    StaticReferenceRetryAggregate& value =
+        cxx_static_reference_retry_aggregate();
+    if (value.first.value() != 1 || value.second.value() != 2 ||
+        cxx_exception_static_reference_attempts != 4 ||
+        cxx_exception_static_reference_constructions != 3 ||
+        cxx_exception_static_reference_destructions != 1 ||
+        cxx_exception_static_reference_order != 1) {
+        return 2;
+    }
+    cxx_static_reference_retry_finalize();
+    if (cxx_exception_static_reference_destructions != 3 ||
+        cxx_exception_static_reference_order != 1213) {
+        return 3;
+    }
+    return 0;
+}
+#endif
 static int explicit_throwing_destructor_should_throw;
 static int explicit_throwing_child_root_should_throw;
 
@@ -514,7 +593,8 @@ extern "C" int main() {
                    cxx_exception_cleanup_completed_dmi_then_throw() == 1723 &&
                    cxx_exception_cleanup_array_delete_throw() == 21043 &&
                    cxx_exception_cleanup_explicit_throwing_destructor() == 0 &&
-                   cxx_exception_cleanup_explicit_throwing_child() == 0
+                   cxx_exception_cleanup_explicit_throwing_child() == 0 &&
+                   cxx_exception_cleanup_static_local_reference_retry() == 0
                ? 0
                : 1;
 }

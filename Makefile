@@ -7847,7 +7847,7 @@ test-cxx-static-reference-subobjects: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-subobjects/x64.s tests/cxx_static_reference_subobjects.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-subobjects/x64.o $(TEST_OUT)/cxx-static-reference-subobjects/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-static-reference-subobjects/x64.o
-	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-subobjects/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-subobjects/x64.o
+	$(CC) $(CFLAGS) -DRCC_STATIC_AGGREGATE_REFERENCE_TEST -o $(TEST_OUT)/cxx-static-reference-subobjects/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-subobjects/x64.o
 	$(TEST_OUT)/cxx-static-reference-subobjects/x64-host
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-static-reference-subobjects/gcc-host tests/cxx_static_reference_subobjects.cpp
 	$(TEST_OUT)/cxx-static-reference-subobjects/gcc-host
@@ -18047,7 +18047,7 @@ test-cxx-exception-cleanup-verified: $(RCXX_TARGET)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/verified-x64.log,0)
 
 ifeq ($(OS),Windows_NT)
-test-cxx-exception-cleanup: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME) test-cxx-exception-cleanup-verified
+test-cxx-exception-cleanup: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) test-cxx-exception-cleanup-verified
 	$(call MKDIR_P,$(TEST_OUT)/cxx-exception-cleanup)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/x86.s tests/cxx_exception_cleanup.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.o $(TEST_OUT)/cxx-exception-cleanup/x86.s
@@ -18058,7 +18058,7 @@ test-cxx-exception-cleanup: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME) test
 	$(OBJDUMP) -f $(TEST_OUT)/cxx-exception-cleanup/x64.o > $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
 	objcopy --redefine-sym main=rcc_test_main $(TEST_OUT)/cxx-exception-cleanup/x64.o
-	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-exception-cleanup/x64-host tests/cxx_exception_cleanup_host.c $(TEST_OUT)/cxx-exception-cleanup/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-exception-cleanup/x64-host tests/cxx_exception_cleanup_host.c $(TEST_OUT)/cxx-exception-cleanup/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/cxx-exception-cleanup/x64-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s tests/cxx_exception_cleanup_call_rejected.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s
@@ -18068,16 +18068,16 @@ test-cxx-exception-cleanup: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME) test
 	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64.o $(TEST_OUT)/cxx-exception-cleanup/call-x64.s
 	$(OBJDUMP) -f $(TEST_OUT)/cxx-exception-cleanup/call-x64.o > $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
-	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_CXX_EXCEPTION_CLEANUP_VERIFIED -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,0)
-	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_CXX_EXCEPTION_CLEANUP_VERIFIED -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,0)
 	@echo "RCC++ cross-call exception cleanup registration object tests completed; runtime execution requires RinOS exception runtime"
 else
 test-cxx-exception-cleanup: test-cxx-exception-cleanup-posix
 endif
 
-test-cxx-exception-cleanup-posix: $(RCXX_TARGET) test-cxx-exception-cleanup-verified
+test-cxx-exception-cleanup-posix: $(RCXX_TARGET) test-cxx-exception-cleanup-verified $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-exception-cleanup)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x86.s \
@@ -18089,7 +18089,8 @@ test-cxx-exception-cleanup-posix: $(RCXX_TARGET) test-cxx-exception-cleanup-veri
 	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x86 \
 		$(TEST_OUT)/cxx-exception-cleanup/x86-start.o \
-		$(TEST_OUT)/cxx-exception-cleanup/x86.o
+		$(TEST_OUT)/cxx-exception-cleanup/x86.o \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
 	$(TEST_OUT)/cxx-exception-cleanup/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x64.s \
@@ -18101,15 +18102,18 @@ test-cxx-exception-cleanup-posix: $(RCXX_TARGET) test-cxx-exception-cleanup-veri
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x64 \
 		$(TEST_OUT)/cxx-exception-cleanup/x64-start.o \
-		$(TEST_OUT)/cxx-exception-cleanup/x64.o
+		$(TEST_OUT)/cxx-exception-cleanup/x64.o \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/cxx-exception-cleanup/x64
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x86.ro \
+		-DRCC_CXX_EXCEPTION_CLEANUP_VERIFIED \
 		tests/cxx_exception_cleanup.cpp \
 		>$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x64.ro \
+		-DRCC_CXX_EXCEPTION_CLEANUP_VERIFIED \
 		tests/cxx_exception_cleanup.cpp \
 		>$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,0)

@@ -57,6 +57,10 @@ void* __dso_handle;
 #endif
 extern int cxx_static_reference_events;
 extern int cxx_static_reference_expected_events;
+#ifdef RCC_STATIC_AGGREGATE_REFERENCE_TEST
+extern int cxx_static_aggregate_reference_order;
+extern int cxx_static_aggregate_reference_constructions;
+#endif
 #ifdef RCC_STATIC_REFERENCE_TLS_TEST
 extern int cxx_static_reference_tls_constructions;
 extern int cxx_static_reference_tls_destructions;
@@ -363,6 +367,16 @@ int main(void)
     }
 #endif
     __cxa_finalize(&__dso_handle);
+#ifdef RCC_STATIC_AGGREGATE_REFERENCE_TEST
+    if (cxx_static_aggregate_reference_order != 213 ||
+        cxx_static_aggregate_reference_constructions != 2) {
+        fprintf(stderr,
+                "static aggregate reference state: order %d (expected 213), constructions %d (expected 2)\n",
+                cxx_static_aggregate_reference_order,
+                cxx_static_aggregate_reference_constructions);
+        return 95;
+    }
+#endif
     __rcc_global_fini();
     if (cxx_static_reference_events != cxx_static_reference_expected_events) {
         fprintf(stderr, "static-reference events: expected %d, got %d\n",

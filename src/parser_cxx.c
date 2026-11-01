@@ -13220,10 +13220,22 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         /* Initializer? */
         Expr* init = NULL;
+        bool direct_list_initializer = false;
         if (match(TOK_ASSIGN)) {
             init = rcc_parser_parse_initializer();
+            if (init && init->kind == EXPR_COMPOUND &&
+                !init->compound_type) {
+                init->compound_copy_list_init = true;
+            }
         } else if (check(TOK_LBRACE)) {
             init = rcc_parser_parse_initializer();
+            direct_list_initializer = true;
+        }
+        if (init && init->kind == EXPR_COMPOUND) {
+            if (!init->compound_type) init->compound_type = type;
+            if (direct_list_initializer) {
+                init->compound_direct_list_init = true;
+            }
         }
         if (init && !is_static && cls->is_union) {
             for (TypeParam* member = cls->fields; member;

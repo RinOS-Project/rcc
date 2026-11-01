@@ -2605,8 +2605,11 @@ static void codegen_add_vtable_pointer(Module* mod,
                                        ModuleSymbolSection source_section,
                                        uint32_t offset, Type* type);
 
+static bool codegen_attach_static_initializer_guard(Decl* declaration);
+
 static bool codegen_emit_static_aggregate_reference_temporaries_expr(
-    Module* mod, Expr* expression, unsigned depth) {
+    Module* mod, Decl* containing_declaration, Expr* expression,
+    unsigned depth, bool local_guarded_initializer) {
     uint8_t zero[32] = {0};
     if (!mod || !expression || depth >= 64u) return true;
     while (expression->kind == EXPR_CAST && expression->cast_expr) {
@@ -2621,8 +2624,10 @@ static bool codegen_emit_static_aggregate_reference_temporaries_expr(
         uint32_t alignment;
         uint64_t aligned;
         uint32_t offset;
+        bool statically_initialized;
         if (!codegen_emit_static_aggregate_reference_temporaries_expr(
-                mod, item->expr, depth + 1u)) {
+                mod, containing_declaration, item->expr, depth + 1u,
+                local_guarded_initializer)) {
             return false;
         }
         if (!item->cxx_temporary_static_storage || !owner ||
@@ -2656,11 +2661,21 @@ static bool codegen_emit_static_aggregate_reference_temporaries_expr(
         codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset, type);
         module_add_symbol(mod, decl_link_name(owner), offset, true,
                           MODULE_SYMBOL_DATA, false);
-        if (!codegen_emit_static_initializer(
-                mod, type, item->expr, offset)) {
+        statically_initialized = codegen_emit_static_initializer(
+            mod, type, item->expr, offset);
+        if (!statically_initialized) {
             memset(mod->data.data + offset, 0, size);
             owner->var_init = item->expr;
-            codegen_defer_global_initializer(mod, owner);
+            if (local_guarded_initializer) {
+                owner->var_dynamic_initializer = true;
+                containing_declaration->var_dynamic_initializer = true;
+                if (!codegen_attach_static_initializer_guard(
+                        containing_declaration)) {
+                    return false;
+                }
+            } else {
+                codegen_defer_global_initializer(mod, owner);
+            }
         }
     }
     return true;
@@ -2873,10 +2888,18 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     uint32_t size;
     uint32_t alignment;
     uint32_t offset;
+    bool dynamic_reference_temporary_initializer = false;
     if (!mod || !declaration || !declaration->var_is_static_local ||
         !declaration->type || declaration->type->size <= 0) {
         return false;
     }
+    if (declaration->var_init && !declaration->var_is_thread_local &&
+        !codegen_emit_static_aggregate_reference_temporaries_expr(
+            mod, declaration, declaration->var_init, 0u, true)) {
+        return false;
+    }
+    dynamic_reference_temporary_initializer =
+        declaration->var_dynamic_initializer;
     if (declaration->var_reference_temporary_owner) {
         if (!codegen_emit_static_reference_temporary_storage(
                 mod, declaration)) {
@@ -3024,9 +3047,11 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     }
     if (size) emit_data(mod, zero, size);
     declaration->var_offset = offset;
-    declaration->var_dynamic_initializer = false;
+    declaration->var_dynamic_initializer =
+        dynamic_reference_temporary_initializer;
     if (!codegen_emit_static_initializer(
             mod, declaration->type, declaration->var_init, offset)) {
+        declaration->var_dynamic_initializer = false;
         if (!declaration->var_reference_temporary_guard &&
             (codegen_runtime_function_static_scalar(declaration) ||
              codegen_runtime_global_constructor(
@@ -3148,7 +3173,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         }
         if (declaration->var_init &&
             !codegen_emit_static_aggregate_reference_temporaries_expr(
-                mod, declaration->var_init, 0u)) {
+                mod, declaration, declaration->var_init, 0u, false)) {
             continue;
         }
         size = (uint32_t)declaration->type->size;
@@ -20726,6 +20751,10 @@ static void gen_cxx_exception_change_local_subobject32(
         unregister);
 }
 
+static bool gen_global_initializer32(Module* mod, Decl* declaration);
+static bool gen_register_static_reference_temporary_cleanup32(
+    Module* mod, ExprList* item);
+
 static bool gen_local_initializer_with_temporary_cleanup32(
     Module* mod, Type* type, Expr* initializer, int32_t displacement,
     ExprList* item) {
@@ -20734,6 +20763,17 @@ static bool gen_local_initializer_with_temporary_cleanup32(
         item->cxx_temporary_static_storage &&
         item->cxx_temporary_owner &&
         item->cxx_temporary_owner->var_is_global) {
+        if (item->cxx_temporary_owner->var_dynamic_initializer &&
+            item->cxx_temporary_owner->var_init &&
+            !gen_global_initializer32(mod,
+                                     item->cxx_temporary_owner)) {
+            return false;
+        }
+        if (item->cxx_temporary_owner->var_dynamic_initializer &&
+            item->cxx_temporary_owner->var_init &&
+            !gen_register_static_reference_temporary_cleanup32(mod, item)) {
+            return false;
+        }
         gen_decl_storage_address32(mod, item->cxx_temporary_owner);
         emit_store_typed32(mod, EBP, displacement, EAX, type);
         return true;
@@ -21444,6 +21484,7 @@ typedef struct CleanupCodegen {
     Decl* declaration;
     int exception_frame_offset;
     bool exception_registered;
+    bool static_initializer_rollback;
 } CleanupCodegen;
 
 /* Cleanups below this marker belong to the protected try/catch region.  A
@@ -21494,6 +21535,14 @@ static void gen_call_temporary_cleanup32(Module* mod,
         emit_push_reg(mod, EAX);
         gen_cxx_exception_call32(mod, "__cxa_guard_abort");
         emit_add_reg_imm(mod, ESP, 4);
+        return;
+    }
+    if (cleanup->static_initializer_rollback) {
+        if (cleanup->exception_registered) {
+            gen_cxx_exception_unregister_plan32(
+                mod, cleanup->plan, cleanup->exception_frame_offset);
+            cleanup->exception_registered = false;
+        }
         return;
     }
     if (cleanup->temporary_owner) {
@@ -21917,6 +21966,31 @@ static void gen_cxx_cleanup_plan_register_forward32(
 static void gen_cxx_exception_register_plan32(
     Module* mod, CxxCleanupPlan* plan, int frame_offset) {
     gen_cxx_cleanup_plan_register_forward32(mod, plan, frame_offset);
+}
+
+static bool gen_register_static_reference_temporary_cleanup32(
+    Module* mod, ExprList* item) {
+    CleanupCodegen* cleanup;
+    if (!mod || !item || !item->cxx_temporary_cleanups) return true;
+    if (!gen_cxx_cleanup_plan_registerable32(
+            item->cxx_temporary_cleanups)) {
+        rcc_error(item->expr ? item->expr->loc
+                             : (SourceLoc){"<static-reference-temp>", 0, 0},
+                  "static aggregate reference temporary has incomplete exception cleanup metadata");
+        return false;
+    }
+    cleanup = rcc_alloc(sizeof(*cleanup));
+    memset(cleanup, 0, sizeof(*cleanup));
+    cleanup->plan = item->cxx_temporary_cleanups;
+    cleanup->previous = active_cleanups;
+    cleanup->exception_frame_offset =
+        active_cxx_exception_cleanup_frame_offset;
+    cleanup->static_initializer_rollback = true;
+    active_cleanups = cleanup;
+    gen_cxx_exception_register_plan32(
+        mod, cleanup->plan, cleanup->exception_frame_offset);
+    cleanup->exception_registered = true;
+    return true;
 }
 
 static void gen_cxx_exception_unregister_plan_forward32(
@@ -23996,6 +24070,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 cleanup->exception_frame_offset =
                     active_cxx_exception_cleanup_frame_offset;
                 cleanup->exception_registered = false;
+                cleanup->static_initializer_rollback = false;
                 active_cleanups = cleanup;
                 if (cxx_exception_cleanup_registration_enabled &&
                     active_cxx_exception_cleanup_frame_offset != INT_MAX) {
@@ -24010,6 +24085,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 cleanup->declaration = d;
                 cleanup->exception_frame_offset =
                     active_cxx_exception_cleanup_frame_offset;
+                cleanup->exception_registered = false;
+                cleanup->static_initializer_rollback = false;
                 active_cleanups = cleanup;
                 if (cxx_exception_cleanup_registration_enabled &&
                     active_cxx_exception_cleanup_frame_offset != INT_MAX &&
@@ -24192,6 +24269,7 @@ static void gen_function(Module* mod, Decl* decl) {
             cleanup->declaration = parameter->decl;
             cleanup->exception_frame_offset = INT_MAX;
             cleanup->exception_registered = false;
+            cleanup->static_initializer_rollback = false;
             active_cleanups = cleanup;
             if (gen_cxx_cleanup_plan_registerable32(cleanup->plan)) {
                 gen_cxx_exception_register_plan32(

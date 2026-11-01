@@ -4709,6 +4709,9 @@ static void gen64_decl_storage_address(Module* mod,
                                        const Decl* declaration);
 static void gen64_push_call_temporary_cleanup(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
+static bool gen64_global_initializer(Module* mod, Decl* declaration);
+static bool gen64_register_static_reference_temporary_cleanup(
+    Module* mod, ExprList* item);
 
 static bool gen64_local_initializer_with_temporary_cleanup(
     Module* mod, Type* type, Expr* initializer, int32_t displacement,
@@ -4718,6 +4721,17 @@ static bool gen64_local_initializer_with_temporary_cleanup(
         item->cxx_temporary_static_storage &&
         item->cxx_temporary_owner &&
         item->cxx_temporary_owner->var_is_global) {
+        if (item->cxx_temporary_owner->var_dynamic_initializer &&
+            item->cxx_temporary_owner->var_init &&
+            !gen64_global_initializer(
+                mod, item->cxx_temporary_owner)) {
+            return false;
+        }
+        if (item->cxx_temporary_owner->var_dynamic_initializer &&
+            item->cxx_temporary_owner->var_init &&
+            !gen64_register_static_reference_temporary_cleanup(mod, item)) {
+            return false;
+        }
         gen64_decl_storage_address(mod, item->cxx_temporary_owner);
         emit64_store_typed(mod, RBP, displacement, RAX, type);
         return true;
@@ -12568,6 +12582,7 @@ typedef struct CleanupCodegen64 {
     Decl* declaration;
     int exception_frame_offset;
     bool exception_registered;
+    bool static_initializer_rollback;
 } CleanupCodegen64;
 
 /* Cleanups below this marker belong to the protected try/catch region.  A
@@ -12618,6 +12633,14 @@ static void gen64_call_temporary_cleanup(
         gen64_decl_storage_address(mod, cleanup->guard_abort);
         emit64_mov_reg_reg(mod, RDI, RAX);
         gen64_cxx_exception_call(mod, "__cxa_guard_abort");
+        return;
+    }
+    if (cleanup->static_initializer_rollback) {
+        if (cleanup->exception_registered) {
+            gen64_cxx_exception_unregister_plan(
+                mod, cleanup->plan, cleanup->exception_frame_offset);
+            cleanup->exception_registered = false;
+        }
         return;
     }
     if (cleanup->temporary_owner) {
@@ -13010,6 +13033,31 @@ static void gen64_cxx_exception_register_plan_forward(
 static void gen64_cxx_exception_register_plan(
     Module* mod, CxxCleanupPlan* plan, int frame_offset) {
     gen64_cxx_exception_register_plan_forward(mod, plan, frame_offset);
+}
+
+static bool gen64_register_static_reference_temporary_cleanup(
+    Module* mod, ExprList* item) {
+    CleanupCodegen64* cleanup;
+    if (!mod || !item || !item->cxx_temporary_cleanups) return true;
+    if (!gen64_cxx_cleanup_plan_registerable(
+            item->cxx_temporary_cleanups)) {
+        rcc_error(item->expr ? item->expr->loc
+                             : (SourceLoc){"<static-reference-temp>", 0, 0},
+                  "static aggregate reference temporary has incomplete exception cleanup metadata");
+        return false;
+    }
+    cleanup = rcc_alloc(sizeof(*cleanup));
+    memset(cleanup, 0, sizeof(*cleanup));
+    cleanup->plan = item->cxx_temporary_cleanups;
+    cleanup->previous = active_cleanups64;
+    cleanup->exception_frame_offset =
+        active_cxx_exception_cleanup_frame_offset64;
+    cleanup->static_initializer_rollback = true;
+    active_cleanups64 = cleanup;
+    gen64_cxx_exception_register_plan(
+        mod, cleanup->plan, cleanup->exception_frame_offset);
+    cleanup->exception_registered = true;
+    return true;
 }
 
 static void gen64_cxx_exception_unregister_plan_forward(
@@ -17486,6 +17534,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 cleanup->exception_frame_offset =
                     active_cxx_exception_cleanup_frame_offset64;
                 cleanup->exception_registered = false;
+                cleanup->static_initializer_rollback = false;
                 active_cleanups64 = cleanup;
                 if (cxx_exception_cleanup_registration_enabled64 &&
                     active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
@@ -17500,6 +17549,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 cleanup->declaration = d;
                 cleanup->exception_frame_offset =
                     active_cxx_exception_cleanup_frame_offset64;
+                cleanup->exception_registered = false;
+                cleanup->static_initializer_rollback = false;
                 active_cleanups64 = cleanup;
                 if (cxx_exception_cleanup_registration_enabled64 &&
                     active_cxx_exception_cleanup_frame_offset64 != INT_MAX &&
@@ -18086,6 +18137,7 @@ static void gen64_function(Module* mod, Decl* decl) {
             cleanup->declaration = parameter->decl;
             cleanup->exception_frame_offset = INT_MAX;
             cleanup->exception_registered = false;
+            cleanup->static_initializer_rollback = false;
             active_cleanups64 = cleanup;
             if (gen64_cxx_cleanup_plan_registerable(cleanup->plan)) {
                 gen64_cxx_exception_register_plan(

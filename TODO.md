@@ -13140,6 +13140,12 @@ remains a separate open item.
       them once at block exit in reverse initialization order before the
       aggregate destructor. GCC C++20, i686/AMD64 output, AMD64 runtime, and
       diagnostics pass `test-cxx-reference-list-initialization`.
-- [ ] Implement block-static/TLS storage, cleanup on exceptional exits while
-      later aggregate elements initialize, and verified-SSA lifetime/cleanup
-      lowering; compare cleanup counts and behavior with GCC on both targets.
+- [x] Implement non-TLS block-static aggregate reference-member temporaries
+      with nontrivial destructors. Initialize dynamic temporaries under the
+      aggregate guard, register cleanup after each constructor succeeds, destroy
+      the constructed prefix in reverse order when a later initializer throws,
+      abort the guard, and retry on the next access. The exception-cleanup and
+      static-reference-subobjects targets pass i686/AMD64 generation and x64
+      host runtime checks; the subobject test also passes its GCC C++20 oracle.
+- [ ] Extend this behavior to TLS, add verified-SSA lifetime/cleanup lowering,
+      and compare the throwing retry fixture directly with GCC on both targets.
