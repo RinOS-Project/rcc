@@ -12758,3 +12758,10 @@ remains a separate open item.
       GCC/RCCの完全symbol一致（memberの`S2_`を含む）、i686/AMD64 assembly、host実行を
       `test-cxx-adl-function-template-specialization`で確認し、変更後にWindows
       `test-cxx-function-template-overloads`全体も通過。
+
+# RCC continuation (2026-11-01, namespace substitutions in function-template signatures)
+- [x] 関数template specializationのsignatureで、所属namespace外のclass/enum型を
+      反復parameterに使うfree/member関数templateをItanium ABIどおりにmangleする。
+      GCC/RCCでfreeの`S3_`・memberの`S4_`を一致させ、i686/AMD64 assemblyとhost実行、
+      Windows `test-cxx-adl-function-template-specialization`および
+      `test-cxx-function-template-overloads`全体の通過を確認。

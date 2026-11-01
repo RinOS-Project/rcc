@@ -2901,6 +2901,8 @@ static int cxx_function_template_template_id_parameter_index(
 typedef struct CxxMemberTemplateMangleContext {
     int* parameter_substitutions;
     size_t next_substitution;
+    CxxMangleContext signature_type_context;
+    bool signature_type_cursor_initialized;
     Type** type_substitutions;
     size_t* type_substitution_indices;
     size_t type_substitution_count;
@@ -3484,6 +3486,24 @@ static void cxx_mangle_template_type_append_impl(
             buf, pos, type, tmpl, context)) {
         return;
     }
+    if (context && context->signature_type_cursor_initialized &&
+        type->kind == TYPE_ENUM) {
+        cxx_mangle_enum_name(
+            buf, pos, type, &context->signature_type_context);
+        return;
+    }
+    if (context && context->signature_type_cursor_initialized &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        type->cxx_class && !type->cxx_class->templ) {
+        bool has_namespace = cxx_mangle_namespace_prefix_append(
+            buf, pos, type->cxx_class->ns,
+            &context->signature_type_context);
+        mangle_class_name_context(
+            buf, pos, type->cxx_class,
+            &context->signature_type_context);
+        if (has_namespace) CXX_MANGLE_TEMPLATE_APPEND('E');
+        return;
+    }
     if (type->kind == TYPE_STRUCT && type->cxx_dependent &&
         type->cxx_template_param_index >= 0 &&
         type->cxx_template_arg_count > 0 && type->cxx_template_args) {
@@ -3920,7 +3940,19 @@ static void cxx_mangle_template_type_append(
             }
         }
     }
+    if (context && context->signature_type_cursor_initialized &&
+        context->next_substitution >
+            context->signature_type_context.next_substitution_index) {
+        context->signature_type_context.next_substitution_index =
+            context->next_substitution;
+    }
     cxx_mangle_template_type_append_impl(buf, pos, type, tmpl, context);
+    if (context && context->signature_type_cursor_initialized &&
+        context->signature_type_context.next_substitution_index >
+            context->next_substitution) {
+        context->next_substitution =
+            context->signature_type_context.next_substitution_index;
+    }
     if (context && is_substitutable_type) {
         size_t count = context->type_substitution_count;
         context->type_substitutions = ast_arena_grow(
@@ -3975,6 +4007,10 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     template_argument_context.namespace_scope = mangling_namespace;
     cxx_mangle_seed_namespace_substitutions(
         &template_argument_context, mangling_namespace);
+    member_mangle_context.signature_type_context.namespace_scope =
+        mangling_namespace;
+    cxx_mangle_seed_namespace_substitutions(
+        &member_mangle_context.signature_type_context, mangling_namespace);
     encode_member_signature = tmpl->member_method &&
         (!func->name || strcmp(func->name, "operator conversion") != 0);
     if ((encode_member_signature || !tmpl->member_method) &&
@@ -4184,6 +4220,11 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                 argument_substitution_end;
         }
     }
+    member_mangle_context.signature_type_context.has_substitution_cursor =
+        true;
+    member_mangle_context.signature_type_context.next_substitution_index =
+        member_mangle_context.next_substitution;
+    member_mangle_context.signature_type_cursor_initialized = true;
     buf[pos++] = 'E';
     if (encode_member_signature ||
         (!tmpl->member_method && mangling_namespace)) {
