@@ -23691,7 +23691,8 @@ test-verified-cxx-dynamic-tls-aggregate: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUN
 	$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/verify \
 		--dynamic-tls-aggregate-object x86_64 \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64-o2.ro
-	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-Wno-missing-field-initializers -fsyntax-only \
 		tests/verified_backend_dynamic_tls_aggregate.cpp
 ifeq ($(OS),Windows_NT)
 	@echo "POSIX dynamic TLS runtime execution is covered by the Linux test gate"
@@ -23699,7 +23700,8 @@ else
 	$(CC) -std=c11 -Wall -Wextra -Werror -pthread -c \
 		-o $(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/host.o \
 		tests/verified_backend_dynamic_tls_aggregate_host.c
-	$(CXX) -std=c++20 -Wall -Wextra -Werror -pthread -no-pie -o \
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-Wno-missing-field-initializers -pthread -no-pie -o \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/gcc-host \
 		tests/verified_backend_dynamic_tls_aggregate.cpp \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/host.o

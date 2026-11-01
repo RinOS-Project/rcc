@@ -4175,7 +4175,7 @@ static void verify_dynamic_tls_aggregate_object(const char* path,
     text = objfile_get_section(object, ".text");
     tls = objfile_get_section(object, ".tls");
     assert(text != NULL && tls != NULL && tls->type == SECT_TLS &&
-           tls->memory_size >= 8u);
+           tls->memory_size >= 24u);
     for (section = object->sections; section && section != text;
          section = section->next) {
         ++text_section_index;

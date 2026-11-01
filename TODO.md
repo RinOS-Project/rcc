@@ -12659,7 +12659,9 @@ remains a separate open item.
       callback definitions/references, `__dso_handle`, and runtime imports.
       Execute AMD64 verified objects at `-O0`/`-O2` with two pthreads, checking
       independent TLS addresses/state and both destructors per thread. Native
-      legacy execution and the GCC C++20 oracle also pass.
+      legacy execution and the GCC C++20 oracle also pass. Omitted trailing
+      scalar aggregate members are value-initialized to zero in both the
+      namespace-scope and function-local cases.
 
 ## RCC continuation (2026-10-31, concurrent C++ aggregate atomics)
 

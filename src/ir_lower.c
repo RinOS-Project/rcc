@@ -2668,16 +2668,13 @@ static bool lower_dynamic_tls_aggregate_initializer_supported(
     }
     field = type->fields;
     item = initializer->compound_init;
-    while (field && item) {
+    while (field) {
         const Type* field_type = field->type;
         if (!field_type || field->is_bitfield || field->offset < 0 ||
             field->offset > type->size ||
             field_type->size > type->size - field->offset ||
             field_type->is_atomic || field_type->is_reference ||
             field_type->cleanup_function || field_type->cxx_class ||
-            item->designator_kind != INIT_DESIGNATOR_NONE ||
-            !item->expr || item->cxx_temporary_owner ||
-            item->cxx_temporary_cleanups ||
             !(type_is_integer((Type*)field_type) ||
               field_type->kind == TYPE_ENUM ||
               type_is_floating((Type*)field_type) ||
@@ -2685,10 +2682,15 @@ static bool lower_dynamic_tls_aggregate_initializer_supported(
                !field_type->cxx_is_member_pointer))) {
             return false;
         }
+        if (item && (item->designator_kind != INIT_DESIGNATOR_NONE ||
+                     !item->expr || item->cxx_temporary_owner ||
+                     item->cxx_temporary_cleanups)) {
+            return false;
+        }
         field = field->next;
-        item = item->next;
+        if (item) item = item->next;
     }
-    return !field && !item;
+    return !item;
 }
 
 static bool lower_dynamic_tls_aggregate_initializer(
@@ -28354,7 +28356,7 @@ static bool lower_dynamic_tls_aggregate_initializer(
         field = field->next;
         item = item->next;
     }
-    if (field || item || context->unsupported) return false;
+    if (item || context->unsupported) return false;
 
     if (declaration->var_cleanups) {
         static const char suffix[] = "$rcc_static_cleanup";

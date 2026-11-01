@@ -16,6 +16,7 @@ static int verified_local_tls_next_value(int seed) {
 struct VerifiedDynamicTlsAggregate {
     volatile int value;
     volatile int marker;
+    volatile int zero_initialized;
 
     ~VerifiedDynamicTlsAggregate() {
         __atomic_add_fetch(
@@ -47,6 +48,10 @@ extern "C" int verified_dynamic_tls_aggregate_probe(
     if (verified_local_tls_initializer_calls != 2 ||
         verified_global_tls_initializer_calls != 2) {
         return 1;
+    }
+    if (aggregate->zero_initialized != 0 ||
+        global_aggregate->zero_initialized != 0) {
+        return 4;
     }
     if (call == 0) {
         if (aggregate->value != 41 || aggregate->marker != 72 ||
