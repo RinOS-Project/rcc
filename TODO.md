@@ -13156,6 +13156,15 @@ remains a separate open item.
       passes the GCC oracle and legacy x64 runtime, emits i686/AMD64 objects
       without fallback at `-O0` and `-O2`, and executes verified x64 objects at
       both optimization levels while checking guard and destructor counts.
-- [ ] Extend verified lowering to reference/class-valued aggregate fields and
+- [x] Extend verified lowering to non-TLS block-static aggregate reference
+      fields bound to dynamic scalar prvalues. Store each temporary in its own
+      static data object, initialize it in the guard sequence, and bind the
+      aggregate field to that object. Determine per-output-module definitions
+      from the module symbol table because legacy and verified emission reuse
+      the AST. The extended `test-verified-cxx-static-local-aggregate` fixture
+      passes the GCC oracle and legacy x64 runtime, emits i686/AMD64 objects
+      without fallback at `-O0` and `-O2`, and executes verified x64 objects at
+      both optimization levels.
+- [ ] Extend verified lowering to class-valued reference fields and
       partial-subobject cleanup, add TLS aggregate lifetime/cleanup, and compare
       the throwing reference-temporary retry fixture directly with GCC.

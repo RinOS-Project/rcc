@@ -2625,13 +2625,20 @@ static bool codegen_emit_static_aggregate_reference_temporaries_expr(
         uint64_t aligned;
         uint32_t offset;
         bool statically_initialized;
+        const ModuleSymbol* owner_symbol;
         if (!codegen_emit_static_aggregate_reference_temporaries_expr(
                 mod, containing_declaration, item->expr, depth + 1u,
                 local_guarded_initializer)) {
             return false;
         }
-        if (!item->cxx_temporary_static_storage || !owner ||
-            owner->var_offset >= 0) {
+        if (!item->cxx_temporary_static_storage || !owner) continue;
+        owner_symbol = module_lookup_symbol(mod, decl_link_name(owner));
+        /* AST storage offsets survive between legacy and verified codegen
+         * passes.  Whether this synthetic object is present is a property of
+         * the current Module, so use its symbol table to avoid skipping the
+         * definition in a second output module. */
+        if (owner_symbol && owner_symbol->is_defined &&
+            owner_symbol->section == MODULE_SYMBOL_DATA) {
             continue;
         }
         if (!type || type->size <= 0 || type->align < 0) {

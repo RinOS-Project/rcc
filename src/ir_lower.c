@@ -2763,6 +2763,24 @@ static const ExprList* lower_dynamic_aggregate_field_initializer(
     return item;
 }
 
+static bool lower_dynamic_static_scalar_reference_temporary_supported(
+    const Decl* declaration, const ExprList* item) {
+    const Decl* owner = item ? item->cxx_temporary_owner : NULL;
+    const Type* type = owner ? owner->type : NULL;
+    return declaration && declaration->var_is_static_local &&
+        !declaration->var_is_thread_local && item &&
+        item->cxx_temporary_static_storage &&
+        !item->cxx_temporary_cleanups && owner && owner->var_is_global &&
+        !owner->var_is_thread_local && type && type->size > 0 &&
+        !type->is_reference && !type->cleanup_function &&
+        !type->is_atomic && type->kind != TYPE_ARRAY &&
+        type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
+        type->kind != TYPE_VECTOR &&
+        (type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
+         type_is_floating((Type*)type) ||
+         (type->kind == TYPE_PTR && !type->cxx_is_member_pointer));
+}
+
 static bool lower_dynamic_static_aggregate_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
@@ -2798,8 +2816,10 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
         return false;
     }
     for (item = initializer->compound_init; item; item = item->next) {
-        if (!item->expr || item->cxx_temporary_owner ||
-            item->cxx_temporary_cleanups) {
+        if (!item->expr || item->cxx_temporary_cleanups ||
+            (item->cxx_temporary_owner &&
+             !lower_dynamic_static_scalar_reference_temporary_supported(
+                 declaration, item))) {
             return false;
         }
         ++item_count;
@@ -2815,6 +2835,18 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
     field = type->fields;
     while (field) {
         const Type* field_type = field->type;
+        item = lower_dynamic_aggregate_field_initializer(
+            initializer, field, field_count, has_field_designators);
+        if (field_type && field_type->is_reference) {
+            if (field_type->kind != TYPE_PTR || !field_type->base ||
+                !lower_dynamic_static_scalar_reference_temporary_supported(
+                    declaration, item)) {
+                return false;
+            }
+            ++field_count;
+            field = field->next;
+            continue;
+        }
         if (!field_type || field->is_bitfield || field->offset < 0 ||
             field->offset > type->size ||
             field_type->size > type->size - field->offset ||
@@ -28638,9 +28670,29 @@ static bool lower_dynamic_static_aggregate_initializer(
             declaration->var_init, field, field_index,
             has_field_designators);
         if (item) {
-            RccIrLowerValue value = lower_expression(context, item->expr);
+            RccIrLowerValue value;
             RccIrLowerValue field_address;
-            value = lower_cast(context, value, field->type);
+            if (field->type->is_reference) {
+                const Decl* temporary_owner = item->cxx_temporary_owner;
+                RccIrLowerValue temporary_address;
+                value = lower_expression(context, item->expr);
+                value = lower_cast(context, value, temporary_owner->type);
+                symbol = lower_append(
+                    context, RCC_IR_SYMBOL_ADDRESS,
+                    rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+                if (!value.valid || !symbol) return false;
+                rcc_ir_set_callee(symbol, decl_link_name(temporary_owner));
+                temporary_address = lower_value(
+                    symbol->result, rcc_ir_type_pointer(0u), true);
+                if (!lower_store_address(
+                        context, temporary_address, value)) {
+                    return false;
+                }
+                value = temporary_address;
+            } else {
+                value = lower_expression(context, item->expr);
+                value = lower_cast(context, value, field->type);
+            }
             field_address = lower_byte_offset_address(
                 context, object, (uint64_t)field->offset);
             if (!value.valid || !field_address.valid) return false;
