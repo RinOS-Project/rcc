@@ -27,7 +27,7 @@ typedef struct CxxStaticReferenceExitEntry {
     int active;
 } CxxStaticReferenceExitEntry;
 
-static CxxStaticReferenceExitEntry cxx_static_reference_exit_entries[8];
+static CxxStaticReferenceExitEntry cxx_static_reference_exit_entries[16];
 static size_t cxx_static_reference_exit_count;
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((weak))

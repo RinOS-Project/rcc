@@ -354,6 +354,7 @@ static bool lower_cleanup_initializer_supported(const Expr* initializer);
 static bool lower_cleanup_initializer_may_throw(const Expr* initializer);
 static bool lower_cleanup_constructor_call_supported(
     const Expr* initializer);
+static bool lower_noexcept_expression(const Expr* expression);
 
 static const Decl* lower_direct_aggregate_declaration(
     const Expr* expression) {
@@ -408,6 +409,9 @@ static RccIrLowerValue lower_typeinfo_before(
 static bool lower_change_current_exception_cleanup(
     RccIrLowerContext* context, const CxxCleanupPlan* action,
     bool register_cleanup);
+static bool lower_cxx_delete_subobject_cleanups_change(
+    RccIrLowerContext* context, const CxxClass* cls,
+    RccIrLowerValue object, bool register_cleanup, unsigned depth);
 static bool lower_temporary_cleanup_plan_list_supported(
     const CxxCleanupPlan* plan, const Decl* owner,
     const Decl** array_indices, size_t array_index_count,
@@ -2816,6 +2820,43 @@ static bool lower_dynamic_static_class_member_initializer_supported(
 static bool lower_dynamic_static_array_member_initializer_supported(
     const Type* type, const ExprList* aggregate_item, unsigned depth);
 
+static bool lower_dynamic_static_class_member_constructor_supported(
+    const Type* type, const ExprList* aggregate_item) {
+    const Expr* initializer = aggregate_item
+        ? aggregate_item->expr : NULL;
+    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
+        !type->cxx_class->has_user_constructor ||
+        type->cxx_class->has_field_initializer || type->is_volatile ||
+        type->size <= 0 || type->size > 65536 || type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (type->align & (type->align - 1)) != 0 ||
+        type->cxx_class->base_count != 0 ||
+        type->cxx_class->virtual_base_count != 0 ||
+        type->cxx_class->vtable_size != 0 ||
+        !lower_struct_type_supported(type) || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        !initializer->compound_constructor ||
+        initializer->compound_paren_init ||
+        aggregate_item->cxx_temporary_owner ||
+        aggregate_item->cxx_temporary_cleanups ||
+        !lower_cleanup_constructor_call_supported(initializer) ||
+        !lower_cleanup_initializer_supported(initializer)) {
+        return false;
+    }
+    for (const ExprList* argument = initializer->compound_init;
+         argument; argument = argument->next) {
+        if (!argument->expr ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            argument->cxx_temporary_owner ||
+            argument->cxx_temporary_cleanups ||
+            !type_is_scalar(argument->expr->type) ||
+            !lower_noexcept_expression(argument->expr)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_dynamic_static_class_member_initializer_supported(
     const Type* type, const ExprList* aggregate_item, unsigned depth) {
     const Expr* initializer = aggregate_item
@@ -2826,6 +2867,10 @@ static bool lower_dynamic_static_class_member_initializer_supported(
     size_t item_count = 0u;
     bool has_field_designators = false;
     bool has_positional_items = false;
+    if (lower_dynamic_static_class_member_constructor_supported(
+            type, aggregate_item)) {
+        return true;
+    }
     if (!type || depth >= 32u || type->kind != TYPE_STRUCT ||
         !type->cxx_class ||
         !ast_cxx_is_aggregate((Type*)type) || type->is_volatile ||
@@ -10709,6 +10754,13 @@ static bool lower_change_partial_member_cleanup(
         context, field->type, object, register_cleanup, 0u);
 }
 
+static bool lower_cxx_type_has_destructor_cleanup(const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    return type && (type->cxx_nontrivial ||
+        (cls && cls->destructor_method) || type->cleanup_function ||
+        type->cleanup_field);
+}
+
 static bool lower_register_partial_member_cleanup(
     RccIrLowerContext* context, const TypeField* field,
     RccIrLowerValue object) {
@@ -10718,7 +10770,7 @@ static bool lower_register_partial_member_cleanup(
         context->partial_construction_cleanup_declaration
         ? context->partial_construction_cleanup_declaration : owner;
     if (!owner || !field || !field->type || !field->type->cxx_class ||
-        !field->type->cxx_nontrivial) {
+        !lower_cxx_type_has_destructor_cleanup(field->type)) {
         return true;
     }
     return lower_change_partial_member_cleanup(
@@ -10745,17 +10797,21 @@ static bool lower_unregister_partial_array_cleanups_in_object(
                 return false;
             }
         } else if (array_type->base->cxx_class &&
-                   array_type->base->cxx_nontrivial &&
-                   !lower_cxx_delete_subobject_cleanup_change(
-                       context, array_type->base, element, false,
-                       depth + 1u)) {
-            return false;
+                   lower_cxx_type_has_destructor_cleanup(array_type->base)) {
+            bool unregistered = array_type->base->cxx_class->destructor_method
+                ? lower_cxx_delete_subobject_cleanup_change(
+                      context, array_type->base, element, false,
+                      depth + 1u)
+                : lower_cxx_delete_subobject_cleanups_change(
+                      context, array_type->base->cxx_class, element,
+                      false, depth + 1u);
+            if (!unregistered) return false;
         }
     }
     return true;
 }
 
-static bool lower_partial_array_has_nontrivial_class(
+static bool lower_partial_array_has_destructor_cleanup_class(
     const Type* array_type) {
     const Type* element = array_type;
     unsigned depth = 0u;
@@ -10763,7 +10819,8 @@ static bool lower_partial_array_has_nontrivial_class(
         element = element->base;
         ++depth;
     }
-    return element && element->cxx_class && element->cxx_nontrivial;
+    return element && element->cxx_class &&
+        lower_cxx_type_has_destructor_cleanup(element);
 }
 
 static bool lower_unregister_partial_member_cleanups_in_object(
@@ -10783,9 +10840,10 @@ static bool lower_unregister_partial_member_cleanups_in_object(
         RccIrLowerValue address;
         if (!field->type ||
             (field->type->kind == TYPE_ARRAY
-                 ? !lower_partial_array_has_nontrivial_class(field->type)
+                 ? !lower_partial_array_has_destructor_cleanup_class(
+                       field->type)
                  : (!field->type->cxx_class ||
-                    !field->type->cxx_nontrivial))) {
+                    !lower_cxx_type_has_destructor_cleanup(field->type)))) {
             continue;
         }
         if (field->offset < 0) {
@@ -10801,7 +10859,7 @@ static bool lower_unregister_partial_member_cleanups_in_object(
                 return false;
             }
         } else if (field->type->cxx_class &&
-                   field->type->cxx_nontrivial &&
+                   lower_cxx_type_has_destructor_cleanup(field->type) &&
                    !lower_change_partial_member_cleanup(
                        context, cleanup_declaration, owner, field,
                        address, false)) {
@@ -10820,15 +10878,19 @@ static bool lower_register_partial_array_element_cleanup(
         context->partial_construction_cleanup_declaration
         ? context->partial_construction_cleanup_declaration : owner;
     if (!owner || !type || !type->cxx_class ||
-        !type->cxx_nontrivial) {
+        !lower_cxx_type_has_destructor_cleanup(type)) {
         return true;
     }
     if (!lower_unregister_partial_member_cleanups_in_object(
             context, cleanup_declaration, owner, type, object)) {
         return false;
     }
-    return lower_cxx_delete_subobject_cleanup_change(
-        context, type, object, true, 0u);
+    if (type->cxx_class->destructor_method) {
+        return lower_cxx_delete_subobject_cleanup_change(
+            context, type, object, true, 0u);
+    }
+    return lower_cxx_delete_subobject_cleanups_change(
+        context, type->cxx_class, object, true, 0u);
 }
 
 static bool lower_register_partial_base_cleanup(
@@ -23925,7 +23987,7 @@ static bool lower_cxx_delete_subobject_cleanup_change(
     /* A default member initializer makes default construction non-trivial,
      * but a subobject without a destructor or cleanup hook needs no unwind
      * registration when its enclosing class-array element is destroyed. */
-    if (!type || !type->cxx_nontrivial ||
+    if (!type ||
         (!destructor && !type->cleanup_function && !type->cleanup_field)) {
         return true;
     }

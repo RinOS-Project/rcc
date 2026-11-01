@@ -3934,6 +3934,10 @@ static void verify_static_local_aggregate_object(const char* path)
     ObjSymbol* constructor_child_destructor_count_symbol;
     ObjSymbol* constructor_unwind_order_symbol;
     ObjSymbol* constructor_final_cleanup_order_symbol;
+    ObjSymbol* constructor_array_leaf_destructor_count_symbol;
+    ObjSymbol* constructor_array_child_destructor_count_symbol;
+    ObjSymbol* constructor_array_unwind_order_symbol;
+    ObjSymbol* constructor_array_final_cleanup_order_symbol;
     size_t mapping_size;
     void* memory;
     int (RINOS_ABI *entry)(void);
@@ -3951,6 +3955,10 @@ static void verify_static_local_aggregate_object(const char* path)
     int (RINOS_ABI *constructor_child_destructor_count)(void);
     int (RINOS_ABI *constructor_unwind_order)(void);
     int (RINOS_ABI *constructor_final_cleanup_order)(void);
+    int (RINOS_ABI *constructor_array_leaf_destructor_count)(void);
+    int (RINOS_ABI *constructor_array_child_destructor_count)(void);
+    int (RINOS_ABI *constructor_array_unwind_order)(void);
+    int (RINOS_ABI *constructor_array_final_cleanup_order)(void);
     const void* (RINOS_ABI *reference_temp_first_address)(void);
     const void* (RINOS_ABI *reference_temp_second_address)(void);
     const void* reference_temp_first;
@@ -4010,6 +4018,18 @@ static void verify_static_local_aggregate_object(const char* path)
     constructor_final_cleanup_order_symbol = objfile_find_symbol(
         object,
         "verified_static_local_aggregate_constructor_final_cleanup_order");
+    constructor_array_leaf_destructor_count_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_constructor_array_leaf_destructor_count");
+    constructor_array_child_destructor_count_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_constructor_array_child_destructor_count");
+    constructor_array_unwind_order_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_constructor_array_unwind_order");
+    constructor_array_final_cleanup_order_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_constructor_array_final_cleanup_order");
     assert(text != NULL && entry_symbol != NULL &&
            entry_symbol->type == SYM_GLOBAL &&
            entry_symbol->binding == BIND_CODE && entry_symbol->section == 0 &&
@@ -4076,7 +4096,23 @@ static void verify_static_local_aggregate_object(const char* path)
            constructor_final_cleanup_order_symbol != NULL &&
            constructor_final_cleanup_order_symbol->type == SYM_GLOBAL &&
            constructor_final_cleanup_order_symbol->binding == BIND_CODE &&
-           constructor_final_cleanup_order_symbol->section == 0);
+           constructor_final_cleanup_order_symbol->section == 0 &&
+           constructor_array_leaf_destructor_count_symbol != NULL &&
+           constructor_array_leaf_destructor_count_symbol->type == SYM_GLOBAL &&
+           constructor_array_leaf_destructor_count_symbol->binding == BIND_CODE &&
+           constructor_array_leaf_destructor_count_symbol->section == 0 &&
+           constructor_array_child_destructor_count_symbol != NULL &&
+           constructor_array_child_destructor_count_symbol->type == SYM_GLOBAL &&
+           constructor_array_child_destructor_count_symbol->binding == BIND_CODE &&
+           constructor_array_child_destructor_count_symbol->section == 0 &&
+           constructor_array_unwind_order_symbol != NULL &&
+           constructor_array_unwind_order_symbol->type == SYM_GLOBAL &&
+           constructor_array_unwind_order_symbol->binding == BIND_CODE &&
+           constructor_array_unwind_order_symbol->section == 0 &&
+           constructor_array_final_cleanup_order_symbol != NULL &&
+           constructor_array_final_cleanup_order_symbol->type == SYM_GLOBAL &&
+           constructor_array_final_cleanup_order_symbol->binding == BIND_CODE &&
+           constructor_array_final_cleanup_order_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, entry_symbol);
     memcpy(&entry, &address, sizeof(entry));
@@ -4133,6 +4169,21 @@ static void verify_static_local_aggregate_object(const char* path)
     address = symbol_address(memory, constructor_final_cleanup_order_symbol);
     memcpy(&constructor_final_cleanup_order, &address,
            sizeof(constructor_final_cleanup_order));
+    address = symbol_address(
+        memory, constructor_array_leaf_destructor_count_symbol);
+    memcpy(&constructor_array_leaf_destructor_count, &address,
+           sizeof(constructor_array_leaf_destructor_count));
+    address = symbol_address(
+        memory, constructor_array_child_destructor_count_symbol);
+    memcpy(&constructor_array_child_destructor_count, &address,
+           sizeof(constructor_array_child_destructor_count));
+    address = symbol_address(memory, constructor_array_unwind_order_symbol);
+    memcpy(&constructor_array_unwind_order, &address,
+           sizeof(constructor_array_unwind_order));
+    address = symbol_address(
+        memory, constructor_array_final_cleanup_order_symbol);
+    memcpy(&constructor_array_final_cleanup_order, &address,
+           sizeof(constructor_array_final_cleanup_order));
     cxx_static_reference_guard_aborts = 0;
     cxx_static_reference_guard_releases = 0;
     verified_static_local_aggregate_destructions = 0;
@@ -4147,8 +4198,8 @@ static void verify_static_local_aggregate_object(const char* path)
            sizeof(reference_temp_second_value));
     assert(reference_temp_first_value == 79);
     assert(reference_temp_second_value == 97);
-    assert(cxx_static_reference_guard_aborts == 6);
-    assert(cxx_static_reference_guard_releases == 8);
+    assert(cxx_static_reference_guard_aborts == 7);
+    assert(cxx_static_reference_guard_releases == 9);
     assert(destructor_count() == 0);
     assert(reference_temp_destructor_count() == 2);
     assert(reference_temp_unwind_order_count() == 2);
@@ -4162,8 +4213,12 @@ static void verify_static_local_aggregate_object(const char* path)
     assert(constructor_child_destructor_count() == 0);
     assert(constructor_unwind_order() == 1);
     assert(constructor_final_cleanup_order() == 0);
+    assert(constructor_array_leaf_destructor_count() == 2);
+    assert(constructor_array_child_destructor_count() == 1);
+    assert(constructor_array_unwind_order() == 3);
+    assert(constructor_array_final_cleanup_order() == 0);
     assert(cxx_static_reference_atexit_registrations ==
-           registrations_before + 8);
+           registrations_before + 9);
     __cxa_finalize(&verified_dynamic_tls_dso_handle);
     assert(destructor_count() == 5);
     assert(reference_temp_destructor_count() == 4);
@@ -4175,8 +4230,11 @@ static void verify_static_local_aggregate_object(const char* path)
     assert(constructor_leaf_destructor_count() == 2);
     assert(constructor_child_destructor_count() == 1);
     assert(constructor_final_cleanup_order() == 2);
+    assert(constructor_array_leaf_destructor_count() == 4);
+    assert(constructor_array_child_destructor_count() == 3);
+    assert(constructor_array_final_cleanup_order() == 4);
     assert(cxx_static_reference_atexit_finalizations ==
-           finalizations_before + 8);
+           finalizations_before + 9);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

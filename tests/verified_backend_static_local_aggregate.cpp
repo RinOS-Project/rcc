@@ -35,6 +35,13 @@ static int constructor_leaf_destructions;
 static int constructor_child_destructions;
 static int constructor_unwind_order;
 static int constructor_final_cleanup_order;
+static int constructor_array_initializer_calls;
+static int constructor_array_parent_body_calls;
+static int constructor_array_child_constructor_calls;
+static int constructor_array_leaf_destructions;
+static int constructor_array_child_destructions;
+static int constructor_array_unwind_order;
+static int constructor_array_final_cleanup_order;
 #endif
 extern "C" {
 #ifdef RCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST
@@ -152,6 +159,11 @@ static int make_static_aggregate_partial_array_later() {
 static int make_static_aggregate_constructor_mode() {
     ++constructor_mode_calls;
     return constructor_mode_calls == 1 ? 1 : 0;
+}
+
+static int make_static_aggregate_constructor_array_mode(int id) {
+    ++constructor_array_child_constructor_calls;
+    return id == 2 && constructor_array_child_constructor_calls == 2;
 }
 #endif
 
@@ -343,6 +355,85 @@ struct StaticLocalConstructorBuiltMember {
     }
 };
 
+struct StaticLocalConstructorArrayLeaf {
+    int value;
+
+    explicit StaticLocalConstructorArrayLeaf(int initial) noexcept
+        : value(initial) {}
+
+    ~StaticLocalConstructorArrayLeaf() {
+        if (constructor_array_child_constructor_calls == 2) {
+            if (value == 2 && constructor_array_leaf_destructions == 0) {
+                constructor_array_unwind_order = 1;
+            } else if (value == 1 &&
+                       constructor_array_child_destructions == 1 &&
+                       constructor_array_leaf_destructions == 1 &&
+                       constructor_array_unwind_order == 2) {
+                constructor_array_unwind_order = 3;
+            }
+        } else if (constructor_array_child_constructor_calls == 4) {
+            if (value == 2 &&
+                constructor_array_child_destructions == 2 &&
+                constructor_array_leaf_destructions == 2 &&
+                constructor_array_final_cleanup_order == 1) {
+                constructor_array_final_cleanup_order = 2;
+            } else if (value == 1 &&
+                       constructor_array_child_destructions == 3 &&
+                       constructor_array_leaf_destructions == 3 &&
+                       constructor_array_final_cleanup_order == 3) {
+                constructor_array_final_cleanup_order = 4;
+            }
+        }
+        ++constructor_array_leaf_destructions;
+    }
+};
+
+struct StaticLocalConstructorArrayThrowingChild {
+    int value;
+
+    explicit StaticLocalConstructorArrayThrowingChild(int id) : value(id) {
+        if (make_static_aggregate_constructor_array_mode(id)) throw 173;
+    }
+
+    ~StaticLocalConstructorArrayThrowingChild() {
+        if (constructor_array_child_constructor_calls == 2) {
+            if (value == 1 && constructor_array_leaf_destructions == 1 &&
+                constructor_array_child_destructions == 0 &&
+                constructor_array_unwind_order == 1) {
+                constructor_array_unwind_order = 2;
+            }
+        } else if (constructor_array_child_constructor_calls == 4) {
+            if (value == 2 &&
+                constructor_array_child_destructions == 1 &&
+                constructor_array_leaf_destructions == 2 &&
+                constructor_array_final_cleanup_order == 0) {
+                constructor_array_final_cleanup_order = 1;
+            } else if (value == 1 &&
+                       constructor_array_child_destructions == 2 &&
+                       constructor_array_leaf_destructions == 3 &&
+                       constructor_array_final_cleanup_order == 2) {
+                constructor_array_final_cleanup_order = 3;
+            }
+        }
+        ++constructor_array_child_destructions;
+    }
+};
+
+struct StaticLocalConstructorArrayElement {
+    StaticLocalConstructorArrayLeaf leaf;
+    StaticLocalConstructorArrayThrowingChild child;
+
+    explicit StaticLocalConstructorArrayElement(int id)
+        : leaf(id), child(id) {
+        ++constructor_array_parent_body_calls;
+    }
+};
+
+struct StaticLocalConstructorArrayAggregate {
+    StaticLocalConstructorArrayElement elements[2];
+    int later;
+};
+
 #endif
 
 static const StaticLocalNontrivialClassReferenceAggregate&
@@ -384,6 +475,16 @@ static const StaticLocalConstructorBuiltMember&
 static_local_constructor_built_member() {
     ++constructor_member_initializer_calls;
     static StaticLocalConstructorBuiltMember value{};
+    return value;
+}
+
+static const StaticLocalConstructorArrayAggregate&
+static_local_constructor_array_aggregate() {
+    ++constructor_array_initializer_calls;
+    static StaticLocalConstructorArrayAggregate value{
+        {StaticLocalConstructorArrayElement{1},
+         StaticLocalConstructorArrayElement{2}},
+        223};
     return value;
 }
 #endif
@@ -564,6 +665,36 @@ int main() {
         constructor_final_cleanup_order != 0) {
         return 29;
     }
+    try {
+        (void)static_local_constructor_array_aggregate();
+        return 30;
+    } catch (int error) {
+        if (error != 173) return 31;
+    }
+    if (constructor_array_initializer_calls != 1) return 34;
+    if (constructor_array_child_constructor_calls != 2) return 35;
+    if (constructor_array_parent_body_calls != 1) return 36;
+    if (constructor_array_leaf_destructions != 2) return 37;
+    if (constructor_array_child_destructions != 1) return 38;
+    if (constructor_array_unwind_order != 3) return 39;
+    const StaticLocalConstructorArrayAggregate& first_constructor_array =
+        static_local_constructor_array_aggregate();
+    const StaticLocalConstructorArrayAggregate& second_constructor_array =
+        static_local_constructor_array_aggregate();
+    if (&first_constructor_array != &second_constructor_array ||
+        first_constructor_array.elements[0].leaf.value != 1 ||
+        first_constructor_array.elements[0].child.value != 1 ||
+        first_constructor_array.elements[1].leaf.value != 2 ||
+        first_constructor_array.elements[1].child.value != 2 ||
+        first_constructor_array.later != 223 ||
+        constructor_array_initializer_calls != 3 ||
+        constructor_array_child_constructor_calls != 4 ||
+        constructor_array_parent_body_calls != 3 ||
+        constructor_array_leaf_destructions != 2 ||
+        constructor_array_child_destructions != 1 ||
+        constructor_array_final_cleanup_order != 0) {
+        return 33;
+    }
 #endif
     return 0;
 }
@@ -655,5 +786,25 @@ verified_static_local_aggregate_constructor_unwind_order() {
 extern "C" int
 verified_static_local_aggregate_constructor_final_cleanup_order() {
     return constructor_final_cleanup_order;
+}
+
+extern "C" int
+verified_static_local_aggregate_constructor_array_leaf_destructor_count() {
+    return constructor_array_leaf_destructions;
+}
+
+extern "C" int
+verified_static_local_aggregate_constructor_array_child_destructor_count() {
+    return constructor_array_child_destructions;
+}
+
+extern "C" int
+verified_static_local_aggregate_constructor_array_unwind_order() {
+    return constructor_array_unwind_order;
+}
+
+extern "C" int
+verified_static_local_aggregate_constructor_array_final_cleanup_order() {
+    return constructor_array_final_cleanup_order;
 }
 #endif
