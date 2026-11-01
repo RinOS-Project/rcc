@@ -13149,7 +13149,8 @@ remains a separate open item.
       static-reference-subobjects targets pass i686/AMD64 generation and x64
       host runtime checks; the subobject test also passes its GCC C++20 oracle.
 - [x] Lower dynamically initialized non-TLS block-static aggregates with
-      scalar fields through verified SSA. Preserve initializer order and guarded
+      scalar fields and normalized default member initializers through verified
+      SSA. Preserve initializer order and guarded
       throw/retry behavior, then register and run a user destructor exactly
       once through `__cxa_atexit`. `test-verified-cxx-static-local-aggregate`
       passes the GCC oracle and legacy x64 runtime, emits i686/AMD64 objects
