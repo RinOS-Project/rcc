@@ -1075,6 +1075,7 @@ struct Expr {
             int compound_offset;     /* Assigned automatic-storage slot. */
             bool compound_value_init; /* Spelled as an empty C++ {} list. */
             bool compound_copy_init;  /* C++ copy-initialization (`T t = x`). */
+            bool compound_copy_list_init; /* C++ copy-list initialization. */
             bool compound_paren_init; /* C++20 aggregate `T t(a, b)`. */
             bool compound_direct_list_init; /* C++ direct-list initialization. */
             /* True only for a list synthesized for remaining levels of a

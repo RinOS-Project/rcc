@@ -35137,6 +35137,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
         if (!initializer->compound_constructor) {
             rcc_error(initializer->loc,
                       "no safely lowerable constructor accepts the C++ initializer");
+        } else if (initializer->compound_copy_list_init &&
+                   initializer->compound_constructor->method &&
+                   initializer->compound_constructor->method->is_explicit) {
+            rcc_error(initializer->loc,
+                      "copy-list-initialization selected an explicit constructor");
         }
         if (constructor_arguments != initializer->compound_init) {
             initializer->compound_init = constructor_arguments;
@@ -35194,6 +35199,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
         if (!initializer->compound_constructor) {
             rcc_error(initializer->loc,
                       "no safely lowerable constructor accepts the C++ initializer");
+        } else if (initializer->compound_copy_list_init &&
+                   initializer->compound_constructor->method &&
+                   initializer->compound_constructor->method->is_explicit) {
+            rcc_error(initializer->loc,
+                      "copy-list-initialization selected an explicit constructor");
         }
         if (constructor_arguments != initializer->compound_init) {
             initializer->compound_init = constructor_arguments;
@@ -35241,6 +35251,10 @@ static void sema_initializer(Type* type, Expr* initializer) {
                                                    item->expr)) {
                     if (cursor < INT64_MAX) ++cursor;
                     continue;
+                }
+                if (rcc_parser_is_cxx_mode() && type->base->cxx_class &&
+                    sema_cxx_is_untyped_braced_initializer(item->expr)) {
+                    item->expr->compound_copy_list_init = true;
                 }
                 sema_initializer(type->base, item->expr);
             }
@@ -35316,6 +35330,10 @@ static void sema_initializer(Type* type, Expr* initializer) {
                     }
                     continue;
                 }
+                if (rcc_parser_is_cxx_mode() && element_type->cxx_class &&
+                    sema_cxx_is_untyped_braced_initializer(item->expr)) {
+                    item->expr->compound_copy_list_init = true;
+                }
                 sema_initializer(element_type, item->expr);
                 if (item->designator_kind == INIT_DESIGNATOR_NONE) {
                     ++initialized;
@@ -35377,6 +35395,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 cursor = field->next;
                 ++initialized;
                 continue;
+            }
+            if (rcc_parser_is_cxx_mode() && field->type &&
+                field->type->cxx_class &&
+                sema_cxx_is_untyped_braced_initializer(item->expr)) {
+                item->expr->compound_copy_list_init = true;
             }
             sema_initializer(field->type, item->expr);
             cursor = field->next;

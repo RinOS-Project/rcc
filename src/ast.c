@@ -1773,6 +1773,7 @@ Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
     e->compound_offset = 0;
     e->compound_value_init = false;
     e->compound_copy_init = false;
+    e->compound_copy_list_init = false;
     e->compound_paren_init = false;
     e->compound_direct_list_init = false;
     e->compound_designator_wrapper = false;

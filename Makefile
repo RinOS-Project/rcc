@@ -639,6 +639,7 @@ endif
 .PHONY: test-cxx-prvalue-scalar-conversion-cleanup
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-initializer-list
+.PHONY: test-cxx-copy-list-explicit
 .PHONY: test-cxx-member-methods-invalid
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
@@ -1233,6 +1234,7 @@ CXX_REGRESSION_TARGETS += test-array-to-void-pointer
 CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
 CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
 CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
+CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
 CXX_REGRESSION_TARGETS += test-cxx-initializer-list
 
@@ -3044,6 +3046,48 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 	$(GREP) -F -q "requires a fixed underlying type in C++17" \
 		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-cxx14.log
 	@echo "C++ list-initialization narrowing tests completed"
+
+test-cxx-copy-list-explicit: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-copy-list-explicit)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-copy-list-explicit/gcc-host \
+		tests/cxx_copy_list_explicit.cpp
+	$(TEST_OUT)/cxx-copy-list-explicit/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-copy-list-explicit/x86.s \
+		tests/cxx_copy_list_explicit.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-copy-list-explicit/x86.o \
+		$(TEST_OUT)/cxx-copy-list-explicit/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-copy-list-explicit/x64.s \
+		tests/cxx_copy_list_explicit.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-copy-list-explicit/x64.o \
+		$(TEST_OUT)/cxx-copy-list-explicit/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-copy-list-explicit/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-copy-list-explicit/x64-host \
+		tests/cxx_copy_list_explicit_run_test.c \
+		$(TEST_OUT)/cxx-copy-list-explicit/x64.o
+	$(TEST_OUT)/cxx-copy-list-explicit/x64-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_copy_list_explicit_invalid.cpp, \
+		$(TEST_OUT)/cxx-copy-list-explicit/gcc-invalid.log)
+	$(call CHECK_COUNT,would use explicit constructor,$(TEST_OUT)/cxx-copy-list-explicit/gcc-invalid.log,4)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-copy-list-explicit/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-copy-list-explicit/invalid-x86.ro \
+		tests/cxx_copy_list_explicit_invalid.cpp, \
+		$(TEST_OUT)/cxx-copy-list-explicit/invalid-x86.log)
+	$(call CHECK_COUNT,copy-list-initialization selected an explicit constructor,$(TEST_OUT)/cxx-copy-list-explicit/invalid-x86.log,4)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-copy-list-explicit/invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-copy-list-explicit/invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-copy-list-explicit/invalid-x64.ro \
+		tests/cxx_copy_list_explicit_invalid.cpp, \
+		$(TEST_OUT)/cxx-copy-list-explicit/invalid-x64.log)
+	$(call CHECK_COUNT,copy-list-initialization selected an explicit constructor,$(TEST_OUT)/cxx-copy-list-explicit/invalid-x64.log,4)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-copy-list-explicit/invalid-x64.ro)
+	@echo "C++ copy-list explicit-constructor tests completed"
 
 test-cxx-braced-argument-overload: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-braced-argument-overload)

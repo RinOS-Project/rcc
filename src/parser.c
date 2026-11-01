@@ -7435,6 +7435,10 @@ static Expr* parser_parse_variable_initializer(Type* type, SourceLoc loc) {
     bool direct_list_initializer = false;
     if (match(TOK_ASSIGN)) {
         init = parse_initializer();
+        if (parser_cxx_mode && init && init->kind == EXPR_COMPOUND &&
+            !init->compound_type) {
+            init->compound_copy_list_init = true;
+        }
     } else if (parser_cxx_mode && check(TOK_LBRACE)) {
         init = parse_initializer();
         direct_list_initializer = true;
