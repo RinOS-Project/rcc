@@ -6371,6 +6371,8 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     int architecture, int64_t left_frame_offset, int64_t right_frame_offset,
     uint64_t left_value, uint64_t right_value);
+static uint64_t arithmetic_shift_right_u64(uint64_t value,
+                                           unsigned int shift);
 
 static void verify_cxx_inline_mutated_parameter_location_impl(
     const char* path, uint16_t architecture, const char* function_name,
@@ -6381,7 +6383,7 @@ static void verify_cxx_inline_mutated_parameter_location_impl(
     bool signed_wide_i686, bool initial_reference_source,
     unsigned int initial_pointer_dereference_depth,
     unsigned int initial_pointer_scalar_size,
-    bool unsigned_wide_shift_i686) {
+    bool wide_shift_i686) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6398,8 +6400,8 @@ static void verify_cxx_inline_mutated_parameter_location_impl(
     bool source_is_location_list = false;
     int64_t source_frame_offset = 0;
     assert(object != NULL && object->arch == architecture);
-    assert(!unsigned_wide_shift_i686 ||
-           (architecture == ARCH_X86 && wide_i686 && !signed_wide_i686));
+    assert(!wide_shift_i686 ||
+           (architecture == ARCH_X86 && wide_i686));
     assert(initial_pointer_scalar_size == 4u ||
            initial_pointer_scalar_size == 8u);
     info = objfile_get_section(object, ".debug_info");
@@ -6576,7 +6578,7 @@ static void verify_cxx_inline_mutated_parameter_location_impl(
                     ? entry == 0u ? 0u : entry == 1u ? 3u : 4u
                     : entry == 0u ? 2u : entry == 1u ? 5u : 6u;
                 assert(architecture == ARCH_X86 &&
-                       entry < (unsigned_wide_shift_i686 ? 2u : 3u) &&
+                       entry < (wide_shift_i686 ? 2u : 3u) &&
                        expression_end >= expression_start + 2u &&
                        locations->data[expression_end - 2u] == 0x93u &&
                        locations->data[expression_end - 1u] == 4u);
@@ -6589,14 +6591,19 @@ static void verify_cxx_inline_mutated_parameter_location_impl(
                             source_frame_offset, source_frame_offset,
                             input, input,
                             initial_pointer_dereference_depth);
-                    if (unsigned_wide_shift_i686) {
+                    if (wide_shift_i686) {
                         uint64_t expected = input + 2u;
-                        if (entry >= 1u) expected >>= 32u;
+                        if (entry >= 1u) {
+                            expected = signed_wide_i686
+                                ? arithmetic_shift_right_u64(expected, 33u)
+                                : expected >> 32u;
+                        }
                         if (actual != expected) {
                             fprintf(stderr,
-                                    "wrong wide shift location: %s entry %u "
-                                    "input 0x%016llx actual 0x%016llx "
-                                    "expected 0x%016llx\n",
+                                    "wrong %s wide shift location: %s "
+                                    "entry %u input 0x%016llx actual "
+                                    "0x%016llx expected 0x%016llx\n",
+                                    signed_wide_i686 ? "signed" : "unsigned",
                                     function_name, entry,
                                     (unsigned long long)input,
                                     (unsigned long long)actual,
@@ -19563,6 +19570,12 @@ int main(int argc, char** argv)
             "shifted_wide_parameter", "stable_shift_wide_input",
             "debug_inline_mutated_shift_wide_parameter_entry", 2u, false,
             true, true, false, false, 0u, 4u, true);
+        verify_cxx_inline_mutated_parameter_location_impl(
+            argv[2], ARCH_X86,
+            "debug_inline_mutated_signed_shift_wide_parameter",
+            "signed_shift_wide_parameter", "stable_signed_shift_wide_input",
+            "debug_inline_mutated_signed_shift_wide_parameter_entry", 2u,
+            false, true, true, true, false, 0u, 4u, true);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_parameter",
             "signed_wide_parameter", "stable_signed_wide_input",
