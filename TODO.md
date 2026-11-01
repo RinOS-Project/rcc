@@ -98,9 +98,10 @@
 - [x] Analyze the single clause inside a typed reference brace-initializer
   instead of recursively analyzing the same compound expression. Apply list
   narrowing to direct-list, copy-list, and braced function-argument reference
-  initialization. Preserve lvalue binding; reject narrowing, binding a
-  temporary to a non-const lvalue reference, and incorrect clause counts.
-  GCC C++20 and RCC i686/AMD64 generation and runtime, matching four-error
+  initialization. Preserve lvalue and typed class-prvalue temporary binding;
+  reject narrowing, binding a temporary to a non-const lvalue reference, and
+  incorrect clause counts. GCC C++20 and RCC i686/AMD64 generation and runtime,
+  matching four-error
   diagnostic expectations, and invalid-object absence pass in
   `test-cxx-reference-list-initialization`.
 
