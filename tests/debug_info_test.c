@@ -6367,6 +6367,10 @@ static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
     int64_t left_frame_offset, int64_t right_frame_offset,
     uint64_t left_value, uint64_t right_value,
     unsigned int pointer_dereference_depth);
+static uint64_t evaluate_inline_u64_mul_two_variables_expression(
+    const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
+    int architecture, int64_t left_frame_offset, int64_t right_frame_offset,
+    uint64_t left_value, uint64_t right_value);
 
 static void verify_cxx_inline_mutated_parameter_location(
     const char* path, uint16_t architecture, const char* function_name,
@@ -6764,8 +6768,14 @@ static int64_t evaluate_inline_mutated_local_expression(
 }
 
 static void verify_cxx_inline_mutated_local_location(
-    const char* path, uint16_t architecture) {
-    static const int64_t expected_values[] = {9, 16, 17, 34};
+    const char* path, uint16_t architecture, const char* function_name,
+    const char* local_name, const char* entry_name,
+    const char* source_name, bool wide) {
+    static const uint64_t wide_inputs[] = {
+        0u, 1u, UINT64_C(0xfffffffe), UINT64_C(0xffffffff),
+        UINT64_C(0x100000000), UINT64_C(0x7fffffffffffffff),
+        UINT64_C(0xfffffffffffffffd), UINT64_MAX
+    };
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6776,19 +6786,31 @@ static void verify_cxx_inline_mutated_local_location(
     uint32_t location_list = UINT32_MAX;
     uint64_t call_start = 0u;
     uint64_t call_end = 0u;
+    int64_t source_frame_offset = 0;
     bool found_call = false;
+    size_t entry_count = wide ? 3u : 4u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
     assert(info != NULL && strings != NULL && locations != NULL);
+    if (wide) {
+        bool source_has_location;
+        bool source_is_location_list;
+        assert(source_name != NULL && find_variable_location(
+            info, strings, locations, source_name, architecture,
+            &source_has_location, &source_is_location_list,
+            &source_frame_offset));
+        assert(source_has_location && source_frame_offset < 0);
+        (void)source_is_location_list;
+    }
     for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
         uint32_t name_offset;
         if (info->data[die] != 40u) continue;
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset < strings->size &&
             strcmp((const char*)strings->data + name_offset,
-                   "debug_inline_mutated_local") == 0) {
+                   function_name) == 0) {
             function_origin = (uint32_t)die;
             break;
         }
@@ -6798,7 +6820,7 @@ static void verify_cxx_inline_mutated_local_location(
         if (info->data[die] != 32u) continue;
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset < strings->size &&
-            strcmp((const char*)strings->data + name_offset, "evolving") == 0) {
+            strcmp((const char*)strings->data + name_offset, local_name) == 0) {
             local_origin = (uint32_t)die;
             break;
         }
@@ -6814,8 +6836,7 @@ static void verify_cxx_inline_mutated_local_location(
              relocation; relocation = relocation->next) {
             if (relocation->offset != low_pc_offset) continue;
             assert(relocation->symbol_name != NULL &&
-                   strcmp(relocation->symbol_name,
-                          "debug_inline_mutated_local_entry") == 0);
+                   strcmp(relocation->symbol_name, entry_name) == 0);
             assert(relocation->addend >= 0);
             call_start = (uint64_t)relocation->addend;
             call_end = call_start + read_u32(
@@ -6836,9 +6857,7 @@ static void verify_cxx_inline_mutated_local_location(
     {
         uint64_t cursor = location_list;
         uint64_t previous_end = 0u;
-        for (size_t entry = 0u;
-             entry < sizeof(expected_values) / sizeof(expected_values[0]);
-             ++entry) {
+        for (size_t entry = 0u; entry < entry_count; ++entry) {
             const ObjReloc* start_relocation =
                 find_debug_section_relocation(locations, cursor);
             const ObjReloc* end_relocation = find_debug_section_relocation(
@@ -6849,11 +6868,9 @@ static void verify_cxx_inline_mutated_local_location(
             uint64_t expression_end;
             assert(start_relocation != NULL && end_relocation != NULL);
             assert(start_relocation->symbol_name != NULL &&
-                   strcmp(start_relocation->symbol_name,
-                          "debug_inline_mutated_local_entry") == 0);
+                   strcmp(start_relocation->symbol_name, entry_name) == 0);
             assert(end_relocation->symbol_name != NULL &&
-                   strcmp(end_relocation->symbol_name,
-                          "debug_inline_mutated_local_entry") == 0);
+                   strcmp(end_relocation->symbol_name, entry_name) == 0);
             assert(start_relocation->addend >= (int64_t)call_start &&
                    end_relocation->addend <= (int64_t)call_end &&
                    end_relocation->addend > start_relocation->addend);
@@ -6870,9 +6887,32 @@ static void verify_cxx_inline_mutated_local_location(
             expression_start = expression_size_offset + 2u;
             expression_end = expression_start + expression_size;
             assert(expression_size > 0u && expression_end <= locations->size);
-            assert(evaluate_inline_mutated_local_expression(
-                       locations->data, expression_end, expression_start,
-                       9) == expected_values[entry]);
+            if (wide) {
+                for (size_t input_index = 0u;
+                     input_index < sizeof(wide_inputs) /
+                         sizeof(wide_inputs[0]); ++input_index) {
+                    uint64_t input = wide_inputs[input_index];
+                    uint64_t actual = architecture == ARCH_X86
+                        ? evaluate_inline_i686_u64_nested_frame_expression(
+                              locations->data, expression_end,
+                              expression_start, source_frame_offset,
+                              source_frame_offset, input, input, 0u)
+                        : evaluate_inline_u64_mul_two_variables_expression(
+                              locations->data, expression_end,
+                              expression_start, architecture,
+                              source_frame_offset, source_frame_offset,
+                              input, input);
+                    uint64_t expected = entry == 0u ? input
+                        : entry == 1u ? input + 7u
+                                      : input + 8u;
+                    assert(actual == expected);
+                }
+            } else {
+                static const int64_t expected_values[] = {9, 16, 17, 34};
+                assert(evaluate_inline_mutated_local_expression(
+                           locations->data, expression_end,
+                           expression_start, 9) == expected_values[entry]);
+            }
             cursor = expression_end;
         }
         assert(previous_end == call_end);
@@ -19424,8 +19464,20 @@ int main(int argc, char** argv)
     }
     if (argc == 4 &&
         strcmp(argv[1], "--verify-inline-mutated-local") == 0) {
-        verify_cxx_inline_mutated_local_location(argv[2], ARCH_X86);
-        verify_cxx_inline_mutated_local_location(argv[3], ARCH_X64);
+        verify_cxx_inline_mutated_local_location(
+            argv[2], ARCH_X86, "debug_inline_mutated_local", "evolving",
+            "debug_inline_mutated_local_entry", NULL, false);
+        verify_cxx_inline_mutated_local_location(
+            argv[3], ARCH_X64, "debug_inline_mutated_local", "evolving",
+            "debug_inline_mutated_local_entry", NULL, false);
+        verify_cxx_inline_mutated_local_location(
+            argv[2], ARCH_X86, "debug_inline_mutated_wide_local",
+            "wide_evolving", "debug_inline_mutated_wide_local_entry",
+            "stable_wide_input", true);
+        verify_cxx_inline_mutated_local_location(
+            argv[3], ARCH_X64, "debug_inline_mutated_wide_local",
+            "wide_evolving", "debug_inline_mutated_wide_local_entry",
+            "stable_wide_input", true);
         return 0;
     }
     if (argc == 6 &&
