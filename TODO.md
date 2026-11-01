@@ -20,10 +20,16 @@
   ambiguity. GCC C++20 and RCC i686/AMD64 generation, AMD64 execution, negative
   diagnostics, and no-object checks pass in
   `test-cxx-braced-argument-overload`.
-- [ ] Complete `std::initializer_list` constructor preference and function or
-  constructor template deduction from braced-init-list elements; add broader
-  GCC C++20 cases before claiming complete list-initialization overload
-  conformance.
+- [x] Prefer viable `std::initializer_list` constructors for class list-
+  initialization and initializer-list parameters in ordinary function overloads.
+  Materialize the RinOS `begin_`/`size_` ABI fields and const backing arrays,
+  including empty lists, and destroy nontrivial backing elements after calls or
+  at the local list object's scope exit. GCC C++20, i686/AMD64 assembly and
+  `.ro` generation, AMD64 runtime parity, and narrowing rejection/no-object
+  checks pass in `test-cxx-initializer-list`.
+- [ ] Deduce function and constructor template parameters from braced-init-list
+  elements and compare the remaining C++20 list-initialization ranking and
+  narrowing boundaries with GCC before claiming complete conformance.
 
 ## RCC continuation (2026-10-31, Annex G exceptional values)
 
@@ -12907,12 +12913,18 @@ remains a separate open item.
       representation. GCC C++20 positive/negative oracles, i686/AMD64 generation,
       AMD64 runtime, 11 matching negative diagnostics per compiler/target, and
       absence of invalid object output pass in `test-cxx-list-narrowing`.
-- [ ] Implement `std::initializer_list` constructor preference and function or
-      constructor template deduction from braced-init-list elements. Compare the
-      remaining list-initialization ranking and narrowing boundaries with GCC
-      C++20 before claiming full conformance; ordinary candidate viability and
-      selected scalar/aggregate list handling are tracked in the 2026-11-01
-      continuation above.
+- [x] Prefer viable `std::initializer_list` constructors for class list-
+      initialization and initializer-list parameters in ordinary function
+      overloads. Materialize the RinOS `begin_`/`size_` ABI fields and const
+      backing arrays, including empty lists, and destroy nontrivial backing
+      elements after calls or at local list scope exit. GCC C++20, i686/AMD64
+      assembly and `.ro` generation, AMD64 runtime parity, and narrowing
+      rejection/no-object checks pass in `test-cxx-initializer-list`.
+- [ ] Deduce function and constructor template parameters from braced-init-list
+      elements; compare the remaining C++20 list-initialization ranking and
+      narrowing boundaries with GCC before claiming full conformance. Ordinary
+      candidate viability and selected scalar/aggregate list handling are
+      covered by the 2026-11-01 continuation above.
 - [ ] Extend list narrowing constant evaluation beyond 64-bit integer values and
       through user-defined conversion sequences; compare the remaining standard
       cases with GCC C++20.

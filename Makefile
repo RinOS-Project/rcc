@@ -57,6 +57,7 @@ BINDIR = .
 # This compiler is nested at public-base/toolchain/RinCompiler in RinOS.
 RINOS_ROOT ?= ../../..
 RINOS_SDK_ROOT ?= ../../RinOS-SDK
+RINOS_LIBCXX_INCLUDE = $(abspath ../../libs/libcxx/include)
 RINGPU_ROOT ?= ../../libs/RinGPU
 RINRESOURCE_ROOT ?= ../../libs/rinresource
 TEST_OUT = build/tests
@@ -637,6 +638,7 @@ endif
 .PHONY: test-cxx-external-static-data-members
 .PHONY: test-cxx-prvalue-scalar-conversion-cleanup
 .PHONY: test-cxx-braced-argument-overload
+.PHONY: test-cxx-initializer-list
 .PHONY: test-cxx-member-methods-invalid
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
@@ -1232,6 +1234,7 @@ CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
 CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
 CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
+CXX_REGRESSION_TARGETS += test-cxx-initializer-list
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the
@@ -3028,6 +3031,77 @@ test-cxx-braced-argument-overload: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-braced-argument-overload/ambiguous-x64.ro)
 	@echo "C++ braced argument overload tests completed"
+
+ifeq ($(OS),Windows_NT)
+CXX_INITIALIZER_LIST_HOST_LINK_FLAGS = -Wl,--image-base,0x400000
+else
+CXX_INITIALIZER_LIST_HOST_LINK_FLAGS = -no-pie
+endif
+
+test-cxx-initializer-list: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-initializer-list)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-Dmain=gcc_generated_main -c \
+		-o $(TEST_OUT)/cxx-initializer-list/gcc.o \
+		tests/cxx_initializer_list.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-DTEST_GCC_INITIALIZER_LIST \
+		-o $(TEST_OUT)/cxx-initializer-list/gcc-host \
+		tests/cxx_initializer_list_run_test.cpp \
+		$(TEST_OUT)/cxx-initializer-list/gcc.o
+	$(TEST_OUT)/cxx-initializer-list/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-I$(RINOS_LIBCXX_INCLUDE) -S \
+		-o $(TEST_OUT)/cxx-initializer-list/x86.s \
+		tests/cxx_initializer_list.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-initializer-list/x86.o \
+		$(TEST_OUT)/cxx-initializer-list/x86.s
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-I$(RINOS_LIBCXX_INCLUDE) \
+		-o $(TEST_OUT)/cxx-initializer-list/x86.ro \
+		tests/cxx_initializer_list.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-I$(RINOS_LIBCXX_INCLUDE) -S \
+		-o $(TEST_OUT)/cxx-initializer-list/x64.s \
+		tests/cxx_initializer_list.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-initializer-list/x64.o \
+		$(TEST_OUT)/cxx-initializer-list/x64.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-I$(RINOS_LIBCXX_INCLUDE) \
+		-o $(TEST_OUT)/cxx-initializer-list/x64.ro \
+		tests/cxx_initializer_list.cpp
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-initializer-list/x64.o
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-initializer-list/rcc-host \
+		tests/cxx_initializer_list_run_test.cpp \
+		$(TEST_OUT)/cxx-initializer-list/x64.o \
+		$(CXX_INITIALIZER_LIST_HOST_LINK_FLAGS)
+	$(TEST_OUT)/cxx-initializer-list/rcc-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_initializer_list_narrowing_invalid.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/gcc-narrowing.log)
+	$(GREP) -F -q "narrowing conversion" \
+		$(TEST_OUT)/cxx-initializer-list/gcc-narrowing.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/narrowing-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -I$(RINOS_LIBCXX_INCLUDE) -c \
+		-o $(TEST_OUT)/cxx-initializer-list/narrowing-x86.ro \
+		tests/cxx_initializer_list_narrowing_invalid.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/rcc-narrowing-x86.log)
+	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
+		$(TEST_OUT)/cxx-initializer-list/rcc-narrowing-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/narrowing-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/narrowing-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -I$(RINOS_LIBCXX_INCLUDE) -c \
+		-o $(TEST_OUT)/cxx-initializer-list/narrowing-x64.ro \
+		tests/cxx_initializer_list_narrowing_invalid.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/rcc-narrowing-x64.log)
+	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
+		$(TEST_OUT)/cxx-initializer-list/rcc-narrowing-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/narrowing-x64.ro)
+	@echo "C++ initializer_list tests completed"
 
 test-cxx-defaulted-equality: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-defaulted-equality)

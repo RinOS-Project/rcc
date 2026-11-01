@@ -1776,6 +1776,9 @@ Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
     e->compound_paren_init = false;
     e->compound_designator_wrapper = false;
     e->compound_cxx_default_member_normalized = false;
+    e->compound_cxx_initializer_list_argument = false;
+    e->compound_cxx_initializer_list_materialized = false;
+    e->compound_cxx_initializer_list_array = NULL;
     e->compound_static_symbol = NULL;
     e->compound_constructor = NULL;
     e->type = NULL;

@@ -1080,6 +1080,15 @@ struct Expr {
              * C aggregate designator. */
             bool compound_designator_wrapper;
             bool compound_cxx_default_member_normalized;
+            /* Compiler-created list passed as the single argument to a
+             * std::initializer_list constructor. */
+            bool compound_cxx_initializer_list_argument;
+            /* The compiler has lowered std::initializer_list backing-array
+             * and ABI-field initialization for this compound expression. */
+            bool compound_cxx_initializer_list_materialized;
+            /* Caller-frame backing array paired with the initializer_list
+             * ABI object, retained for its required destruction lifetime. */
+            struct Expr* compound_cxx_initializer_list_array;
             bool is_complex_constructor; /* Synthesized real/imag pair. */
             /* True when C++ default member initializers rewrote this list
              * into compiler-generated designated clauses. */

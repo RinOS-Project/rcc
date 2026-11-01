@@ -627,6 +627,14 @@ static Type* sema_expr(Expr* expr);
 static Type* sema_resolve_typeof_type(Type* type);
 static bool sema_cxx_is_untyped_braced_initializer(const Expr* expression);
 static void sema_cxx_analyze_braced_initializer_elements(Expr* expression);
+static Type* sema_cxx_initializer_list_element_type(Type* type);
+static bool sema_cxx_is_initializer_list_constructor(
+    const CxxConstructorInfo* constructor);
+static bool sema_cxx_has_viable_initializer_list_constructor(
+    Type* object_type, ExprList* elements, int element_count,
+    unsigned depth);
+static bool sema_cxx_initialize_initializer_list(
+    Type* type, Expr* initializer);
 static int sema_cxx_braced_argument_conversion_rank(
     Expr* argument, Type* target, unsigned depth);
 
@@ -14703,7 +14711,48 @@ static int cxx_conversion_vector_relation(
                 argument->expr,
                 left_targets ? left_targets[index] : NULL,
                 right_targets ? right_targets[index] : NULL);
-        if (left_user_conversion && right_user_conversion) {
+        bool initializer_list_sequence_comparison = false;
+        if (index >= argument_offset && argument &&
+            sema_cxx_is_untyped_braced_initializer(argument->expr) &&
+            left_targets && right_targets) {
+            Type* left_element = sema_cxx_initializer_list_element_type(
+                left_targets[index]);
+            Type* right_element = sema_cxx_initializer_list_element_type(
+                right_targets[index]);
+            if ((left_element != NULL) != (right_element != NULL)) {
+                initializer_list_sequence_comparison = true;
+                if (left_element) {
+                    left_better = true;
+                } else {
+                    right_better = true;
+                }
+            } else if (left_element && right_element) {
+                bool element_left_better = false;
+                bool element_right_better = false;
+                initializer_list_sequence_comparison = true;
+                for (ExprList* item = argument->expr->compound_init;
+                     item; item = item->next) {
+                    int left_rank = item->expr
+                        ? sema_cxx_braced_argument_conversion_rank(
+                              item->expr, left_element, 0u)
+                        : -1;
+                    int right_rank = item->expr
+                        ? sema_cxx_braced_argument_conversion_rank(
+                              item->expr, right_element, 0u)
+                        : -1;
+                    if (left_rank < 0 || right_rank < 0) continue;
+                    if (left_rank < right_rank) element_left_better = true;
+                    if (left_rank > right_rank) element_right_better = true;
+                }
+                if (element_left_better && !element_right_better) {
+                    left_better = true;
+                } else if (element_right_better && !element_left_better) {
+                    right_better = true;
+                }
+            }
+        }
+        if (!initializer_list_sequence_comparison &&
+            left_user_conversion && right_user_conversion) {
             if (left_methods && right_methods && left_methods[index] &&
                 left_methods[index] == right_methods[index] &&
                 left_targets && right_targets && left_targets[index] &&
@@ -14716,7 +14765,8 @@ static int cxx_conversion_vector_relation(
             }
             /* Distinct user-defined conversion functions are not ordered by
              * the ranks of their trailing standard conversions. */
-        } else if (!array_reference_decay_tie) {
+        } else if (!array_reference_decay_tie &&
+                   !initializer_list_sequence_comparison) {
             if (left[index] < right[index]) left_better = true;
             if (left[index] > right[index]) right_better = true;
         }
@@ -16717,6 +16767,85 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
     return valid;
 }
 
+static bool sema_cxx_initializer_list_append_backing_cleanup(
+    Type* list_type, Expr* list_object, Expr* list_initializer,
+    CxxCleanupPlan** cleanups) {
+    Expr* backing_array = list_initializer
+        ? list_initializer->compound_cxx_initializer_list_array : NULL;
+    Type* array_type = backing_array ? backing_array->compound_type : NULL;
+    TypeField* begin_field = NULL;
+    Expr* begin_pointer;
+    int cleanup_budget = 4096;
+
+    if (!sema_cxx_initializer_list_element_type(list_type) ||
+        !list_object || !cleanups || !array_type ||
+        array_type->kind != TYPE_ARRAY) {
+        return false;
+    }
+    if (!sema_cxx_type_has_destructor_cleanup(array_type, 0)) {
+        return true;
+    }
+    for (TypeField* field = list_type->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, "begin_") == 0) {
+            begin_field = field;
+            break;
+        }
+    }
+    if (!begin_field || !begin_field->type ||
+        begin_field->type->kind != TYPE_PTR ||
+        !type_is_compatible(begin_field->type->base, array_type->base)) {
+        return false;
+    }
+    begin_pointer = sema_cxx_object_member(list_object, begin_field);
+    return begin_pointer && sema_cxx_append_object_cleanups(
+        NULL, array_type, begin_pointer, cleanups, 0, &cleanup_budget,
+        true, true);
+}
+
+static void sema_prepare_initializer_list_argument_cleanup(
+    ExprList* argument, Type* parameter_type) {
+    Expr* list_initializer;
+    Type* list_type = parameter_type;
+    Decl* owner;
+    Expr* owner_object;
+    CxxCleanupPlan* cleanups = NULL;
+    if (!argument || !argument->expr || !parameter_type) return;
+    if (list_type->kind == TYPE_PTR && list_type->is_reference) {
+        list_type = list_type->base;
+    }
+    if (!sema_cxx_initializer_list_element_type(list_type)) return;
+    list_initializer = argument->expr;
+    while (list_initializer && list_initializer->kind == EXPR_CAST) {
+        list_initializer = list_initializer->cast_expr;
+    }
+    if (!list_initializer || list_initializer->kind != EXPR_COMPOUND ||
+        !list_initializer->compound_cxx_initializer_list_materialized ||
+        !list_initializer->compound_cxx_initializer_list_array ||
+        !sema_cxx_type_has_destructor_cleanup(
+            list_initializer->compound_cxx_initializer_list_array
+                ->compound_type, 0)) {
+        return;
+    }
+    if (argument->cxx_temporary_owner || argument->cxx_temporary_cleanups) {
+        return;
+    }
+    owner = decl_var("__rcc_initializer_list_temporary",
+                     type_reference(list_type, false), NULL,
+                     list_initializer->loc);
+    owner_object = expr_ident(owner->name, list_initializer->loc);
+    owner_object->ident_decl = owner;
+    owner_object->type = list_type;
+    if (!sema_cxx_initializer_list_append_backing_cleanup(
+            list_type, owner_object, list_initializer, &cleanups) ||
+        !cleanups) {
+        rcc_error(list_initializer->loc,
+                  "initializer_list element destruction metadata is incomplete");
+        return;
+    }
+    argument->cxx_temporary_owner = owner;
+    argument->cxx_temporary_cleanups = cleanups;
+}
+
 static void sema_cxx_prepare_explicit_destructor_cleanup(
     Expr* call, Decl* destructor) {
     Type* object_type;
@@ -16865,6 +16994,7 @@ static void sema_prepare_cxx_by_value_class_argument(
     if (!rcc_parser_is_cxx_mode() || !argument ||
         !(source = argument->expr) || !parameter_type ||
         parameter_type->is_reference || !parameter_type->cxx_nontrivial ||
+        sema_cxx_initializer_list_element_type(parameter_type) ||
         (parameter_type->kind != TYPE_STRUCT &&
          parameter_type->kind != TYPE_UNION)) {
         return;
@@ -16989,11 +17119,34 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         !sema_attach_static_initializer_guard(declaration)) {
         return;
     }
-    if (!rcc_parser_is_cxx_mode() || !declaration ||
-        !declaration->type || declaration->var_cleanup ||
-        declaration->var_cleanups) {
+    if (!rcc_parser_is_cxx_mode() || !declaration || !declaration->type) {
         return;
     }
+    if (declaration->kind == DECL_VAR &&
+        !declaration->type->is_reference && declaration->var_init &&
+        declaration->var_init->kind == EXPR_COMPOUND &&
+        declaration->var_init
+            ->compound_cxx_initializer_list_materialized &&
+        declaration->var_init->compound_cxx_initializer_list_array &&
+        sema_cxx_type_has_destructor_cleanup(
+            declaration->var_init->compound_cxx_initializer_list_array
+                ->compound_type, 0)) {
+        Expr* list_object = expr_ident(declaration->name,
+                                       declaration->loc);
+        CxxCleanupPlan* backing_cleanups = NULL;
+        list_object->ident_decl = declaration;
+        list_object->type = declaration->type;
+        if (!sema_cxx_initializer_list_append_backing_cleanup(
+                declaration->type, list_object, declaration->var_init,
+                &backing_cleanups) || !backing_cleanups) {
+            rcc_error(declaration->loc,
+                      "initializer_list object lifetime cleanup metadata is incomplete");
+            return;
+        }
+        declaration->var_cleanups = backing_cleanups;
+        return;
+    }
+    if (declaration->var_cleanup || declaration->var_cleanups) return;
     object_type = declaration->type;
     if (object_type->kind == TYPE_PTR && object_type->is_reference) {
         bool prvalue_initializer;
@@ -17632,6 +17785,8 @@ static bool sema_convert_cxx_constructor_arguments(
         sema_prepare_cxx_by_value_class_argument(argument, parameter->type);
         sema_prepare_derived_to_base_value_argument_cleanup(
             argument, parameter->type);
+        sema_prepare_initializer_list_argument_cleanup(
+            argument, parameter->type);
     }
     if (argument || parameter) {
         rcc_error(loc,
@@ -17657,13 +17812,18 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
     TypeMethod** best_methods = ast_arena_alloc(
         sizeof(*best_methods) * rank_capacity);
     bool ambiguous = false;
+    bool initializer_list_phase = supplied_arguments &&
+        !supplied_arguments->next && supplied_arguments->expr &&
+        supplied_arguments->expr->kind == EXPR_COMPOUND &&
+        supplied_arguments->expr->compound_cxx_initializer_list_argument;
     uint32_t mask;
 
     if (!cls || argument_count < 0) return NULL;
     memset(best_ranks, 0, sizeof(*best_ranks) * rank_capacity);
     memset(best_targets, 0, sizeof(*best_targets) * rank_capacity);
     memset(best_methods, 0, sizeof(*best_methods) * rank_capacity);
-    if (rcc_parser_cxx_has_constructor_template &&
+    if (!initializer_list_phase &&
+        rcc_parser_cxx_has_constructor_template &&
         rcc_parser_cxx_has_constructor_template(object_type)) {
         bool template_ambiguous = false;
         CxxConstructorInfo* selected =
@@ -17736,6 +17896,10 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
         TypeMethod** candidate_methods;
         int rank_count = 0;
         bool viable = true;
+        if (initializer_list_phase &&
+            !sema_cxx_is_initializer_list_constructor(candidate)) {
+            continue;
+        }
         if (!candidate->method || candidate->access != ACCESS_PUBLIC ||
             (!allow_explicit && candidate->method->is_explicit) ||
             candidate->is_deleted || candidate->is_defaulted ||
@@ -22311,6 +22475,53 @@ static void sema_cxx_analyze_braced_initializer_elements(Expr* expression) {
     }
 }
 
+static Type* sema_cxx_initializer_list_element_type(Type* type) {
+    CxxClass* cls;
+    CxxTemplate* owner;
+    Type** arguments;
+    int argument_count;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    if (!type || type->kind != TYPE_STRUCT || !(cls = type->cxx_class)) {
+        return NULL;
+    }
+    owner = type->cxx_template ? type->cxx_template
+        : cls->template_identity_tmpl ? cls->template_identity_tmpl
+        : cls->templ;
+    arguments = type->cxx_template_args
+        ? type->cxx_template_args
+        : cls->template_identity_args ? cls->template_identity_args
+        : cls->template_args;
+    argument_count = type->cxx_template_args
+        ? type->cxx_template_arg_count
+        : cls->template_identity_args ? cls->template_identity_arg_count
+        : cls->template_arg_count;
+    if (!owner || !arguments || argument_count != 1 || !arguments[0]) {
+        return NULL;
+    }
+    if (!owner->name || strcmp(owner->name, "initializer_list") != 0) {
+        return NULL;
+    }
+    if ((type->cxx_namespace && strcmp(type->cxx_namespace, "std") == 0) ||
+        (cls->ns && cls->ns->name && strcmp(cls->ns->name, "std") == 0)) {
+        return arguments[0];
+    }
+    for (CxxNamespace* ns = owner->ns; ns; ns = ns->parent) {
+        if (ns->name && strcmp(ns->name, "std") == 0) {
+            return arguments[0];
+        }
+    }
+    return NULL;
+}
+
+static bool sema_cxx_is_initializer_list_constructor(
+    const CxxConstructorInfo* constructor) {
+    return constructor && constructor->parameters &&
+           sema_cxx_initializer_list_element_type(
+               constructor->parameters->type) != NULL;
+}
+
 static bool sema_cxx_braced_constructor_is_viable(
     Type* target, ExprList* arguments, int argument_count,
     unsigned depth) {
@@ -22327,6 +22538,10 @@ static bool sema_cxx_braced_constructor_is_viable(
     memset(best_ranks, 0, sizeof(*best_ranks) * capacity);
     memset(best_targets, 0, sizeof(*best_targets) * capacity);
     memset(best_methods, 0, sizeof(*best_methods) * capacity);
+    if (sema_cxx_has_viable_initializer_list_constructor(
+            target, arguments, argument_count, depth + 1u)) {
+        return true;
+    }
     for (constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         TypeParam* parameter;
@@ -22445,10 +22660,18 @@ static int sema_cxx_braced_argument_conversion_rank(
                 int rank = sema_cxx_function_pointer_overload_rank(
                     reference_type, item->expr, NULL,
                     &is_overload_set, NULL);
-                return is_overload_set
+                rank = is_overload_set
                     ? rank
                     : cxx_conversion_rank_detail(
                           item->expr, reference_type, NULL);
+                if (rank >= 0) return rank;
+            }
+            if ((!reference_type->is_rvalue_reference &&
+                 !reference_type->base->is_const) ||
+                (reference_type->base->kind != TYPE_ARRAY &&
+                 reference_type->base->kind != TYPE_STRUCT &&
+                 reference_type->base->kind != TYPE_UNION)) {
+                return -1;
             }
         }
         if (!reference_type->is_rvalue_reference &&
@@ -22456,6 +22679,23 @@ static int sema_cxx_braced_argument_conversion_rank(
             return -1;
         }
         destination = reference_type->base;
+    }
+    if (sema_cxx_initializer_list_element_type(destination)) {
+        Type* element_type =
+            sema_cxx_initializer_list_element_type(destination);
+        int worst_rank = 0;
+        for (item = argument->compound_init; item; item = item->next) {
+            int rank;
+            if (!item->expr ||
+                item->designator_kind != INIT_DESIGNATOR_NONE) {
+                return -1;
+            }
+            rank = sema_cxx_braced_argument_conversion_rank(
+                item->expr, element_type, depth + 1u);
+            if (rank < 0) return -1;
+            if (rank > worst_rank) worst_rank = rank;
+        }
+        return worst_rank;
     }
     if (destination->kind == TYPE_ARRAY) {
         if (!destination->base || destination->array_len < 0 ||
@@ -22563,6 +22803,51 @@ static int sema_cxx_braced_argument_conversion_rank(
         if (is_overload_set) return rank;
         return cxx_conversion_rank_detail(scalar, destination, NULL);
     }
+}
+
+static bool sema_cxx_has_viable_initializer_list_constructor(
+    Type* object_type, ExprList* elements, int element_count,
+    unsigned depth) {
+    Expr braced_argument;
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls || element_count < 0 || depth >= 128u) return false;
+    memset(&braced_argument, 0, sizeof(braced_argument));
+    braced_argument.kind = EXPR_COMPOUND;
+    braced_argument.compound_init = elements;
+    for (CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        TypeParam* parameter;
+        int rank;
+        if (!sema_cxx_is_initializer_list_constructor(constructor) ||
+            constructor->parameter_count < 1 ||
+            (constructor->parameter_count > 1 &&
+             !sema_cxx_constructor_arity_has_defaults(constructor, 1))) {
+            continue;
+        }
+        parameter = constructor->parameters;
+        if (!parameter || !parameter->type) continue;
+        rank = sema_cxx_braced_argument_conversion_rank(
+            &braced_argument, parameter->type, depth + 1u);
+        if (rank >= 0) return true;
+    }
+    return false;
+}
+
+static bool sema_cxx_apply_initializer_list_constructor_phase(
+    Type* object_type, ExprList** arguments, SourceLoc loc) {
+    Expr* list_argument;
+    int count;
+    if (!arguments) return false;
+    count = sema_cxx_argument_count(*arguments);
+    if (count < 0 || !sema_cxx_has_viable_initializer_list_constructor(
+                         object_type, *arguments, count, 0u)) {
+        return false;
+    }
+    list_argument = expr_initializer_list(*arguments, loc);
+    list_argument->compound_value_init = *arguments == NULL;
+    list_argument->compound_cxx_initializer_list_argument = true;
+    *arguments = exprlist_new(list_argument);
+    return true;
 }
 
 static bool cxx_remaining_parameters_have_defaults(
@@ -30395,6 +30680,8 @@ static Type* sema_expr(Expr* expr) {
                             argument, parameter->type);
                         sema_prepare_derived_to_base_value_argument_cleanup(
                             argument, parameter->type);
+                        sema_prepare_initializer_list_argument_cleanup(
+                            argument, parameter->type);
                     }
                     parameter = parameter->next;
                 } else if (ft->variadic) {
@@ -34292,10 +34579,116 @@ static bool sema_cxx_reject_constructor_list_narrowing(
     return rejected;
 }
 
+/* Materialize the ABI representation of std::initializer_list<T>: a caller
+ * frame array plus the two fields exposed by RinOS's standard header.  The
+ * library constructor is private by design; list construction is a language
+ * operation and initializes this representation directly. */
+static bool sema_cxx_initialize_initializer_list(
+    Type* type, Expr* initializer) {
+    Type* element_type = sema_cxx_initializer_list_element_type(type);
+    Type* const_element_type;
+    Type* array_type;
+    TypeField* begin_field = NULL;
+    TypeField* size_field = NULL;
+    Expr* array_expression = NULL;
+    Expr* begin_expression;
+    Expr* size_expression;
+    ExprList* object_initializers = NULL;
+    ExprList* elements;
+    int count = 0;
+
+    if (!element_type || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_cxx_initializer_list_materialized ||
+        (initializer->compound_type &&
+         !type_is_compatible(initializer->compound_type, type))) {
+        return false;
+    }
+    elements = initializer->compound_value_init
+        ? NULL : initializer->compound_init;
+    for (ExprList* item = elements; item;
+         item = item->next) {
+        if (count == INT_MAX) {
+            rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                      "initializer_list has too many elements");
+            return true;
+        }
+        if (item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr) {
+            rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                      "initializer_list elements cannot use designators");
+            return true;
+        }
+        ++count;
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!field->name) continue;
+        if (strcmp(field->name, "begin_") == 0) begin_field = field;
+        if (strcmp(field->name, "size_") == 0) size_field = field;
+    }
+    if (!begin_field || !size_field || !begin_field->type ||
+        begin_field->type->kind != TYPE_PTR || !begin_field->type->base ||
+        !size_field->type || !type_is_integer(size_field->type) ||
+        !type_is_compatible(begin_field->type->base, element_type)) {
+        rcc_error(initializer->loc,
+                  "std::initializer_list has an incompatible RinOS ABI layout");
+        return true;
+    }
+    const_element_type = ast_arena_alloc(sizeof(*const_element_type));
+    *const_element_type = *element_type;
+    const_element_type->is_const = true;
+    array_type = type_array(const_element_type, count);
+    if (!array_type || !array_type->base || array_type->size < 0) {
+        rcc_error(initializer->loc,
+                  "std::initializer_list backing array has an invalid type");
+        return true;
+    }
+    if (count > 0) {
+        array_expression = expr_initializer_list(
+            elements, initializer->loc);
+        array_expression->compound_type = array_type;
+        array_expression->type = array_type;
+        sema_initializer(array_type, array_expression);
+        {
+            Expr* first_element = expr_index(
+                array_expression, expr_int(0, initializer->loc),
+                initializer->loc);
+            begin_expression = expr_unary(
+                EXPR_ADDR, first_element, initializer->loc);
+            sema_expr(begin_expression);
+        }
+    } else {
+        begin_expression = expr_int(0, initializer->loc);
+    }
+    sema_initializer(begin_field->type, begin_expression);
+    size_expression = expr_int(count, initializer->loc);
+    sema_initializer(size_field->type, size_expression);
+    exprlist_append_designated(
+        &object_initializers, begin_expression, INIT_DESIGNATOR_FIELD, 0,
+        begin_field->name);
+    exprlist_append_designated(
+        &object_initializers, size_expression, INIT_DESIGNATOR_FIELD, 0,
+        size_field->name);
+    initializer->compound_type = type;
+    initializer->compound_init = object_initializers;
+    initializer->compound_value_init = false;
+    initializer->compound_constructor = NULL;
+    initializer->compound_cxx_initializer_list_materialized = true;
+    initializer->compound_cxx_initializer_list_array = array_expression;
+    initializer->type = type;
+    return true;
+}
+
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
     if (!type || type->cxx_dependent || !initializer) return;
+    /* std::initializer_list construction is a language operation: lower its
+     * backing const array and its ABI fields before ordinary class
+     * constructor or aggregate initialization can reinterpret the braces. */
+    if (rcc_parser_is_cxx_mode() &&
+        sema_cxx_initialize_initializer_list(type, initializer)) {
+        return;
+    }
     /* A nested C++ braced-init-list has no type until the containing
      * aggregate selects its destination subobject.  Retain that contextual
      * type on the compound node so later semantic/codegen visits do not
@@ -34533,6 +34926,7 @@ static void sema_initializer(Type* type, Expr* initializer) {
          (rcc_parser_cxx_constructor_arity_mask(type) & 1u) != 0u)) {
         ExprList* constructor_arguments = initializer->compound_value_init
             ? NULL : initializer->compound_init;
+        bool initializer_list_phase = false;
         for (ExprList* item = constructor_arguments; item;
              item = item->next) {
             if (item->designator_kind != INIT_DESIGNATOR_NONE) {
@@ -34546,10 +34940,16 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 }
             }
         }
+        if (!initializer->compound_paren_init &&
+            !initializer->compound_copy_init) {
+            initializer_list_phase =
+                sema_cxx_apply_initializer_list_constructor_phase(
+                    type, &constructor_arguments, initializer->loc);
+        }
         initializer->compound_constructor = sema_select_cxx_new_constructor_ex(
             type, &constructor_arguments, initializer->loc,
             !initializer->compound_copy_init);
-        if (!initializer->compound_paren_init &&
+        if (!initializer->compound_paren_init && !initializer_list_phase &&
             initializer->compound_constructor) {
             (void)sema_cxx_reject_constructor_list_narrowing(
                 initializer->compound_constructor,
@@ -34580,6 +34980,7 @@ static void sema_initializer(Type* type, Expr* initializer) {
         !initializer->compound_cxx_default_member_normalized) {
         ExprList* constructor_arguments = initializer->compound_value_init
             ? NULL : initializer->compound_init;
+        bool initializer_list_phase = false;
         if (initializer->compound_value_init &&
             !type->cxx_class->has_user_constructor) {
             return;
@@ -34597,9 +34998,15 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 }
             }
         }
+        if (!initializer->compound_paren_init &&
+            !initializer->compound_copy_init) {
+            initializer_list_phase =
+                sema_cxx_apply_initializer_list_constructor_phase(
+                type, &constructor_arguments, initializer->loc);
+        }
         initializer->compound_constructor = sema_select_cxx_new_constructor(
             type, &constructor_arguments, initializer->loc);
-        if (!initializer->compound_paren_init &&
+        if (!initializer->compound_paren_init && !initializer_list_phase &&
             initializer->compound_constructor) {
             (void)sema_cxx_reject_constructor_list_narrowing(
                 initializer->compound_constructor,
