@@ -623,6 +623,20 @@ int main() {
     explicit_copy_wide_constructor_evaluations = 0;
     explicit_copy_wide_destructor_evaluations = 0;
     {
+        ExplicitCopyWideConstructorArgument copy_array[2] = {
+            ExplicitCopyWideConstructorArgument(1701, 1702, 1703),
+            ExplicitCopyWideConstructorArgument(1801, 1802, 1803)};
+        int array_sum = explicit_copy_wide_parameter_sum(copy_array[1]);
+        if (array_sum != 5456 || copy_array[0].first != 1701 ||
+            copy_array[1].first != 1801 ||
+            explicit_copy_wide_constructor_evaluations != 1 ||
+            explicit_copy_wide_destructor_evaluations != 1) return 79;
+    }
+    if (explicit_copy_wide_destructor_evaluations != 3) return 80;
+
+    explicit_copy_wide_constructor_evaluations = 0;
+    explicit_copy_wide_destructor_evaluations = 0;
+    {
         int copied_prvalue_sum = explicit_copy_wide_parameter_sum(
             ExplicitCopyWideConstructorArgument(1001, 1002, 1003));
         if (copied_prvalue_sum != 3006 ||
@@ -692,6 +706,22 @@ int main() {
             explicit_move_wide_destructor_evaluations != 2) return 77;
     }
     if (explicit_move_wide_destructor_evaluations != 4) return 78;
+
+    explicit_move_wide_constructor_evaluations = 0;
+    explicit_move_wide_destructor_evaluations = 0;
+    {
+        ExplicitMoveWideConstructorArgument move_array[2] = {
+            ExplicitMoveWideConstructorArgument(1901, 1902, 1903),
+            ExplicitMoveWideConstructorArgument(2001, 2002, 2003)};
+        int array_sum = explicit_move_wide_parameter_sum(
+            static_cast<ExplicitMoveWideConstructorArgument&&>(
+                move_array[1]));
+        if (array_sum != 6076 || move_array[0].first != 1901 ||
+            move_array[1].first != -2 ||
+            explicit_move_wide_constructor_evaluations != 1 ||
+            explicit_move_wide_destructor_evaluations != 1) return 81;
+    }
+    if (explicit_move_wide_destructor_evaluations != 3) return 82;
 
     explicit_move_wide_constructor_evaluations = 0;
     explicit_move_wide_destructor_evaluations = 0;
