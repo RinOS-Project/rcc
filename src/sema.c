@@ -34687,6 +34687,74 @@ static bool sema_cxx_reject_constructor_list_narrowing(
     return rejected;
 }
 
+static bool sema_cxx_initialize_enum_direct_list(Type* type,
+                                                  Expr* initializer) {
+    ExprList* item;
+    Type* source;
+    Expr* converted;
+    if (!rcc_parser_is_cxx_mode() || !type || type->kind != TYPE_ENUM ||
+        !initializer || initializer->kind != EXPR_COMPOUND ||
+        (!initializer->compound_direct_list_init &&
+         !initializer->compound_value_init)) {
+        return false;
+    }
+
+    if (initializer->compound_value_init &&
+        (!initializer->compound_init ||
+         (!initializer->compound_init->next &&
+          initializer->compound_init->designator_kind ==
+              INIT_DESIGNATOR_NONE &&
+          initializer->compound_init->expr &&
+          initializer->compound_init->expr->kind == EXPR_INT_LIT &&
+          initializer->compound_init->expr->int_val == 0))) {
+        Expr* zero = expr_int(0, initializer->loc);
+        converted = expr_cast(type, zero, initializer->loc);
+        sema_expr(converted);
+        *initializer = *converted;
+        return true;
+    }
+
+    if (!initializer->compound_direct_list_init) return false;
+    item = initializer->compound_init;
+    if (!item || item->next ||
+        item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr) {
+        rcc_error(initializer->loc,
+                  "direct-list enum initialization requires exactly one element");
+        return true;
+    }
+
+    source = sema_expr(item->expr);
+    if (source && type_is_compatible(source, type)) {
+        *initializer = *item->expr;
+        return true;
+    }
+    if (!type->enum_has_fixed_underlying || !type->enum_underlying_type ||
+        !rcc_parser_cxx_standard_at_least(17)) {
+        rcc_error(initializer->loc,
+                  "integer direct-list initialization of an enum requires a fixed underlying type in C++17");
+        return true;
+    }
+    if (!source || !type_is_scalar(source)) {
+        rcc_error(item->expr->loc,
+                  "direct-list enum initializer must have scalar type");
+        return true;
+    }
+    if (sema_cxx_reject_list_narrowing(type->enum_underlying_type,
+                                       item->expr)) {
+        return true;
+    }
+    if (!implicit_cast(item->expr, type->enum_underlying_type)) {
+        rcc_error(item->expr->loc,
+                  "direct-list enum element is not convertible to its fixed underlying type");
+        return true;
+    }
+
+    converted = expr_cast(type, item->expr, item->expr->loc);
+    sema_expr(converted);
+    *initializer = *converted;
+    return true;
+}
+
 /* Materialize the ABI representation of std::initializer_list<T>: a caller
  * frame array plus the two fields exposed by RinOS's standard header.  The
  * library constructor is private by design; list construction is a language
@@ -35009,6 +35077,9 @@ static void sema_initializer(Type* type, Expr* initializer) {
         return;
     }
     initializer->type = type;
+    if (sema_cxx_initialize_enum_direct_list(type, initializer)) {
+        return;
+    }
     /* A class with an ordinary converting constructor still receives an
      * implicit copy constructor.  Treat a same-type one-argument initializer
      * as that copy only after proving the complete object is trivially

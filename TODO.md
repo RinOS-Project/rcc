@@ -32,6 +32,14 @@
   initializer-list and ordinary constructor templates. GCC C++20 and RCC
   i686/AMD64 generation, `.ro` output, and AMD64 runtime parity pass in
   `test-cxx-initializer-list`.
+- [x] Implement C++17 direct-list initialization for enums with fixed
+  underlying types. Preserve empty-list value initialization and same-enum
+  copies; accept only non-narrowing conversions to the underlying type, while
+  rejecting out-of-range/runtime narrowing, non-fixed enums, multi-element
+  lists, copy-list conversion, and use before C++17. GCC C++20/C++14 and RCC
+  legacy i686/AMD64 generation, verified-backend i686/AMD64 objects with zero
+  fallback, AMD64 host execution, narrowing diagnostics, and absent invalid
+  objects pass in `test-cxx-list-narrowing`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
 
@@ -12943,8 +12951,9 @@ remains a separate open item.
       no object in `test-cxx-initializer-list`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
       boundaries with GCC before claiming full conformance. Ordinary candidate
-      viability and selected scalar/aggregate list handling are covered by the
-      2026-11-01 continuation above.
+      viability, selected scalar/aggregate list handling, and C++17 fixed-
+      underlying enum direct-list initialization are covered by the 2026-11-01
+      continuations above.
 - [x] Apply list-narrowing checks to selected user-defined conversion
       functions. Permit the integer constant-expression exception only when a
       `constexpr` conversion result fits; reject out-of-range constexpr results,

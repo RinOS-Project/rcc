@@ -3589,6 +3589,7 @@ static Expr* parse_primary(void) {
         if (direct_type) {
             Expr* initializer = parse_initializer();
             initializer->compound_type = direct_type;
+            initializer->compound_direct_list_init = true;
             rcc_parser_validate_cxx_constructor_initializer(direct_type,
                                                             initializer);
             return initializer;
@@ -3603,6 +3604,7 @@ static Expr* parse_primary(void) {
             advance();
             Expr* initializer = parse_initializer();
             initializer->compound_type = direct_type;
+            initializer->compound_direct_list_init = true;
             rcc_parser_validate_cxx_constructor_initializer(direct_type,
                                                             initializer);
             return initializer;
@@ -7430,10 +7432,12 @@ static Stmt* parser_declaration_list_result(StmtList* declarations,
 
 static Expr* parser_parse_variable_initializer(Type* type, SourceLoc loc) {
     Expr* init = NULL;
+    bool direct_list_initializer = false;
     if (match(TOK_ASSIGN)) {
         init = parse_initializer();
     } else if (parser_cxx_mode && check(TOK_LBRACE)) {
         init = parse_initializer();
+        direct_list_initializer = true;
     } else if (parser_cxx_mode && type && type->kind == TYPE_ARRAY &&
                match(TOK_LPAREN)) {
         ExprList* arguments = NULL;
@@ -7457,6 +7461,10 @@ static Expr* parser_parse_variable_initializer(Type* type, SourceLoc loc) {
     if (parser_cxx_mode && init && init->kind == EXPR_COMPOUND &&
         !init->compound_type) {
         init->compound_type = type;
+    }
+    if (parser_cxx_mode && direct_list_initializer && init &&
+        init->kind == EXPR_COMPOUND) {
+        init->compound_direct_list_init = true;
     }
     if (parser_cxx_mode && rcc_parser_validate_cxx_object_type) {
         rcc_parser_validate_cxx_object_type(type, loc);

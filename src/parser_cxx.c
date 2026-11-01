@@ -46524,6 +46524,13 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     if (!type->cxx_class &&
         !(type->cxx_dependent && type->cxx_template &&
           (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION))) {
+        if (brace_form && type->kind == TYPE_ENUM) {
+            initializer = expr_initializer_list(arguments, loc);
+            initializer->compound_type = type;
+            initializer->compound_value_init = arguments == NULL;
+            initializer->compound_direct_list_init = true;
+            return initializer;
+        }
         if (!arguments) {
             arguments = exprlist_new(expr_int(0, loc));
         } else if (arguments->next) {
@@ -50846,6 +50853,7 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     if (initializer) {
         initializer->compound_type = base_type;
         initializer->compound_paren_init = !brace_form;
+        initializer->compound_direct_list_init = brace_form;
         rcc_parser_validate_cxx_constructor_initializer(base_type,
                                                        initializer);
     }

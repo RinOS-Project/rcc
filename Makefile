@@ -2977,6 +2977,72 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log
 	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log,14)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-host \
+		tests/cxx_fixed_enum_direct_list.cpp
+	$(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-x86.s \
+		tests/cxx_fixed_enum_direct_list.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-x86.o \
+		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-x64.s \
+		tests/cxx_fixed_enum_direct_list.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-x64.o \
+		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-x64.s
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-verified-x86.ro \
+		tests/cxx_fixed_enum_direct_list.cpp \
+		>$(TEST_OUT)/cxx-list-narrowing/fixed-enum-verified-x86.log 2>&1
+	$(GREP) -F -q "Verified backend: 4 function(s) emitted" \
+		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-verified-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-verified-x64.ro \
+		tests/cxx_fixed_enum_direct_list.cpp \
+		>$(TEST_OUT)/cxx-list-narrowing/fixed-enum-verified-x64.log 2>&1
+	$(GREP) -F -q "Verified backend: 4 function(s) emitted" \
+		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-verified-x64.log,0)
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-host \
+		tests/cxx_list_narrowing_run_test.c \
+		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-x64.o
+	$(TEST_OUT)/cxx-list-narrowing/fixed-enum-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_fixed_enum_direct_list_invalid.cpp, \
+		$(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-invalid.log)
+	$(call CHECK_COUNT,narrowing conversion,$(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-invalid.log,4)
+	$(call CHECK_COUNT,invalid conversion,$(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-invalid.log,1)
+	$(call CHECK_COUNT,cannot convert,$(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-invalid.log,1)
+	$(call CHECK_COUNT,requires one element in initializer,$(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-invalid.log,1)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86.ro tests/cxx_fixed_enum_direct_list_invalid.cpp,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86.log)
+	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86.log,4)
+	$(call CHECK_COUNT,requires a fixed underlying type in C++17,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86.log,1)
+	$(call CHECK_COUNT,requires exactly one element,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86_64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86_64.ro tests/cxx_fixed_enum_direct_list_invalid.cpp,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86_64.log)
+	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86_64.log,4)
+	$(call CHECK_COUNT,requires a fixed underlying type in C++17,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86_64.log,1)
+	$(call CHECK_COUNT,requires exactly one element,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86_64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/fixed-enum-invalid-x86_64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++14 -pedantic-errors -fsyntax-only \
+		tests/cxx_fixed_enum_direct_list.cpp, \
+		$(TEST_OUT)/cxx-list-narrowing/gcc-fixed-enum-cxx14.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++14 -c -o $(TEST_OUT)/cxx-list-narrowing/fixed-enum-cxx14.ro \
+		tests/cxx_fixed_enum_direct_list.cpp, \
+		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-cxx14.log)
+	$(GREP) -F -q "requires a fixed underlying type in C++17" \
+		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-cxx14.log
 	@echo "C++ list-initialization narrowing tests completed"
 
 test-cxx-braced-argument-overload: $(RCXX_TARGET)
