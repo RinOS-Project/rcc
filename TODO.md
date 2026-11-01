@@ -13055,6 +13055,12 @@ remains a separate open item.
       element conversion vectors are crossed (`short`/`float` to `int` versus
       `double`). GCC C++20 and RCC i686/AMD64 both diagnose ambiguity and emit
       no object in `test-cxx-initializer-list`.
+- [x] Treat an empty braced function argument as an empty
+      `std::initializer_list`, not the parser's synthetic zero-initialization
+      sentinel. Keep `initializer_list<int>` and `initializer_list<double>`
+      overloads ambiguous, and preserve a valid empty-list call. GCC C++20,
+      RCC i686/AMD64 diagnostics and no-object checks, and AMD64 runtime parity
+      pass in `test-cxx-initializer-list`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
       boundaries with GCC before claiming full conformance. Ordinary candidate
       viability, selected scalar/aggregate list handling, and C++17 fixed-

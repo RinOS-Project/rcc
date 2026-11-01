@@ -101,6 +101,10 @@ static int consume(std::initializer_list<Tracked> values) {
            values.begin()[1].value == 2;
 }
 
+static int consume_empty(std::initializer_list<int> values) {
+    return values.size() == 0 && values.begin() == values.end();
+}
+
 static int consume_reference(const std::initializer_list<Tracked>& values) {
     return values.size() == 2 && values.begin()[0].value == 5 &&
            values.begin()[1].value == 6 &&
@@ -138,6 +142,10 @@ static int test_empty_initializer_list(void) {
     return values.size() == 0 && values.begin() == values.end();
 }
 
+static int test_empty_initializer_list_argument(void) {
+    return consume_empty({});
+}
+
 static int test_initializer_list_preference(void) {
     int function_choice = choose_overload({5, 6});
     int element_choice = choose_element_type({9, 10});
@@ -167,6 +175,7 @@ int main(void) {
     if (!test_reference_argument_lifetime()) failures |= 2;
     if (!test_local_lifetime()) failures |= 4;
     if (!test_empty_initializer_list()) failures |= 8;
+    if (!test_empty_initializer_list_argument()) failures |= 32;
     if (!test_initializer_list_preference()) failures |= 16;
     return failures;
 }

@@ -3288,6 +3288,29 @@ test-cxx-initializer-list: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-initializer-list/rcc-overload-ambiguous-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/overload-ambiguous-x64.ro)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_initializer_list_empty_ambiguous.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/gcc-empty-overload-ambiguous.log)
+	$(GREP) -F -q "call of overloaded 'choose_empty_initializer_list" \
+		$(TEST_OUT)/cxx-initializer-list/gcc-empty-overload-ambiguous.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/empty-overload-ambiguous-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -I$(RINOS_LIBCXX_INCLUDE) -c \
+		-o $(TEST_OUT)/cxx-initializer-list/empty-overload-ambiguous-x86.ro \
+		tests/cxx_initializer_list_empty_ambiguous.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/rcc-empty-overload-ambiguous-x86.log)
+	$(GREP) -F -q "ambiguous overload" \
+		$(TEST_OUT)/cxx-initializer-list/rcc-empty-overload-ambiguous-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/empty-overload-ambiguous-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/empty-overload-ambiguous-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -I$(RINOS_LIBCXX_INCLUDE) -c \
+		-o $(TEST_OUT)/cxx-initializer-list/empty-overload-ambiguous-x64.ro \
+		tests/cxx_initializer_list_empty_ambiguous.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/rcc-empty-overload-ambiguous-x64.log)
+	$(GREP) -F -q "ambiguous overload" \
+		$(TEST_OUT)/cxx-initializer-list/rcc-empty-overload-ambiguous-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/empty-overload-ambiguous-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_initializer_list_explicit_invalid.cpp, \
 		$(TEST_OUT)/cxx-initializer-list/gcc-explicit-invalid.log)
 	$(call CHECK_COUNT,would use explicit constructor,$(TEST_OUT)/cxx-initializer-list/gcc-explicit-invalid.log,2)
