@@ -18991,6 +18991,7 @@ static RccIrLowerValue lower_conditional_expression(
     int aggregate_return_kind = LOWER_ABI_RETURN_UNSUPPORTED;
     bool aggregate_result;
     bool supported_temporary_conditional = false;
+    bool trivial_sret_aggregate_conditional = false;
     if (context && expression &&
         context->conditional_xvalue_owner &&
         context->aggregate_result_destination_expression == expression &&
@@ -19107,6 +19108,13 @@ static RccIrLowerValue lower_conditional_expression(
         supported_temporary_conditional =
             lower_nontrivial_temporary_conditional_supported(context,
                                                              expression);
+        trivial_sret_aggregate_conditional =
+            aggregate_return_kind == LOWER_ABI_RETURN_SRET &&
+            !expression->type->cxx_nontrivial &&
+            !expression->type->cleanup_function &&
+            !expression->type->cleanup_field &&
+            !lower_type_has_volatile_subobject(expression->type, 0u) &&
+            lower_storage_type_supported_internal(expression->type, 0u);
         if ((expression->type->cxx_nontrivial &&
              !supported_temporary_conditional) ||
             expression->type->cleanup_function ||
@@ -19116,7 +19124,8 @@ static RccIrLowerValue lower_conditional_expression(
              !lower_abi_sse_pair_aggregate_supported(expression->type) &&
              !lower_abi_mixed_sse_aggregate_supported(
                  expression->type, NULL) &&
-             !(supported_temporary_conditional &&
+             !((supported_temporary_conditional ||
+                trivial_sret_aggregate_conditional) &&
                aggregate_return_kind == LOWER_ABI_RETURN_SRET))) {
             context->unsupported = true;
             return lower_invalid_value();

@@ -7954,35 +7954,66 @@ static void gen64_cxx_initialize_inherited_bases(
 }
 
 static bool gen64_cxx_constructor_argument_can_cache(
-    const ExprList* argument) {
+    const ExprList* argument, const TypeParam* parameter) {
     Type* type = argument && argument->expr
         ? argument->expr->type : NULL;
+    bool reference_parameter = parameter && parameter->type &&
+        parameter->type->is_reference && parameter->type->base;
     return argument && argument->cxx_constructor_argument_offset < 0 &&
         !argument->cxx_temporary_owner && argument->expr &&
-        codegen_cxx_constructor_argument_cacheable_type(type);
+        (reference_parameter
+             ? (gen64_expr_is_lvalue(argument->expr) ||
+                gen64_expr_is_xvalue(argument->expr))
+             : codegen_cxx_constructor_argument_cacheable_type(type));
 }
 
 static ExprList* gen64_cxx_capture_constructor_arguments(
-    Module* mod, ExprList* arguments) {
+    Module* mod, CxxConstructorInfo* constructor, ExprList* arguments) {
     ExprList* captured = NULL;
     ExprList* captured_tail = NULL;
     ExprList* argument;
+    const TypeParam* parameter = constructor
+        ? constructor->parameters : NULL;
     bool any = false;
     for (argument = arguments; argument; argument = argument->next) {
-        if (gen64_cxx_constructor_argument_can_cache(argument)) {
+        if (gen64_cxx_constructor_argument_can_cache(
+                argument, parameter)) {
             any = true;
             break;
         }
+        if (parameter) parameter = parameter->next;
     }
     if (!any) return arguments;
 
     emit64_push_reg(mod, RCX);
+    parameter = constructor ? constructor->parameters : NULL;
     for (argument = arguments; argument; argument = argument->next) {
         Expr* value = argument->expr;
-        if (gen64_cxx_constructor_argument_can_cache(argument)) {
+        bool reference_parameter = parameter && parameter->type &&
+            parameter->type->is_reference && parameter->type->base;
+        if (gen64_cxx_constructor_argument_can_cache(
+                argument, parameter)) {
             Decl* temporary_decl;
             Expr* temporary_value;
-            if (value->type->kind == TYPE_STRUCT ||
+            if (reference_parameter) {
+                Type* pointer_type = type_ptr(parameter->type->base);
+                gen64_lvalue(mod, value);
+                emit64_store_typed(
+                    mod, RBP, argument->cxx_constructor_argument_offset,
+                    RAX, pointer_type);
+                temporary_decl = decl_var(
+                    "__rcc_constructor_argument", pointer_type, NULL,
+                    value->loc);
+                temporary_decl->var_offset =
+                    argument->cxx_constructor_argument_offset;
+                temporary_value = expr_ident(
+                    temporary_decl->name, value->loc);
+                temporary_value->ident_decl = temporary_decl;
+                temporary_value->type = pointer_type;
+                value = expr_unary(
+                    EXPR_DEREF, temporary_value, value->loc);
+                value->type = parameter->type->base;
+            } else if (value->type->kind == TYPE_STRUCT ||
                 value->type->kind == TYPE_UNION) {
                 if (value->kind == EXPR_VA_ARG ||
                     !gen64_expr_is_lvalue(value)) {
@@ -7999,14 +8030,17 @@ static ExprList* gen64_cxx_capture_constructor_arguments(
                     argument->cxx_constructor_argument_offset, RAX,
                     value->type);
             }
-            temporary_decl = decl_var("__rcc_constructor_argument",
-                                      value->type, NULL, value->loc);
-            temporary_decl->var_offset =
-                argument->cxx_constructor_argument_offset;
-            temporary_value = expr_ident(temporary_decl->name, value->loc);
-            temporary_value->ident_decl = temporary_decl;
-            temporary_value->type = value->type;
-            value = temporary_value;
+            if (!reference_parameter) {
+                temporary_decl = decl_var("__rcc_constructor_argument",
+                                          value->type, NULL, value->loc);
+                temporary_decl->var_offset =
+                    argument->cxx_constructor_argument_offset;
+                temporary_value = expr_ident(
+                    temporary_decl->name, value->loc);
+                temporary_value->ident_decl = temporary_decl;
+                temporary_value->type = value->type;
+                value = temporary_value;
+            }
         }
         ExprList* item = exprlist_new(value);
         item->designator_kind = argument->designator_kind;
@@ -8019,6 +8053,7 @@ static ExprList* gen64_cxx_capture_constructor_arguments(
         if (captured_tail) captured_tail->next = item;
         else captured = item;
         captured_tail = item;
+        if (parameter) parameter = parameter->next;
     }
     emit64_pop_reg(mod, RCX);
     return captured;
@@ -8037,7 +8072,8 @@ static void gen64_cxx_initialize_object_mode_impl(
                   "C++ constructor lowering metadata is missing");
         return;
     }
-    arguments = gen64_cxx_capture_constructor_arguments(mod, arguments);
+    arguments = gen64_cxx_capture_constructor_arguments(
+        mod, constructor, arguments);
     if (!constructor->body_is_empty) {
         gen64_cxx_initialize_inherited_bases(
             mod, constructor);

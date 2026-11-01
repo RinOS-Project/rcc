@@ -15,6 +15,8 @@ static int premature_argument_source_destructions;
 static int wide_aggregate_first_evaluations;
 static int wide_aggregate_second_evaluations;
 static int wide_aggregate_third_evaluations;
+static int wide_selected_factory_evaluations;
+static int wide_alternate_factory_evaluations;
 
 static int next_prvalue_value() {
     ++argument_evaluations;
@@ -130,7 +132,14 @@ static long long sum_wide_constructor_argument(
 }
 
 static WideConstructorArgument make_wide_constructor_argument() {
+    ++wide_selected_factory_evaluations;
     return WideConstructorArgument{11, 22, 33};
+}
+
+static WideConstructorArgument
+make_alternate_wide_constructor_argument() {
+    ++wide_alternate_factory_evaluations;
+    return WideConstructorArgument{111, 222, 333};
 }
 
 struct NestedWideConstructorArgument {
@@ -363,6 +372,31 @@ int main() {
         WideConstructorArgument{501, 502, 503});
     if (const_reused.from_initializer != 501 ||
         const_reused.from_body != 502) return 54;
+
+    wide_selected_factory_evaluations = 0;
+    wide_alternate_factory_evaluations = 0;
+    WideConstructorArgumentReuse conditional_wide_reused(
+        next_prvalue_value() == 41
+            ? make_wide_constructor_argument()
+            : make_alternate_wide_constructor_argument());
+    if (conditional_wide_reused.from_initializer_first != 11 ||
+        conditional_wide_reused.from_initializer_second != 22 ||
+        conditional_wide_reused.from_body_third != 33 ||
+        conditional_wide_reused.from_body_sum != 66 ||
+        wide_selected_factory_evaluations != 1 ||
+        wide_alternate_factory_evaluations != 0) return 55;
+
+    WideConstructorArgumentReuse alternate_conditional_wide_reused(
+        next_prvalue_value() == 42
+            ? make_wide_constructor_argument()
+            : make_alternate_wide_constructor_argument());
+    if (alternate_conditional_wide_reused.from_initializer_first != 111 ||
+        alternate_conditional_wide_reused.from_initializer_second != 222 ||
+        alternate_conditional_wide_reused.from_body_third != 333 ||
+        alternate_conditional_wide_reused.from_body_sum != 666 ||
+        wide_selected_factory_evaluations != 1 ||
+        wide_alternate_factory_evaluations != 1 ||
+        argument_evaluations != 4) return 56;
 
     return 0;
 }

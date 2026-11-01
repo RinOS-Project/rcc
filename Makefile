@@ -23711,7 +23711,7 @@ test-verified-cxx-conditional-aggregate: $(RCXX_TARGET) test-verified-cxx-refere
 		-o $(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.ro \
 		tests/cxx_function_template_references.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
-	$(GREP) -F -q "Verified backend fallback: function 'select_conditional_lvalue' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function 'select_conditional_xvalue' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log,1)
 

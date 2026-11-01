@@ -12835,35 +12835,66 @@ static void gen_cxx_initialize_inherited_bases32(
 }
 
 static bool gen_cxx_constructor_argument_can_cache32(
-    const ExprList* argument) {
+    const ExprList* argument, const TypeParam* parameter) {
     Type* type = argument && argument->expr
         ? argument->expr->type : NULL;
+    bool reference_parameter = parameter && parameter->type &&
+        parameter->type->is_reference && parameter->type->base;
     return argument && argument->cxx_constructor_argument_offset < 0 &&
         !argument->cxx_temporary_owner && argument->expr &&
-        codegen_cxx_constructor_argument_cacheable_type(type);
+        (reference_parameter
+             ? (gen_expr_is_lvalue(argument->expr) ||
+                gen_expr_is_xvalue(argument->expr))
+             : codegen_cxx_constructor_argument_cacheable_type(type));
 }
 
 static ExprList* gen_cxx_capture_constructor_arguments32(
-    Module* mod, ExprList* arguments) {
+    Module* mod, CxxConstructorInfo* constructor, ExprList* arguments) {
     ExprList* captured = NULL;
     ExprList* captured_tail = NULL;
     ExprList* argument;
+    const TypeParam* parameter = constructor
+        ? constructor->parameters : NULL;
     bool any = false;
     for (argument = arguments; argument; argument = argument->next) {
-        if (gen_cxx_constructor_argument_can_cache32(argument)) {
+        if (gen_cxx_constructor_argument_can_cache32(
+                argument, parameter)) {
             any = true;
             break;
         }
+        if (parameter) parameter = parameter->next;
     }
     if (!any) return arguments;
 
     emit_push_reg(mod, ECX);
+    parameter = constructor ? constructor->parameters : NULL;
     for (argument = arguments; argument; argument = argument->next) {
         Expr* value = argument->expr;
-        if (gen_cxx_constructor_argument_can_cache32(argument)) {
+        bool reference_parameter = parameter && parameter->type &&
+            parameter->type->is_reference && parameter->type->base;
+        if (gen_cxx_constructor_argument_can_cache32(
+                argument, parameter)) {
             Decl* temporary_decl;
             Expr* temporary_value;
-            if (value->type->kind == TYPE_STRUCT ||
+            if (reference_parameter) {
+                Type* pointer_type = type_ptr(parameter->type->base);
+                gen_lvalue(mod, value);
+                emit_store_typed32(
+                    mod, EBP, argument->cxx_constructor_argument_offset,
+                    EAX, pointer_type);
+                temporary_decl = decl_var(
+                    "__rcc_constructor_argument", pointer_type, NULL,
+                    value->loc);
+                temporary_decl->var_offset =
+                    argument->cxx_constructor_argument_offset;
+                temporary_value = expr_ident(
+                    temporary_decl->name, value->loc);
+                temporary_value->ident_decl = temporary_decl;
+                temporary_value->type = pointer_type;
+                value = expr_unary(
+                    EXPR_DEREF, temporary_value, value->loc);
+                value->type = parameter->type->base;
+            } else if (value->type->kind == TYPE_STRUCT ||
                 value->type->kind == TYPE_UNION) {
                 int offset = 0;
                 if (value->kind == EXPR_VA_ARG ||
@@ -12906,14 +12937,18 @@ static ExprList* gen_cxx_capture_constructor_arguments32(
                     argument->cxx_constructor_argument_offset, EAX,
                     value->type);
             }
-            temporary_decl = decl_var("__rcc_constructor_argument",
-                                      value->type, NULL, value->loc);
-            temporary_decl->var_offset =
-                argument->cxx_constructor_argument_offset;
-            temporary_value = expr_ident(temporary_decl->name, value->loc);
-            temporary_value->ident_decl = temporary_decl;
-            temporary_value->type = value->type;
-            value = temporary_value;
+            if (!reference_parameter) {
+                temporary_decl = decl_var(
+                    "__rcc_constructor_argument", value->type, NULL,
+                    value->loc);
+                temporary_decl->var_offset =
+                    argument->cxx_constructor_argument_offset;
+                temporary_value = expr_ident(
+                    temporary_decl->name, value->loc);
+                temporary_value->ident_decl = temporary_decl;
+                temporary_value->type = value->type;
+                value = temporary_value;
+            }
         }
         ExprList* item = exprlist_new(value);
         item->designator_kind = argument->designator_kind;
@@ -12926,6 +12961,7 @@ static ExprList* gen_cxx_capture_constructor_arguments32(
         if (captured_tail) captured_tail->next = item;
         else captured = item;
         captured_tail = item;
+        if (parameter) parameter = parameter->next;
     }
     emit_pop_reg(mod, ECX);
     return captured;
@@ -12944,7 +12980,8 @@ static void gen_cxx_initialize_object32_mode_impl(
                   "C++ constructor lowering metadata is missing");
         return;
     }
-    arguments = gen_cxx_capture_constructor_arguments32(mod, arguments);
+    arguments = gen_cxx_capture_constructor_arguments32(
+        mod, constructor, arguments);
     if (!constructor->body_is_empty) {
         gen_cxx_initialize_inherited_bases32(
             mod, constructor);
@@ -20048,18 +20085,30 @@ bool codegen_cxx_constructor_argument_cacheable_type(Type* type) {
 }
 
 static void codegen_assign_constructor_argument_storage(
-    ExprList* argument, int* bytes, int stack_alignment) {
+    ExprList* argument, const Type* parameter_type,
+    int* bytes, int stack_alignment) {
     Type* type = argument && argument->expr ? argument->expr->type : NULL;
+    bool reference_parameter = parameter_type &&
+        parameter_type->is_reference && parameter_type->base;
     int size;
     int alignment;
     int64_t extent;
     if (!argument || !bytes || *bytes == INT_MAX ||
         argument->cxx_constructor_argument_offset != 0 ||
-        !codegen_cxx_constructor_argument_cacheable_type(type)) {
+        !argument->expr || argument->cxx_temporary_owner ||
+        (reference_parameter
+             ? (!gen_expr_is_lvalue(argument->expr) &&
+                !gen_expr_is_xvalue(argument->expr))
+             : !codegen_cxx_constructor_argument_cacheable_type(type))) {
         return;
     }
-    size = type->size > 0 ? type->size : stack_alignment;
-    alignment = type->align > 0 ? type->align : stack_alignment;
+    if (reference_parameter) {
+        size = stack_alignment;
+        alignment = stack_alignment;
+    } else {
+        size = type->size > 0 ? type->size : stack_alignment;
+        alignment = type->align > 0 ? type->align : stack_alignment;
+    }
     if (alignment < stack_alignment) alignment = stack_alignment;
     extent = (int64_t)*bytes + size;
     if (extent > INT_MAX) {
@@ -20475,16 +20524,25 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                                                  stack_alignment);
                 }
             }
+            TypeParam* constructor_parameter =
+                expression->compound_constructor
+                    ? expression->compound_constructor->parameters : NULL;
             for (ExprList* initializer = expression->compound_init;
                  initializer; initializer = initializer->next) {
                 codegen_assign_compound_expr(initializer->expr, bytes,
                                              stack_alignment);
                 if (expression->compound_constructor) {
                     codegen_assign_constructor_argument_storage(
-                        initializer, bytes, stack_alignment);
+                        initializer,
+                        constructor_parameter
+                            ? constructor_parameter->type : NULL,
+                        bytes, stack_alignment);
                 }
                 codegen_assign_initializer_temporary_storage(
                     initializer, bytes, stack_alignment);
+                if (constructor_parameter) {
+                    constructor_parameter = constructor_parameter->next;
+                }
             }
             break;
         case EXPR_GENERIC:
