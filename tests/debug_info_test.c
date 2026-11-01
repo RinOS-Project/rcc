@@ -6361,7 +6361,7 @@ static void verify_cxx_inline_mutated_parameter_location(
     const char* entry_name,
     unsigned expected_entries, bool final_mutation_has_multiply,
     bool initial_expression_has_add, bool wide_i686,
-    bool signed_wide_i686) {
+    bool signed_wide_i686, bool initial_reference_source) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6556,6 +6556,10 @@ static void verify_cxx_inline_mutated_parameter_location(
                         locations->data, expression_end, &initial_offset,
                         &initial_frame_offset));
                     assert(initial_frame_offset == source_frame_offset);
+                    if (initial_reference_source) {
+                        assert(initial_offset < expression_end &&
+                               locations->data[initial_offset++] == 0x06u);
+                    }
                     assert(locations->data[initial_offset] == 0x94u &&
                            locations->data[initial_offset + 1u] == 4u);
                     if (initial_expression_has_add) {
@@ -19021,32 +19025,44 @@ int main(int argc, char** argv)
             argv[2], ARCH_X86, "debug_inline_mutated_parameter",
             "mutable_parameter", "stable_input",
             "debug_inline_mutated_parameter_entry", 4u, true, true, false,
-            false);
+            false, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_parameter",
             "mutable_parameter", "stable_input",
             "debug_inline_mutated_parameter_entry", 4u, true, true, false,
-            false);
+            false, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter", "stable_unsigned_input",
             "debug_inline_mutated_unsigned_parameter_entry", 2u, false,
-            false, false, false);
+            false, false, false, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter", "stable_unsigned_input",
             "debug_inline_mutated_unsigned_parameter_entry", 2u, false,
-            false, false, false);
+            false, false, false, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_wide_parameter",
             "wide_parameter", "stable_wide_input",
             "debug_inline_mutated_wide_parameter_entry", 3u, false, true,
-            true, false);
+            true, false, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_parameter",
             "signed_wide_parameter", "stable_signed_wide_input",
             "debug_inline_mutated_signed_wide_parameter_entry", 3u, false,
-            true, true, true);
+            true, true, true, false);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[2], ARCH_X86,
+            "debug_inline_mutated_reference_source_parameter",
+            "reference_source_parameter", "stable_reference_alias",
+            "debug_inline_mutated_reference_source_entry", 2u, false,
+            false, false, false, true);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[3], ARCH_X64,
+            "debug_inline_mutated_reference_source_parameter",
+            "reference_source_parameter", "stable_reference_alias",
+            "debug_inline_mutated_reference_source_entry", 2u, false,
+            false, false, false, true);
         return 0;
     }
     if (argc == 6 &&

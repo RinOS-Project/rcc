@@ -72,3 +72,21 @@ extern "C" long long debug_inline_mutated_signed_wide_parameter_entry(
     return debug_inline_mutated_signed_wide_parameter(
         stable_signed_wide_input + 2LL);
 }
+
+static inline int debug_inline_mutated_reference_source_parameter(
+    int reference_source_parameter)
+{
+    reference_source_parameter += 5;
+    return reference_source_parameter * 2;
+}
+
+extern "C" void debug_inline_mutated_reference_source_observe(int* value);
+
+extern "C" int debug_inline_mutated_reference_source_entry(int input_value)
+{
+    int stable_reference_source = input_value;
+    debug_inline_mutated_reference_source_observe(&stable_reference_source);
+    const int& stable_reference_alias = stable_reference_source;
+    return debug_inline_mutated_reference_source_parameter(
+        stable_reference_alias);
+}

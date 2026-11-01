@@ -6129,15 +6129,25 @@ static bool debug_build_inline_integer_value_expression(
 
     if (expression->kind == EXPR_IDENT && expression->ident_decl) {
         const Decl* source = expression->ident_decl;
+        const Type* source_object_type;
         int64_t frame_offset;
         uint8_t address_expression[32];
         size_t address_expression_size;
+        source_object_type = source->type;
+        if (source->type && source->type->is_reference) {
+            if (source->type->kind != TYPE_PTR || !source->type->base ||
+                source->type->base->is_reference) {
+                return false;
+            }
+            source_object_type = source->type->base;
+        }
         if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
             source->var_is_global || source->var_is_static_local ||
             source->var_is_thread_local || source->var_is_vla ||
-            !source->type ||
+            !source_object_type || source_object_type->is_volatile ||
+            source_object_type->is_atomic ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-                source->type, expression->type, 0u) ||
+                source_object_type, expression->type, 0u) ||
             !debug_inline_parameter_frame_offset(
                 mod, source, &frame_offset)) {
             return false;
@@ -6151,11 +6161,16 @@ static bool debug_build_inline_integer_value_expression(
         memcpy(output + *output_size, address_expression,
                address_expression_size);
         *output_size += address_expression_size;
+        if (source->type->is_reference &&
+            !debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, 0x06u)) { /* DW_OP_deref */
+            return false;
+        }
         return debug_inline_integer_expression_append_byte(
                    output, capacity, output_size, 0x94u) && /* deref_size */
             debug_inline_integer_expression_append_byte(
                 output, capacity, output_size,
-                (uint8_t)source->type->size) &&
+                (uint8_t)source_object_type->size) &&
             debug_inline_integer_expression_normalize(
                 output, capacity, output_size, expression->type,
                 architecture);
@@ -15710,15 +15725,30 @@ static bool debug_inline_parameter_initial_value_is_frame_pure(
     switch (expression->kind) {
         case EXPR_IDENT: {
             const Decl* source = expression->ident_decl;
+            const Type* source_object_type;
             int64_t frame_offset;
-            return source &&
-                (source->kind == DECL_VAR || source->kind == DECL_PARAM) &&
-                !source->var_is_global && !source->var_is_static_local &&
-                !source->var_is_thread_local && !source->var_is_vla &&
-                source->type && !source->type->is_volatile &&
-                !source->type->is_atomic &&
+            if (!source) {
+                return false;
+            }
+            if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+                source->var_is_global || source->var_is_static_local ||
+                source->var_is_thread_local || source->var_is_vla ||
+                !source->type) {
+                return false;
+            }
+            source_object_type = source->type;
+            if (source->type->is_reference) {
+                if (depth != 0u || source->type->kind != TYPE_PTR ||
+                    !source->type->base ||
+                    source->type->base->is_reference) {
+                    return false;
+                }
+                source_object_type = source->type->base;
+            }
+            return !source_object_type->is_volatile &&
+                !source_object_type->is_atomic &&
                 debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-                    source->type, expression->type, 0u) &&
+                    source_object_type, expression->type, 0u) &&
                 debug_inline_parameter_frame_offset(
                     mod, source, &frame_offset);
         }
@@ -15938,6 +15968,11 @@ static bool debug_emit_inline_mutated_parameter_location(
                 initial_expression_size = debug_build_expr_breg(
                     initial_expression, architecture, frame_offset,
                     0u, false);
+                if (source->type && source->type->is_reference &&
+                    initial_expression_size <
+                        sizeof(initial_expression)) {
+                    initial_expression[initial_expression_size++] = 0x06u;
+                }
                 if (initial_expression_size != 0u &&
                     initial_expression_size + 3u <=
                         sizeof(initial_expression)) {

@@ -2978,6 +2978,13 @@
         and 32-bit carry-boundary inputs that stay within signed range;
         verified i686 and x64 builds emit eight functions with zero fallback.
         `test-debug-info-inline-expression` passes.
+  - [x] Extend mutable inline-parameter initial and update expressions to a
+      scalar sourced through a one-hop local lvalue-reference alias. Read the
+      alias slot with `DW_OP_deref`, then load the referred scalar with
+      `DW_OP_deref_size`; verify the initial and post-update location-list
+      expressions and contiguous PC ranges in i686/x64 verified C++20 objects.
+      Both targets emit ten functions with zero fallback, and focused
+      `test-debug-info-inline-expression` plus full `test-debug-info` pass.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
