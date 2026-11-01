@@ -133,3 +133,28 @@ extern "C" int debug_inline_mutated_pointer_chain_source_entry(
     return debug_inline_mutated_pointer_chain_source_parameter(
         **stable_pointer_chain_level_two);
 }
+
+extern "C" void debug_inline_mutated_pointer_chain3_source_observe(
+    int**** value);
+
+static inline int debug_inline_mutated_pointer_chain3_source_parameter(
+    int pointer_chain3_source_parameter)
+{
+    pointer_chain3_source_parameter += 5;
+    return pointer_chain3_source_parameter * 2;
+}
+
+extern "C" int debug_inline_mutated_pointer_chain3_source_entry(
+    int input_value)
+{
+    int stable_pointer_chain3_scalar = input_value;
+    int* stable_pointer_chain3_level_one = &stable_pointer_chain3_scalar;
+    int** stable_pointer_chain3_level_two =
+        &stable_pointer_chain3_level_one;
+    int*** stable_pointer_chain3_level_three =
+        &stable_pointer_chain3_level_two;
+    debug_inline_mutated_pointer_chain3_source_observe(
+        &stable_pointer_chain3_level_three);
+    return debug_inline_mutated_pointer_chain3_source_parameter(
+        ***stable_pointer_chain3_level_three);
+}

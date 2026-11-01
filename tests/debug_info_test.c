@@ -19145,6 +19145,20 @@ int main(int argc, char** argv)
             "stable_pointer_chain_level_two",
             "debug_inline_mutated_pointer_chain_source_entry", 2u, false,
             false, false, false, false, 2u);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[2], ARCH_X86,
+            "debug_inline_mutated_pointer_chain3_source_parameter",
+            "pointer_chain3_source_parameter",
+            "stable_pointer_chain3_level_three",
+            "debug_inline_mutated_pointer_chain3_source_entry", 2u, false,
+            false, false, false, false, 3u);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[3], ARCH_X64,
+            "debug_inline_mutated_pointer_chain3_source_parameter",
+            "pointer_chain3_source_parameter",
+            "stable_pointer_chain3_level_three",
+            "debug_inline_mutated_pointer_chain3_source_entry", 2u, false,
+            false, false, false, false, 3u);
         return 0;
     }
     if (argc == 6 &&

@@ -2992,12 +2992,12 @@
       verified C++20 objects. Both targets emit twelve functions with zero
       fallback; focused `test-debug-info-inline-expression` and full
       `test-debug-info` pass.
-  - [x] Extend the same locations through a two-level local pointer chain.
-      Verify two pointer-width dereferences followed by the scalar-width load,
-      x64 signed 32-bit normalization, and contiguous initial/update PC ranges
-      in i686/x64 verified C++20 objects. Both targets emit fourteen functions
-      with zero fallback; focused `test-debug-info-inline-expression` and full
-      `test-debug-info` pass.
+  - [x] Extend the same locations through two- and three-level local pointer
+      chains. Verify each pointer-width dereference followed by the scalar-width
+      load, x64 signed 32-bit normalization, and contiguous initial/update PC
+      ranges in i686/x64 verified C++20 objects. Both targets emit sixteen
+      functions with zero fallback; focused `test-debug-info-inline-expression`
+      and full `test-debug-info` pass.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
