@@ -73,10 +73,16 @@
   `test-cxx-overload-ambiguous-diagnostics`.
 - [x] Reject implicit `nullptr_t`-to-`bool` copy-initialization, copy-list
   initialization, and function-argument conversion while preserving direct
-  list-initialization, `static_cast<bool>`, contextual `if` conversion, and
-  null pointer initialization. GCC C++20 diagnostics, RCC i686/AMD64 output,
-  AMD64 execution, and invalid-object absence pass in
+  list and parenthesized initialization, `static_cast<bool>`, contextual `if`
+  conversion, and null pointer initialization. GCC C++14/C++20 diagnostics,
+  RCC i686/AMD64 output, AMD64 execution, and invalid-object absence pass in
   `test-cxx-nullptr-bool-conversion` and `test-cxx-overloads`.
+- [x] Parse scalar parenthesized direct-initializers as variable initializers
+  when their first token cannot begin a function parameter declaration. Cover
+  `bool b(nullptr)`, `int n(42)`, identifier expressions, and pointer null
+  initialization; GCC C++14/C++20, RCC i686/AMD64 generation, and AMD64 runtime
+  pass in `test-cxx-nullptr-bool-conversion`, while function declarations remain
+  covered by `test-cxx-overloads` and `test-cxx-function-templates`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
 

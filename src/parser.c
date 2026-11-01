@@ -4394,6 +4394,32 @@ static bool is_type_start(void) {
     }
 }
 
+/* A declaration suffix that starts with a type, an ellipsis, or is empty is
+ * parsed as a function parameter list. Other parenthesized suffixes remain
+ * for the variable-initializer parser (`int value(1)`, `bool flag(nullptr)`). */
+static bool parser_cxx_parenthesized_suffix_is_parameter_list(void) {
+    Token* open = parser.cur;
+    Token* first = open ? open->next : NULL;
+    Token* saved_cur;
+    Token* saved_prev;
+    bool starts_with_type;
+    if (!parser_cxx_mode || !open || open->type != TOK_LPAREN) {
+        return false;
+    }
+    if (!first || first->type == TOK_RPAREN || first->type == TOK_ELLIPSIS ||
+        (first->type == TOK_LBRACKET && first->next &&
+         first->next->type == TOK_LBRACKET)) {
+        return true;
+    }
+    saved_cur = parser.cur;
+    saved_prev = parser.prev;
+    parser.cur = first;
+    starts_with_type = is_type_start();
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return starts_with_type;
+}
+
 typedef struct ParsedInitializerDesignator {
     InitDesignatorKind kind;
     int64_t index;
@@ -6853,6 +6879,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
              * parse_declaration, while parenthesized pointer declarators
              * retain the ordinary array-of-function-pointer grammar. */
             break;
+        } else if (parser_cxx_mode && check(TOK_LPAREN) &&
+                   !parser_cxx_parenthesized_suffix_is_parameter_list()) {
+            /* This is a direct-initializer, not a function declarator. */
+            break;
         } else if (match(TOK_LPAREN)) {
             bool variadic = false;
             bool has_prototype = parser_cxx_mode || !check(TOK_RPAREN);
@@ -7462,7 +7492,7 @@ static Expr* parser_parse_variable_initializer(Type* type, SourceLoc loc) {
     } else if (parser_cxx_mode && check(TOK_LBRACE)) {
         init = parse_initializer();
         direct_list_initializer = true;
-    } else if (parser_cxx_mode && type && type->kind == TYPE_ARRAY &&
+    } else if (parser_cxx_mode && type && check(TOK_LPAREN) &&
                match(TOK_LPAREN)) {
         ExprList* arguments = NULL;
         if (!check(TOK_RPAREN)) {
@@ -7471,7 +7501,10 @@ static Expr* parser_parse_variable_initializer(Type* type, SourceLoc loc) {
             } while (match(TOK_COMMA));
         }
         expect(TOK_RPAREN, ")");
-        if (!rcc_parser_cxx_standard_at_least(20)) {
+        if ((type->kind == TYPE_ARRAY ||
+             ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+              ast_cxx_is_aggregate(type))) &&
+            !rcc_parser_cxx_standard_at_least(20)) {
             rcc_error(loc,
                       "C++20 aggregate parenthesized initialization requires C++20 or newer");
         }

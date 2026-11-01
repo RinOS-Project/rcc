@@ -35435,7 +35435,8 @@ static void sema_initializer(Type* type, Expr* initializer) {
         return;
     }
     if (rcc_parser_is_cxx_mode() && type->kind == TYPE_BOOL &&
-        initializer->compound_direct_list_init &&
+        (initializer->compound_direct_list_init ||
+         initializer->compound_paren_init) &&
         !initializer->compound_copy_list_init) {
         Expr* element = initializer->compound_init->expr;
         Type* element_type = sema_expr(element);

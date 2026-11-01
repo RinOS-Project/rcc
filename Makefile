@@ -3964,7 +3964,7 @@ test-cxx-cli: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-cxx.log
 	@echo "RCC++ command-line compatibility test completed"
 
-test-cxx-language-core: $(RCXX_TARGET)
+test-cxx-language-core: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-language-core)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/new-delete-x86.ro \
@@ -4033,35 +4033,45 @@ ifeq ($(OS),Windows_NT)
 	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
 		$(TEST_OUT)/cxx-language-core/new-delete-x64.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/new-delete-x64-host \
-		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/new-delete-x64.o
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-language-core/new-delete-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-language-core/new-delete-x64-host
 	$(CC) -c -o $(TEST_OUT)/cxx-language-core/adl-x64.o \
 		$(TEST_OUT)/cxx-language-core/adl-x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
 		$(TEST_OUT)/cxx-language-core/adl-x64.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/adl-x64-host \
-		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/adl-x64.o
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-language-core/adl-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-language-core/adl-x64-host
 	$(CC) -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o \
 		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
 		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64-host \
-		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-language-core/virtual-dispatch-x64-host
 	$(CC) -c -o $(TEST_OUT)/cxx-language-core/field-initializers-x64.o \
 		$(TEST_OUT)/cxx-language-core/field-initializers-x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
 		$(TEST_OUT)/cxx-language-core/field-initializers-x64.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/field-initializers-x64-host \
-		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/field-initializers-x64.o
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-language-core/field-initializers-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-language-core/field-initializers-x64-host
 	$(CC) -c -o $(TEST_OUT)/cxx-language-core/inheritance-x64.o \
 		$(TEST_OUT)/cxx-language-core/inheritance-x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_language_core_main \
 		$(TEST_OUT)/cxx-language-core/inheritance-x64.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-language-core/inheritance-x64-host \
-		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-language-core/inheritance-x64.o
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-language-core/inheritance-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-language-core/inheritance-x64-host
 else
 	bash tests/run_cxx_language_core.sh $(TEST_OUT)/cxx-language-core
@@ -25092,6 +25102,11 @@ test-cxx-nullptr-bool-conversion: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-nullptr-bool-conversion/gcc-host \
 		tests/cxx_nullptr_bool_conversions.cpp
 	$(TEST_OUT)/cxx-nullptr-bool-conversion/gcc-host
+	$(CXX) -std=c++14 -pedantic-errors -Wall -Wextra -Werror \
+		-fsyntax-only tests/cxx_nullptr_bool_conversions.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -S \
+		-o $(TEST_OUT)/cxx-nullptr-bool-conversion/x64-cxx14.s \
+		tests/cxx_nullptr_bool_conversions.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-nullptr-bool-conversion/x86.s \
 		tests/cxx_nullptr_bool_conversions.cpp
