@@ -8004,7 +8004,7 @@ static bool debug_inline_parameter_i686_u64_variables_expression(
     }
 
     /* A bitwise result is independent per 32-bit word, so recursively
-       compose nontrivial operands such as a runtime-wide-shift subtree. */
+       compose nontrivial operands, including constants and wide shifts. */
     if ((source_expression->kind == EXPR_BITAND ||
          source_expression->kind == EXPR_BITOR ||
          source_expression->kind == EXPR_BITXOR) &&
@@ -8019,10 +8019,6 @@ static bool debug_inline_parameter_i686_u64_variables_expression(
             source_expression->binary_lhs->type, parameter_type, 0u) &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression->binary_rhs->type, parameter_type, 0u) &&
-        !debug_inline_integer_literal_bits(
-            source_expression->binary_lhs, &ignored_literal, 0u) &&
-        !debug_inline_integer_literal_bits(
-            source_expression->binary_rhs, &ignored_literal, 0u) &&
         (source_expression->binary_lhs->kind != EXPR_IDENT ||
          source_expression->binary_rhs->kind != EXPR_IDENT)) {
         uint8_t operation = source_expression->kind == EXPR_BITAND ? 0x1au :
