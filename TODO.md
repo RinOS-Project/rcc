@@ -79,9 +79,10 @@
   `test-cxx-nullptr-bool-conversion` and `test-cxx-overloads`.
 - [x] Parse scalar parenthesized direct-initializers as variable initializers
   when their first token cannot begin a function parameter declaration. Cover
-  `bool b(nullptr)`, `int n(42)`, identifier expressions, and pointer null
-  initialization; GCC C++14/C++20, RCC i686/AMD64 generation, and AMD64 runtime
-  pass in `test-cxx-nullptr-bool-conversion`, while function declarations remain
+  `bool b(nullptr)`, `int n(42)`, identifier expressions, pointer null
+  initialization, and direct class construction. GCC C++14/C++20, RCC
+  i686/AMD64 generation, and AMD64 runtime pass in
+  `test-cxx-nullptr-bool-conversion`, while function declarations remain
   covered by `test-cxx-overloads` and `test-cxx-function-templates`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
