@@ -12937,6 +12937,10 @@ remains a separate open item.
       preference when a template competes. GCC C++20, i686/AMD64 assembly and
       `.ro` generation, and AMD64 runtime parity pass in
       `test-cxx-initializer-list`.
+- [x] Keep two `std::initializer_list` function overloads ambiguous when their
+      element conversion vectors are crossed (`short`/`float` to `int` versus
+      `double`). GCC C++20 and RCC i686/AMD64 both diagnose ambiguity and emit
+      no object in `test-cxx-initializer-list`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
       boundaries with GCC before claiming full conformance. Ordinary candidate
       viability and selected scalar/aggregate list handling are covered by the
