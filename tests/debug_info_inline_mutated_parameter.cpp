@@ -90,3 +90,23 @@ extern "C" int debug_inline_mutated_reference_source_entry(int input_value)
     return debug_inline_mutated_reference_source_parameter(
         stable_reference_alias);
 }
+
+extern "C" void debug_inline_mutated_dereference_source_observe(int** value);
+
+static inline int debug_inline_mutated_dereference_source_parameter(
+    int dereference_source_parameter)
+{
+    dereference_source_parameter += 5;
+    return dereference_source_parameter * 2;
+}
+
+extern "C" int debug_inline_mutated_dereference_source_entry(int input_value)
+{
+    int stable_dereference_source = input_value;
+    int* stable_pointer_source = &stable_dereference_source;
+    debug_inline_mutated_reference_source_observe(
+        &stable_dereference_source);
+    debug_inline_mutated_dereference_source_observe(&stable_pointer_source);
+    return debug_inline_mutated_dereference_source_parameter(
+        *stable_pointer_source);
+}

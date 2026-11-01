@@ -15786,6 +15786,66 @@ static bool debug_inline_parameter_initial_value_is_frame_pure(
             return expression->unary_operand &&
                 debug_inline_parameter_initial_value_is_frame_pure(
                     mod, expression->unary_operand, depth + 1u);
+        case EXPR_DEREF: {
+            const Expr* pointer_expression = expression;
+            const Decl* pointer_declaration;
+            const Type* pointer_type;
+            int64_t frame_offset;
+            size_t dereference_count = 0u;
+            while (pointer_expression &&
+                   pointer_expression->kind == EXPR_DEREF) {
+                const Type* dereferenced_pointer_type;
+                if (!pointer_expression->unary_operand ||
+                    dereference_count >= 32u) {
+                    return false;
+                }
+                dereferenced_pointer_type =
+                    pointer_expression->unary_operand->type;
+                if (!dereferenced_pointer_type ||
+                    dereferenced_pointer_type->kind != TYPE_PTR ||
+                    dereferenced_pointer_type->size !=
+                        (g_opts.target_arch == ARCH_X64 ? 8 : 4) ||
+                    dereferenced_pointer_type->cxx_is_member_pointer ||
+                    dereferenced_pointer_type->is_volatile ||
+                    dereferenced_pointer_type->is_reference ||
+                    dereferenced_pointer_type->is_atomic ||
+                    !dereferenced_pointer_type->base ||
+                    dereferenced_pointer_type->base->is_volatile ||
+                    dereferenced_pointer_type->base->is_atomic ||
+                    !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                        dereferenced_pointer_type->base,
+                        pointer_expression->type, 0u)) {
+                    return false;
+                }
+                ++dereference_count;
+                pointer_expression = pointer_expression->unary_operand;
+            }
+            if (!pointer_expression ||
+                pointer_expression->kind != EXPR_IDENT ||
+                !pointer_expression->ident_decl) {
+                return false;
+            }
+            pointer_declaration = pointer_expression->ident_decl;
+            pointer_type = pointer_declaration->type;
+            return (pointer_declaration->kind == DECL_VAR ||
+                    pointer_declaration->kind == DECL_PARAM) &&
+                !pointer_declaration->var_is_global &&
+                !pointer_declaration->var_is_static_local &&
+                !pointer_declaration->var_is_thread_local &&
+                !pointer_declaration->var_is_vla && pointer_type &&
+                pointer_type->kind == TYPE_PTR &&
+                !pointer_type->cxx_is_member_pointer &&
+                pointer_type->size ==
+                    (g_opts.target_arch == ARCH_X64 ? 8 : 4) &&
+                !pointer_type->is_volatile &&
+                !pointer_type->is_reference && !pointer_type->is_atomic &&
+                pointer_type->base && !pointer_type->base->is_volatile &&
+                !pointer_type->base->is_atomic &&
+                debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    pointer_type, pointer_expression->type, 0u) &&
+                debug_inline_parameter_frame_offset(
+                    mod, pointer_declaration, &frame_offset);
+        }
         case EXPR_COND:
             return expression->cond_test && expression->cond_then &&
                 expression->cond_else &&

@@ -2985,6 +2985,13 @@
       expressions and contiguous PC ranges in i686/x64 verified C++20 objects.
       Both targets emit ten functions with zero fallback, and focused
       `test-debug-info-inline-expression` plus full `test-debug-info` pass.
+  - [x] Extend the same mutable inline-parameter locations to `*local_pointer`
+      when the pointer and referred scalar are addressable automatic locals.
+      Verify pointer-width and scalar-width `DW_OP_deref_size` operations,
+      x64 signed 32-bit normalization, and initial/update PC ranges in i686/x64
+      verified C++20 objects. Both targets emit twelve functions with zero
+      fallback; focused `test-debug-info-inline-expression` and full
+      `test-debug-info` pass.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
