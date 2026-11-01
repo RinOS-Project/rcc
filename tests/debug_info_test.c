@@ -6372,7 +6372,7 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
     int architecture, int64_t left_frame_offset, int64_t right_frame_offset,
     uint64_t left_value, uint64_t right_value);
 
-static void verify_cxx_inline_mutated_parameter_location(
+static void verify_cxx_inline_mutated_parameter_location_impl(
     const char* path, uint16_t architecture, const char* function_name,
     const char* parameter_name, const char* source_local_name,
     const char* entry_name,
@@ -6380,7 +6380,8 @@ static void verify_cxx_inline_mutated_parameter_location(
     bool initial_expression_has_add, bool wide_i686,
     bool signed_wide_i686, bool initial_reference_source,
     unsigned int initial_pointer_dereference_depth,
-    unsigned int initial_pointer_scalar_size) {
+    unsigned int initial_pointer_scalar_size,
+    bool unsigned_wide_shift_i686) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6397,6 +6398,8 @@ static void verify_cxx_inline_mutated_parameter_location(
     bool source_is_location_list = false;
     int64_t source_frame_offset = 0;
     assert(object != NULL && object->arch == architecture);
+    assert(!unsigned_wide_shift_i686 ||
+           (architecture == ARCH_X86 && wide_i686 && !signed_wide_i686));
     assert(initial_pointer_scalar_size == 4u ||
            initial_pointer_scalar_size == 8u);
     info = objfile_get_section(object, ".debug_info");
@@ -6493,6 +6496,13 @@ static void verify_cxx_inline_mutated_parameter_location(
                     end_relocation = relocation;
                 }
             }
+            if (!start_relocation || !end_relocation) {
+                fprintf(stderr,
+                        "missing mutated parameter range: %s entry %u "
+                        "at .debug_loc+0x%llx\n",
+                        function_name, entry,
+                        (unsigned long long)cursor);
+            }
             assert(start_relocation != NULL && end_relocation != NULL);
             assert(start_relocation->symbol_name != NULL &&
                    strcmp(start_relocation->symbol_name, entry_name) == 0);
@@ -6565,7 +6575,8 @@ static void verify_cxx_inline_mutated_parameter_location(
                 uint64_t increment = initial_pointer_dereference_depth > 0u
                     ? entry == 0u ? 0u : entry == 1u ? 3u : 4u
                     : entry == 0u ? 2u : entry == 1u ? 5u : 6u;
-                assert(architecture == ARCH_X86 && entry < 3u &&
+                assert(architecture == ARCH_X86 &&
+                       entry < (unsigned_wide_shift_i686 ? 2u : 3u) &&
                        expression_end >= expression_start + 2u &&
                        locations->data[expression_end - 2u] == 0x93u &&
                        locations->data[expression_end - 1u] == 4u);
@@ -6578,7 +6589,23 @@ static void verify_cxx_inline_mutated_parameter_location(
                             source_frame_offset, source_frame_offset,
                             input, input,
                             initial_pointer_dereference_depth);
-                    assert(actual == input + increment);
+                    if (unsigned_wide_shift_i686) {
+                        uint64_t expected = input + 2u;
+                        if (entry >= 1u) expected >>= 32u;
+                        if (actual != expected) {
+                            fprintf(stderr,
+                                    "wrong wide shift location: %s entry %u "
+                                    "input 0x%016llx actual 0x%016llx "
+                                    "expected 0x%016llx\n",
+                                    function_name, entry,
+                                    (unsigned long long)input,
+                                    (unsigned long long)actual,
+                                    (unsigned long long)expected);
+                        }
+                        assert(actual == expected);
+                    } else {
+                        assert(actual == input + increment);
+                    }
                 }
                 cursor = expression_end;
                 continue;
@@ -6692,6 +6719,23 @@ static void verify_cxx_inline_mutated_parameter_location(
         }
     }
     objfile_free(object);
+}
+
+static void verify_cxx_inline_mutated_parameter_location(
+    const char* path, uint16_t architecture, const char* function_name,
+    const char* parameter_name, const char* source_local_name,
+    const char* entry_name,
+    unsigned expected_entries, bool final_mutation_has_multiply,
+    bool initial_expression_has_add, bool wide_i686,
+    bool signed_wide_i686, bool initial_reference_source,
+    unsigned int initial_pointer_dereference_depth,
+    unsigned int initial_pointer_scalar_size) {
+    verify_cxx_inline_mutated_parameter_location_impl(
+        path, architecture, function_name, parameter_name, source_local_name,
+        entry_name, expected_entries, final_mutation_has_multiply,
+        initial_expression_has_add, wide_i686, signed_wide_i686,
+        initial_reference_source, initial_pointer_dereference_depth,
+        initial_pointer_scalar_size, false);
 }
 
 static int64_t evaluate_inline_mutated_local_expression(
@@ -19514,6 +19558,11 @@ int main(int argc, char** argv)
             "wide_parameter", "stable_wide_input",
             "debug_inline_mutated_wide_parameter_entry", 3u, false, true,
             true, false, false, 0u, 4u);
+        verify_cxx_inline_mutated_parameter_location_impl(
+            argv[2], ARCH_X86, "debug_inline_mutated_shift_wide_parameter",
+            "shifted_wide_parameter", "stable_shift_wide_input",
+            "debug_inline_mutated_shift_wide_parameter_entry", 2u, false,
+            true, true, false, false, 0u, 4u, true);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_parameter",
             "signed_wide_parameter", "stable_signed_wide_input",

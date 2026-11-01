@@ -1512,6 +1512,10 @@ static bool inline_scalar_compound_rhs_supported(
     if (type_is_pointer(type)) {
         return type_is_integer(rhs_type);
     }
+    if (assignment_operator == EXPR_LSHIFT_ASSIGN ||
+        assignment_operator == EXPR_RSHIFT_ASSIGN) {
+        return type_is_integer(rhs_type);
+    }
     return type_is_compatible(type, rhs_type);
 }
 

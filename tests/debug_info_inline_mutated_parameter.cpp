@@ -52,6 +52,25 @@ extern "C" unsigned long long debug_inline_mutated_wide_parameter_entry(
     return debug_inline_mutated_wide_parameter(stable_wide_input + 2ULL);
 }
 
+static inline unsigned long long debug_inline_mutated_shift_wide_parameter(
+    unsigned long long shifted_wide_parameter)
+{
+    shifted_wide_parameter >>= 32u;
+    return shifted_wide_parameter + 7ULL;
+}
+
+extern "C" void debug_inline_mutated_shift_wide_parameter_observe(
+    unsigned long long* value);
+
+extern "C" unsigned long long
+debug_inline_mutated_shift_wide_parameter_entry(unsigned long long input_value)
+{
+    unsigned long long stable_shift_wide_input = input_value;
+    debug_inline_mutated_shift_wide_parameter_observe(&stable_shift_wide_input);
+    return debug_inline_mutated_shift_wide_parameter(
+        stable_shift_wide_input + 2ULL);
+}
+
 static inline long long debug_inline_mutated_signed_wide_parameter(
     long long signed_wide_parameter)
 {
