@@ -423,7 +423,6 @@ static void linker_input_symbol_update_object(Linker* ld,
     LinkerUndefinedRelocationIndex references = {0};
     for (ObjSection* section = object->sections; section;
          section = section->next) {
-        if (!linker_section_emitted(section)) continue;
         for (ObjReloc* relocation = section->relocs; relocation;
              relocation = relocation->next) {
             LinkerUndefinedRelocationReference* reference;
@@ -431,15 +430,20 @@ static void linker_input_symbol_update_object(Linker* ld,
                 rcc_fatal("relocation has no linker symbol name");
             reference = linker_undefined_relocation_add(
                 &references, relocation->symbol_name);
-            reference->retained_reference = true;
+            if (linker_section_emitted(section))
+                reference->retained_reference = true;
         }
     }
 
     for (ObjSymbol* symbol = object->symbols; symbol; symbol = symbol->next) {
         LinkerInputSymbol* indexed;
         if (symbol->type == SYM_UNDEF) {
-            if (linker_undefined_relocation_find(
-                    &references, symbol->name) == NULL)
+            LinkerUndefinedRelocationReference* reference =
+                linker_undefined_relocation_find(&references, symbol->name);
+            /* Preserve the linker's existing unresolved-symbol behavior for
+             * a symbol-table entry without relocations. Suppress only names
+             * whose relocations all belong to non-emitted sections. */
+            if (reference != NULL && !reference->retained_reference)
                 continue;
             indexed = linker_input_symbol_get_or_insert(ld, symbol->name);
             if (indexed->undefined_count == SIZE_MAX)
@@ -1456,7 +1460,7 @@ bool linker_resolve_symbols(Linker* ld) {
             if (sym->type != SYM_UNDEF) continue;
             reference = linker_undefined_relocation_find(&references,
                                                           sym->name);
-            if (reference == NULL || !reference->retained_reference) continue;
+            if (reference != NULL && !reference->retained_reference) continue;
 
             /* Look for definition */
             GlobalSymbol* def = find_symbol(ld, sym->name);
