@@ -1125,10 +1125,15 @@
         i686 assembly generation/assembly, AMD64 runtime, and verified
         i686/AMD64 object generation pass in
         `test-cxx-prvalue-scalar-conversion-cleanup`.
-  - [ ] Extend constructor-argument caching to values wider than 64 bits and
-        expressions carrying class temporary cleanup.
-        Preserve exactly-once evaluation across nested member initializers and
-        both legacy target backends; add runtime coverage for each ABI case.
+  - [x] Extend constructor-argument caching to values wider than 64 bits and
+        expressions carrying class temporary cleanup. Preserve exactly-once
+        evaluation across nested member initializers in both legacy backends.
+        Side-effecting nested/fixed-array aggregates and explicit/implicit
+        scalar conversions from class prvalues verify one evaluation and
+        exactly-once destruction. GCC C++20, i686 and AMD64 legacy runtime
+        (i686 executed under WSL), both verified targets with zero fallback,
+        and adjacent constructor/conversion suites pass in
+        `test-cxx-prvalue-scalar-conversion-cleanup`.
   - [x] Support static-duration reference temporaries, including initialization
         and destructor registration for namespace and block static storage.
         The implementation covers scalar and aggregate temporaries on i686 and
