@@ -2150,8 +2150,14 @@ static void gen64_float_literal(Module* mod, const Expr* expression) {
 
 static void gen64_integer_to_float(Module* mod, const Type* source_type,
                                    int destination_width) {
-    int source_width = source_type->size >= 8 ? 8 : 4;
-    if (source_width == 8 && source_type->is_unsigned) {
+    const Type* integer_type = source_type;
+    int source_width;
+    if (integer_type->kind == TYPE_ENUM &&
+        integer_type->enum_underlying_type) {
+        integer_type = integer_type->enum_underlying_type;
+    }
+    source_width = integer_type->size >= 8 ? 8 : 4;
+    if (source_width == 8 && integer_type->is_unsigned) {
         int lower_half_label = new_label64();
         int done_label = new_label64();
         /* CVTSI2S* interprets a 64-bit source as signed.  Keep values below
@@ -2170,6 +2176,14 @@ static void gen64_integer_to_float(Module* mod, const Type* source_type,
         emit64_label(mod, lower_half_label);
         emit64_int_to_sse(mod, 0, RAX, 8, destination_width);
         emit64_label(mod, done_label);
+        return;
+    }
+    if (source_width == 4 && integer_type->is_unsigned) {
+        /* CVTSI2S* treats its 32-bit source as signed. Zero-extend the
+         * unsigned value to 64 bits first, then use the signed 64-bit form. */
+        emit64_mov_reg_imm64(mod, RCX, UINT32_MAX);
+        emit64_and_reg_reg(mod, RAX, RCX);
+        emit64_int_to_sse(mod, 0, RAX, 8, destination_width);
         return;
     }
     emit64_int_to_sse(mod, 0, RAX, source_width, destination_width);

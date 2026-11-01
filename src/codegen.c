@@ -5927,10 +5927,18 @@ static void emit_x87_power_of_two(Module* mod, int exponent) {
 static void emit_x87_convert_integer_to_float(Module* mod,
                                                const Type* source_type,
                                                const Type* destination_type) {
-    int source_width = source_type && source_type->size >= 8 ? 8 : 4;
-    int exponent = source_width == 8 ? 64 : 32;
+    const Type* integer_type = source_type;
+    int source_width;
+    int exponent;
     int unsigned_high_label = new_label();
     int converted_label = new_label();
+
+    if (integer_type && integer_type->kind == TYPE_ENUM &&
+        integer_type->enum_underlying_type) {
+        integer_type = integer_type->enum_underlying_type;
+    }
+    source_width = integer_type && integer_type->size >= 8 ? 8 : 4;
+    exponent = source_width == 8 ? 64 : 32;
 
     emit_sub_reg_imm(mod, ESP, 8);
     emit_mov_mem_reg(mod, ESP, 0, EAX);
@@ -5940,10 +5948,10 @@ static void emit_x87_convert_integer_to_float(Module* mod,
         emit_mov_mem_reg(mod, ESP, 4, EDX);
     }
 
-    if (source_type && source_type->is_unsigned && source_width == 4) {
+    if (integer_type && integer_type->is_unsigned && source_width == 4) {
         emit_test_reg_imm(mod, EAX, UINT32_C(0x80000000));
         emit_jcc_label(mod, CC_S, unsigned_high_label);
-    } else if (source_type && source_type->is_unsigned && source_width == 8) {
+    } else if (integer_type && integer_type->is_unsigned && source_width == 8) {
         emit_test_reg_imm(mod, EDX, UINT32_C(0x80000000));
         emit_jcc_label(mod, CC_S, unsigned_high_label);
     }
@@ -5951,7 +5959,7 @@ static void emit_x87_convert_integer_to_float(Module* mod,
     emit_x87_load_integer_memory(mod, source_width, ESP, 0);
     emit_jmp_label(mod, converted_label);
 
-    if (source_type && source_type->is_unsigned) {
+    if (integer_type && integer_type->is_unsigned) {
         emit_label(mod, unsigned_high_label);
         /* FILD is signed.  For the high unsigned half, add 2^32/2^64
          * exactly, built with x87 doubling so no data relocation is needed. */
@@ -6146,7 +6154,8 @@ static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type) {
     } else if (gen_is_floating(target_type)) {
         if (gen_is_floating(source_type)) {
             emit_x87_convert_float_to_float(mod, source_type, target_type);
-        } else if (type_is_integer(source_type)) {
+        } else if (type_is_integer(source_type) ||
+                   source_type->kind == TYPE_ENUM) {
             emit_x87_convert_integer_to_float(mod, source_type, target_type);
         }
     } else if (gen_is_floating(source_type)) {

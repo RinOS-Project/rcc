@@ -3538,6 +3538,7 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         if (promoted && type_is_compatible(promoted, target)) return 1;
         return 2;
     }
+    if (source->kind == TYPE_ENUM && type_is_floating(target)) return 2;
     if (source->kind == TYPE_FLOAT && target->kind == TYPE_DOUBLE) return 1;
     if (type_is_arithmetic(source) && type_is_arithmetic(target)) return 2;
     if ((source->kind == TYPE_PTR && source->cxx_is_member_pointer) ||
@@ -4908,6 +4909,10 @@ reference_binding_validated:
     /* Integer promotions */
     if ((type_is_integer(e->type) || e->type->kind == TYPE_ENUM) &&
         (type_is_integer(target) || target->kind == TYPE_ENUM)) {
+        return target;
+    }
+
+    if (e->type->kind == TYPE_ENUM && type_is_floating(target)) {
         return target;
     }
 
@@ -14219,6 +14224,7 @@ static int cxx_conversion_rank_detail_at_context(
         }
         return 2;
     }
+    if (source->kind == TYPE_ENUM && type_is_floating(target)) return 2;
     if (type_is_arithmetic(source) && type_is_arithmetic(target)) return 2;
     if ((target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
         type_is_compatible(source, target)) {
