@@ -2696,6 +2696,70 @@ bool linker_emit_rin(Linker* ld, const char* filename) {
     return linker_emit_image_v3(ld, filename, false);
 }
 
+static LinkedSection* linker_runtime_array_section(
+    Linker* ld, SectionType type)
+{
+    for (LinkedSection* section = ld->sections; section;
+         section = section->next) {
+        if (section->type == type) return section;
+    }
+    return NULL;
+}
+
+static const struct {
+    SectionType type;
+    const char* start_name;
+    const char* end_name;
+} linker_runtime_arrays[] = {
+    {SECT_INIT_ARRAY, "__init_array_start", "__init_array_end"},
+    {SECT_FINI_ARRAY, "__fini_array_start", "__fini_array_end"},
+};
+
+static bool linker_define_runtime_array_bounds(Linker* ld)
+{
+    for (size_t index = 0u;
+         index < sizeof(linker_runtime_arrays) / sizeof(linker_runtime_arrays[0]);
+         ++index) {
+        const char* start_name = linker_runtime_arrays[index].start_name;
+        const char* end_name = linker_runtime_arrays[index].end_name;
+        if (find_symbol(ld, start_name) || find_symbol(ld, end_name)) {
+            fprintf(stderr,
+                    "rld: input defines a reserved runtime array symbol\n");
+            return false;
+        }
+        add_symbol(ld, start_name, 0u, 0u, SYM_GLOBAL,
+                   BIND_ABS, -1, "<rld-runtime-array>", true);
+        add_symbol(ld, end_name, 0u, 0u, SYM_GLOBAL,
+                   BIND_ABS, -1, "<rld-runtime-array>", true);
+    }
+    return true;
+}
+
+static bool linker_set_runtime_array_bounds(Linker* ld)
+{
+    for (size_t index = 0u;
+         index < sizeof(linker_runtime_arrays) / sizeof(linker_runtime_arrays[0]);
+         ++index) {
+        LinkedSection* section = linker_runtime_array_section(
+            ld, linker_runtime_arrays[index].type);
+        GlobalSymbol* start = find_symbol(
+            ld, linker_runtime_arrays[index].start_name);
+        GlobalSymbol* end = find_symbol(
+            ld, linker_runtime_arrays[index].end_name);
+        uint64_t address = section ? section->vaddr : 0u;
+        uint64_t finish = address;
+        if (!start || !end || (section &&
+            section->memory_size > UINT64_MAX - address)) {
+            fprintf(stderr, "rld: runtime array range is invalid\n");
+            return false;
+        }
+        if (section) finish += section->memory_size;
+        start->value = address;
+        end->value = finish;
+    }
+    return true;
+}
+
 /* ═══════════════════════════════════════
  * High-level Link Function
  * ═══════════════════════════════════════ */
@@ -2729,6 +2793,11 @@ bool rld_link(char** input_files, int count, const char* output) {
         return false;
     }
 
+    if (!linker_define_runtime_array_bounds(ld)) {
+        linker_free(ld);
+        return false;
+    }
+
     /* Resolve symbols */
     if (!linker_resolve_symbols(ld)) {
         linker_free(ld);
@@ -2737,6 +2806,11 @@ bool rld_link(char** input_files, int count, const char* output) {
 
     /* Layout */
     if (!linker_layout(ld, g_linker_opts.base_addr)) {
+        linker_free(ld);
+        return false;
+    }
+
+    if (!linker_set_runtime_array_bounds(ld)) {
         linker_free(ld);
         return false;
     }
