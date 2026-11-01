@@ -9764,6 +9764,17 @@ endif
 
 test-cxx-conversion-operator-posix: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_external_member_declarations.cpp
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-operator/external-declarations-x86.ro)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/external-declarations-x86.ro tests/cxx_external_member_declarations.cpp
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-operator/external-declarations-x64.ro)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/external-declarations-x64.ro tests/cxx_external_member_declarations.cpp
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator/external-declarations)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_EXTERNAL_MEMBER_MAIN -S -o $(TEST_OUT)/cxx-conversion-operator/external-declarations/calls.s tests/cxx_external_member_declarations.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_EXTERNAL_MEMBER_DEFINITIONS -c -o $(TEST_OUT)/cxx-conversion-operator/external-declarations/definitions.o tests/cxx_external_member_declarations.cpp
+	$(CXX) -c -o $(TEST_OUT)/cxx-conversion-operator/external-declarations/calls.o $(TEST_OUT)/cxx-conversion-operator/external-declarations/calls.s
+	$(CXX) -o $(TEST_OUT)/cxx-conversion-operator/external-declarations/external-member-calls$(EXE_SUFFIX) $(TEST_OUT)/cxx-conversion-operator/external-declarations/calls.o $(TEST_OUT)/cxx-conversion-operator/external-declarations/definitions.o
+	$(TEST_OUT)/cxx-conversion-operator/external-declarations/external-member-calls$(EXE_SUFFIX)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-conversion-operator/x86.s \
 		tests/cxx_conversion_operator.cpp
@@ -10770,6 +10781,17 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		tests/cxx_class_template_member_function_templates.cpp
 test-cxx-conversion-operator: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_external_member_declarations.cpp
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-operator/external-declarations-x86.ro)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/external-declarations-x86.ro tests/cxx_external_member_declarations.cpp
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-operator/external-declarations-x64.ro)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/external-declarations-x64.ro tests/cxx_external_member_declarations.cpp
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator/external-declarations)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_EXTERNAL_MEMBER_MAIN -S -o $(TEST_OUT)/cxx-conversion-operator/external-declarations/calls.s tests/cxx_external_member_declarations.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_EXTERNAL_MEMBER_DEFINITIONS -c -o $(TEST_OUT)/cxx-conversion-operator/external-declarations/definitions.o tests/cxx_external_member_declarations.cpp
+	$(CXX) -c -o $(TEST_OUT)/cxx-conversion-operator/external-declarations/calls.o $(TEST_OUT)/cxx-conversion-operator/external-declarations/calls.s
+	$(CXX) -o $(TEST_OUT)/cxx-conversion-operator/external-declarations/external-member-calls$(EXE_SUFFIX) $(TEST_OUT)/cxx-conversion-operator/external-declarations/calls.o $(TEST_OUT)/cxx-conversion-operator/external-declarations/definitions.o
+	$(TEST_OUT)/cxx-conversion-operator/external-declarations/external-member-calls$(EXE_SUFFIX)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-operator,cxx_conversion_operator.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator/function-reference)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-operator/function-reference,cxx_function_reference_verified.cpp)

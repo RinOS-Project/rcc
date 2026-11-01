@@ -12811,3 +12811,12 @@ remains a separate open item.
       `S3_`・memberの`S4_`を一致させ、i686/AMD64 assemblyとhost実行、
       Windows `test-cxx-adl-function-template-specialization`および
       `test-cxx-function-template-overloads`全体の通過を確認。
+
+# RCC continuation (2026-11-01, external member declarations)
+- [x] Publish declaration-only non-template member functions into class lookup
+      and emit unresolved calls for ordinary member invocation and implicit
+      conversion operators. The calling `.ro` objects retain references to the
+      ABI symbols; an independently compiled GCC translation unit supplies the
+      definitions, links against RCC-generated x86_64 code, and runs both call
+      paths. GCC syntax, RCC i686/AMD64 object generation, the host link/runtime,
+      and the full `test-cxx-conversion-operator` target pass.

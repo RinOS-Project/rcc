@@ -12205,10 +12205,13 @@ static void cxx_complete_defaulted_equality_methods(CxxClass* cls) {
     }
 }
 
-/* Publish ordinary non-virtual member definitions and static member
- * definitions as real functions.  Ordinary members receive the implicit
- * object parameter; static members deliberately do not, and use the normal C
- * call ABI after their qualified source lookup is resolved. */
+/* Publish ordinary non-virtual member declarations and definitions, plus
+ * static member declarations and definitions, as callable functions.
+ * Ordinary members receive the implicit object parameter; static members
+ * deliberately do not, and use the normal C call ABI after their qualified
+ * source lookup is resolved.  A declaration without a body remains an
+ * external reference; the function emitter only defines declarations that
+ * have a body. */
 static void register_ordinary_class_methods(CxxClass* cls) {
     struct CxxMember* member;
     TypeMethod** tail;
@@ -12236,7 +12239,6 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         constructor = method && method->is_constructor
             ? constructor_info_for_method(cls, method) : NULL;
         if (!method || !method->decl || method->member_template ||
-            (!method->decl->func_body && !method->is_pure_virtual) ||
             method->is_deleted ||
             (method->is_defaulted && !method->decl->func_body) ||
             class_has_method_declaration(cls, method->decl) ||
