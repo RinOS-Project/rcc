@@ -3858,7 +3858,8 @@ static Expr* parse_postfix_tail(Expr* e) {
             ExprList* args = NULL;
             if (!check(TOK_RPAREN)) {
                 do {
-                    Expr* arg = parse_assignment();
+                    Expr* arg = parser_cxx_mode && check(TOK_LBRACE)
+                        ? parse_initializer() : parse_assignment();
                     if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
                         if (!arg) {
                             rcc_error(loc,

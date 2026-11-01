@@ -310,6 +310,8 @@ int main() {
         wide_aggregate_third_evaluations != 4) return 50;
     if (sum_wide_array_constructor_argument(
             make_wide_array_constructor_argument()) != 110) return 51;
+    if (sum_wide_array_constructor_argument(
+            {{11, 22, 33, 44}}) != 110) return 52;
 
     return 0;
 }

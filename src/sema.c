@@ -30034,7 +30034,17 @@ static Type* sema_expr(Expr* expr) {
             while (argument) {
                 bool unresolved_function_overload =
                     sema_cxx_is_function_overload_set(argument->expr);
-                if (!arguments_analyzed || unresolved_function_overload) {
+                bool contextual_aggregate_initializer = parameter &&
+                    argument->expr &&
+                    argument->expr->kind == EXPR_COMPOUND &&
+                    !argument->expr->compound_type &&
+                    parameter->type &&
+                    (parameter->type->kind == TYPE_STRUCT ||
+                     parameter->type->kind == TYPE_UNION);
+                if (contextual_aggregate_initializer) {
+                    sema_initializer(parameter->type, argument->expr);
+                } else if (!arguments_analyzed ||
+                           unresolved_function_overload) {
                     Expr* contextual = argument->expr &&
                             argument->expr->kind == EXPR_ADDR
                         ? argument->expr->unary_operand : argument->expr;

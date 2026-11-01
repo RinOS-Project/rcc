@@ -12876,7 +12876,16 @@ remains a separate open item.
       nested C++ braces; semantic analysis resolves each untyped braced list
       after its destination subobject is known. It also passes aggregates
       through an ordinary C++ function and passes sret-returned aggregates
-      directly by value. The focused gate emits verified i686/AMD64 objects
-      with zero fallback.
+      directly by value. Direct by-value function arguments written as
+      `f({{...}})` are parsed and contextually initialized as well. GCC C++20,
+      legacy i686/AMD64 generation and runtime, and verified i686/AMD64 object
+      generation with zero fallback pass.
       Broader aggregate parameter expressions, qualifiers, and nontrivial
       aggregates remain in the open typed-SSA aggregate item.
+
+## C++ list-initialization follow-up
+- [ ] Resolve braced-init-list arguments while building function and constructor
+      overload candidates. Implement candidate viability, initializer-list
+      preference, narrowing checks, and template deduction from list elements;
+      cover ambiguous and invalid calls against GCC C++20 before claiming full
+      list-initialization overload support.
