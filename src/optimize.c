@@ -1953,14 +1953,26 @@ static bool inline_scalar_argument_volatile_read_tree(
     const Expr* expression) {
     if (!expression) return false;
     switch (expression->kind) {
-        case EXPR_IDENT:
-            return expression->ident_decl &&
-                (expression->ident_decl->kind == DECL_VAR ||
-                 expression->ident_decl->kind == DECL_PARAM) &&
-                expression->ident_decl->type &&
-                !expression->ident_decl->type->is_reference &&
-                !expression->ident_decl->type->is_atomic &&
+        case EXPR_IDENT: {
+            const Decl* declaration = expression->ident_decl;
+            Type* declared_type = declaration
+                ? declaration->type : NULL;
+            Type* object_type = declared_type;
+            if (declared_type && declared_type->is_reference) {
+                if (declared_type->kind != TYPE_PTR ||
+                    !declared_type->base ||
+                    declared_type->base->is_reference ||
+                    declared_type->base->is_atomic) {
+                    return false;
+                }
+                object_type = declared_type->base;
+            }
+            return declaration &&
+                (declaration->kind == DECL_VAR ||
+                 declaration->kind == DECL_PARAM) && object_type &&
+                !object_type->is_atomic && type_is_scalar(object_type) &&
                 expression->type && type_is_scalar(expression->type);
+        }
         case EXPR_INT_LIT:
         case EXPR_FLOAT_LIT:
         case EXPR_CHAR_LIT:
@@ -2064,6 +2076,7 @@ static bool inline_scalar_reference_binding_supported(
     Type* argument_type;
     Type unqualified_object;
     Type unqualified_argument;
+    Type* source_object_type;
     const Decl* source;
     if (!parameter_type || !parameter_type->is_reference ||
         parameter_type->kind != TYPE_PTR ||
@@ -2071,19 +2084,35 @@ static bool inline_scalar_reference_binding_supported(
         !argument || argument->kind != EXPR_IDENT ||
         !(source = argument->ident_decl) ||
         (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
-        !source->type || source->type->is_reference ||
-        source->type->is_atomic || !argument->type ||
+        !source->type || source->type->is_atomic || !argument->type ||
         argument->type->is_reference || argument->type->is_atomic) {
         return false;
     }
     object_type = parameter_type->base;
     argument_type = argument->type;
+    source_object_type = source->type;
+    if (source->type->is_reference) {
+        if (source->type->kind != TYPE_PTR || !source->type->base ||
+            source->type->base->is_reference ||
+            source->type->base->is_atomic) {
+            return false;
+        }
+        source_object_type = source->type->base;
+    }
     if (!type_is_scalar(object_type) || !type_is_scalar(argument_type) ||
+        !type_is_scalar(source_object_type) ||
         object_type->size <= 0 || object_type->size > 8 ||
         object_type->size != argument_type->size ||
+        source_object_type->size != argument_type->size ||
+        source_object_type->is_const != argument_type->is_const ||
+        source_object_type->is_volatile != argument_type->is_volatile ||
+        source_object_type->is_restrict != argument_type->is_restrict ||
         (argument_type->is_const && !object_type->is_const) ||
         (argument_type->is_volatile && !object_type->is_volatile) ||
-        (argument_type->is_restrict && !object_type->is_restrict)) {
+        (argument_type->is_restrict && !object_type->is_restrict) ||
+        (source_object_type->is_const && !object_type->is_const) ||
+        (source_object_type->is_volatile && !object_type->is_volatile) ||
+        (source_object_type->is_restrict && !object_type->is_restrict)) {
         return false;
     }
     unqualified_object = *object_type;
@@ -2096,8 +2125,19 @@ static bool inline_scalar_reference_binding_supported(
     unqualified_argument.is_volatile = false;
     unqualified_argument.is_atomic = false;
     unqualified_argument.is_restrict = false;
-    return type_is_compatible_qualified(
-        &unqualified_object, &unqualified_argument);
+    if (!type_is_compatible_qualified(
+            &unqualified_object, &unqualified_argument)) {
+        return false;
+    }
+    {
+        Type unqualified_source = *source_object_type;
+        unqualified_source.is_const = false;
+        unqualified_source.is_volatile = false;
+        unqualified_source.is_atomic = false;
+        unqualified_source.is_restrict = false;
+        return type_is_compatible_qualified(
+            &unqualified_source, &unqualified_argument);
+    }
 }
 
 static Expr* clone_inline_scalar_expression(

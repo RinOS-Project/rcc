@@ -3589,6 +3589,244 @@ static void verify_inline_reference_parameter_address(
     objfile_free(object);
 }
 
+static void verify_frame_dereference_expression(
+    const uint8_t* data, uint64_t start, uint64_t size,
+    uint16_t architecture, int64_t expected_offset) {
+    uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
+    uint64_t cursor = start;
+    uint64_t end = start + size;
+    assert(data && cursor < end && data[cursor++] == frame_register);
+    assert(read_sleb(data, end, &cursor) == expected_offset);
+    assert(cursor + 1u == end && data[cursor] == 0x06u);
+}
+
+static void verify_reference_variable_frame_dereference(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const char* variable_name,
+    uint16_t architecture, int64_t expected_offset) {
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found_variable = false;
+    assert(info && strings && variable_name);
+    for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
+        uint8_t abbreviation = info->data[die];
+        uint32_t name_offset;
+        if (abbreviation != 3u && abbreviation != 4u &&
+            abbreviation != 27u && abbreviation != 39u) {
+            continue;
+        }
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) {
+            continue;
+        }
+        assert(!found_variable);
+        found_variable = true;
+        if (abbreviation != 39u) {
+            uint64_t expression_cursor = die + 21u;
+            uint64_t expression_size = read_uleb(
+                info->data, info->size, &expression_cursor);
+            assert(expression_cursor + expression_size <= info->size);
+            verify_frame_dereference_expression(
+                info->data, expression_cursor, expression_size,
+                architecture, expected_offset);
+        } else {
+            uint64_t cursor = read_u32(info->data, die + 21u);
+            bool saw_entry = false;
+            assert(locations);
+            for (;;) {
+                bool has_start_relocation = false;
+                bool has_end_relocation = false;
+                if (cursor > locations->size ||
+                    address_size * 2u > locations->size - cursor) {
+                    assert(false);
+                }
+                for (const ObjReloc* relocation = locations->relocs;
+                     relocation; relocation = relocation->next) {
+                    if (relocation->offset == cursor) {
+                        has_start_relocation = true;
+                    }
+                    if (relocation->offset == cursor + address_size) {
+                        has_end_relocation = true;
+                    }
+                }
+                if (!has_start_relocation && !has_end_relocation) {
+                    assert(saw_entry);
+                    for (uint64_t byte = cursor;
+                         byte < cursor + address_size * 2u; ++byte) {
+                        assert(locations->data[byte] == 0u);
+                    }
+                    break;
+                }
+                assert(has_start_relocation && has_end_relocation);
+                cursor += address_size * 2u;
+                assert(cursor + 2u <= locations->size);
+                uint64_t expression_size =
+                    (uint64_t)locations->data[cursor] |
+                    ((uint64_t)locations->data[cursor + 1u] << 8u);
+                cursor += 2u;
+                assert(expression_size <= locations->size - cursor);
+                verify_frame_dereference_expression(
+                    locations->data, cursor, expression_size,
+                    architecture, expected_offset);
+                saw_entry = true;
+                cursor += expression_size;
+            }
+        }
+    }
+    assert(found_variable);
+}
+
+static void verify_global_reference_variable_dereference(
+    const ObjSection* info, const ObjSection* strings,
+    uint16_t architecture, const char* variable_name) {
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found_variable = false;
+    assert(info && strings && variable_name);
+    for (uint64_t die = 11u; die + 26u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint64_t expression_offset;
+        uint64_t expression_size;
+        bool found_relocation = false;
+        if (info->data[die] != 9u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) {
+            continue;
+        }
+        assert(!found_variable);
+        found_variable = true;
+        expression_offset = die + 26u;
+        expression_size = read_uleb(
+            info->data, info->size, &expression_offset);
+        assert(expression_size == address_size + 2u &&
+               expression_offset + expression_size <= info->size &&
+               info->data[expression_offset] == 0x03u &&
+               info->data[expression_offset + address_size + 1u] == 0x06u);
+        for (const ObjReloc* relocation = info->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset == expression_offset + 1u &&
+                relocation->type == (architecture == ARCH_X64
+                    ? RELOC_ABS64 : RELOC_ABS32U) &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, variable_name) == 0) {
+                assert(!found_relocation);
+                found_relocation = true;
+            }
+        }
+        assert(found_relocation);
+    }
+    assert(found_variable);
+}
+
+static void verify_inline_reference_parameter_alias(
+    const char* path, uint16_t architecture, const char* call_site_name,
+    const char* source_name, bool global_source) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* locations;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t call_die = UINT64_MAX;
+    assert(object && object->arch == architecture && call_site_name &&
+           source_name);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info && strings);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 4u + 12u <= info->size; ++die) {
+        uint32_t origin;
+        uint32_t name_offset;
+        uint64_t low_pc_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if (origin >= info->size || info->data[origin] != 40u) continue;
+        name_offset = read_u32(info->data, origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_inline_volatile_reference_read") != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == low_pc_offset &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+    }
+    if (call_die == UINT64_MAX) {
+        fprintf(stderr,
+                "missing inlined reference call site '%s' in '%s'\n",
+                call_site_name, path);
+    }
+    assert(call_die != UINT64_MAX);
+    {
+        uint64_t parameter = call_die + 1u + 4u + address_size + 4u + 12u;
+        uint64_t expression_offset = parameter + 5u;
+        uint64_t expression_size;
+        uint64_t expression_end;
+        uint32_t abstract_parameter = read_u32(info->data, call_die + 1u) +
+            27u;
+        assert(info->data[parameter] == 67u &&
+               read_u32(info->data, parameter + 1u) == abstract_parameter);
+        expression_size = read_uleb(
+            info->data, info->size, &expression_offset);
+        expression_end = expression_offset + expression_size;
+        assert(expression_end <= info->size);
+        if (global_source) {
+            uint64_t relocation_offset;
+            bool found_relocation = false;
+            assert(expression_size == address_size + 2u &&
+                   info->data[expression_offset] == 0x03u &&
+                   info->data[expression_offset + address_size + 1u] ==
+                       0x06u);
+            relocation_offset = expression_offset + 1u;
+            for (uint64_t byte = 0u; byte < address_size; ++byte) {
+                assert(info->data[relocation_offset + byte] == 0u);
+            }
+            for (const ObjReloc* relocation = info->relocs;
+                 relocation; relocation = relocation->next) {
+                if (relocation->offset == relocation_offset &&
+                    relocation->type == (architecture == ARCH_X64
+                        ? RELOC_ABS64 : RELOC_ABS32U) &&
+                    relocation->symbol_name &&
+                    strcmp(relocation->symbol_name, source_name) == 0) {
+                    assert(!found_relocation);
+                    found_relocation = true;
+                }
+            }
+            assert(found_relocation);
+            verify_global_reference_variable_dereference(
+                info, strings, architecture, source_name);
+        } else {
+            bool has_location = false;
+            bool is_location_list = false;
+            int64_t frame_offset = 0;
+            assert(find_variable_location(
+                info, strings, locations, source_name, architecture,
+                &has_location, &is_location_list, &frame_offset));
+            assert(has_location);
+            verify_frame_dereference_expression(
+                info->data, expression_offset, expression_size,
+                architecture, frame_offset);
+            verify_reference_variable_frame_dereference(
+                info, strings, locations, source_name, architecture,
+                frame_offset);
+        }
+    }
+    objfile_free(object);
+}
+
 static void verify_inline_parameter_address_constant(
     const ObjSection* info, uint64_t call_die, uint16_t architecture,
     const char* symbol_name, int64_t expected_addend) {
@@ -10041,8 +10279,9 @@ static void verify_inline_i686_static_local_division(
         if (parameter_die == UINT64_MAX) {
             fprintf(stderr,
                     "static-local inline parameter missing: call=%s "
-                    "children=[%llu,%llu)\n",
-                    call_site_name, (unsigned long long)children_begin,
+                    "path=%s children=[%llu,%llu)\n",
+                    call_site_name, path,
+                    (unsigned long long)children_begin,
                     (unsigned long long)children_end);
         }
         assert(parameter_die != UINT64_MAX);
@@ -18808,6 +19047,25 @@ int main(int argc, char** argv)
             "signed_wide_parameter", "stable_signed_wide_input",
             "debug_inline_mutated_signed_wide_parameter_entry", 3u, false,
             true, true, true);
+        return 0;
+    }
+    if (argc == 6 &&
+        strcmp(argv[1], "--verify-inline-reference-alias") == 0) {
+        const char* paths[] = {argv[2], argv[3], argv[4], argv[5]};
+        const uint16_t architectures[] = {
+            ARCH_X86, ARCH_X64, ARCH_X86, ARCH_X64
+        };
+        for (size_t index = 0u;
+             index < sizeof(paths) / sizeof(paths[0]); ++index) {
+            verify_inline_reference_parameter_alias(
+                paths[index], architectures[index],
+                "debug_inline_volatile_reference_global_alias_entry",
+                "debug_inline_volatile_reference_global_alias", true);
+            verify_inline_reference_parameter_alias(
+                paths[index], architectures[index],
+                "debug_inline_volatile_reference_local_alias_entry",
+                "debug_inline_volatile_reference_local_alias", false);
+        }
         return 0;
     }
     if (argc == 10 &&

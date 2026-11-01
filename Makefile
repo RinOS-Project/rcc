@@ -2881,6 +2881,28 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		-fverified-backend -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x64-inline-g.ro \
 		tests/debug_info_inline_integer.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/cxx-reference-alias-x86.ro \
+		tests/debug_info_inline_reference_alias.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/cxx-reference-alias-x64.ro \
+		tests/debug_info_inline_reference_alias.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.ro \
+		tests/debug_info_inline_reference_alias.cpp \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.ro \
+		tests/debug_info_inline_reference_alias.cpp \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86.ro \
@@ -2910,6 +2932,12 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/debug-info-inline-expression/cxx-enum-x64-inline-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x86-inline-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x64-inline-g.ro
+	$(TEST_OUT)/debug-info-inline-expression/verify \
+		--verify-inline-reference-alias \
+		$(TEST_OUT)/debug-info-inline-expression/cxx-reference-alias-x86.ro \
+		$(TEST_OUT)/debug-info-inline-expression/cxx-reference-alias-x64.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.ro
 	$(TEST_OUT)/debug-info-inline-expression/verify \
 		--verify-inline-mutated-parameter \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86.ro \

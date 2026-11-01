@@ -2066,7 +2066,11 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
         (codegen_static_integer(initializer, &integer) && integer == 0)) {
         return true;
     }
-    if (!codegen_static_address(mod, initializer, &symbol_name, &addend)) {
+    if (!(type->is_reference
+              ? codegen_static_lvalue_address(
+                    mod, initializer, &symbol_name, &addend)
+              : codegen_static_address(
+                    mod, initializer, &symbol_name, &addend))) {
         return false;
     }
 

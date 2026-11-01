@@ -12071,7 +12071,7 @@ remains a separate open item.
       arithmetic-right-shift values in legacy and verified C++20 objects.
       Focused `test-debug-info-inline-expression` and full `test-debug-info`
       gates passed under WSL2 Ubuntu-24.04.
-- [ ] Atomic operands, reference chains/indirect sources, wider computed
+- [ ] Atomic operands, deeper reference chains/indirect sources, wider computed
       signed trees, and broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, volatile lvalue-reference inline DWARF)
@@ -12082,7 +12082,8 @@ remains a separate open item.
       (`ABS32U`/`ABS64`, `TLSOFF32S`, or frame-base expression). Verify the
       symbol and expression in i686/x64 legacy and verified C++20 objects with
       `test-debug-info-inline-expression`.
-- [ ] Atomic operands, reference chains/indirect sources, i686 computed
+- [ ] Atomic operands, reference chains beyond one lvalue alias indirection,
+      i686 computed
       signed trees, and broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, signed x64 computed-global DWARF)
@@ -13043,3 +13044,17 @@ remains a separate open item.
       C23 `BITINT_MAXWIDTH`. Current supported C++20 integer types and C23
       `_BitInt` widths are capped at 64 bits; the standard 64-bit upper-bound
       narrowing cases are covered above.
+
+## RCC continuation (2026-11-01, reference-alias inline DWARF)
+
+- [x] Inline the read-only scalar lvalue-reference case when the actual
+      argument is a one-hop lvalue-reference alias whose referent type and
+      cv-qualification match the expression. Preserve the single volatile
+      read, emit `DW_OP_deref` for global reference storage and automatic
+      reference slots, and represent both variables' DWARF locations as the
+      referred-to object. Support constant static initialization of a global
+      reference and typed-SSA loading of its stored pointer. Verify relocation,
+      frame slot, and call-site parameter expressions for i686/x64 legacy and
+      verified C++20 objects; both targets emit three verified functions with
+      zero fallback. `test-debug-info-inline-expression` and
+      `test-debug-info` pass.

@@ -3025,7 +3025,10 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 (!declaration->var_is_global &&
                  !declaration->var_is_static_local) ||
                 !declaration->type || declaration->type->size <= 0 ||
-                declaration->type->is_reference ||
+                (declaration->type->is_reference &&
+                 (declaration->type->kind != TYPE_PTR ||
+                  !declaration->type->base ||
+                  declaration->type->base->is_reference)) ||
                 declaration->type->cleanup_function ||
                 (declaration->var_is_static_local &&
                  !lower_static_local_dynamic_scalar_supported(declaration) &&
@@ -3050,6 +3053,15 @@ static RccIrLowerValue lower_lvalue_address_impl(
             if (!address) return lower_invalid_value();
             rcc_ir_set_callee(address, decl_link_name(declaration));
             address->symbol_is_tls = declaration->var_is_thread_local;
+            if (declaration->type->is_reference) {
+                RccIrValue slot = address->result;
+                RccIrInstruction* reference = lower_append(
+                    context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+                    &slot, 1u, NULL, 0u);
+                if (!reference) return lower_invalid_value();
+                return lower_value(
+                    reference->result, rcc_ir_type_pointer(0u), true);
+            }
             return lower_value(
                 address->result, rcc_ir_type_pointer(0u), true);
         }

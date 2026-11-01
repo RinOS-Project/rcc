@@ -2891,6 +2891,25 @@ static void debug_expr_addr(ObjectFile* obj, ObjSection* info,
                       address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U, 0);
 }
 
+static void debug_expr_addr_dereference(
+    ObjectFile* obj, ObjSection* info, int info_section,
+    const char* symbol, int architecture, bool is_tls) {
+    uint64_t expression_size_offset;
+    if (!info) {
+        rcc_fatal("DWARF indirect address expression has no section");
+        return;
+    }
+    expression_size_offset = info->size;
+    debug_expr_addr(obj, info, info_section, symbol, architecture, is_tls);
+    if (info->size <= expression_size_offset ||
+        info->data[expression_size_offset] >= 0x7fu) {
+        rcc_fatal("DWARF indirect address expression has an invalid length");
+        return;
+    }
+    ++info->data[expression_size_offset];
+    section_add_byte(info, 0x06u); /* DW_OP_deref */
+}
+
 static void debug_expr_member_location(ObjSection* info, int offset) {
     uint64_t value = offset < 0 ? 0u : (uint64_t)offset;
     debug_line_uleb(info, 2u);
@@ -2982,7 +3001,8 @@ static void debug_emit_variable_die(
         location_list_offset = debug_emit_location_list(
             obj, mod, filename, function, location_scope,
             declaration_statement, architecture, frame_offset,
-            frame_alignment, declaration->var_is_vla,
+            frame_alignment, declaration->var_is_vla ||
+                declaration->type->is_reference,
             &empty_location_list);
         if (empty_location_list) {
             has_frame_location = false;
@@ -3035,7 +3055,8 @@ static void debug_emit_variable_die(
         debug_line_u32(info, location_list_offset);
     } else if (has_frame_location) {
         debug_expr_breg(info, architecture, frame_offset, frame_alignment,
-                        declaration->var_is_vla);
+                        declaration->var_is_vla ||
+                            declaration->type->is_reference);
     } else if (has_constant_value) {
         if (declaration->var_debug_const_value_float) {
             section_add_byte(info, floating_constant_size);
@@ -3088,8 +3109,14 @@ static void debug_emit_global_variable_die(
         scoped_name = module_scoped_symbol(filename, symbol->name);
         symbol_name = scoped_name;
     }
-    debug_expr_addr(obj, info, info_section, symbol_name, architecture,
-                    declaration->var_is_thread_local);
+    if (declaration->type->is_reference) {
+        debug_expr_addr_dereference(
+            obj, info, info_section, symbol_name, architecture,
+            declaration->var_is_thread_local);
+    } else {
+        debug_expr_addr(obj, info, info_section, symbol_name, architecture,
+                        declaration->var_is_thread_local);
+    }
     rcc_free(scoped_name);
 }
 
@@ -15050,7 +15077,8 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     const Decl* callee,
     const ModuleDebugInlineParameterValue* value,
     const ExprList* argument, char** scoped_symbol,
-    bool* frame_based, int64_t* frame_offset) {
+    bool* frame_based, int64_t* frame_offset,
+    bool* dereference_source) {
     const Decl* parameter;
     const Decl* source;
     const ModuleSymbol* symbol;
@@ -15062,8 +15090,10 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     if (scoped_symbol) *scoped_symbol = NULL;
     if (frame_based) *frame_based = false;
     if (frame_offset) *frame_offset = 0;
+    if (dereference_source) *dereference_source = false;
     if (!mod || !value || !value->declaration || !argument ||
-        !argument->expr || argument->cxx_temporary_owner || !scoped_symbol) {
+        !argument->expr || argument->cxx_temporary_owner || !scoped_symbol ||
+        !dereference_source) {
         return NULL;
     }
     parameter = value->declaration;
@@ -15072,8 +15102,7 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     parameter_object_type = parameter_type;
     if (reference_parameter) {
         if (parameter_type->kind != TYPE_PTR ||
-            parameter_type->is_rvalue_reference || !parameter_type->base ||
-            parameter_type->base->is_reference) {
+            !parameter_type->base || parameter_type->base->is_reference) {
             return NULL;
         }
         parameter_object_type = parameter_type->base;
@@ -15099,6 +15128,18 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
         return NULL;
     }
     source = source_expression->ident_decl;
+    if (reference_parameter && source->type &&
+        source->type->is_reference) {
+        if (source->type->kind != TYPE_PTR || !source->type->base ||
+            source->type->base->is_reference ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                parameter_object_type, source->type->base, 0u)) {
+            return NULL;
+        }
+        *dereference_source = true;
+    } else if (source->type && source->type->is_reference) {
+        return NULL;
+    }
     if (parameter->kind != DECL_PARAM ||
         (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
         !parameter_type || !parameter_object_type || !argument_type ||
@@ -15118,9 +15159,7 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
         source_expression->type->is_atomic ||
         (!reference_parameter &&
          (parameter_object_type->is_volatile || argument_type->is_volatile ||
-          source_expression->type->is_volatile)) ||
-        (reference_parameter && source->type &&
-         source->type->is_reference)) {
+          source_expression->type->is_volatile))) {
         return NULL;
     }
     if (!debug_inline_parameter_body_is_read_only(callee)) return NULL;
@@ -15995,6 +16034,7 @@ static void debug_emit_inline_parameter_instances(
         const ModuleSymbol* source_symbol;
         char* scoped_source_symbol = NULL;
         bool source_frame_based = false;
+        bool source_indirect = false;
         int64_t source_frame_offset = 0;
         int64_t source_frame_address_offset = 0;
         int64_t source_frame_address_addend = 0;
@@ -16649,20 +16689,27 @@ static void debug_emit_inline_parameter_instances(
             source_symbol = debug_inline_parameter_source_symbol(
                 mod, filename, call->callee, value, argument,
                 &scoped_source_symbol, &source_frame_based,
-                &source_frame_offset);
+                &source_frame_offset, &source_indirect);
             if (source_symbol || source_frame_based) {
                 section_add_byte(info, 67u);
                 debug_line_u32(info, origin->die_offset);
                 if (source_symbol) {
                     const char* relocation_symbol = scoped_source_symbol
                         ? scoped_source_symbol : source_symbol->name;
-                    debug_expr_addr(
-                        obj, info, info_section, relocation_symbol,
-                        architecture,
-                        source_symbol->section == MODULE_SYMBOL_TLS);
+                    if (source_indirect) {
+                        debug_expr_addr_dereference(
+                            obj, info, info_section, relocation_symbol,
+                            architecture,
+                            source_symbol->section == MODULE_SYMBOL_TLS);
+                    } else {
+                        debug_expr_addr(
+                            obj, info, info_section, relocation_symbol,
+                            architecture,
+                            source_symbol->section == MODULE_SYMBOL_TLS);
+                    }
                 } else {
                     debug_expr_breg(info, architecture, source_frame_offset,
-                                    0u, false);
+                                    0u, source_indirect);
                 }
                 rcc_free(scoped_source_symbol);
             }
