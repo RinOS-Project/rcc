@@ -1,9 +1,7 @@
 #ifndef RCC_STDATOMIC_H
 #define RCC_STDATOMIC_H
 
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
 #define __STDC_VERSION_STDATOMIC_H__ 202311L
-#endif
 
 /* This RinOS C17 surface provides lock-free arithmetic and bitwise operations
  * for 8/16/32/64-bit integer storage on both targets. i686 64-bit operations
