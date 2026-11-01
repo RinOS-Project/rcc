@@ -2847,8 +2847,13 @@
         pieces for the initial value and each mutation interval; lower wide
         expressions with their inline call and statement provenance intact.
         Evaluate all three ranges for eight carry/wrap boundary inputs in the
-        verified backend through `test-debug-info-inline-expression` (6
+        verified backend through `test-debug-info-inline-expression` (8
         functions emitted, zero fallback).
+  - [x] Extend the same i686 location tracking to signed 64-bit inline
+        parameters. Evaluate all three intervals at eight positive, negative,
+        and 32-bit carry-boundary inputs that stay within signed range;
+        verified i686 and x64 builds emit eight functions with zero fallback.
+        `test-debug-info-inline-expression` passes.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
