@@ -3575,7 +3575,16 @@ static bool gen64_compiler_overflow_predicate(
     operation = strcmp(name, "__builtin_add_overflow_p") == 0 ? 0
         : strcmp(name, "__builtin_sub_overflow_p") == 0 ? 1 : 2;
 
-    gen64_expr(mod, precision_expression);
+    /* The third argument contributes its type, not its value. Preserve
+     * lvalue-designator side effects without loading a non-volatile object;
+     * this also permits an uninitialized result-typed lvalue here. */
+    if (gen64_expr_is_lvalue(precision_expression) &&
+        precision_expression->type &&
+        !precision_expression->type->is_volatile) {
+        gen64_lvalue(mod, precision_expression);
+    } else {
+        gen64_expr(mod, precision_expression);
+    }
     emit64_sub_reg_imm(mod, RSP, 32);
     gen64_expr(mod, rhs);
     emit64_normalize_atomic_value(mod, RAX, rhs->type);

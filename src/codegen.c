@@ -14444,7 +14444,16 @@ static bool gen_compiler_overflow_predicate32(Module* mod, Expr* expr,
     operation = strcmp(name, "__builtin_add_overflow_p") == 0 ? 0
         : strcmp(name, "__builtin_sub_overflow_p") == 0 ? 1 : 2;
 
-    gen_expr(mod, precision_expression);
+    /* The third argument contributes its type, not its value. Preserve
+     * lvalue-designator side effects without loading a non-volatile object;
+     * this also permits an uninitialized result-typed lvalue here. */
+    if (gen_expr_is_lvalue(precision_expression) &&
+        precision_expression->type &&
+        !precision_expression->type->is_volatile) {
+        gen_lvalue(mod, precision_expression);
+    } else {
+        gen_expr(mod, precision_expression);
+    }
     emit_mov_reg_imm(mod, EAX, result_type->is_unsigned ? 1u : 0u);
     emit_push_reg(mod, EAX); /* Result signedness. */
     emit_mov_reg_imm(mod, EAX, precision);

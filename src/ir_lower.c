@@ -1211,6 +1211,8 @@ static bool lower_prepare_label_phis(
 
 static RccIrLowerValue lower_truth(RccIrLowerContext* context,
                                    RccIrLowerValue source);
+static RccIrLowerValue lower_truth_expression(
+    RccIrLowerContext* context, const Expr* expression);
 static RccIrLowerValue lower_float_constant(
     RccIrLowerContext* context, Type* type, double value);
 
@@ -2665,10 +2667,84 @@ static bool lower_static_volatile_aggregate_supported(
         &unqualified_type, 0u);
 }
 
+static RccIrLowerValue lower_conditional_lvalue_address(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerValue condition;
+    RccIrLowerValue arm_values[2];
+    RccIrBlock* arm_blocks[2];
+    RccIrBlock* merge_block;
+    RccIrBlock* end_blocks[2];
+    RccIrValue operands[2];
+    RccIrBlockId targets[2];
+    RccIrInstruction* phi;
+
+    if (!context || !expression || expression->kind != EXPR_COND ||
+        !expression->cxx_conditional_lvalue || !expression->cond_then ||
+        !expression->cond_else) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    condition = lower_truth_expression(context, expression->cond_test);
+    if (!condition.valid) return lower_invalid_value();
+    arm_blocks[0] = rcc_ir_block_add(
+        context->function, "cond.lvalue.then");
+    arm_blocks[1] = rcc_ir_block_add(
+        context->function, "cond.lvalue.else");
+    merge_block = rcc_ir_block_add(context->function, "cond.lvalue.end");
+    if (!arm_blocks[0] || !arm_blocks[1] || !merge_block ||
+        !lower_conditional_branch(context, condition, arm_blocks[0]->id,
+                                  arm_blocks[1]->id)) {
+        return lower_invalid_value();
+    }
+
+    for (unsigned index = 0u; index < 2u; ++index) {
+        const Expr* arm = index == 0u
+            ? expression->cond_then : expression->cond_else;
+        context->current = arm_blocks[index];
+        context->terminated = false;
+        arm_values[index] = lower_lvalue_address(context, arm);
+        if (!arm_values[index].valid ||
+            arm_values[index].type.kind != RCC_IR_TYPE_POINTER ||
+            context->terminated ||
+            !lower_branch(context, merge_block->id)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        end_blocks[index] = context->current;
+    }
+
+    context->current = merge_block;
+    context->terminated = false;
+    operands[0] = arm_values[0].value;
+    operands[1] = arm_values[1].value;
+    targets[0] = end_blocks[0]->id;
+    targets[1] = end_blocks[1]->id;
+    phi = lower_append(context, RCC_IR_PHI, rcc_ir_type_pointer(0u),
+                       operands, 2u, targets, 2u);
+    if (!phi) return lower_invalid_value();
+    return lower_value(phi->result, rcc_ir_type_pointer(0u), true);
+}
+
 static RccIrLowerValue lower_lvalue_address_impl(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
     if (!expression) return lower_invalid_value();
+    if (expression->kind == EXPR_COMMA) {
+        if (!rcc_parser_is_cxx_mode()) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        RccIrLowerValue discarded = lower_expression(
+            context, expression->binary_lhs);
+        if (!discarded.valid || context->unsupported) {
+            return lower_invalid_value();
+        }
+        return lower_lvalue_address(context, expression->binary_rhs);
+    }
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_lvalue) {
+        return lower_conditional_lvalue_address(context, expression);
+    }
     if (expression->kind == EXPR_CALL && expression->call_method &&
         expression->call_method->return_type &&
         expression->call_method->return_type->is_reference &&
@@ -11429,6 +11505,46 @@ static bool lower_receiver_source_contains_subobject(
     return saw_subobject_projection && current == receiver_source;
 }
 
+static bool lower_expression_is_lvalue(const Expr* expression) {
+    if (!expression) return false;
+    if (expression->kind == EXPR_CAST && expression->type &&
+        expression->type->is_reference &&
+        !expression->type->is_rvalue_reference &&
+        (expression->cxx_cast_kind == CXX_CAST_NONE ||
+         expression->cxx_cast_kind == CXX_CAST_STATIC ||
+         expression->cxx_cast_kind == CXX_CAST_CONST ||
+         expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
+        return lower_expression_is_lvalue(expression->cast_expr);
+    }
+    switch (expression->kind) {
+        case EXPR_IDENT:
+        case EXPR_DEREF:
+        case EXPR_INDEX:
+        case EXPR_PTR_MEMBER:
+        case EXPR_CXX_TYPEID:
+            return true;
+        case EXPR_COMPOUND:
+            return !rcc_parser_is_cxx_mode();
+        case EXPR_STRING_LIT:
+            return rcc_parser_is_cxx_mode();
+        case EXPR_MEMBER:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            return !expression->cxx_member_xvalue;
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return true;
+        case EXPR_COND:
+            return expression->cxx_conditional_lvalue;
+        case EXPR_COMMA:
+            return rcc_parser_is_cxx_mode() &&
+                   lower_expression_is_lvalue(expression->binary_rhs);
+        case EXPR_CALL:
+            return expression->type && expression->type->is_reference &&
+                   !expression->type->is_rvalue_reference;
+        default:
+            return false;
+    }
+}
+
 static RccIrLowerValue lower_builtin_overflow_p(
     RccIrLowerContext* context, const Expr* expression,
     const char* name) {
@@ -11479,7 +11595,12 @@ static RccIrLowerValue lower_builtin_overflow_p(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    ignored_third = lower_expression(context, third->expr);
+    if (lower_expression_is_lvalue(third->expr) &&
+        third->expr->type && !third->expr->type->is_volatile) {
+        ignored_third = lower_lvalue_address(context, third->expr);
+    } else {
+        ignored_third = lower_expression(context, third->expr);
+    }
     if (!ignored_third.valid) {
         context->unsupported = true;
         return lower_invalid_value();
