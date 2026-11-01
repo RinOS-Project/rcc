@@ -34714,6 +34714,8 @@ static bool sema_cxx_reject_list_narrowing(Type* destination,
     if (!sema_cxx_list_narrowing_conversion(destination, initializer)) {
         return false;
     }
+    if (initializer->cxx_list_narrowing_diagnostic_emitted) return true;
+    initializer->cxx_list_narrowing_diagnostic_emitted = true;
     rcc_error(initializer->loc,
               "narrowing conversion in C++ list initialization");
     return true;

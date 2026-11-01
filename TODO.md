@@ -27,6 +27,12 @@
   at the local list object's scope exit. GCC C++20, i686/AMD64 assembly and
   `.ro` generation, AMD64 runtime parity, and narrowing rejection/no-object
   checks pass in `test-cxx-initializer-list`.
+- [x] Emit one narrowing diagnostic per C++ list-initializer expression when
+  constructor candidate analysis revisits it. Verify that a preferred
+  `std::initializer_list<int>` constructor is selected over a `double`
+  constructor and then rejected for narrowing, with one diagnostic per invalid
+  expression and no object on i686/AMD64. GCC C++20 and RCC counts pass in
+  `test-cxx-initializer-list`.
 - [x] Deduce function-template `T` from `std::initializer_list<T>` braced
   arguments and constructor-template parameters from list elements, including
   initializer-list and ordinary constructor templates. GCC C++20 and RCC

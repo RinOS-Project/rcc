@@ -756,6 +756,9 @@ struct Expr {
     /* Overload resolution may revisit a failed call while propagating its
      * error type. Emit the call's primary overload diagnostic only once. */
     bool cxx_overload_failure_diagnostic_emitted;
+    /* List-initialization analysis can revisit one narrowing conversion while
+     * resolving constructor candidates. Report that source-level error once. */
+    bool cxx_list_narrowing_diagnostic_emitted;
     bool is_deprecated_enumerator;
     const char* deprecated_enumerator_name;
     const char* deprecated_enumerator_message;
