@@ -670,7 +670,7 @@ endif
 .PHONY: test-cxx-legacy-nothrow-constructor
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
-.PHONY: test-cxx-designated-initializer
+.PHONY: test-cxx-designated-initializer test-cxx-list-narrowing
 .PHONY: test-cxx-utf8-literals test-cxx-wide-literals
 .PHONY: test-c-wide-literals test-wide-literal-rin-format \
 	test-c-numeric-escape-ranges test-cxx-numeric-escape-ranges
@@ -1229,6 +1229,7 @@ endif
 CXX_REGRESSION_TARGETS += test-array-to-void-pointer
 CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
 CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
+CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the
@@ -2924,6 +2925,54 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
+
+test-cxx-list-narrowing: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-list-narrowing)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-list-narrowing/gcc-host \
+		tests/cxx_list_narrowing.cpp
+	$(TEST_OUT)/cxx-list-narrowing/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-list-narrowing/x86.s \
+		tests/cxx_list_narrowing.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-list-narrowing/x86.o \
+		$(TEST_OUT)/cxx-list-narrowing/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-list-narrowing/x64.s \
+		tests/cxx_list_narrowing.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-list-narrowing/x64.o \
+		$(TEST_OUT)/cxx-list-narrowing/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-list-narrowing/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-list-narrowing/x64-host \
+		tests/cxx_list_narrowing_run_test.c \
+		$(TEST_OUT)/cxx-list-narrowing/x64.o
+	$(TEST_OUT)/cxx-list-narrowing/x64-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_list_narrowing_invalid.cpp, \
+		$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log)
+	$(GREP) -F -q "narrowing conversion" \
+		$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log
+	$(call CHECK_COUNT,narrowing conversion,$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log,11)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro \
+		tests/cxx_list_narrowing_invalid.cpp, \
+		$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log)
+	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
+		$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log
+	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log,11)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro \
+		tests/cxx_list_narrowing_invalid.cpp, \
+		$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log)
+	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
+		$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log
+	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log,11)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro)
+	@echo "C++ list-initialization narrowing tests completed"
 
 test-cxx-defaulted-equality: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-defaulted-equality)

@@ -5087,7 +5087,9 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         return false;
     }
     gen64_expr(mod, initializer);
-    if (type_is_integer(type) || type->kind == TYPE_ENUM) {
+    if (gen64_is_floating(type)) {
+        gen64_convert_to_float(mod, initializer->type, type);
+    } else if (type_is_integer(type) || type->kind == TYPE_ENUM) {
         emit64_normalize_atomic_value(mod, RAX, type);
     }
     emit64_store_typed(mod, RBP, displacement, RAX, type);

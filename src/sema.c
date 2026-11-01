@@ -33781,6 +33781,206 @@ static void normalize_designated_brace_elision(Type* type,
     initializer->compound_init = normalized;
 }
 
+static Type* sema_cxx_list_integer_type(Type* type) {
+    if (type && type->kind == TYPE_ENUM && type->enum_underlying_type) {
+        return type->enum_underlying_type;
+    }
+    return type;
+}
+
+static bool sema_cxx_integer_constant_fits_list_target(
+    Expr* expression, Type* source, Type* target) {
+    uint64_t bits;
+    bool value_is_unsigned;
+    unsigned source_width = type_integer_width(source);
+    unsigned target_width = type_integer_width(target);
+    bool source_unsigned = source->kind == TYPE_BOOL || source->is_unsigned;
+    bool target_unsigned = target->kind == TYPE_BOOL || target->is_unsigned;
+    int64_t signed_value;
+
+    if (!source_width || !target_width || source_width > 64u ||
+        !rcc_sema_eval_constexpr_integer_value(
+            expression, &bits, &value_is_unsigned)) {
+        return false;
+    }
+    source_unsigned = source_unsigned || value_is_unsigned;
+    if (source_unsigned) {
+        signed_value = 0;
+    } else {
+        if (source_width < 64u &&
+            (bits & (UINT64_C(1) << (source_width - 1u)))) {
+            bits |= UINT64_MAX << source_width;
+        }
+        signed_value = (int64_t)bits;
+    }
+
+    if (target_unsigned) {
+        uint64_t maximum;
+        if (!source_unsigned && signed_value < 0) return false;
+        if (target_width >= 64u) return true;
+        maximum = (UINT64_C(1) << target_width) - 1u;
+        return bits <= maximum;
+    }
+    if (target_width > 64u) return true;
+    if (target_width == 64u) {
+        return source_unsigned ? bits <= (uint64_t)INT64_MAX : true;
+    }
+    {
+        int64_t maximum = (INT64_C(1) << (target_width - 1u)) - 1;
+        int64_t minimum = -maximum - 1;
+        if (source_unsigned) return bits <= (uint64_t)maximum;
+        return signed_value >= minimum && signed_value <= maximum;
+    }
+}
+
+static bool sema_cxx_integer_exact_in_floating_type(
+    Expr* expression, Type* source, Type* target) {
+    uint64_t bits;
+    bool value_is_unsigned;
+    uint64_t magnitude;
+    uint64_t shifted;
+    unsigned precision;
+    unsigned significant_bits = 0;
+    unsigned trailing_zero_bits = 0;
+    unsigned width = type_integer_width(source);
+    bool source_unsigned = source->kind == TYPE_BOOL || source->is_unsigned;
+
+    if (target->kind == TYPE_FLOAT) {
+        precision = 24u;
+    } else {
+        /* RinOS long double has the same binary64 precision as double. */
+        precision = 53u;
+    }
+    if (!width || width > 64u ||
+        !rcc_sema_eval_constexpr_integer_value(
+            expression, &bits, &value_is_unsigned)) {
+        return false;
+    }
+    source_unsigned = source_unsigned || value_is_unsigned;
+    if (source_unsigned ||
+        !(bits & (UINT64_C(1) << (width - 1u)))) {
+        magnitude = bits;
+    } else {
+        if (width < 64u) bits |= UINT64_MAX << width;
+        magnitude = (uint64_t)(-((int64_t)bits + 1)) + 1u;
+    }
+    if (!magnitude) return true;
+    shifted = magnitude;
+    while (shifted) {
+        ++significant_bits;
+        shifted >>= 1u;
+    }
+    shifted = magnitude;
+    while ((shifted & 1u) == 0u) {
+        ++trailing_zero_bits;
+        shifted >>= 1u;
+    }
+    return significant_bits - trailing_zero_bits <= precision;
+}
+
+static int sema_cxx_floating_rank(const Type* type) {
+    if (!type || !type_is_floating((Type*)type)) return 0;
+    if (type->is_long_double) return 3;
+    return type->kind == TYPE_DOUBLE ? 2 : 1;
+}
+
+static bool sema_cxx_list_narrowing_conversion(Type* destination,
+                                                Expr* initializer) {
+    Type* source;
+    Type* target;
+    Type* integer_source;
+    Type* integer_target;
+    if (!rcc_parser_is_cxx_mode() || !destination || !initializer ||
+        initializer->kind == EXPR_COMPOUND) {
+        return false;
+    }
+    source = sema_expr(initializer);
+    target = destination;
+    if (!source) return false;
+    if (source->kind == TYPE_PTR && source->is_reference) {
+        source = source->base;
+    }
+    if (target->kind == TYPE_PTR && target->is_reference) {
+        target = target->base;
+    }
+    if (!source || !target) return false;
+    if ((source->kind == TYPE_PTR || type_is_array(source) ||
+         type_is_function(source)) && target->kind == TYPE_BOOL) {
+        return true;
+    }
+    if (type_is_floating(source) &&
+        (type_is_integer(target) || target->kind == TYPE_ENUM)) {
+        return true;
+    }
+    integer_source = sema_cxx_list_integer_type(source);
+    integer_target = sema_cxx_list_integer_type(target);
+    if ((type_is_integer(integer_source) ||
+         integer_source->kind == TYPE_ENUM) &&
+        (type_is_integer(integer_target) ||
+         integer_target->kind == TYPE_ENUM)) {
+        unsigned source_width = type_integer_width(integer_source);
+        unsigned target_width = type_integer_width(integer_target);
+        bool source_unsigned = integer_source->kind == TYPE_BOOL ||
+                               integer_source->is_unsigned;
+        bool target_unsigned = integer_target->kind == TYPE_BOOL ||
+                               integer_target->is_unsigned;
+        bool whole_range_fits = source_width && target_width &&
+            (source_unsigned
+                ? (target_unsigned ? source_width <= target_width
+                                   : source_width < target_width)
+                : (!target_unsigned && source_width <= target_width));
+        return !whole_range_fits &&
+            !sema_cxx_integer_constant_fits_list_target(
+                initializer, integer_source, integer_target);
+    }
+    if ((type_is_integer(source) || source->kind == TYPE_ENUM) &&
+        type_is_floating(target)) {
+        return !sema_cxx_integer_exact_in_floating_type(
+            initializer, sema_cxx_list_integer_type(source), target);
+    }
+    if (type_is_floating(source) && type_is_floating(target) &&
+        sema_cxx_floating_rank(target) < sema_cxx_floating_rank(source)) {
+        double value;
+        Type* constant_type = NULL;
+        if (!rcc_sema_eval_constexpr_floating_constant(
+                initializer, &value, &constant_type)) {
+            return true;
+        }
+        if (target->kind == TYPE_FLOAT) {
+            float converted = (float)value;
+            return isfinite(value) && !isfinite(converted);
+        }
+        /* RinOS long double is binary64, so conversion to double preserves
+         * every value represented by that source type. */
+        return false;
+    }
+    return false;
+}
+
+static bool sema_cxx_reject_list_narrowing(Type* destination,
+                                           Expr* initializer) {
+    if (!sema_cxx_list_narrowing_conversion(destination, initializer)) {
+        return false;
+    }
+    rcc_error(initializer->loc,
+              "narrowing conversion in C++ list initialization");
+    return true;
+}
+
+static bool sema_cxx_reject_constructor_list_narrowing(
+    CxxConstructorInfo* constructor, ExprList* arguments) {
+    bool rejected = false;
+    TypeParam* parameter = constructor ? constructor->parameters : NULL;
+    for (; parameter && arguments;
+         parameter = parameter->next, arguments = arguments->next) {
+        if (sema_cxx_reject_list_narrowing(parameter->type,
+                                           arguments->expr)) {
+            rejected = true;
+        }
+    }
+    return rejected;
+}
+
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
@@ -34034,6 +34234,12 @@ static void sema_initializer(Type* type, Expr* initializer) {
         initializer->compound_constructor = sema_select_cxx_new_constructor_ex(
             type, &constructor_arguments, initializer->loc,
             !initializer->compound_copy_init);
+        if (!initializer->compound_paren_init &&
+            initializer->compound_constructor) {
+            (void)sema_cxx_reject_constructor_list_narrowing(
+                initializer->compound_constructor,
+                initializer->compound_init);
+        }
         if (!initializer->compound_constructor) {
             rcc_error(initializer->loc,
                       "no safely lowerable constructor accepts the C++ initializer");
@@ -34074,6 +34280,12 @@ static void sema_initializer(Type* type, Expr* initializer) {
         }
         initializer->compound_constructor = sema_select_cxx_new_constructor(
             type, &constructor_arguments, initializer->loc);
+        if (!initializer->compound_paren_init &&
+            initializer->compound_constructor) {
+            (void)sema_cxx_reject_constructor_list_narrowing(
+                initializer->compound_constructor,
+                initializer->compound_init);
+        }
         if (!initializer->compound_constructor) {
             rcc_error(initializer->loc,
                       "no safely lowerable constructor accepts the C++ initializer");
@@ -34092,6 +34304,10 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 cursor >= type->array_len) {
                 rcc_error(item->expr->loc,
                           "vector initializer has an invalid lane");
+                continue;
+            }
+            if (!initializer->compound_paren_init &&
+                sema_cxx_reject_list_narrowing(type->base, item->expr)) {
                 continue;
             }
             sema_initializer(type->base, item->expr);
@@ -34115,6 +34331,12 @@ static void sema_initializer(Type* type, Expr* initializer) {
                           "array initializer index is out of bounds");
             } else {
                 initializer_absorb_designator_followups(type->base, item);
+                if (!initializer->compound_paren_init &&
+                    sema_cxx_reject_list_narrowing(type->base,
+                                                   item->expr)) {
+                    if (cursor < INT64_MAX) ++cursor;
+                    continue;
+                }
                 sema_initializer(type->base, item->expr);
             }
             if (cursor < INT64_MAX) ++cursor;
@@ -34181,6 +34403,14 @@ static void sema_initializer(Type* type, Expr* initializer) {
                         item, element_type);
                 }
                 initializer_absorb_designator_followups(element_type, item);
+                if (!initializer->compound_paren_init &&
+                    sema_cxx_reject_list_narrowing(element_type,
+                                                   item->expr)) {
+                    if (item->designator_kind == INIT_DESIGNATOR_NONE) {
+                        ++initialized;
+                    }
+                    continue;
+                }
                 sema_initializer(element_type, item->expr);
                 if (item->designator_kind == INIT_DESIGNATOR_NONE) {
                     ++initialized;
@@ -34237,6 +34467,12 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 sema_prepare_reference_argument_cleanup(item, field->type);
             }
             initializer_absorb_designator_followups(field->type, item);
+            if (!initializer->compound_paren_init &&
+                sema_cxx_reject_list_narrowing(field->type, item->expr)) {
+                cursor = field->next;
+                ++initialized;
+                continue;
+            }
             sema_initializer(field->type, item->expr);
             cursor = field->next;
             ++initialized;
@@ -34252,6 +34488,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
         initializer->compound_init->designator_kind != INIT_DESIGNATOR_NONE) {
         rcc_error(initializer->loc,
                   "scalar initializer list requires exactly one value");
+        return;
+    }
+    if (!initializer->compound_paren_init &&
+        sema_cxx_reject_list_narrowing(
+            type, initializer->compound_init->expr)) {
         return;
     }
     sema_initializer(type, initializer->compound_init->expr);

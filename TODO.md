@@ -12884,8 +12884,19 @@ remains a separate open item.
       aggregates remain in the open typed-SSA aggregate item.
 
 ## C++ list-initialization follow-up
+- [x] Diagnose narrowing in C++20 scalar, array, nested aggregate, and selected
+      constructor list-initialization. Cover integral representability constants,
+      exact integer-to-float constants, floating rank/range conversions,
+      pointer/array-to-bool, and constructor parameters. Fix legacy x64 scalar
+      initialization to convert integer/double values to the destination float
+      representation. GCC C++20 positive/negative oracles, i686/AMD64 generation,
+      AMD64 runtime, 11 matching negative diagnostics per compiler/target, and
+      absence of invalid object output pass in `test-cxx-list-narrowing`.
 - [ ] Resolve braced-init-list arguments while building function and constructor
       overload candidates. Implement candidate viability, initializer-list
-      preference, narrowing checks, and template deduction from list elements;
-      cover ambiguous and invalid calls against GCC C++20 before claiming full
-      list-initialization overload support.
+      preference, narrowing-aware candidate ranking, and template deduction from
+      list elements; cover ambiguous and invalid calls against GCC C++20 before
+      claiming full list-initialization overload support.
+- [ ] Extend list narrowing constant evaluation beyond 64-bit integer values and
+      through user-defined conversion sequences; compare the remaining standard
+      cases with GCC C++20.
