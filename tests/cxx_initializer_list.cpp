@@ -192,13 +192,21 @@ static int test_empty_initializer_list_argument(void) {
 static int test_braced_initializer_list_default_arguments(void) {
     DefaultedInitializerList value;
     auto lambda = [](int parameter = {11}) { return parameter; };
+    auto tracked_lambda = [](std::initializer_list<Tracked> values = {8, 9}) {
+        return values.size() == 2 && values.begin()[0].value == 8 &&
+               values.begin()[1].value == 9;
+    };
     int tracked_result;
+    bool lambda_tracked_result;
     initializer_list_reset_counts();
     tracked_result = consume_defaulted_tracked();
+    if (!tracked_result || !initializer_list_counts_are(2, 2)) return 0;
+    initializer_list_reset_counts();
+    lambda_tracked_result = tracked_lambda() && tracked_lambda();
     return consume_defaulted() == 2 && value.size == 2 &&
            consume_defaulted({9}) == 1 && consume_scalar_default() == 6 &&
-           tracked_result && initializer_list_counts_are(2, 2) &&
-           lambda() == 11 && lambda({12}) == 12;
+           lambda() == 11 && lambda({12}) == 12 &&
+           lambda_tracked_result && initializer_list_counts_are(4, 4);
 }
 
 static int test_initializer_list_preference(void) {

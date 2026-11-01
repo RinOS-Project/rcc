@@ -13070,11 +13070,11 @@ remains a separate open item.
       `std::initializer_list` constructor parameters. Preserve list narrowing
       diagnostics, reject explicit constructors selected by copy-list
       initialization, make repeated semantic analysis of a materialized list
-      idempotent, destroy nontrivial backing elements after a defaulted
-      function call, and supply defaults through captureless lambda callable
-      types. GCC C++20, i686/AMD64 generation, AMD64 runtime checks for
-      function, constructor, and lambda defaults, and invalid-object absence
-      pass in `test-cxx-initializer-list`.
+      idempotent, destroy nontrivial backing elements after defaulted function
+      calls and repeated captureless-lambda calls. GCC C++20, i686/AMD64
+      generation, AMD64 runtime checks for function, constructor, and lambda
+      defaults, and invalid-object absence pass in
+      `test-cxx-initializer-list`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
       boundaries with GCC before claiming full conformance. Ordinary candidate
       viability, selected scalar/aggregate list handling, and C++17 fixed-
