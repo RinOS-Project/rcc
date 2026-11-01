@@ -23181,14 +23181,18 @@ static Decl* sema_select_cxx_overload_candidates(
         }
     }
     if (!best) {
-        if (diagnose_failure) {
+        if (diagnose_failure &&
+            !call->cxx_overload_failure_diagnostic_emitted) {
+            call->cxx_overload_failure_diagnostic_emitted = true;
             rcc_error(call->loc, "no matching overload for '%s'",
                       call->call_func->ident_name);
         }
         return NULL;
     }
     if (ambiguous) {
-        if (diagnose_failure) {
+        if (diagnose_failure &&
+            !call->cxx_overload_failure_diagnostic_emitted) {
+            call->cxx_overload_failure_diagnostic_emitted = true;
             rcc_error(call->loc, "ambiguous overload for '%s'",
                       call->call_func->ident_name);
         }

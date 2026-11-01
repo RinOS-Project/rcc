@@ -66,6 +66,11 @@
   `begin() == end()` with empty/nonempty lists against GCC. RCC i686/AMD64
   assembly and `.ro` generation, AMD64 runtime, and the initializer-list,
   copy-list, function-template, and braced-overload suites pass.
+- [x] Emit one primary overload-resolution diagnostic per failed call even
+  when semantic analysis revisits that expression. Compare three ambiguous
+  value/reference/rvalue-reference overload sets with GCC C++20; RCC i686 and
+  AMD64 each report exactly three ambiguities and produce no object in
+  `test-cxx-overload-ambiguous-diagnostics`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
 

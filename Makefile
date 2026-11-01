@@ -637,6 +637,7 @@ endif
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-external-static-data-members
 .PHONY: test-cxx-prvalue-scalar-conversion-cleanup
+.PHONY: test-cxx-overload-ambiguous-diagnostics
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-initializer-list
 .PHONY: test-cxx-copy-list-explicit
@@ -1237,6 +1238,7 @@ CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
 CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
 CXX_REGRESSION_TARGETS += test-cxx-initializer-list
+CXX_REGRESSION_TARGETS += test-cxx-overload-ambiguous-diagnostics
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the
@@ -25068,6 +25070,17 @@ $(OBJDIR)/main_rld.o: $(INCDIR)/rcc.h $(INCDIR)/linker.h
 $(OBJDIR)/linker.o: $(INCDIR)/rcc.h $(INCDIR)/linker.h $(INCDIR)/objfile.h
 $(OBJDIR)/main_rar.o: $(INCDIR)/rcc.h $(INCDIR)/archive.h
 $(OBJDIR)/archive.o: $(INCDIR)/rcc.h $(INCDIR)/archive.h $(INCDIR)/objfile.h
+
+test-cxx-overload-ambiguous-diagnostics: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_overload_ambiguous_diagnostics.cpp,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/gcc.log)
+	$(call CHECK_COUNT,is ambiguous,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/gcc.log,3)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x86.ro tests/cxx_overload_ambiguous_diagnostics.cpp,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x86.log)
+	$(call CHECK_COUNT,ambiguous overload for,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x86.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x64.ro tests/cxx_overload_ambiguous_diagnostics.cpp,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x64.log)
+	$(call CHECK_COUNT,ambiguous overload for,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x64.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x64.ro)
 
 test-cxx-conversion-reference-ranking-ambiguous: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous)

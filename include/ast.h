@@ -753,6 +753,9 @@ struct Expr {
     /* Semantic analysis may revisit an expression; deprecation diagnostics
      * should still be emitted only once for this source-level use. */
     bool deprecated_warning_emitted;
+    /* Overload resolution may revisit a failed call while propagating its
+     * error type. Emit the call's primary overload diagnostic only once. */
+    bool cxx_overload_failure_diagnostic_emitted;
     bool is_deprecated_enumerator;
     const char* deprecated_enumerator_name;
     const char* deprecated_enumerator_message;
