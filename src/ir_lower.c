@@ -2772,6 +2772,17 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 context->unsupported = true;
                 return lower_invalid_value();
             }
+            /* Dynamic TLS initialization and thread-exit cleanup are emitted
+             * together by the native code generator.  The verified object
+             * path does not yet serialize its cleanup callback, so route any
+             * guarded dynamic TLS reference through that complete lowering. */
+            if (declaration->var_is_thread_local &&
+                declaration->var_dynamic_initializer &&
+                (declaration->var_reference_temporary_guard ||
+                 declaration->var_reference_temporary_owner)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
             if (declaration->kind == DECL_FUNC) {
                 address = lower_append(
                     context, RCC_IR_SYMBOL_ADDRESS,

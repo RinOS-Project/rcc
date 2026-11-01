@@ -401,6 +401,8 @@ int codegen_assign_global_initializer_storage(
 ExprList* codegen_call_temporary_owners(void);
 bool codegen_runtime_global_paren_aggregate(const Type* type,
                                            const Expr* initializer);
+bool codegen_runtime_global_aggregate_initializer(
+    const Type* type, const Expr* initializer);
 int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
                                           int stack_alignment);
 void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,

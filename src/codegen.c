@@ -1627,6 +1627,17 @@ static bool codegen_runtime_global_constructor(const Type* type,
            initializer->compound_constructor->method->decl->func_body;
 }
 
+bool codegen_runtime_global_aggregate_initializer(
+    const Type* type, const Expr* initializer) {
+    return rcc_parser_is_cxx_mode() && type && type->cxx_class &&
+           (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+           ast_cxx_is_aggregate((Type*)type) && initializer &&
+           initializer->kind == EXPR_COMPOUND &&
+           !initializer->compound_constructor &&
+           !initializer->compound_paren_init &&
+           initializer->compound_init && type->size > 0;
+}
+
 bool codegen_runtime_global_paren_aggregate(const Type* type,
                                            const Expr* initializer) {
     return type && initializer && rcc_parser_is_cxx_mode() &&
@@ -2854,7 +2865,11 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
              !codegen_emit_tls_initializer(
                  mod, declaration->type, declaration->var_init, offset))) {
             if (!declaration->var_reference_temporary_guard &&
-                codegen_runtime_function_static_scalar(declaration)) {
+                (codegen_runtime_function_static_scalar(declaration) ||
+                 codegen_runtime_global_constructor(
+                     declaration->type, declaration->var_init) ||
+                 codegen_runtime_global_aggregate_initializer(
+                     declaration->type, declaration->var_init))) {
                 if (!codegen_attach_static_initializer_guard(declaration) ||
                     !codegen_emit_static_initializer_guard_storage(
                         mod, declaration)) {
@@ -2864,6 +2879,8 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
             if (declaration->var_reference_temporary_guard &&
                 (codegen_runtime_function_static_scalar(declaration) ||
                  codegen_runtime_global_constructor(
+                     declaration->type, declaration->var_init) ||
+                 codegen_runtime_global_aggregate_initializer(
                      declaration->type, declaration->var_init))) {
                 memset(mod->tls.data + offset, 0, size);
                 declaration->var_dynamic_initializer = true;
@@ -2927,7 +2944,13 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     if (!codegen_emit_static_initializer(
             mod, declaration->type, declaration->var_init, offset)) {
         if (!declaration->var_reference_temporary_guard &&
-            codegen_runtime_function_static_scalar(declaration)) {
+            (codegen_runtime_function_static_scalar(declaration) ||
+             codegen_runtime_global_constructor(
+                 declaration->type, declaration->var_init) ||
+             codegen_runtime_global_aggregate_initializer(
+                 declaration->type, declaration->var_init) ||
+             codegen_runtime_global_paren_aggregate(
+                 declaration->type, declaration->var_init))) {
             if (!codegen_attach_static_initializer_guard(declaration) ||
                 !codegen_emit_static_initializer_guard_storage(
                     mod, declaration)) {
@@ -2937,6 +2960,8 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         if (declaration->var_reference_temporary_guard &&
             (codegen_runtime_function_static_scalar(declaration) ||
              codegen_runtime_global_constructor(
+                 declaration->type, declaration->var_init) ||
+             codegen_runtime_global_aggregate_initializer(
                  declaration->type, declaration->var_init) ||
              codegen_runtime_global_paren_aggregate(
                  declaration->type, declaration->var_init))) {
@@ -3086,9 +3111,25 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                      declaration->type, declaration->var_init) ||
                  !codegen_emit_tls_initializer(
                      mod, declaration->type, declaration->var_init, offset))) {
+                if (!declaration->var_reference_temporary_guard &&
+                    rcc_parser_is_cxx_mode() &&
+                    (codegen_runtime_global_scalar(declaration->type) ||
+                     codegen_runtime_global_constructor(
+                         declaration->type, declaration->var_init) ||
+                     codegen_runtime_global_aggregate_initializer(
+                         declaration->type, declaration->var_init))) {
+                    if (!codegen_attach_static_initializer_guard(
+                            declaration) ||
+                        !codegen_emit_static_initializer_guard_storage(
+                            mod, declaration)) {
+                        return;
+                    }
+                }
                 if (declaration->var_reference_temporary_guard &&
                     (codegen_runtime_global_scalar(declaration->type) ||
                      codegen_runtime_global_constructor(
+                         declaration->type, declaration->var_init) ||
+                     codegen_runtime_global_aggregate_initializer(
                          declaration->type, declaration->var_init))) {
                     memset(mod->tls.data + offset, 0, size);
                     declaration->var_dynamic_initializer = true;
@@ -3242,6 +3283,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             if (codegen_runtime_global_scalar(declaration->type) ||
                 codegen_runtime_global_constructor(declaration->type,
                                                    declaration->var_init) ||
+                codegen_runtime_global_aggregate_initializer(
+                    declaration->type, declaration->var_init) ||
                 codegen_runtime_global_paren_aggregate(
                     declaration->type, declaration->var_init)) {
                 codegen_defer_global_initializer(mod, declaration);
@@ -22466,6 +22509,23 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
             emit_store_typed32(mod, ECX, (int32_t)offset, EAX, type_uchar);
             ++offset;
         }
+        return true;
+    }
+    if (codegen_runtime_global_aggregate_initializer(type, initializer)) {
+        int32_t temporary_offset = initializer->compound_offset;
+        if (temporary_offset >= 0) return false;
+        gen_zero_local_storage(mod, temporary_offset, (size_t)type->size);
+        if (!gen_local_initializer(
+                mod, type, initializer, temporary_offset)) {
+            return false;
+        }
+        gen_decl_storage_address32(mod, declaration);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_byte(mod, 0x8D); /* LEA EDX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EDX, EBP));
+        emit_dword(mod, (uint32_t)temporary_offset);
+        gen_copy_aggregate_to_address32(
+            mod, ECX, EDX, type->size);
         return true;
     }
     if (codegen_runtime_global_constructor(type, initializer)) {

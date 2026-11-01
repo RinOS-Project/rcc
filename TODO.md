@@ -12511,8 +12511,6 @@ remains a separate open item.
       `test-ir` also passes.
 - [ ] Complete the standard-conforming `std::atomic<T>` operation surface and
       concurrency/memory-order coverage for trivially-copyable aggregate types.
-      Dynamic/non-trivial C++ volatile aggregate TLS initialization and cleanup
-      remain a separate typed-SSA gap.
 
 ## RCC continuation (2026-10-31, verified scalar virtual-base construction)
 
@@ -12640,8 +12638,22 @@ remains a separate open item.
       triviality before bypassing runtime initialization/cleanup; verify zero
       fallback and linked RIN validation on i686/AMD64. A WSL pthread host run
       of the legacy x86_64 assembly checks initial values and independent state
-      across threads. Dynamic initialization and non-trivial destructor cleanup
-      remain open.
+      across threads.
+
+## RCC continuation (2026-11-01, dynamic C++ volatile aggregate TLS)
+
+- [x] Support brace-initialized namespace-scope and function-local C++
+      aggregate TLS objects whose volatile scalar
+      fields need runtime evaluation and whose class destructor is registered
+      at thread exit. Native i686/AMD64 code generation initializes each field
+      once behind the TLS guard and registers the cleanup callback. The GCC
+      oracle and RCC AMD64 host runs pass with two concurrent pthreads, distinct
+      TLS addresses, independent field state, and one destructor per thread;
+      verified object generation falls back to this complete native lowering.
+- [ ] Teach the verified object path to encode guarded dynamic TLS
+      initialization and thread-exit cleanup callbacks, then require zero
+      fallback and execute the resulting objects. Keep the current full native
+      fallback until those references and callbacks are present in `.ro`.
 
 ## RCC continuation (2026-10-31, concurrent C++ aggregate atomics)
 

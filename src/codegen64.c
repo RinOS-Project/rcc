@@ -13387,6 +13387,21 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
         gen64_copy_memory(mod, RDX, 0, RCX, 0, type->size);
         return true;
     }
+    if (codegen_runtime_global_aggregate_initializer(type, initializer)) {
+        int32_t temporary_offset = initializer->compound_offset;
+        if (temporary_offset >= 0) return false;
+        gen64_zero_local_storage(
+            mod, temporary_offset, (size_t)type->size);
+        if (!gen64_local_initializer(
+                mod, type, initializer, temporary_offset)) {
+            return false;
+        }
+        emit64_lea(mod, RDX, RBP, temporary_offset);
+        gen64_decl_storage_address(mod, declaration);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        gen64_copy_memory(mod, RCX, 0, RDX, 0, type->size);
+        return true;
+    }
     if (rcc_parser_is_cxx_mode() &&
         rcc_parser_cxx_standard_at_least(17) && type->cxx_class &&
         (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
