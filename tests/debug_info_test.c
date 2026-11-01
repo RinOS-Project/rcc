@@ -6794,8 +6794,11 @@ static void verify_cxx_inline_mutated_local_location(
     uint64_t call_end = 0u;
     int64_t source_frame_offset = 0;
     bool found_call = false;
+    size_t bitwise_start = signed_wide ? 4u : 3u;
     size_t entry_count = wide
-        ? (signed_wide ? 4u : bitwise_wide ? 6u : 3u) : 4u;
+        ? bitwise_wide ? (signed_wide ? 7u : 6u)
+                       : (signed_wide ? 4u : 3u)
+        : 4u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -6921,13 +6924,13 @@ static void verify_cxx_inline_mutated_local_location(
                         expected = input + 8u;
                     } else {
                         expected = multiplied;
-                        if (bitwise_wide && entry >= 3u) {
+                        if (bitwise_wide && entry >= bitwise_start) {
                             expected ^= UINT64_C(0x8000000000000001);
                         }
-                        if (bitwise_wide && entry >= 4u) {
+                        if (bitwise_wide && entry >= bitwise_start + 1u) {
                             expected &= UINT64_C(0x7fffffffffffffff);
                         }
-                        if (bitwise_wide && entry >= 5u) {
+                        if (bitwise_wide && entry >= bitwise_start + 2u) {
                             expected |= UINT64_C(0x0100000000000001);
                         }
                     }
@@ -19521,12 +19524,12 @@ int main(int argc, char** argv)
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", true, true, 2u, false);
+            "stable_signed_wide_input", true, true, 2u, true);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", true, true, 2u, false);
+            "stable_signed_wide_input", true, true, 2u, true);
         return 0;
     }
     if (argc == 6 &&
