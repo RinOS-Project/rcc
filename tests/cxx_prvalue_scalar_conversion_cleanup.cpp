@@ -8,6 +8,10 @@ static int conversions;
 static int destructions;
 static int constructor_argument_mismatches;
 static int pointer_target;
+static int argument_source_constructions;
+static int argument_source_conversions;
+static int argument_source_destructions;
+static int premature_argument_source_destructions;
 
 static int next_prvalue_value() {
     ++argument_evaluations;
@@ -65,6 +69,37 @@ struct PrvalueScalarConversion {
     }
 };
 
+struct ConstructorArgumentSource {
+    int value;
+
+    explicit ConstructorArgumentSource(int initial) : value(initial) {
+        ++argument_source_constructions;
+    }
+
+    operator int() && {
+        ++argument_source_conversions;
+        return value;
+    }
+
+    ~ConstructorArgumentSource() {
+        ++argument_source_destructions;
+    }
+};
+
+struct ConstructorArgumentReuse {
+    int from_initializer;
+    int from_body;
+
+    explicit ConstructorArgumentReuse(int value)
+        : from_initializer(value) {
+        if (argument_source_destructions !=
+            argument_source_constructions - 1) {
+            ++premature_argument_source_destructions;
+        }
+        from_body = value;
+    }
+};
+
 int main() {
     int direct = PrvalueScalarConversion{
         next_prvalue_value(), next_prvalue_pointer(),
@@ -95,6 +130,22 @@ int main() {
     if (conversions != 2) return 24;
     if (destructions != 2) return 25;
     if (constructor_argument_mismatches != 0) return 26;
+
+    ConstructorArgumentReuse reused(
+        static_cast<int>(ConstructorArgumentSource{67}));
+    if (reused.from_initializer != 67 || reused.from_body != 67) return 31;
+    if (argument_source_constructions != 1) return 32;
+    if (argument_source_conversions != 1) return 33;
+    if (argument_source_destructions != 1) return 34;
+    if (premature_argument_source_destructions != 0) return 35;
+
+    ConstructorArgumentReuse implicit_reused(ConstructorArgumentSource{73});
+    if (implicit_reused.from_initializer != 73 ||
+        implicit_reused.from_body != 73) return 36;
+    if (argument_source_constructions != 2) return 37;
+    if (argument_source_conversions != 2) return 38;
+    if (argument_source_destructions != 2) return 39;
+    if (premature_argument_source_destructions != 0) return 40;
 
     return 0;
 }

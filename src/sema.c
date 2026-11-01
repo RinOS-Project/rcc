@@ -17592,6 +17592,41 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
     return best;
 }
 
+static bool sema_convert_cxx_constructor_arguments(
+    CxxConstructorInfo* constructor, ExprList* arguments, SourceLoc loc) {
+    TypeParam* parameter = constructor ? constructor->parameters : NULL;
+    ExprList* argument = arguments;
+    for (; parameter && argument;
+         parameter = parameter->next, argument = argument->next) {
+        bool converted;
+        if (!argument->expr || !parameter->type) {
+            rcc_error(loc,
+                      "selected C++ constructor has incomplete argument metadata");
+            return false;
+        }
+        converted = implicit_cast(argument->expr, parameter->type) != NULL;
+        if (!converted) {
+            converted = sema_cxx_apply_derived_to_base_value_cast(
+                argument->expr, parameter->type, true);
+        }
+        if (!converted) {
+            rcc_error(argument->expr->loc,
+                      "selected C++ constructor argument is incompatible with its parameter");
+            return false;
+        }
+        sema_prepare_reference_argument_cleanup(argument, parameter->type);
+        sema_prepare_cxx_by_value_class_argument(argument, parameter->type);
+        sema_prepare_derived_to_base_value_argument_cleanup(
+            argument, parameter->type);
+    }
+    if (argument || parameter) {
+        rcc_error(loc,
+                  "selected C++ constructor argument count does not match its parameters");
+        return false;
+    }
+    return true;
+}
+
 static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
     Type* object_type, ExprList** arguments, SourceLoc loc,
     bool allow_explicit) {
@@ -17664,6 +17699,10 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
                     }
                 }
                 if (!registered) ast_add_decl(current_ast, declaration);
+            }
+            if (arguments && !sema_convert_cxx_constructor_arguments(
+                    selected, *arguments, loc)) {
+                return NULL;
             }
             return selected;
         }
@@ -17762,6 +17801,10 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
             arguments, best, argument_count)) {
         rcc_error(loc,
                   "constructor default arguments are not safely lowerable");
+        return NULL;
+    }
+    if (best && arguments && !sema_convert_cxx_constructor_arguments(
+            best, *arguments, loc)) {
         return NULL;
     }
     return best;

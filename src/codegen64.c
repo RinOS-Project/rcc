@@ -7905,8 +7905,7 @@ static bool gen64_cxx_constructor_argument_can_cache(
         ? argument->expr->type : NULL;
     return argument && argument->cxx_constructor_argument_offset < 0 &&
         !argument->cxx_temporary_owner && argument->expr &&
-        !argument->expr->cxx_temporary_owner &&
-        !argument->expr->cxx_temporary_cleanups && type && type->size <= 8 &&
+        type && type->size <= 8 &&
         (type_is_integer(type) || type->kind == TYPE_ENUM ||
          type_is_floating(type) ||
          type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) &&

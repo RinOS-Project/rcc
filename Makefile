@@ -24844,8 +24844,10 @@ test-cxx-prvalue-scalar-conversion-cleanup: $(RCXX_TARGET)
 	$(CC) -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.s
 	$(CXX) -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX) $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o
 	$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log
+	powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "0" "Verified backend fallback:" "$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log"
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.log
+	powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "0" "Verified backend fallback:" "$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.log"
 
 .PHONY: test-cxx-conversion-member-pointer-owner-ranking
 test-cxx-conversion-member-pointer-owner-ranking: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)

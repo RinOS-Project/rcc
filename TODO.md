@@ -12847,3 +12847,15 @@ remains a separate open item.
       also link one inline static data member with a single shared address.
       The tests run through
       `test-cxx-external-static-data-members`.
+
+## RCC continuation (2026-11-01, converted scalar constructor arguments)
+- [x] Resolve each selected C++ constructor argument to its parameter type before
+      lowering. Cache scalar conversion results even when the conversion call
+      owns a class-prvalue cleanup, so a parameter reused by a member initializer
+      and constructor body evaluates/converts once and destroys its source after
+      the full-expression. Explicit and implicit user-defined conversions verify
+      constructor/conversion/destructor counts. The focused regression passes
+      GCC C++20, RCC i686/AMD64 assembly generation and i686 object assembly,
+      AMD64 legacy host execution, and both verified targets with zero fallback.
+      Constructor-general, constructor-body, constructor-initializer-body, and
+      conversion-operator suites also pass.
