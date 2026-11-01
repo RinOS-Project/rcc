@@ -13068,7 +13068,8 @@ remains a separate open item.
 - [x] Parse and contextually initialize C++ braced default arguments for scalar
       parameters, `std::initializer_list` function parameters, and
       `std::initializer_list` constructor parameters. Preserve list narrowing
-      diagnostics, make repeated semantic analysis of a materialized list
+      diagnostics, reject explicit constructors selected by copy-list
+      initialization, make repeated semantic analysis of a materialized list
       idempotent, and destroy nontrivial backing elements after a defaulted
       function call. GCC C++20, i686/AMD64 generation, AMD64 runtime checks for
       function and constructor defaults, and invalid-object absence pass in

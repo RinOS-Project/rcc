@@ -22452,6 +22452,7 @@ static void sema_analyze_cxx_default_arguments(Decl* function) {
         if (!parameter || !parameter->param_default) continue;
         if (sema_cxx_is_untyped_braced_initializer(
                 parameter->param_default)) {
+            parameter->param_default->compound_copy_list_init = true;
             if (parameter->type && parameter->type->cxx_dependent) {
                 sema_cxx_analyze_braced_initializer_elements(
                     parameter->param_default);

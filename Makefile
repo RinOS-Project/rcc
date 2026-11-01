@@ -3285,24 +3285,28 @@ test-cxx-initializer-list: $(RCXX_TARGET)
 	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-initializer-list/rcc-argument-narrowing-x64.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/argument-narrowing-x64.ro)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
-		tests/cxx_initializer_list_default_narrowing_invalid.cpp, \
+		tests/cxx_braced_default_arguments_invalid.cpp, \
 		$(TEST_OUT)/cxx-initializer-list/gcc-default-narrowing.log)
 	$(call CHECK_COUNT,narrowing conversion,$(TEST_OUT)/cxx-initializer-list/gcc-default-narrowing.log,2)
+	$(GREP) -F -q "would use explicit constructor" \
+		$(TEST_OUT)/cxx-initializer-list/gcc-default-narrowing.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/default-narrowing-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
 		-std=c++20 -I$(RINOS_LIBCXX_INCLUDE) -c \
 		-o $(TEST_OUT)/cxx-initializer-list/default-narrowing-x86.ro \
-		tests/cxx_initializer_list_default_narrowing_invalid.cpp, \
+		tests/cxx_braced_default_arguments_invalid.cpp, \
 		$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x86.log)
 	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x86.log,2)
+	$(call CHECK_COUNT,copy-list-initialization selected an explicit constructor,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x86.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/default-narrowing-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/default-narrowing-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
 		-std=c++20 -I$(RINOS_LIBCXX_INCLUDE) -c \
 		-o $(TEST_OUT)/cxx-initializer-list/default-narrowing-x64.ro \
-		tests/cxx_initializer_list_default_narrowing_invalid.cpp, \
+		tests/cxx_braced_default_arguments_invalid.cpp, \
 		$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x64.log)
 	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x64.log,2)
+	$(call CHECK_COUNT,copy-list-initialization selected an explicit constructor,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x64.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/default-narrowing-x64.ro)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_initializer_list_overload_ambiguous.cpp, \
