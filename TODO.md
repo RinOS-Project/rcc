@@ -12869,7 +12869,8 @@ remains a separate open item.
       regression suites pass. Typed SSA now reads validated scalar members from
       aggregate parameters, classifies x86_64 SysV MEMORY arguments, and emits
       the corresponding stack-by-value call metadata. The fixture also passes
-      the same 24-byte value through an ordinary C++ function. The focused gate
-      emits verified i686/AMD64 objects with zero fallback. Broader aggregate
+      the same 24-byte value through an ordinary C++ function, including a
+      sret-returned aggregate passed directly by value. The focused gate emits
+      verified i686/AMD64 objects with zero fallback. Broader aggregate
       parameter expressions, qualifiers, and nontrivial aggregates remain in
       the open typed-SSA aggregate item.

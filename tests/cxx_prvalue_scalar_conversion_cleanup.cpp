@@ -129,6 +129,10 @@ static long long sum_wide_constructor_argument(
     return value.first + value.second + value.third;
 }
 
+static WideConstructorArgument make_wide_constructor_argument() {
+    return WideConstructorArgument{11, 22, 33};
+}
+
 struct WideConstructorArgumentReuse {
     long long from_initializer_first;
     long long from_initializer_second;
@@ -206,6 +210,8 @@ int main() {
     if (wide_aggregate_first_evaluations != 2 ||
         wide_aggregate_second_evaluations != 2 ||
         wide_aggregate_third_evaluations != 2) return 44;
+    if (sum_wide_constructor_argument(
+            make_wide_constructor_argument()) != 66) return 45;
 
     return 0;
 }
