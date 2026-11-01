@@ -23649,6 +23649,98 @@ enum {
                 SEMA_CXX_BUILTIN_ARITHMETIC_TYPE_COUNT,
 };
 
+static bool sema_cxx_builtin_comparison_target_supported(
+    Type* type, ExprKind comparison_kind) {
+    if (!type) return false;
+    if (type->kind == TYPE_ENUM) return true;
+    if (type->kind == TYPE_NULLPTR) {
+        return comparison_kind == EXPR_EQ || comparison_kind == EXPR_NE;
+    }
+    if (type->kind != TYPE_PTR) return false;
+    if (type->cxx_is_member_pointer) {
+        return comparison_kind == EXPR_EQ || comparison_kind == EXPR_NE;
+    }
+    if (comparison_kind != EXPR_EQ && comparison_kind != EXPR_NE &&
+        type->base && type->base->kind == TYPE_FUNC) {
+        return false;
+    }
+    return true;
+}
+
+static size_t sema_cxx_builtin_comparison_operand_target_count(
+    Expr* operand, ExprKind comparison_kind) {
+    Type* type;
+    size_t count = 0;
+    if (!operand || !operand->type) return 0;
+    type = generic_selection_type(
+        sema_cxx_object_type(operand->type));
+    if (sema_cxx_builtin_comparison_target_supported(
+            type, comparison_kind)) {
+        ++count;
+    }
+    if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
+        return count;
+    }
+    for (TypeMethod* method = type->methods; method; method = method->next) {
+        if (method->name &&
+            strcmp(method->name, "operator conversion") == 0 &&
+            sema_cxx_builtin_comparison_target_supported(
+                method->return_type, comparison_kind)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+static int sema_cxx_builtin_comparison_conversion_rank(
+    Expr* operand, Type* target, TypeMethod** conversion_method) {
+    Type* source;
+    int rank;
+    if (conversion_method) *conversion_method = NULL;
+    if (!operand || !operand->type || !target) return -1;
+    source = generic_selection_type(
+        sema_cxx_object_type(operand->type));
+    if (target->kind == TYPE_ENUM) {
+        if (source && source->kind == TYPE_ENUM) {
+            return cxx_same_parameter_type(source, target, true) ? 0 : -1;
+        }
+        if (!source || (source->kind != TYPE_STRUCT &&
+                        source->kind != TYPE_UNION)) {
+            return -1;
+        }
+    }
+    rank = cxx_conversion_rank_detail(operand, target, conversion_method);
+    if (target->kind == TYPE_ENUM && source &&
+        (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
+        (!conversion_method || !*conversion_method ||
+         !cxx_same_parameter_type(
+             (*conversion_method)->return_type, target, true))) {
+        /* A conversion to another enumeration cannot be followed by an
+         * implicit enum-to-enum conversion. */
+        return -1;
+    }
+    return rank;
+}
+
+static SemaCxxBinaryOperatorCandidate*
+sema_cxx_allocate_binary_operator_candidates(
+    Expr* left, Expr* right, ExprKind comparison_kind, SourceLoc loc) {
+    size_t capacity = SEMA_CXX_MAX_BINARY_OPERATOR_CANDIDATES;
+    size_t extra =
+        sema_cxx_builtin_comparison_operand_target_count(
+            left, comparison_kind) +
+        sema_cxx_builtin_comparison_operand_target_count(
+            right, comparison_kind);
+    if (extra > SIZE_MAX - capacity ||
+        capacity + extra > SIZE_MAX / sizeof(SemaCxxBinaryOperatorCandidate) ||
+        capacity + extra > INT_MAX) {
+        rcc_error(loc, "too many C++ built-in comparison candidates");
+        return NULL;
+    }
+    return ast_arena_alloc(sizeof(SemaCxxBinaryOperatorCandidate) *
+                           (capacity + extra));
+}
+
 static bool sema_cxx_collect_binary_operator_candidate(
     SemaCxxBinaryOperatorCandidate* candidate, Symbol* functions,
     ExprList* arguments, bool rewritten, bool reversed) {
@@ -23707,7 +23799,7 @@ static int sema_cxx_binary_operator_candidate_relation(
 
 static int sema_cxx_append_builtin_comparison_candidates(
     SemaCxxBinaryOperatorCandidate* candidates, int candidate_count,
-    Expr* left, Expr* right) {
+    Expr* left, Expr* right, ExprKind comparison_kind) {
     Type* arithmetic_types[SEMA_CXX_BUILTIN_ARITHMETIC_TYPE_COUNT] = {
         type_int, type_uint, type_long, type_ulong, type_llong, type_ullong,
         type_float, type_double, type_long_double,
@@ -23736,6 +23828,93 @@ static int sema_cxx_append_builtin_comparison_candidates(
             candidate->is_builtin = true;
             candidate->targets[0] = left_target;
             candidate->targets[1] = right_target;
+            candidate->ranks[0] = left_rank;
+            candidate->ranks[1] = right_rank;
+            candidate->methods[0] = left_conversion;
+            candidate->methods[1] = right_conversion;
+        }
+    }
+    for (int operand_index = 0; operand_index < 2; ++operand_index) {
+        Expr* operand = operand_index == 0 ? left : right;
+        Type* operand_type = operand && operand->type
+            ? generic_selection_type(
+                  sema_cxx_object_type(operand->type))
+            : NULL;
+        if (sema_cxx_builtin_comparison_target_supported(
+                operand_type, comparison_kind)) {
+            TypeMethod* left_conversion = NULL;
+            TypeMethod* right_conversion = NULL;
+            int left_rank = sema_cxx_builtin_comparison_conversion_rank(
+                left, operand_type, &left_conversion);
+            int right_rank = sema_cxx_builtin_comparison_conversion_rank(
+                right, operand_type, &right_conversion);
+            if (left_rank >= 0 && right_rank >= 0) {
+                bool duplicate = false;
+                for (int index = 0; index < candidate_count; ++index) {
+                    if (candidates[index].is_builtin &&
+                        cxx_same_parameter_type(
+                            candidates[index].targets[0], operand_type, true) &&
+                        cxx_same_parameter_type(
+                            candidates[index].targets[1], operand_type, true)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate) {
+                    SemaCxxBinaryOperatorCandidate* candidate =
+                        &candidates[candidate_count++];
+                    memset(candidate, 0, sizeof(*candidate));
+                    candidate->is_builtin = true;
+                    candidate->targets[0] = operand_type;
+                    candidate->targets[1] = operand_type;
+                    candidate->ranks[0] = left_rank;
+                    candidate->ranks[1] = right_rank;
+                    candidate->methods[0] = left_conversion;
+                    candidate->methods[1] = right_conversion;
+                }
+            }
+        }
+        if (!operand_type ||
+            (operand_type->kind != TYPE_STRUCT &&
+             operand_type->kind != TYPE_UNION)) {
+            continue;
+        }
+        for (TypeMethod* conversion = operand_type->methods; conversion;
+             conversion = conversion->next) {
+            Type* target = conversion->return_type;
+            TypeMethod* left_conversion = NULL;
+            TypeMethod* right_conversion = NULL;
+            int left_rank;
+            int right_rank;
+            bool duplicate = false;
+            if (!conversion->name ||
+                strcmp(conversion->name, "operator conversion") != 0 ||
+                !sema_cxx_builtin_comparison_target_supported(
+                    target, comparison_kind)) {
+                continue;
+            }
+            left_rank = sema_cxx_builtin_comparison_conversion_rank(
+                left, target, &left_conversion);
+            right_rank = sema_cxx_builtin_comparison_conversion_rank(
+                right, target, &right_conversion);
+            if (left_rank < 0 || right_rank < 0) continue;
+            for (int index = 0; index < candidate_count; ++index) {
+                if (candidates[index].is_builtin &&
+                    cxx_same_parameter_type(
+                        candidates[index].targets[0], target, true) &&
+                    cxx_same_parameter_type(
+                        candidates[index].targets[1], target, true)) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            SemaCxxBinaryOperatorCandidate* candidate =
+                &candidates[candidate_count++];
+            memset(candidate, 0, sizeof(*candidate));
+            candidate->is_builtin = true;
+            candidate->targets[0] = target;
+            candidate->targets[1] = target;
             candidate->ranks[0] = left_rank;
             candidate->ranks[1] = right_rank;
             candidate->methods[0] = left_conversion;
@@ -23926,8 +24105,7 @@ static bool sema_cxx_collect_member_binary_operator_candidate(
 
 static bool sema_cxx_rewrite_class_equality_operator(
     Expr* expression, Type* aggregate, const char* name) {
-    SemaCxxBinaryOperatorCandidate candidates[
-        SEMA_CXX_MAX_BINARY_OPERATOR_CANDIDATES];
+    SemaCxxBinaryOperatorCandidate* candidates;
     int candidate_count = 0;
     int best_index = -1;
     bool ambiguous = false;
@@ -23939,6 +24117,10 @@ static bool sema_cxx_rewrite_class_equality_operator(
         (expression->kind != EXPR_EQ && expression->kind != EXPR_NE)) {
         return false;
     }
+    candidates = sema_cxx_allocate_binary_operator_candidates(
+        expression->binary_lhs, expression->binary_rhs, expression->kind,
+        expression->loc);
+    if (!candidates) return false;
     exprlist_append(&arguments, expression->binary_lhs);
     exprlist_append(&arguments, expression->binary_rhs);
     if (sema_cxx_collect_member_binary_operator_candidate(
@@ -23977,7 +24159,7 @@ static bool sema_cxx_rewrite_class_equality_operator(
     }
     candidate_count = sema_cxx_append_builtin_comparison_candidates(
         candidates, candidate_count, expression->binary_lhs,
-        expression->binary_rhs);
+        expression->binary_rhs, expression->kind);
     for (int index = 0; index < candidate_count; ++index) {
         bool better_than_every_other = true;
         for (int other = 0; other < candidate_count; ++other) {
@@ -24047,8 +24229,7 @@ static bool sema_cxx_is_relational_operator(ExprKind kind) {
  * applied consistently. */
 static bool sema_cxx_rewrite_class_relational_operator(
     Expr* expression, Type* left_type, bool* candidates_considered) {
-    SemaCxxBinaryOperatorCandidate candidates[
-        SEMA_CXX_MAX_BINARY_OPERATOR_CANDIDATES];
+    SemaCxxBinaryOperatorCandidate* candidates;
     int candidate_count = 0;
     int best_index = -1;
     bool ambiguous = false;
@@ -24084,6 +24265,11 @@ static bool sema_cxx_rewrite_class_relational_operator(
         return false;
     }
     if (candidates_considered) *candidates_considered = true;
+
+    candidates = sema_cxx_allocate_binary_operator_candidates(
+        expression->binary_lhs, expression->binary_rhs, expression->kind,
+        expression->loc);
+    if (!candidates) return false;
 
     direct_name = sema_cxx_binary_operator_name(expression->kind);
     if (!direct_name) return false;
@@ -24166,7 +24352,7 @@ static bool sema_cxx_rewrite_class_relational_operator(
      * them with user operators before materializing either conversion. */
     candidate_count = sema_cxx_append_builtin_comparison_candidates(
         candidates, candidate_count, expression->binary_lhs,
-        expression->binary_rhs);
+        expression->binary_rhs, expression->kind);
     if (!candidate_count) return false;
 
     for (int index = 0; index < candidate_count; ++index) {
@@ -24438,13 +24624,17 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     exprlist_append(&arguments, expression->binary_rhs);
     function = sema_cxx_operator_function(name, arguments);
     if (expression->kind == EXPR_EQ || expression->kind == EXPR_NE) {
-        SemaCxxBinaryOperatorCandidate candidates[
-            SEMA_CXX_MAX_BINARY_OPERATOR_CANDIDATES];
+        SemaCxxBinaryOperatorCandidate* candidates =
+            sema_cxx_allocate_binary_operator_candidates(
+                expression->binary_lhs, expression->binary_rhs,
+                expression->kind, expression->loc);
         int candidate_count = 0;
         int best_index = -1;
         bool ambiguous = false;
         ExprList* reversed_equal_arguments = NULL;
         Symbol* reversed_equal_functions;
+
+        if (!candidates) return false;
 
         if (sema_cxx_collect_binary_operator_candidate(
                 &candidates[candidate_count], function, arguments,
@@ -24473,7 +24663,7 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
         }
         candidate_count = sema_cxx_append_builtin_comparison_candidates(
             candidates, candidate_count, expression->binary_lhs,
-            expression->binary_rhs);
+            expression->binary_rhs, expression->kind);
 
         for (int index = 0; index < candidate_count; ++index) {
             bool better_than_every_other = true;

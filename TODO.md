@@ -12179,6 +12179,13 @@ remains a separate open item.
       including remaining built-in conversion candidates, function-template
       ordering, and hidden-friend/ADL corner cases; retain the broader C++20
       overload conformance item as open.
+  - [x] Add built-in equality and relational candidates for class conversion
+        functions returning object pointers or unscoped enum types. Rank both
+        operands through the same conversion-sequence comparison used by
+        user-defined candidates, and reject conversion from one enum type to a
+        different enum candidate. Strict GCC C++20 and RCC i686/AMD64 generation
+        plus x64 execution pass; scoped-enum mismatch diagnostics produce no
+        object on both targets through `test-cxx-spaceship`.
 - [x] Deduce independently sized non-type template parameter packs nested in
       separate class-template arguments, and combine nested type/non-type
       packs. Cover empty and unequal lengths plus value preservation through

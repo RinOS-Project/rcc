@@ -10783,6 +10783,14 @@ test-cxx-spaceship: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous C++20 relational operator candidates" $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.ro tests/cxx_builtin_comparison_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.log)
 	$(GREP) -F -q "ambiguous C++20 relational operator candidates" $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_builtin_comparison_enum_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/gcc-enum-invalid.log)
+	$(GREP) -F -q "operator<" $(TEST_OUT)/cxx-builtin-comparison-conversions/gcc-enum-invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-builtin-comparison-conversions/enum-invalid-x86.ro tests/cxx_builtin_comparison_enum_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/enum-invalid-x86.log)
+	$(GREP) -F -q "comparison requires arithmetic or pointer operands" $(TEST_OUT)/cxx-builtin-comparison-conversions/enum-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-builtin-comparison-conversions/enum-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-builtin-comparison-conversions/enum-invalid-x64.ro tests/cxx_builtin_comparison_enum_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/enum-invalid-x64.log)
+	$(GREP) -F -q "comparison requires arithmetic or pointer operands" $(TEST_OUT)/cxx-builtin-comparison-conversions/enum-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-builtin-comparison-conversions/enum-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-spaceship/invalid-x86.ro tests/cxx_spaceship_invalid.cpp,$(TEST_OUT)/cxx-spaceship/invalid-x86.log)
 	$(GREP) -F -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" $(TEST_OUT)/cxx-spaceship/invalid-x86.log
 	$(GREP) -F -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" $(TEST_OUT)/cxx-spaceship/invalid-x86.log
