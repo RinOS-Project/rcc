@@ -12730,3 +12730,10 @@ remains a separate open item.
       両target 17関数・fallback 0、不正引数のno-match/no-object、未展開
       template-template packのellipsis診断、およびWindows
       `test-cxx-function-template-overloads`通過を確認。
+
+# RCC continuation (2026-11-01, combined zipped function pack kinds)
+- [x] `TemplateTagged<Templates, Types, Tags>...`でtemplate-template、type、
+      integral non-typeの3 packを同じ位置で推論・展開する。空pack/two要素のstrict
+      GCC C++20とRCC AMD64 runtime、GCC/RCC i686・AMD64のItanium symbol一致、verified
+      backend両target 19関数・fallback 0、不正型のno-match/no-object、およびWindows
+      `test-cxx-function-template-overloads`通過を確認。

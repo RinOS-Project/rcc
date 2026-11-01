@@ -25,9 +25,13 @@ struct WrapB {};
 template<template<typename> class Template, typename Value>
 struct Apply {};
 
+template<template<typename> class Template, typename Value, int Tag>
+struct TemplateTagged {};
+
 struct NotPair {};
 struct NotTagged {};
 struct NotApply {};
+struct NotTemplateTagged {};
 
 template<typename... Left, typename... Right>
 int choose_nested_independent_packs(
@@ -70,6 +74,14 @@ int choose_zipped_template_template_packs(Apply<Templates, Types>...) {
     return static_cast<int>(sizeof...(Templates) * 10 + sizeof...(Types));
 }
 
+template<template<typename> class... Templates, typename... Types,
+         int... Tags>
+int choose_zipped_template_type_value_packs(
+    TemplateTagged<Templates, Types, Tags>...) {
+    return static_cast<int>(sizeof...(Templates) * 100 +
+                            sizeof...(Types) * 10 + sizeof...(Tags));
+}
+
 int main() {
 #if defined(RCC_TEST_INVALID_UNEXPANDED_TEMPLATE_TEMPLATE_PACK)
     return 0;
@@ -79,7 +91,8 @@ int main() {
            choose_zipped_nested_packs(NotPair{}) +
            choose_zipped_mixed_packs(NotTagged{}) +
            choose_zipped_nontype_packs(NotTagged{}) +
-           choose_zipped_template_template_packs(NotApply{});
+           choose_zipped_template_template_packs(NotApply{}) +
+           choose_zipped_template_type_value_packs(NotTemplateTagged{});
 #else
     using EmptyPair = Pair<Pack<>, Pack<> >;
     using UnequalPair = Pair<Pack<char>, Pack<int, long> >;
@@ -107,7 +120,11 @@ int main() {
                        ValuePair<2, 3>{}, ValuePair<5, 7>{}) == 22 &&
                    choose_zipped_template_template_packs() == 0 &&
                    choose_zipped_template_template_packs(
-                       Apply<WrapA, int>{}, Apply<WrapB, long>{}) == 22
+                       Apply<WrapA, int>{}, Apply<WrapB, long>{}) == 22 &&
+                   choose_zipped_template_type_value_packs() == 0 &&
+                   choose_zipped_template_type_value_packs(
+                       TemplateTagged<WrapA, int, 3>{},
+                       TemplateTagged<WrapB, long, 7>{}) == 222
         ? 0 : 1;
 #endif
 }
