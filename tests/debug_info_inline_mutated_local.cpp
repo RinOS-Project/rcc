@@ -36,3 +36,24 @@ extern "C" unsigned long long debug_inline_mutated_wide_local_entry(
     debug_inline_mutated_wide_local_observe(&stable_wide_input);
     return debug_inline_mutated_wide_local(stable_wide_input);
 }
+
+static inline long long debug_inline_mutated_signed_wide_local(
+    long long initial_value)
+{
+    long long signed_wide_evolving = initial_value;
+    signed_wide_evolving += 7LL;
+    ++signed_wide_evolving;
+    signed_wide_evolving *= 2LL;
+    return signed_wide_evolving + 5LL;
+}
+
+extern "C" void debug_inline_mutated_signed_wide_local_observe(
+    long long* value);
+
+extern "C" long long debug_inline_mutated_signed_wide_local_entry(
+    long long input_value)
+{
+    long long stable_signed_wide_input = input_value;
+    debug_inline_mutated_signed_wide_local_observe(&stable_signed_wide_input);
+    return debug_inline_mutated_signed_wide_local(stable_signed_wide_input);
+}
