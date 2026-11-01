@@ -1701,6 +1701,22 @@ test-c23-bitint-promotions: $(RCC_TARGET) $(RLD_TARGET)
 	$(CC) -o $(TEST_OUT)/c23-bitint-promotions/x64-host \
 		$(TEST_OUT)/c23-bitint-promotions/x64.s
 	$(TEST_OUT)/c23-bitint-promotions/x64-host
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -O2 -nostdinc \
+		-Ibootstrap/include -fverified-backend -v -c \
+		-o $(TEST_OUT)/c23-bitint-promotions/verified-x86.ro \
+		tests/c23_bitint_promotions.c \
+		>$(TEST_OUT)/c23-bitint-promotions/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' \
+		$(TEST_OUT)/c23-bitint-promotions/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/c23-bitint-promotions/verified-x86.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 -nostdinc \
+		-Ibootstrap/include -fverified-backend -v -c \
+		-o $(TEST_OUT)/c23-bitint-promotions/verified-x64.ro \
+		tests/c23_bitint_promotions.c \
+		>$(TEST_OUT)/c23-bitint-promotions/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' \
+		$(TEST_OUT)/c23-bitint-promotions/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/c23-bitint-promotions/verified-x64.log,0)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
 		-Ibootstrap/include --emit-unsigned-v3 \
 		-o $(TEST_OUT)/c23-bitint-promotions/x86.rin \
@@ -1747,7 +1763,7 @@ test-c23-bitint-promotions: $(RCC_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/c23-bitint-promotions/x86.drv
 	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/c23-bitint-promotions/x64.drv
-	@echo "C23 bit-precise bit-field promotions and signed overflow ICE diagnostics passed"
+	@echo "C23 _BitInt conversions, call ABI, verified backend, artifact formats, and ICE diagnostics passed"
 
 test-c23-bitint-float-conversion: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-bitint-float-conversion)

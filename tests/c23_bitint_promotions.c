@@ -1,6 +1,8 @@
 typedef signed _BitInt(7) s7;
 typedef unsigned _BitInt(7) u7;
+typedef signed _BitInt(9) s9;
 typedef unsigned _BitInt(9) u9;
+typedef signed _BitInt(33) s33;
 typedef unsigned _BitInt(33) u33;
 typedef signed _BitInt(63) s63;
 typedef unsigned _BitInt(63) u63;
@@ -13,8 +15,22 @@ struct bitint_promotion_fields {
     unsigned _BitInt(33) unsigned_wide : 33;
 };
 
+s7 c23_bitint_echo_s7(s7 value) { return value; }
+u7 c23_bitint_echo_u7(u7 value) { return value; }
+s9 c23_bitint_echo_s9(s9 value) { return value; }
+u9 c23_bitint_echo_u9(u9 value) { return value; }
+s33 c23_bitint_echo_s33(s33 value) { return value; }
+u33 c23_bitint_echo_u33(u33 value) { return value; }
+u64 c23_bitint_echo_u64(u64 value) { return value; }
+
 #define RCC_HAS_TYPE(expression, type) \
     _Generic((expression), type: 1, default: 0)
+#define RCC_HAS_S9_U7_RESULT(operator) \
+    (RCC_HAS_TYPE((s9)1 operator (u7)1, s9) && \
+     RCC_HAS_TYPE((u7)1 operator (s9)1, s9))
+#define RCC_HAS_S7_U9_RESULT(operator) \
+    (RCC_HAS_TYPE((s7)1 operator (u9)1, u9) && \
+     RCC_HAS_TYPE((u9)1 operator (s7)1, u9))
 
 /* C23 6.3.1.1 keeps a bit-precise bit-field's declared type during integer
  * promotions, even when its declared field width is narrower. */
@@ -49,6 +65,24 @@ _Static_assert(RCC_HAS_TYPE(
                "standard int represents every unsigned bit-precise 7-bit value");
 _Static_assert(RCC_HAS_TYPE((u7)1 + (u9)1, u9),
                "mixed bit-precise arithmetic uses the higher rank");
+_Static_assert(RCC_HAS_S9_U7_RESULT(+) &&
+                   RCC_HAS_S9_U7_RESULT(-) &&
+                   RCC_HAS_S9_U7_RESULT(*) &&
+                   RCC_HAS_S9_U7_RESULT(/) &&
+                   RCC_HAS_S9_U7_RESULT(%) &&
+                   RCC_HAS_S9_U7_RESULT(&) &&
+                   RCC_HAS_S9_U7_RESULT(|) &&
+                   RCC_HAS_S9_U7_RESULT(^),
+               "a higher-rank signed type represents every lower-rank unsigned value");
+_Static_assert(RCC_HAS_S7_U9_RESULT(+) &&
+                   RCC_HAS_S7_U9_RESULT(-) &&
+                   RCC_HAS_S7_U9_RESULT(*) &&
+                   RCC_HAS_S7_U9_RESULT(/) &&
+                   RCC_HAS_S7_U9_RESULT(%) &&
+                   RCC_HAS_S7_U9_RESULT(&) &&
+                   RCC_HAS_S7_U9_RESULT(|) &&
+                   RCC_HAS_S7_U9_RESULT(^),
+               "mixed arithmetic uses unsigned when signed cannot represent it");
 _Static_assert(RCC_HAS_TYPE(1 ? (u7)1 : (u9)1, u9),
                "conditional expression uses the higher bit-precise rank");
 _Static_assert(RCC_HAS_TYPE(1 ? (s7)1 : (u7)1, u7),
@@ -85,6 +119,10 @@ int main(void) {
     struct bitint_promotion_fields fields = {0};
     u7 incremented = 127;
     u7 previous;
+    s9 signed_wide = 20;
+    u7 unsigned_narrow = 10;
+    s7 signed_narrow = -1;
+    u9 unsigned_wide = 1;
     u63 unsigned_63_high = (u63)1 << 62;
     u64 unsigned_64_high = (u64)1 << 63;
     fields.unsigned_narrow = 3;
@@ -104,6 +142,22 @@ int main(void) {
     if (fields.unsigned_wide != (((u33)1 << 32) | (u33)17)) {
         return 3;
     }
+    if (signed_wide + unsigned_narrow != 30 ||
+        signed_wide - unsigned_narrow != 10 ||
+        signed_wide * unsigned_narrow != 200 ||
+        signed_wide / unsigned_narrow != 2 ||
+        signed_wide % unsigned_narrow != 0 ||
+        (signed_wide & unsigned_narrow) != 0 ||
+        (signed_wide | unsigned_narrow) != 30 ||
+        (signed_wide ^ unsigned_narrow) != 30) {
+        return 8;
+    }
+    if ((u9)(signed_narrow + unsigned_wide) != 0 ||
+        (u9)(unsigned_wide + signed_narrow) != 0 ||
+        signed_narrow < unsigned_wide ||
+        unsigned_wide > signed_narrow) {
+        return 9;
+    }
     previous = incremented++;
     if (previous != 127 || incremented != 0) return 4;
     incremented = 127;
@@ -117,6 +171,15 @@ int main(void) {
         (unsigned long long)(unsigned_64_high + 1LL) !=
             9223372036854775809ULL) {
         return 7;
+    }
+    if (c23_bitint_echo_s7((s7)-63) != -63 ||
+        c23_bitint_echo_u7((u7)127) != 127 ||
+        c23_bitint_echo_s9((s9)-255) != -255 ||
+        c23_bitint_echo_u9((u9)511) != 511 ||
+        c23_bitint_echo_s33((s33)-4294967296LL) != -4294967296LL ||
+        c23_bitint_echo_u33(fields.unsigned_wide) != fields.unsigned_wide ||
+        c23_bitint_echo_u64(unsigned_64_high) != unsigned_64_high) {
+        return 10;
     }
     return 0;
 }
