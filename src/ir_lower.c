@@ -2745,6 +2745,12 @@ static RccIrLowerValue lower_lvalue_address_impl(
         expression->cxx_conditional_lvalue) {
         return lower_conditional_lvalue_address(context, expression);
     }
+    if (expression->kind == EXPR_STRING_LIT) {
+        return lower_expression(context, expression);
+    }
+    if (expression->kind == EXPR_CXX_TYPEID) {
+        return lower_cxx_typeid_address(context, expression);
+    }
     if (expression->kind == EXPR_CALL && expression->call_method &&
         expression->call_method->return_type &&
         expression->call_method->return_type->is_reference &&
