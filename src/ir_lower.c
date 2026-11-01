@@ -10103,6 +10103,22 @@ static bool lower_temporary_cleanup_plan_supported(
         allow_throwing_destructors);
 }
 
+static bool lower_abi_call_aggregate_supported(const Type* type) {
+    if (g_opts.target_arch != ARCH_X64) {
+        return lower_abi_aggregate_supported(type);
+    }
+    {
+        LowerSysvAggregateClass classification;
+        size_t integer_units;
+        size_t sse_units;
+        uint32_t alignment;
+        return lower_sysv_register_aggregate(
+                   type, &classification, &integer_units, &sse_units) ||
+            lower_sysv_memory_aggregate(
+                type, &classification, &alignment);
+    }
+}
+
 static bool lower_cleanup_constructor_call_supported(
     const Expr* initializer) {
     const CxxConstructorInfo* constructor = initializer
@@ -10160,7 +10176,7 @@ static bool lower_cleanup_constructor_call_supported(
                  ? (!type_is_compatible(
                         parameter->type, argument->expr->type) ||
                     (!indirect_aggregate &&
-                     !lower_abi_aggregate_supported(parameter->type)))
+                     !lower_abi_call_aggregate_supported(parameter->type)))
                  : !type_is_scalar(argument->expr->type))) {
             return false;
         }
@@ -22240,6 +22256,32 @@ static bool lower_cxx_constructor_initializer_expression_supported(
                 !expression->ident_decl->type->cleanup_field &&
                 lower_storage_type_supported_ignoring_volatile_internal(
                     expression->ident_decl->type, 0u);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER: {
+            const Type* object_type = expression->member_base
+                ? expression->member_base->type : NULL;
+            const TypeField* field = expression->member_field;
+            if (expression->kind == EXPR_PTR_MEMBER) {
+                if (!object_type || object_type->kind != TYPE_PTR) {
+                    return false;
+                }
+                object_type = object_type->base;
+            }
+            if (!object_type ||
+                (object_type->kind != TYPE_STRUCT &&
+                 object_type->kind != TYPE_UNION) ||
+                !object_type->is_complete || object_type->size <= 0 ||
+                !field || field->is_bitfield || !field->type ||
+                field->offset < 0 || field->type->size <= 0 ||
+                field->offset > object_type->size ||
+                field->type->size > object_type->size - field->offset ||
+                field->type->is_volatile || field->type->is_atomic ||
+                expression->cxx_virtual_base_member_access) {
+                return false;
+            }
+            return lower_cxx_constructor_initializer_expression_supported(
+                context, expression->member_base, depth + 1u);
+        }
         case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
@@ -26203,6 +26245,9 @@ static bool lower_cxx_emit_constructor_call(
     const ExprList* argument;
     RccIrValue* operands;
     RccIrInstruction* call;
+    RccSysvMemoryArgument* memory_arguments = NULL;
+    size_t memory_argument_count = 0u;
+    RccIrType receiver_type = rcc_ir_type_pointer(0u);
     size_t word_size = lower_abi_chunk_size();
     size_t operand_count = 1u;
     size_t index = 1u;
@@ -26211,31 +26256,14 @@ static bool lower_cxx_emit_constructor_call(
         if (context) context->unsupported = true;
         return false;
     }
-    for (parameter = constructor->parameters; parameter;
-         parameter = parameter->next) {
-        size_t units;
-        if (lower_abi_indirect_class_parameter(parameter->type)) {
-            units = 1u;
-        } else if (lower_abi_is_aggregate(parameter->type)) {
-            if (!lower_abi_aggregate_supported(parameter->type) ||
-                parameter->type->size <= 0 ||
-                (size_t)parameter->type->size > SIZE_MAX - (word_size - 1u)) {
-                context->unsupported = true;
-                return false;
-            }
-            units = ((size_t)parameter->type->size + word_size - 1u) /
-                word_size;
-        } else {
-            units = lower_i686_wide_scalar_type(parameter->type)
-                ? 2u : 1u;
-        }
-        if (units > SIZE_MAX - operand_count) {
-            context->unsupported = true;
-            return false;
-        }
-        operand_count += units;
+    if (!lower_abi_parameter_layout(
+            constructor->parameters, &receiver_type, 1u, NULL,
+            &operand_count, &memory_arguments, &memory_argument_count)) {
+        context->unsupported = true;
+        return false;
     }
     if (operand_count > SIZE_MAX / sizeof(*operands)) {
+        rcc_free(memory_arguments);
         context->unsupported = true;
         return false;
     }
@@ -26250,6 +26278,7 @@ static bool lower_cxx_emit_constructor_call(
             if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER ||
                 index >= operand_count) {
                 rcc_free(operands);
+                rcc_free(memory_arguments);
                 context->unsupported = true;
                 return false;
             }
@@ -26257,12 +26286,21 @@ static bool lower_cxx_emit_constructor_call(
         } else if (lower_abi_is_aggregate(parameter->type)) {
             RccIrLowerValue aggregate = lower_expression(
                 context, argument->expr);
+            if (parameter->type->size <= 0 ||
+                (size_t)parameter->type->size >
+                    SIZE_MAX - (word_size - 1u)) {
+                rcc_free(operands);
+                rcc_free(memory_arguments);
+                context->unsupported = true;
+                return false;
+            }
             size_t units = ((size_t)parameter->type->size + word_size - 1u) /
                 word_size;
             if (!aggregate.valid ||
                 aggregate.type.kind != RCC_IR_TYPE_POINTER ||
                 units > operand_count - index) {
                 rcc_free(operands);
+                rcc_free(memory_arguments);
                 context->unsupported = true;
                 return false;
             }
@@ -26271,6 +26309,7 @@ static bool lower_cxx_emit_constructor_call(
                     context, aggregate, parameter->type, unit * word_size);
                 if (!chunk.valid) {
                     rcc_free(operands);
+                    rcc_free(memory_arguments);
                     return false;
                 }
                 operands[index++] = chunk.value;
@@ -26281,6 +26320,7 @@ static bool lower_cxx_emit_constructor_call(
                     context, argument->expr, &value) ||
                 index > operand_count || operand_count - index < 2u) {
                 rcc_free(operands);
+                rcc_free(memory_arguments);
                 context->unsupported = true;
                 return false;
             }
@@ -26294,6 +26334,7 @@ static bool lower_cxx_emit_constructor_call(
             value = lower_cast(context, value, parameter->type);
             if (!value.valid || index >= operand_count) {
                 rcc_free(operands);
+                rcc_free(memory_arguments);
                 context->unsupported = true;
                 return false;
             }
@@ -26304,14 +26345,20 @@ static bool lower_cxx_emit_constructor_call(
     }
     if (index != operand_count || parameter || argument) {
         rcc_free(operands);
+        rcc_free(memory_arguments);
         context->unsupported = true;
         return false;
     }
     call = lower_append(context, RCC_IR_CALL, rcc_ir_type_void(),
                         operands, operand_count, NULL, 0u);
     rcc_free(operands);
-    if (!call) return false;
+    if (!call) {
+        rcc_free(memory_arguments);
+        return false;
+    }
     rcc_ir_set_callee(call, decl_link_name(declaration));
+    call->sysv_memory_arguments = memory_arguments;
+    call->sysv_memory_argument_count = memory_argument_count;
     return true;
 }
 
@@ -30471,12 +30518,46 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     context.current = entry;
     context.break_target = RCC_IR_BLOCK_NONE;
     context.continue_target = RCC_IR_BLOCK_NONE;
-    if (!lower_parameters(&context, declaration) ||
-        !lower_collect_labels(&context, declaration->func_body) ||
-        !lower_prepare_label_phis(&context, declaration->func_body) ||
-        !lower_cxx_initialize_constructor_members(&context, declaration) ||
-        !lower_statement(&context, declaration->func_body) ||
-        !lower_finalize_label_phis(&context)) {
+    if (!lower_parameters(&context, declaration)) {
+        if (context.unsupported && error && error_size != 0u) {
+            snprintf(error, error_size, "parameter lowering is unsupported");
+        }
+        goto lower_failure;
+    }
+    if (!lower_collect_labels(&context, declaration->func_body)) {
+        if (context.unsupported && error && error_size != 0u) {
+            snprintf(error, error_size, "label collection is unsupported");
+        }
+        goto lower_failure;
+    }
+    if (!lower_prepare_label_phis(&context, declaration->func_body)) {
+        if (context.unsupported && error && error_size != 0u) {
+            snprintf(error, error_size, "label phi preparation is unsupported");
+        }
+        goto lower_failure;
+    }
+    if (!lower_cxx_initialize_constructor_members(&context, declaration)) {
+        if (context.unsupported && error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "constructor member initialization is unsupported");
+        }
+        goto lower_failure;
+    }
+    if (!lower_statement(&context, declaration->func_body)) {
+        if (context.unsupported && error && error_size != 0u) {
+            snprintf(error, error_size, "function body lowering is unsupported");
+        }
+        goto lower_failure;
+    }
+    if (!lower_finalize_label_phis(&context)) {
+        if (context.unsupported && error && error_size != 0u) {
+            snprintf(error, error_size, "label phi finalization is unsupported");
+        }
+        goto lower_failure;
+    }
+    goto lower_succeeded;
+
+lower_failure:
         lower_release_scratch(context.allocated_scratch);
         lower_release_scope_cleanups(context.allocated_scope_cleanups);
         lower_release_vla_allocations(context.allocated_vla_allocations);
@@ -30486,7 +30567,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         rcc_ir_module_destroy(module);
         return context.unsupported ? RCC_IR_LOWER_UNSUPPORTED
                                    : RCC_IR_LOWER_INVALID;
-    }
+lower_succeeded:
     if (!context.terminated) {
         if (!lower_emit_scope_cleanups_until(&context, NULL) ||
             !lower_cxx_unregister_constructor_partial_member_cleanups(

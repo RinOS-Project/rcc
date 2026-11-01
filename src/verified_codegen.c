@@ -1698,8 +1698,10 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             if (lower_status == RCC_IR_LOWER_UNSUPPORTED) {
                 return verified_reason(
                     RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
-                    "function '%s' is outside the typed SSA subset",
-                    declaration->name);
+                    "function '%s' is outside the typed SSA subset%s%s",
+                    declaration->name,
+                    pipeline_error[0] != '\0' ? ": " : "",
+                    pipeline_error);
             }
             return verified_reason(
                 RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,

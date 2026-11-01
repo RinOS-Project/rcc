@@ -12866,6 +12866,9 @@ remains a separate open item.
       member initializers and the constructor body. A side-effecting 24-byte
       aggregate is evaluated once; GCC C++20, i686/AMD64 legacy generation,
       i686 COFF assembly, AMD64 host execution, and constructor/conversion
-      regression suites pass. The verified backend gate pins its single current
-      fallback to this aggregate-parameter constructor; typed-SSA aggregate
-      parameter lowering remains open in the parent TODO.
+      regression suites pass. Typed SSA now reads validated scalar members from
+      aggregate parameters, classifies x86_64 SysV MEMORY arguments, and emits
+      the corresponding stack-by-value call metadata. The focused gate emits
+      verified i686/AMD64 objects with zero fallback. Broader aggregate
+      parameter expressions, qualifiers, and nontrivial aggregates remain in
+      the open typed-SSA aggregate item.
