@@ -527,8 +527,11 @@ static void mangle_template_argument_name_context(
 static void cxx_mangle_record_class_type(CxxMangleContext* context,
                                          Type* type);
 
-static void cxx_mangle_enum_name(char* buf, size_t* pos, Type* type) {
+static void cxx_mangle_enum_name(char* buf, size_t* pos, Type* type,
+                                 CxxMangleContext* context) {
     const char* namespace_name;
+    size_t namespace_count = 0u;
+    bool namespace_substitution = false;
     if (!type || !type->enum_tag || type->enum_tag[0] == '\0') {
         rcc_fatal("C++ anonymous enum cannot be mangled as a type");
     }
@@ -537,21 +540,37 @@ static void cxx_mangle_enum_name(char* buf, size_t* pos, Type* type) {
         mangle_name(buf, pos, type->enum_tag);
         return;
     }
-    cxx_mangle_type_char(buf, pos, 'N');
-    while (*namespace_name) {
-        const char* separator = strstr(namespace_name, "::");
-        size_t component_length = separator
-            ? (size_t)(separator - namespace_name) : strlen(namespace_name);
-        char* component;
-        if (component_length == 0u) {
-            rcc_fatal("C++ enum namespace component is invalid for mangling");
+    if (context && context->namespace_scope) {
+        const char* scope_name = cxx_namespace_qualified_name(
+            context->namespace_scope);
+        if (scope_name && strcmp(scope_name, namespace_name) == 0) {
+            for (CxxNamespace* current = context->namespace_scope;
+                 current && current->name; current = current->parent) {
+                ++namespace_count;
+            }
+            namespace_substitution = namespace_count > 0u;
         }
-        component = rcc_alloc(component_length + 1u);
-        memcpy(component, namespace_name, component_length);
-        component[component_length] = '\0';
-        mangle_name(buf, pos, component);
-        if (!separator) break;
-        namespace_name = separator + 2;
+    }
+    cxx_mangle_type_char(buf, pos, 'N');
+    if (namespace_substitution) {
+        cxx_mangle_append_substitution(buf, pos, namespace_count - 1u);
+    } else {
+        while (*namespace_name) {
+            const char* separator = strstr(namespace_name, "::");
+            size_t component_length = separator
+                ? (size_t)(separator - namespace_name) : strlen(namespace_name);
+            char* component;
+            if (component_length == 0u) {
+                rcc_fatal(
+                    "C++ enum namespace component is invalid for mangling");
+            }
+            component = rcc_alloc(component_length + 1u);
+            memcpy(component, namespace_name, component_length);
+            component[component_length] = '\0';
+            mangle_name(buf, pos, component);
+            if (!separator) break;
+            namespace_name = separator + 2;
+        }
     }
     mangle_name(buf, pos, type->enum_tag);
     cxx_mangle_type_char(buf, pos, 'E');
@@ -2390,7 +2409,7 @@ static void cxx_mangle_type_append_context(
             if (substitution != (size_t)-1) {
                 cxx_mangle_append_substitution(buf, pos, substitution);
             } else {
-                cxx_mangle_enum_name(buf, pos, type);
+                cxx_mangle_enum_name(buf, pos, type, context);
                 cxx_mangle_record_class_type(context, type);
             }
             break;

@@ -6738,11 +6738,17 @@ test-cxx-adl-function-template-specialization: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-adl-function-template-specialization,cxx_adl_function_template_specialization.cpp)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s tests/cxx_adl_function_template_specialization.cpp
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5TokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5ShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
 	$(GREP) -F -q "_ZN10nested_adl5inner14inspect_nestedINS0_11NestedTokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
+	$(GREP) -F -q "_ZN10nested_adl5inner19inspect_nested_enumINS0_11NestedShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/gcc.s
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5TokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5ShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
 	$(GREP) -F -q "_ZN10nested_adl5inner14inspect_nestedINS0_11NestedTokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
+	$(GREP) -F -q "_ZN10nested_adl5inner19inspect_nested_enumINS0_11NestedShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x86.s
 	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5TokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
+	$(GREP) -F -q "_ZN36adl_function_template_specialization7inspectINS_5ShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
 	$(GREP) -F -q "_ZN10nested_adl5inner14inspect_nestedINS0_11NestedTokenEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
+	$(GREP) -F -q "_ZN10nested_adl5inner19inspect_nested_enumINS0_11NestedShadeEEEiRKT_" $(TEST_OUT)/cxx-adl-function-template-specialization/x64.s
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-adl-function-template-specialization/gcc-host.exe tests/cxx_adl_function_template_specialization.cpp
 	$(TEST_OUT)/cxx-adl-function-template-specialization/gcc-host.exe
 
