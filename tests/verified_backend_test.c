@@ -3937,7 +3937,7 @@ static void verify_static_local_aggregate_object(const char* path)
     cxx_static_reference_guard_releases = 0;
     verified_static_local_aggregate_destructions = 0;
     assert(entry() == 0);
-    assert(cxx_static_reference_guard_aborts == 1);
+    assert(cxx_static_reference_guard_aborts == 2);
     assert(cxx_static_reference_guard_releases == 3);
     assert(destructor_count() == 0);
     assert(cxx_static_reference_atexit_registrations ==

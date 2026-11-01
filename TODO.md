@@ -13162,9 +13162,9 @@ remains a separate open item.
       aggregate field to that object. Determine per-output-module definitions
       from the module symbol table because legacy and verified emission reuse
       the AST. The extended `test-verified-cxx-static-local-aggregate` fixture
-      passes the GCC oracle and legacy x64 runtime, emits i686/AMD64 objects
-      without fallback at `-O0` and `-O2`, and executes verified x64 objects at
-      both optimization levels.
+      throws from the first scalar temporary initializer, confirms guard abort
+      and reinitialization on retry, then passes the GCC oracle and legacy x64
+      runtime. It emits i686/AMD64 objects without fallback at `-O0` and `-O2`
+      and executes verified x64 objects at both optimization levels.
 - [ ] Extend verified lowering to class-valued reference fields and
-      partial-subobject cleanup, add TLS aggregate lifetime/cleanup, and compare
-      the throwing reference-temporary retry fixture directly with GCC.
+      partial-subobject cleanup, and add TLS aggregate lifetime/cleanup.

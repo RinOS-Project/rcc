@@ -35,6 +35,7 @@ static int make_static_aggregate_default_second() {
 
 static int make_static_aggregate_reference_value() {
     ++reference_initializer_calls;
+    if (reference_initializer_calls == 1) throw 59;
     return 47;
 }
 
@@ -117,6 +118,17 @@ int main() {
         verified_static_local_aggregate_destructions != 0) {
         return 8;
     }
+    try {
+        (void)static_local_reference_aggregate();
+        return 10;
+    } catch (int error) {
+        if (error != 59) return 11;
+    }
+    if (reference_initializer_calls != 1 ||
+        reference_second_initializer_calls != 0 ||
+        verified_static_local_aggregate_destructions != 0) {
+        return 12;
+    }
     const StaticLocalReferenceAggregate& first_reference =
         static_local_reference_aggregate();
     const StaticLocalReferenceAggregate& second_reference =
@@ -124,7 +136,7 @@ int main() {
     if (&first_reference != &second_reference ||
         &first_reference.reference != &second_reference.reference ||
         first_reference.reference != 47 || first_reference.second != 53 ||
-        reference_initializer_calls != 1 ||
+        reference_initializer_calls != 2 ||
         reference_second_initializer_calls != 1 ||
         verified_static_local_aggregate_destructions != 0) {
         return 9;
