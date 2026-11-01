@@ -602,6 +602,27 @@ int main() {
     explicit_copy_wide_constructor_evaluations = 0;
     explicit_copy_wide_destructor_evaluations = 0;
     {
+        ExplicitCopyWideConstructorArgument conditional_copy_left(
+            1301, 1302, 1303);
+        ExplicitCopyWideConstructorArgument conditional_copy_right(
+            1401, 1402, 1403);
+        bool take_left = true;
+        int left_sum = explicit_copy_wide_parameter_sum(
+            take_left ? conditional_copy_left : conditional_copy_right);
+        take_left = false;
+        int right_sum = explicit_copy_wide_parameter_sum(
+            take_left ? conditional_copy_left : conditional_copy_right);
+        if (left_sum != 3956 || right_sum != 4256 ||
+            conditional_copy_left.first != 1301 ||
+            conditional_copy_right.first != 1401 ||
+            explicit_copy_wide_constructor_evaluations != 2 ||
+            explicit_copy_wide_destructor_evaluations != 2) return 75;
+    }
+    if (explicit_copy_wide_destructor_evaluations != 4) return 76;
+
+    explicit_copy_wide_constructor_evaluations = 0;
+    explicit_copy_wide_destructor_evaluations = 0;
+    {
         int copied_prvalue_sum = explicit_copy_wide_parameter_sum(
             ExplicitCopyWideConstructorArgument(1001, 1002, 1003));
         if (copied_prvalue_sum != 3006 ||
@@ -642,6 +663,35 @@ int main() {
             explicit_move_wide_destructor_evaluations != 1) return 69;
     }
     if (explicit_move_wide_destructor_evaluations != 2) return 70;
+
+    explicit_move_wide_constructor_evaluations = 0;
+    explicit_move_wide_destructor_evaluations = 0;
+    {
+        ExplicitMoveWideConstructorArgument conditional_move_left(
+            1501, 1502, 1503);
+        ExplicitMoveWideConstructorArgument conditional_move_right(
+            1601, 1602, 1603);
+        bool take_left = true;
+        int left_sum = explicit_move_wide_parameter_sum(
+            take_left
+                ? static_cast<ExplicitMoveWideConstructorArgument&&>(
+                      conditional_move_left)
+                : static_cast<ExplicitMoveWideConstructorArgument&&>(
+                      conditional_move_right));
+        take_left = false;
+        int right_sum = explicit_move_wide_parameter_sum(
+            take_left
+                ? static_cast<ExplicitMoveWideConstructorArgument&&>(
+                      conditional_move_left)
+                : static_cast<ExplicitMoveWideConstructorArgument&&>(
+                      conditional_move_right));
+        if (left_sum != 4576 || right_sum != 4876 ||
+            conditional_move_left.first != -2 ||
+            conditional_move_right.first != -2 ||
+            explicit_move_wide_constructor_evaluations != 2 ||
+            explicit_move_wide_destructor_evaluations != 2) return 77;
+    }
+    if (explicit_move_wide_destructor_evaluations != 4) return 78;
 
     explicit_move_wide_constructor_evaluations = 0;
     explicit_move_wide_destructor_evaluations = 0;

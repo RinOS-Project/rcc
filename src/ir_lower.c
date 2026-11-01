@@ -3274,7 +3274,8 @@ static bool lower_static_volatile_aggregate_supported(
         &unqualified_type, 0u);
 }
 
-static RccIrLowerValue lower_conditional_lvalue_address(
+/* A conditional glvalue selects one existing object; merge its arm addresses. */
+static RccIrLowerValue lower_conditional_glvalue_address(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue condition;
     RccIrLowerValue arm_values[2];
@@ -3286,7 +3287,8 @@ static RccIrLowerValue lower_conditional_lvalue_address(
     RccIrInstruction* phi;
 
     if (!context || !expression || expression->kind != EXPR_COND ||
-        !expression->cxx_conditional_lvalue || !expression->cond_then ||
+        (expression->cxx_conditional_lvalue ==
+         expression->cxx_conditional_xvalue) || !expression->cond_then ||
         !expression->cond_else) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
@@ -3294,10 +3296,10 @@ static RccIrLowerValue lower_conditional_lvalue_address(
     condition = lower_truth_expression(context, expression->cond_test);
     if (!condition.valid) return lower_invalid_value();
     arm_blocks[0] = rcc_ir_block_add(
-        context->function, "cond.lvalue.then");
+        context->function, "cond.glvalue.then");
     arm_blocks[1] = rcc_ir_block_add(
-        context->function, "cond.lvalue.else");
-    merge_block = rcc_ir_block_add(context->function, "cond.lvalue.end");
+        context->function, "cond.glvalue.else");
+    merge_block = rcc_ir_block_add(context->function, "cond.glvalue.end");
     if (!arm_blocks[0] || !arm_blocks[1] || !merge_block ||
         !lower_conditional_branch(context, condition, arm_blocks[0]->id,
                                   arm_blocks[1]->id)) {
@@ -3349,8 +3351,9 @@ static RccIrLowerValue lower_lvalue_address_impl(
         return lower_lvalue_address(context, expression->binary_rhs);
     }
     if (expression->kind == EXPR_COND &&
-        expression->cxx_conditional_lvalue) {
-        return lower_conditional_lvalue_address(context, expression);
+        (expression->cxx_conditional_lvalue ||
+         expression->cxx_conditional_xvalue)) {
+        return lower_conditional_glvalue_address(context, expression);
     }
     if (expression->kind == EXPR_STRING_LIT) {
         return lower_expression(context, expression);

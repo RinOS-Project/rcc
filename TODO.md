@@ -13070,6 +13070,14 @@ remains a separate open item.
       C++20, i686/AMD64 legacy output, AMD64 execution, and verified i686/AMD64
       object generation with zero fallback pass in
       `test-cxx-prvalue-scalar-conversion-cleanup`.
+- [x] Copy or move from the selected lvalue/xvalue arm of a conditional
+      expression into an ordinary function by-value parameter. Verify the
+      unselected source is unchanged and parameter cleanup runs once. GCC C++20,
+      i686/AMD64 legacy output, AMD64 execution, and verified i686/AMD64 object
+      generation with zero fallback pass in
+      `test-cxx-prvalue-scalar-conversion-cleanup`. Conditional xvalue reference
+      lowering also passes `test-verified-cxx-conditional-xvalue` at i686/AMD64
+      O0/O2, including execution of all generated objects.
 - [x] Preserve aliases when caching lvalue and xvalue arguments passed to C++
       reference constructor parameters. Capture the referent address so member
       initializers and the constructor body continue to access the caller's

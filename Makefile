@@ -23682,7 +23682,8 @@ test-verified-cxx-reference-return: $(RCXX_TARGET) test-verified-cxx-reference-l
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/cxx-reference-return-x64.ro x64
 
-test-verified-cxx-conditional-aggregate: $(RCXX_TARGET) test-verified-cxx-reference-local
+test-verified-cxx-conditional-aggregate: $(RCXX_TARGET) test-verified-cxx-reference-local \
+		 test-verified-cxx-conditional-xvalue
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
@@ -23706,15 +23707,6 @@ test-verified-cxx-conditional-aggregate: $(RCXX_TARGET) test-verified-cxx-refere
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/cxx-conditional-aggregate-x64.ro x64
-	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
-		-fverified-backend -v -c \
-		-o $(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.ro \
-		tests/cxx_function_template_references.cpp \
-		>$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
-	$(GREP) -F -q "Verified backend fallback: function 'select_conditional_xvalue' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log,1)
-
 test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-local
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
