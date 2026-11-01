@@ -6,6 +6,13 @@ static int reference_initializer_calls;
 static int reference_second_initializer_calls;
 static int reference_class_initializer_calls;
 static int reference_class_second_initializer_calls;
+static int reference_nontrivial_initializer_calls;
+static int reference_nontrivial_second_initializer_calls;
+static int reference_nontrivial_later_initializer_calls;
+static int reference_nontrivial_value_destructions;
+static int reference_nontrivial_aggregate_saw_live_temporary;
+static int reference_nontrivial_unwind_order;
+static int reference_nontrivial_final_cleanup_order;
 extern "C" {
 #ifdef RCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST
 extern int verified_static_local_aggregate_destructions;
@@ -58,6 +65,48 @@ static StaticLocalReferenceValue make_static_aggregate_reference_class_value() {
 static int make_static_aggregate_reference_class_second() {
     ++reference_class_second_initializer_calls;
     return 71;
+}
+
+struct StaticLocalNontrivialReferenceValue {
+    int value;
+
+    ~StaticLocalNontrivialReferenceValue() {
+        if (reference_nontrivial_aggregate_saw_live_temporary) {
+            if (value == 97 && reference_nontrivial_value_destructions == 2) {
+                reference_nontrivial_final_cleanup_order = 1;
+            } else if (value == 79 &&
+                       reference_nontrivial_value_destructions == 3 &&
+                       reference_nontrivial_final_cleanup_order == 1) {
+                reference_nontrivial_final_cleanup_order = 2;
+            }
+        } else if (value == 97 &&
+                   reference_nontrivial_value_destructions == 0) {
+            reference_nontrivial_unwind_order = 1;
+        } else if (value == 79 &&
+                   reference_nontrivial_value_destructions == 1 &&
+                   reference_nontrivial_unwind_order == 1) {
+            reference_nontrivial_unwind_order = 2;
+        }
+        ++reference_nontrivial_value_destructions;
+    }
+};
+
+static StaticLocalNontrivialReferenceValue
+make_static_aggregate_nontrivial_reference_value() {
+    ++reference_nontrivial_initializer_calls;
+    return {79};
+}
+
+static StaticLocalNontrivialReferenceValue
+make_static_aggregate_nontrivial_reference_second_value() {
+    ++reference_nontrivial_second_initializer_calls;
+    return {97};
+}
+
+static int make_static_aggregate_nontrivial_reference_later() {
+    ++reference_nontrivial_later_initializer_calls;
+    if (reference_nontrivial_later_initializer_calls == 1) throw 83;
+    return 89;
 }
 
 struct StaticLocalAggregate {
@@ -120,6 +169,28 @@ static_local_class_reference_aggregate() {
     static StaticLocalClassReferenceAggregate value{
         make_static_aggregate_reference_class_value(),
         make_static_aggregate_reference_class_second()};
+    return value;
+}
+
+struct StaticLocalNontrivialClassReferenceAggregate {
+    const StaticLocalNontrivialReferenceValue& reference;
+    const StaticLocalNontrivialReferenceValue& second_reference;
+    int later;
+
+    ~StaticLocalNontrivialClassReferenceAggregate() {
+        if (reference_nontrivial_value_destructions == 2) {
+            ++reference_nontrivial_aggregate_saw_live_temporary;
+        }
+        ++verified_static_local_aggregate_destructions;
+    }
+};
+
+static const StaticLocalNontrivialClassReferenceAggregate&
+static_local_nontrivial_class_reference_aggregate() {
+    static StaticLocalNontrivialClassReferenceAggregate value{
+        make_static_aggregate_nontrivial_reference_value(),
+        make_static_aggregate_nontrivial_reference_second_value(),
+        make_static_aggregate_nontrivial_reference_later()};
     return value;
 }
 
@@ -188,9 +259,66 @@ int main() {
         verified_static_local_aggregate_destructions != 0) {
         return 13;
     }
+    try {
+        (void)static_local_nontrivial_class_reference_aggregate();
+        return 14;
+    } catch (int error) {
+        if (error != 83) return 15;
+    }
+    if (reference_nontrivial_initializer_calls != 1 ||
+        reference_nontrivial_second_initializer_calls != 1 ||
+        reference_nontrivial_later_initializer_calls != 1 ||
+        verified_static_local_aggregate_destructions != 0) {
+        return 16;
+    }
+    const StaticLocalNontrivialClassReferenceAggregate& first_nontrivial =
+        static_local_nontrivial_class_reference_aggregate();
+    const StaticLocalNontrivialClassReferenceAggregate& second_nontrivial =
+        static_local_nontrivial_class_reference_aggregate();
+    if (&first_nontrivial != &second_nontrivial ||
+        &first_nontrivial.reference != &second_nontrivial.reference ||
+        &first_nontrivial.second_reference !=
+            &second_nontrivial.second_reference ||
+        first_nontrivial.later != 89 ||
+        reference_nontrivial_initializer_calls != 2 ||
+        reference_nontrivial_second_initializer_calls != 2 ||
+        reference_nontrivial_later_initializer_calls != 2 ||
+        verified_static_local_aggregate_destructions != 0) {
+        return 17;
+    }
     return 0;
 }
 
 extern "C" int verified_static_local_aggregate_destructor_count() {
     return verified_static_local_aggregate_destructions;
+}
+
+extern "C" int
+verified_static_local_aggregate_reference_temp_destructor_count() {
+    return reference_nontrivial_value_destructions;
+}
+
+extern "C" int
+verified_static_local_aggregate_reference_temp_order_count() {
+    return reference_nontrivial_aggregate_saw_live_temporary == 1 &&
+        reference_nontrivial_final_cleanup_order == 2;
+}
+
+extern "C" int
+verified_static_local_aggregate_reference_temp_unwind_order_count() {
+    return reference_nontrivial_unwind_order;
+}
+
+extern "C" const void*
+verified_static_local_aggregate_reference_temp_first_address() {
+    const StaticLocalNontrivialClassReferenceAggregate& value =
+        static_local_nontrivial_class_reference_aggregate();
+    return &value.reference;
+}
+
+extern "C" const void*
+verified_static_local_aggregate_reference_temp_second_address() {
+    const StaticLocalNontrivialClassReferenceAggregate& value =
+        static_local_nontrivial_class_reference_aggregate();
+    return &value.second_reference;
 }

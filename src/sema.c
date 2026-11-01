@@ -17560,7 +17560,16 @@ static void sema_prepare_aggregate_reference_temporary_cleanup(
         return;
     }
     if (!temporary_cleanups) return;
-    if (!declaration->var_cleanups) {
+    if (declaration->var_is_static_local) {
+        /* Cleanup plans execute in reverse list order.  Static aggregate
+         * reference temporaries must therefore precede the aggregate's own
+         * destructor plan so the aggregate is destroyed while its reference
+         * members still designate live objects. */
+        tail = temporary_cleanups;
+        while (tail->next) tail = tail->next;
+        tail->next = declaration->var_cleanups;
+        declaration->var_cleanups = temporary_cleanups;
+    } else if (!declaration->var_cleanups) {
         declaration->var_cleanups = temporary_cleanups;
     } else {
         tail = declaration->var_cleanups;

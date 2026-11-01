@@ -401,6 +401,10 @@ static RccIrLowerValue lower_typeinfo_before(
 static bool lower_change_current_exception_cleanup(
     RccIrLowerContext* context, const CxxCleanupPlan* action,
     bool register_cleanup);
+static bool lower_temporary_cleanup_plan_list_supported(
+    const CxxCleanupPlan* plan, const Decl* owner,
+    const Decl** array_indices, size_t array_index_count,
+    bool allow_throwing_destructors);
 
 enum {
     LOWER_ABI_RETURN_SCALAR = 0,
@@ -2767,6 +2771,7 @@ static bool lower_dynamic_static_reference_temporary_supported(
     const Decl* declaration, const ExprList* item) {
     const Decl* owner = item ? item->cxx_temporary_owner : NULL;
     const Type* type = owner ? owner->type : NULL;
+    const Decl* cleanup_array_indices[32];
     bool scalar_type = type &&
         (type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
          type_is_floating((Type*)type) ||
@@ -2776,15 +2781,25 @@ static bool lower_dynamic_static_reference_temporary_supported(
         !type->cleanup_function && !type->cleanup_field &&
         rcc_sema_cxx_trivially_copyable((Type*)type) &&
         lower_storage_type_supported_ignoring_volatile_internal(type, 0u);
+    bool cleanup_class_type = type && type->kind == TYPE_STRUCT &&
+        type->cxx_class && item && item->expr &&
+        item->expr->kind == EXPR_CALL && item->expr->type &&
+        type_is_compatible((Type*)type, item->expr->type) &&
+        item->cxx_temporary_cleanups &&
+        lower_storage_type_supported_ignoring_volatile_internal(type, 0u) &&
+        lower_temporary_cleanup_plan_list_supported(
+            item->cxx_temporary_cleanups, owner,
+            cleanup_array_indices, 0u, true);
     return declaration && declaration->var_is_static_local &&
         !declaration->var_is_thread_local && item &&
         item->cxx_temporary_static_storage &&
-        !item->cxx_temporary_cleanups && owner && owner->var_is_global &&
+        (!item->cxx_temporary_cleanups || cleanup_class_type) &&
+        owner && owner->var_is_global &&
         !owner->var_is_thread_local && type && type->size > 0 &&
         !type->is_reference && !type->cleanup_function &&
         !type->is_atomic && type->kind != TYPE_ARRAY &&
         type->kind != TYPE_UNION && type->kind != TYPE_VECTOR &&
-        (scalar_type || trivial_class_type);
+        (scalar_type || trivial_class_type || cleanup_class_type);
 }
 
 static bool lower_dynamic_static_aggregate_initializer_supported(
@@ -2822,8 +2837,8 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
         return false;
     }
     for (item = initializer->compound_init; item; item = item->next) {
-        if (!item->expr || item->cxx_temporary_cleanups ||
-            (item->cxx_temporary_owner &&
+        if (!item->expr ||
+            ((item->cxx_temporary_owner || item->cxx_temporary_cleanups) &&
              !lower_dynamic_static_reference_temporary_supported(
                  declaration, item))) {
             return false;
@@ -15662,8 +15677,48 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         return_kind == LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE) {
         RccIrLowerValue value = lower_value(
             call->result, return_type, true);
-        if (!lower_store_address(context, aggregate_address, value)) {
+        RccIrInstruction* staging;
+        RccIrLowerValue staging_address;
+        size_t register_size;
+        if (value.type.kind == RCC_IR_TYPE_INTEGER ||
+            value.type.kind == RCC_IR_TYPE_FLOAT) {
+            register_size = value.type.bit_width / 8u;
+        } else if (value.type.kind == RCC_IR_TYPE_POINTER) {
+            register_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        } else {
+            context->unsupported = true;
             return lower_invalid_value();
+        }
+        if (!value.valid || !expression->type ||
+            expression->type->size <= 0 ||
+            (size_t)expression->type->size > register_size) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        staging = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!staging) return lower_invalid_value();
+        rcc_ir_set_immediate(staging, (uint64_t)register_size);
+        staging->alignment = (uint32_t)(expression->type->align >
+                (int)register_size
+            ? expression->type->align : (int)register_size);
+        staging_address = lower_value(
+            staging->result, rcc_ir_type_pointer(0u), true);
+        if (!lower_store_address(context, staging_address, value)) {
+            return lower_invalid_value();
+        }
+        for (int offset = 0; offset < expression->type->size; ++offset) {
+            RccIrLowerValue source = lower_byte_offset_address(
+                context, staging_address, (uint64_t)offset);
+            RccIrLowerValue destination = lower_byte_offset_address(
+                context, aggregate_address, (uint64_t)offset);
+            RccIrLowerValue byte = lower_load_address(
+                context, source, type_uchar);
+            if (!source.valid || !destination.valid || !byte.valid ||
+                !lower_store_address(context, destination, byte)) {
+                return lower_invalid_value();
+            }
         }
         if (!lower_emit_call_temporary_cleanups(
                 context, expression, temporary_cleanups, cleanup_count,
@@ -28714,9 +28769,18 @@ static bool lower_dynamic_static_aggregate_initializer(
                     if (!value.valid ||
                         value.type.kind != RCC_IR_TYPE_POINTER ||
                         (value.value != temporary_address.value &&
-                         !lower_copy_abi_aggregate_storage(
-                             context, temporary_address.value, value.value,
-                             temporary_owner->type))) {
+                         (!rcc_sema_cxx_trivially_copyable(
+                              temporary_owner->type) ||
+                          !lower_copy_abi_aggregate_storage(
+                              context, temporary_address.value, value.value,
+                              temporary_owner->type)))) {
+                        return false;
+                    }
+                    if (item->cxx_temporary_cleanups &&
+                        (!lower_prepare_scope_cleanup_plan(
+                             context, item->cxx_temporary_cleanups) ||
+                         !lower_change_current_cleanup_plan(
+                             context, item->cxx_temporary_cleanups, true))) {
                         return false;
                     }
                 } else {
@@ -28728,7 +28792,18 @@ static bool lower_dynamic_static_aggregate_initializer(
                         return false;
                     }
                 }
-                value = temporary_address;
+                /* The initializer call may clobber registers holding its
+                 * result destination.  Materialize the stable owner address
+                 * again after construction before storing it in the
+                 * aggregate's reference field. */
+                symbol = lower_append(
+                    context, RCC_IR_SYMBOL_ADDRESS,
+                    rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+                if (!symbol) return false;
+                rcc_ir_set_callee(
+                    symbol, decl_link_name(temporary_owner));
+                value = lower_value(
+                    symbol->result, rcc_ir_type_pointer(0u), true);
             } else {
                 value = lower_expression(context, item->expr);
                 value = lower_cast(context, value, field->type);
@@ -28834,6 +28909,15 @@ static bool lower_dynamic_static_aggregate_initializer(
 
         context->current = registered_block;
         context->terminated = false;
+    }
+
+    for (item = declaration->var_init->compound_init; item;
+         item = item->next) {
+        if (item->cxx_temporary_cleanups &&
+            !lower_change_current_cleanup_plan(
+                context, item->cxx_temporary_cleanups, false)) {
+            return false;
+        }
     }
 
     if (!lower_cxx_change_current_cleanup(

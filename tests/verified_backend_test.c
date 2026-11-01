@@ -3909,10 +3909,24 @@ static void verify_static_local_aggregate_object(const char* path)
     ObjSection* text;
     ObjSymbol* entry_symbol;
     ObjSymbol* destructor_count_symbol;
+    ObjSymbol* reference_temp_destructor_count_symbol;
+    ObjSymbol* reference_temp_order_count_symbol;
+    ObjSymbol* reference_temp_unwind_order_count_symbol;
+    ObjSymbol* reference_temp_first_address_symbol;
+    ObjSymbol* reference_temp_second_address_symbol;
     size_t mapping_size;
     void* memory;
     int (RINOS_ABI *entry)(void);
     int (RINOS_ABI *destructor_count)(void);
+    int (RINOS_ABI *reference_temp_destructor_count)(void);
+    int (RINOS_ABI *reference_temp_order_count)(void);
+    int (RINOS_ABI *reference_temp_unwind_order_count)(void);
+    const void* (RINOS_ABI *reference_temp_first_address)(void);
+    const void* (RINOS_ABI *reference_temp_second_address)(void);
+    const void* reference_temp_first;
+    const void* reference_temp_second;
+    int reference_temp_first_value;
+    int reference_temp_second_value;
     void* address;
     int registrations_before = cxx_static_reference_atexit_registrations;
     int finalizations_before = cxx_static_reference_atexit_finalizations;
@@ -3921,31 +3935,97 @@ static void verify_static_local_aggregate_object(const char* path)
     entry_symbol = objfile_find_symbol(object, "main");
     destructor_count_symbol = objfile_find_symbol(
         object, "verified_static_local_aggregate_destructor_count");
+    reference_temp_destructor_count_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_reference_temp_destructor_count");
+    reference_temp_order_count_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_reference_temp_order_count");
+    reference_temp_unwind_order_count_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_reference_temp_unwind_order_count");
+    reference_temp_first_address_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_reference_temp_first_address");
+    reference_temp_second_address_symbol = objfile_find_symbol(
+        object,
+        "verified_static_local_aggregate_reference_temp_second_address");
     assert(text != NULL && entry_symbol != NULL &&
            entry_symbol->type == SYM_GLOBAL &&
            entry_symbol->binding == BIND_CODE && entry_symbol->section == 0 &&
            destructor_count_symbol != NULL &&
            destructor_count_symbol->type == SYM_GLOBAL &&
            destructor_count_symbol->binding == BIND_CODE &&
-           destructor_count_symbol->section == 0);
+           destructor_count_symbol->section == 0 &&
+           reference_temp_destructor_count_symbol != NULL &&
+           reference_temp_destructor_count_symbol->type == SYM_GLOBAL &&
+           reference_temp_destructor_count_symbol->binding == BIND_CODE &&
+           reference_temp_destructor_count_symbol->section == 0 &&
+           reference_temp_order_count_symbol != NULL &&
+           reference_temp_order_count_symbol->type == SYM_GLOBAL &&
+           reference_temp_order_count_symbol->binding == BIND_CODE &&
+           reference_temp_order_count_symbol->section == 0 &&
+           reference_temp_unwind_order_count_symbol != NULL &&
+           reference_temp_unwind_order_count_symbol->type == SYM_GLOBAL &&
+           reference_temp_unwind_order_count_symbol->binding == BIND_CODE &&
+           reference_temp_unwind_order_count_symbol->section == 0 &&
+           reference_temp_first_address_symbol != NULL &&
+           reference_temp_first_address_symbol->type == SYM_GLOBAL &&
+           reference_temp_first_address_symbol->binding == BIND_CODE &&
+           reference_temp_first_address_symbol->section == 0 &&
+           reference_temp_second_address_symbol != NULL &&
+           reference_temp_second_address_symbol->type == SYM_GLOBAL &&
+           reference_temp_second_address_symbol->binding == BIND_CODE &&
+           reference_temp_second_address_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, entry_symbol);
     memcpy(&entry, &address, sizeof(entry));
     address = symbol_address(memory, destructor_count_symbol);
     memcpy(&destructor_count, &address, sizeof(destructor_count));
+    address = symbol_address(
+        memory, reference_temp_destructor_count_symbol);
+    memcpy(&reference_temp_destructor_count, &address,
+           sizeof(reference_temp_destructor_count));
+    address = symbol_address(memory, reference_temp_order_count_symbol);
+    memcpy(&reference_temp_order_count, &address,
+           sizeof(reference_temp_order_count));
+    address = symbol_address(
+        memory, reference_temp_unwind_order_count_symbol);
+    memcpy(&reference_temp_unwind_order_count, &address,
+           sizeof(reference_temp_unwind_order_count));
+    address = symbol_address(memory, reference_temp_first_address_symbol);
+    memcpy(&reference_temp_first_address, &address,
+           sizeof(reference_temp_first_address));
+    address = symbol_address(memory, reference_temp_second_address_symbol);
+    memcpy(&reference_temp_second_address, &address,
+           sizeof(reference_temp_second_address));
     cxx_static_reference_guard_aborts = 0;
     cxx_static_reference_guard_releases = 0;
     verified_static_local_aggregate_destructions = 0;
     assert(entry() == 0);
-    assert(cxx_static_reference_guard_aborts == 2);
-    assert(cxx_static_reference_guard_releases == 4);
+    reference_temp_first = reference_temp_first_address();
+    reference_temp_second = reference_temp_second_address();
+    assert(reference_temp_first != NULL && reference_temp_second != NULL &&
+           reference_temp_first != reference_temp_second);
+    memcpy(&reference_temp_first_value, reference_temp_first,
+           sizeof(reference_temp_first_value));
+    memcpy(&reference_temp_second_value, reference_temp_second,
+           sizeof(reference_temp_second_value));
+    assert(reference_temp_first_value == 79);
+    assert(reference_temp_second_value == 97);
+    assert(cxx_static_reference_guard_aborts == 3);
+    assert(cxx_static_reference_guard_releases == 5);
     assert(destructor_count() == 0);
+    assert(reference_temp_destructor_count() == 2);
+    assert(reference_temp_unwind_order_count() == 2);
     assert(cxx_static_reference_atexit_registrations ==
-           registrations_before + 4);
+           registrations_before + 5);
     __cxa_finalize(&verified_dynamic_tls_dso_handle);
-    assert(destructor_count() == 4);
+    assert(destructor_count() == 5);
+    assert(reference_temp_destructor_count() == 4);
+    assert(reference_temp_order_count() == 1);
     assert(cxx_static_reference_atexit_finalizations ==
-           finalizations_before + 4);
+           finalizations_before + 5);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

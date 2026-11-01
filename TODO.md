@@ -13173,6 +13173,15 @@ remains a separate open item.
       `test-verified-cxx-static-local-aggregate` fixture passes the GCC oracle,
       legacy x64 runtime, i686/AMD64 verified output at `-O0`/`-O2` with zero
       fallback, and verified x64 runtime at both optimization levels.
-- [ ] Add lifetime cleanup for nontrivial class-valued reference temporaries,
-      unwind completed partial subobjects when a later initializer throws, and
-      cover TLS aggregate temporary lifetime and cleanup.
+- [x] Lower non-TLS block-static aggregate reference fields bound to nontrivial
+      class prvalues with lifetime cleanup in the verified backend. Keep each
+      temporary in static data, register its cleanup after successful
+      construction, unwind completed temporaries in reverse order if a later
+      initializer throws, abort the guard for retry, and destroy the aggregate
+      before its referenced temporaries at exit. The expanded
+      `test-verified-cxx-static-local-aggregate` fixture passes the GCC C++20
+      oracle, i686/AMD64 output at `-O0`/`-O2` with zero fallback, and verified
+      x64 runtime at both optimization levels.
+- [ ] Unwind completed nontrivial aggregate subobjects when a later initializer
+      throws, and cover TLS aggregate temporary lifetime and cleanup in the
+      verified backend.
