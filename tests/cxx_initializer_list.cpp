@@ -38,6 +38,11 @@ int choose_element_type(std::initializer_list<long>) {
     return 4;
 }
 
+template <typename T>
+int template_list_element_size(std::initializer_list<T> values) {
+    return values.size() == 2 ? sizeof(T) : 0;
+}
+
 struct ConstructorChoice {
     ConstructorChoice(std::initializer_list<int>) {
         initializer_list_record_constructed(1);
@@ -93,10 +98,12 @@ static int test_empty_initializer_list(void) {
 static int test_initializer_list_preference(void) {
     int function_choice = choose_overload({5, 6});
     int element_choice = choose_element_type({9, 10});
+    int template_element_size = template_list_element_size({11, 12});
     initializer_list_reset_counts();
     ConstructorChoice constructor_choice{7, 8};
     (void)constructor_choice;
     return function_choice == 1 && element_choice == 3 &&
+           template_element_size == sizeof(int) &&
            initializer_list_counts_are(1, 0);
 }
 

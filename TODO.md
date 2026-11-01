@@ -12920,11 +12920,18 @@ remains a separate open item.
       elements after calls or at local list scope exit. GCC C++20, i686/AMD64
       assembly and `.ro` generation, AMD64 runtime parity, and narrowing
       rejection/no-object checks pass in `test-cxx-initializer-list`.
-- [ ] Deduce function and constructor template parameters from braced-init-list
-      elements; compare the remaining C++20 list-initialization ranking and
-      narrowing boundaries with GCC before claiming full conformance. Ordinary
-      candidate viability and selected scalar/aggregate list handling are
-      covered by the 2026-11-01 continuation above.
+- [x] Deduce function-template `T` from elements of an untyped braced argument
+      when the parameter is `std::initializer_list<T>`. Keep other parameter
+      patterns as non-deduced contexts and check their braced conversion after
+      substitution. GCC C++20, i686/AMD64 generation and `.ro` output, AMD64
+      runtime parity, and adjacent function-template/braced-overload gates pass
+      in `test-cxx-initializer-list`, `test-cxx-function-templates`, and
+      `test-cxx-braced-argument-overload`.
+- [ ] Deduce constructor-template parameters from braced-init-list elements;
+      compare remaining C++20 list-initialization ranking and narrowing
+      boundaries with GCC before claiming full conformance. Ordinary candidate
+      viability and selected scalar/aggregate list handling are covered by the
+      2026-11-01 continuation above.
 - [ ] Extend list narrowing constant evaluation beyond 64-bit integer values and
       through user-defined conversion sequences; compare the remaining standard
       cases with GCC C++20.

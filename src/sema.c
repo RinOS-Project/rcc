@@ -22805,6 +22805,11 @@ static int sema_cxx_braced_argument_conversion_rank(
     }
 }
 
+int rcc_sema_cxx_braced_argument_conversion_rank(
+    Expr* expression, Type* target) {
+    return sema_cxx_braced_argument_conversion_rank(expression, target, 0u);
+}
+
 static bool sema_cxx_has_viable_initializer_list_constructor(
     Type* object_type, ExprList* elements, int element_count,
     unsigned depth) {

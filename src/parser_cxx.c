@@ -31583,6 +31583,80 @@ static Type* cxx_parser_template_deduction_argument(Type* pattern,
     return adjusted;
 }
 
+static Type* cxx_parser_initializer_list_element_pattern(Type* type) {
+    CxxClass* cls = NULL;
+    CxxTemplate* owner;
+    Type** arguments;
+    int argument_count;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    if (!type || type->kind != TYPE_STRUCT) {
+        return NULL;
+    }
+    cls = type->cxx_class;
+    owner = cls && cls->template_identity_tmpl
+        ? cls->template_identity_tmpl
+        : cls && cls->templ ? cls->templ : type->cxx_template;
+    arguments = cls && cls->template_identity_tmpl
+        ? cls->template_identity_args
+        : cls && cls->template_args ? cls->template_args
+        : type->cxx_template_args;
+    argument_count = cls && cls->template_identity_tmpl
+        ? cls->template_identity_arg_count
+        : cls && cls->templ ? cls->template_arg_count
+        : type->cxx_template_arg_count;
+    if (!owner || !owner->name ||
+        strcmp(owner->name, "initializer_list") != 0 || !arguments ||
+        argument_count != 1 || !arguments[0]) {
+        return NULL;
+    }
+    if ((type->cxx_namespace && strcmp(type->cxx_namespace, "std") == 0) ||
+        (cls && cls->ns && cls->ns->name &&
+         strcmp(cls->ns->name, "std") == 0)) {
+        return arguments[0];
+    }
+    for (CxxNamespace* ns = owner->ns; ns; ns = ns->parent) {
+        if (ns->name && strcmp(ns->name, "std") == 0) {
+            return arguments[0];
+        }
+    }
+    return NULL;
+}
+
+static bool cxx_deduce_function_template_from_braced_initializer_list(
+    CxxTemplate* tmpl, Type* parameter_type, Expr* argument,
+    Type** template_arguments, int64_t* template_values,
+    bool* template_value_present, int* specificity) {
+    Type* element_pattern =
+        cxx_parser_initializer_list_element_pattern(parameter_type);
+    if (!element_pattern || !argument ||
+        argument->kind != EXPR_COMPOUND || argument->compound_type) {
+        return false;
+    }
+    if (argument->compound_value_init) return true;
+    for (ExprList* item = argument->compound_init; item;
+         item = item->next) {
+        Type* actual;
+        if (!item->expr ||
+            item->designator_kind != INIT_DESIGNATOR_NONE ||
+            item->expr->kind == EXPR_COMPOUND) {
+            return false;
+        }
+        actual = cxx_parser_expression_type(item->expr);
+        if (!actual ||
+            !deduce_function_template_type(
+                tmpl, element_pattern,
+                cxx_parser_template_deduction_argument(
+                    element_pattern, actual),
+                template_arguments, template_values,
+                template_value_present, specificity)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool cxx_function_template_type_contains_parameter(
     CxxTemplate* tmpl, Type* type) {
     if (!tmpl || !type) return false;
@@ -33972,6 +34046,25 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
             break;
         }
         Type* actual = cxx_parser_expression_type(argument->expr);
+        if (!actual && argument->expr &&
+            argument->expr->kind == EXPR_COMPOUND &&
+            !argument->expr->compound_type) {
+            if (cxx_parser_initializer_list_element_pattern(
+                    parameter->decl ? parameter->decl->type : NULL)) {
+                if (!cxx_deduce_function_template_from_braced_initializer_list(
+                        tmpl, parameter->decl->type, argument->expr,
+                        template_arguments, template_values,
+                        template_value_present, specificity)) {
+                    return false;
+                }
+            }
+            /* A braced-init-list is a non-deduced context for every other
+             * parameter pattern.  Concrete viability is checked after the
+             * remaining template arguments have been substituted. */
+            parameter = parameter->next;
+            argument = argument->next;
+            continue;
+        }
         if (!actual) {
             SourceLoc location;
             cxx_parser_expr_loc(&location, argument->expr,
@@ -42280,6 +42373,11 @@ static int cxx_parser_function_template_overload_conversion_rank(
     int rank;
     if (conversion_method) *conversion_method = NULL;
     if (!argument || !target) return -1;
+    if (argument->kind == EXPR_COMPOUND && !argument->compound_type &&
+        !cxx_type_pattern_contains_dependent_component(target, 0u)) {
+        return rcc_sema_cxx_braced_argument_conversion_rank(
+            argument, target);
+    }
     rank = cxx_parser_function_pointer_overload_rank(
         argument, target, &is_function_overload_set);
     if (is_function_overload_set) return rank;
@@ -47046,7 +47144,9 @@ Expr* rcc_parse_cxx_template_call(void) {
             if (!check(TOK_RPAREN)) {
                 do {
                     exprlist_append(&adl_call_arguments,
-                                    parse_assignment_expression());
+                        check(TOK_LBRACE)
+                            ? rcc_parser_parse_initializer()
+                            : parse_assignment_expression());
                 } while (match(TOK_COMMA));
             }
             expect(TOK_RPAREN, ")");
@@ -47173,7 +47273,9 @@ Expr* rcc_parse_cxx_template_call(void) {
         if (!adl_arguments_parsed) {
             if (!check(TOK_RPAREN)) {
                 do {
-                    Expr* argument = parse_assignment_expression();
+                    Expr* argument = check(TOK_LBRACE)
+                        ? rcc_parser_parse_initializer()
+                        : parse_assignment_expression();
                     if (match(TOK_ELLIPSIS)) {
                         if (!argument) {
                             rcc_error(loc,

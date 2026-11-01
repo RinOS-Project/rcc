@@ -234,6 +234,8 @@ int rcc_sema_cxx_conversion_rank_at_context(
     struct Expr* expression, struct Type* source, struct Type* target,
     struct CxxClass* access_context,
     struct CxxFriendAccess* function_friend_access);
+int rcc_sema_cxx_braced_argument_conversion_rank(
+    struct Expr* expression, struct Type* target);
 int rcc_sema_cxx_conversion_rank_with_method_at_context(
     struct Expr* expression, struct Type* source, struct Type* target,
     struct TypeMethod** conversion_method,
