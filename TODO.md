@@ -13014,10 +13014,12 @@ remains a separate open item.
 - [x] Diagnose narrowing in C++20 scalar, array, nested aggregate, and selected
       constructor list-initialization. Cover integral representability constants,
       exact integer-to-float constants, floating rank/range conversions,
-      pointer/array-to-bool, and constructor parameters. Fix legacy x64 scalar
+      pointer/array-to-bool, and constructor parameters. Accept the exact
+      signed-char endpoints and unsigned-char maximum; reject signed overflow
+      and underflow and negative-to-unsigned conversion. Fix legacy x64 scalar
       initialization to convert integer/double values to the destination float
       representation. GCC C++20 positive/negative oracles, i686/AMD64 generation,
-      AMD64 runtime, 18 matching negative diagnostics per compiler/target, and
+      AMD64 runtime, 21 matching negative diagnostics per compiler/target, and
       absence of invalid object output pass in `test-cxx-list-narrowing`.
 - [x] Convert unscoped enums implicitly to floating types in scalar
       initialization and overload resolution, and preserve C++20

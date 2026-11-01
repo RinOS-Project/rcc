@@ -50,6 +50,9 @@ int main() {
     float runtime_narrow{runtime_fraction};
     float floating_overflow{1e100};
     bool nonzero_integer{2};
+    signed char signed_overflow{128};
+    signed char signed_underflow{-129};
+    unsigned char negative_unsigned{-1};
     bool from_pointer{&source};
     bool from_array{source_array};
     short constant_user_conversion{OutOfRangeIntegerConversion{}};
@@ -64,6 +67,7 @@ int main() {
            array_out_of_range[0] + (int)inexact_integer +
            (int)runtime_narrow + (int)floating_overflow +
            nonzero_integer + from_pointer + from_array + enum_negative +
+           signed_overflow + signed_underflow + negative_unsigned +
            (int)enum_inexact_float + (int)unsigned_enum_inexact_float +
            (int)inexact_ull_max;
 }
