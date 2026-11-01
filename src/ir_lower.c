@@ -2802,6 +2802,86 @@ static bool lower_dynamic_static_reference_temporary_supported(
         (scalar_type || trivial_class_type || cleanup_class_type);
 }
 
+static bool lower_dynamic_static_class_member_initializer_supported(
+    const Type* type, const ExprList* aggregate_item) {
+    const Expr* initializer = aggregate_item
+        ? aggregate_item->expr : NULL;
+    const TypeField* field;
+    const ExprList* item;
+    size_t field_count = 0u;
+    size_t item_count = 0u;
+    bool has_field_designators = false;
+    bool has_positional_items = false;
+    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
+        !ast_cxx_is_aggregate((Type*)type) || type->is_volatile ||
+        type->size <= 0 || type->align <= 0 ||
+        type->cxx_class->base_count != 0 ||
+        type->cxx_class->virtual_base_count != 0 ||
+        type->cxx_class->vtable_size != 0 ||
+        type->cxx_class->has_user_constructor ||
+        type->cxx_class->has_field_initializer ||
+        !initializer || initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor ||
+        initializer->compound_paren_init ||
+        initializer->compound_cxx_default_member_normalized ||
+        aggregate_item->cxx_temporary_owner ||
+        aggregate_item->cxx_temporary_cleanups) {
+        return false;
+    }
+    for (item = initializer->compound_init; item; item = item->next) {
+        if (!item->expr || item->cxx_temporary_owner ||
+            item->cxx_temporary_cleanups) {
+            return false;
+        }
+        ++item_count;
+        if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+            has_field_designators = true;
+        } else if (item->designator_kind == INIT_DESIGNATOR_NONE) {
+            has_positional_items = true;
+        } else {
+            return false;
+        }
+    }
+    if (has_field_designators && has_positional_items) return false;
+    for (field = type->fields; field; field = field->next) {
+        const Type* field_type = field->type;
+        if (!field_type || field->is_bitfield || field->offset < 0 ||
+            field->offset > type->size ||
+            field_type->size > type->size - field->offset ||
+            field_type->is_atomic || field_type->is_reference ||
+            field_type->cleanup_function || field_type->cxx_class ||
+            !(type_is_integer((Type*)field_type) ||
+              field_type->kind == TYPE_ENUM ||
+              type_is_floating((Type*)field_type) ||
+              (field_type->kind == TYPE_PTR &&
+               !field_type->cxx_is_member_pointer))) {
+            return false;
+        }
+        ++field_count;
+    }
+    if (!has_field_designators) return item_count <= field_count;
+    for (item = initializer->compound_init; item; item = item->next) {
+        const TypeField* match;
+        for (match = type->fields; match; match = match->next) {
+            if (match->name && item->designator_field &&
+                strcmp(match->name, item->designator_field) == 0) {
+                break;
+            }
+        }
+        if (!match) return false;
+        for (const ExprList* prior = initializer->compound_init;
+             prior != item; prior = prior->next) {
+            if (prior->designator_kind == INIT_DESIGNATOR_FIELD &&
+                prior->designator_field && item->designator_field &&
+                strcmp(prior->designator_field,
+                       item->designator_field) == 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static bool lower_dynamic_static_aggregate_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
@@ -2865,6 +2945,15 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
                 !type_is_compatible(
                     field_type->base,
                     item->cxx_temporary_owner->type)) {
+                return false;
+            }
+            ++field_count;
+            field = field->next;
+            continue;
+        }
+        if (field_type && field_type->cxx_class) {
+            if (!lower_dynamic_static_class_member_initializer_supported(
+                    field_type, item)) {
                 return false;
             }
             ++field_count;
@@ -28682,6 +28771,7 @@ static bool lower_dynamic_static_aggregate_initializer(
     RccIrInstruction* symbol;
     size_t field_index = 0u;
     bool has_field_designators;
+    bool track_partial_members;
     if (!context ||
         !lower_dynamic_static_aggregate_initializer_supported(declaration)) {
         if (context) context->unsupported = true;
@@ -28716,6 +28806,8 @@ static bool lower_dynamic_static_aggregate_initializer(
             context, "__cxa_guard_abort", guard_address, true)) {
         return false;
     }
+    track_partial_members = declaration->var_cleanups != NULL &&
+        lower_cleanup_initializer_may_throw(declaration->var_init);
     symbol = lower_append(
         context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
         NULL, 0u, NULL, 0u);
@@ -28804,6 +28896,32 @@ static bool lower_dynamic_static_aggregate_initializer(
                     symbol, decl_link_name(temporary_owner));
                 value = lower_value(
                     symbol->result, rcc_ir_type_pointer(0u), true);
+            } else if (field->type->cxx_class) {
+                const Decl* previous_partial_owner =
+                    context->partial_construction_owner;
+                const Decl* previous_partial_cleanup_declaration =
+                    context->partial_construction_cleanup_declaration;
+                if (track_partial_members) {
+                    context->partial_construction_owner = declaration;
+                    context->partial_construction_cleanup_declaration =
+                        declaration;
+                }
+                if (!lower_initialize_struct_field(
+                        context, object.value, field, item,
+                        declaration->var_init)) {
+                    context->partial_construction_owner =
+                        previous_partial_owner;
+                    context->partial_construction_cleanup_declaration =
+                        previous_partial_cleanup_declaration;
+                    return false;
+                }
+                context->partial_construction_owner =
+                    previous_partial_owner;
+                context->partial_construction_cleanup_declaration =
+                    previous_partial_cleanup_declaration;
+                ++field_index;
+                field = field->next;
+                continue;
             } else {
                 value = lower_expression(context, item->expr);
                 value = lower_cast(context, value, field->type);
@@ -28821,6 +28939,11 @@ static bool lower_dynamic_static_aggregate_initializer(
         ++field_index;
     }
     if (context->unsupported) return false;
+    if (track_partial_members &&
+        !lower_unregister_partial_member_cleanups(
+            context, declaration, declaration)) {
+        return false;
+    }
 
     if (declaration->var_cleanups) {
         static const char suffix[] = "$rcc_static_cleanup";

@@ -13182,6 +13182,15 @@ remains a separate open item.
       `test-verified-cxx-static-local-aggregate` fixture passes the GCC C++20
       oracle, i686/AMD64 output at `-O0`/`-O2` with zero fallback, and verified
       x64 runtime at both optimization levels.
-- [ ] Unwind completed nontrivial aggregate subobjects when a later initializer
-      throws, and cover TLS aggregate temporary lifetime and cleanup in the
-      verified backend.
+- [x] Track completed direct nontrivial class members while lowering a
+      non-TLS block-static aggregate in the verified backend. If a later
+      initializer throws, unwind the completed member prefix in reverse order,
+      abort the guard, and retry on the next access; unregister partial-member
+      cleanup after full initialization so the registered complete-object
+      cleanup runs once. Cover two members, throw/retry, and exit cleanup in
+      `test-verified-cxx-static-local-aggregate`; the GCC C++20 oracle passes,
+      and i686/AMD64 verified objects pass at `-O0`/`-O2` with zero fallback
+      plus x64 runtime execution.
+- [ ] Extend verified partial-subobject unwind to nested class members, arrays,
+      and constructor-built subobjects, and cover TLS aggregate temporary
+      lifetime and cleanup.

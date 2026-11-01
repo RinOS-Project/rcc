@@ -13,6 +13,13 @@ static int reference_nontrivial_value_destructions;
 static int reference_nontrivial_aggregate_saw_live_temporary;
 static int reference_nontrivial_unwind_order;
 static int reference_nontrivial_final_cleanup_order;
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT
+static int partial_member_initializer_calls;
+static int partial_member_later_initializer_calls;
+static int partial_member_destructions;
+static int partial_member_unwind_order;
+static int partial_member_final_cleanup_order;
+#endif
 extern "C" {
 #ifdef RCC_VERIFIED_STATIC_LOCAL_AGGREGATE_HOST
 extern int verified_static_local_aggregate_destructions;
@@ -109,6 +116,14 @@ static int make_static_aggregate_nontrivial_reference_later() {
     return 89;
 }
 
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT
+static int make_static_aggregate_partial_member_later() {
+    ++partial_member_later_initializer_calls;
+    if (partial_member_later_initializer_calls == 1) throw 109;
+    return 113;
+}
+#endif
+
 struct StaticLocalAggregate {
     int first;
     int second;
@@ -185,6 +200,37 @@ struct StaticLocalNontrivialClassReferenceAggregate {
     }
 };
 
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT
+struct StaticLocalPartialMember {
+    int value;
+
+    ~StaticLocalPartialMember() {
+        if (partial_member_later_initializer_calls == 1) {
+            if (value == 111 && partial_member_destructions == 0) {
+                partial_member_unwind_order = 1;
+            } else if (value == 107 && partial_member_destructions == 1 &&
+                       partial_member_unwind_order == 1) {
+                partial_member_unwind_order = 2;
+            }
+        } else if (partial_member_later_initializer_calls == 2) {
+            if (value == 111 && partial_member_destructions == 2) {
+                partial_member_final_cleanup_order = 1;
+            } else if (value == 107 && partial_member_destructions == 3 &&
+                       partial_member_final_cleanup_order == 1) {
+                partial_member_final_cleanup_order = 2;
+            }
+        }
+        ++partial_member_destructions;
+    }
+};
+
+struct StaticLocalPartialAggregate {
+    StaticLocalPartialMember member;
+    StaticLocalPartialMember second_member;
+    int later;
+};
+#endif
+
 static const StaticLocalNontrivialClassReferenceAggregate&
 static_local_nontrivial_class_reference_aggregate() {
     static StaticLocalNontrivialClassReferenceAggregate value{
@@ -193,6 +239,17 @@ static_local_nontrivial_class_reference_aggregate() {
         make_static_aggregate_nontrivial_reference_later()};
     return value;
 }
+
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT
+static const StaticLocalPartialAggregate&
+static_local_partial_aggregate() {
+    ++partial_member_initializer_calls;
+    static StaticLocalPartialAggregate value{
+        StaticLocalPartialMember{107}, StaticLocalPartialMember{111},
+        make_static_aggregate_partial_member_later()};
+    return value;
+}
+#endif
 
 int main() {
     try {
@@ -286,6 +343,33 @@ int main() {
         verified_static_local_aggregate_destructions != 0) {
         return 17;
     }
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT
+    try {
+        (void)static_local_partial_aggregate();
+        return 18;
+    } catch (int error) {
+        if (error != 109) return 19;
+    }
+    if (partial_member_initializer_calls != 1 ||
+        partial_member_later_initializer_calls != 1 ||
+        partial_member_destructions != 2 || partial_member_unwind_order != 2) {
+        return 20;
+    }
+    const StaticLocalPartialAggregate& first_partial =
+        static_local_partial_aggregate();
+    const StaticLocalPartialAggregate& second_partial =
+        static_local_partial_aggregate();
+    if (&first_partial != &second_partial ||
+        first_partial.member.value != 107 ||
+        first_partial.second_member.value != 111 ||
+        first_partial.later != 113 ||
+        partial_member_initializer_calls != 3 ||
+        partial_member_later_initializer_calls != 2 ||
+        partial_member_destructions != 2 ||
+        partial_member_final_cleanup_order != 0) {
+        return 21;
+    }
+#endif
     return 0;
 }
 
@@ -322,3 +406,20 @@ verified_static_local_aggregate_reference_temp_second_address() {
         static_local_nontrivial_class_reference_aggregate();
     return &value.second_reference;
 }
+
+#ifdef RCC_TEST_STATIC_LOCAL_PARTIAL_SUBOBJECT
+extern "C" int
+verified_static_local_aggregate_partial_member_destructor_count() {
+    return partial_member_destructions;
+}
+
+extern "C" int
+verified_static_local_aggregate_partial_member_unwind_order() {
+    return partial_member_unwind_order;
+}
+
+extern "C" int
+verified_static_local_aggregate_partial_member_final_cleanup_order() {
+    return partial_member_final_cleanup_order;
+}
+#endif
