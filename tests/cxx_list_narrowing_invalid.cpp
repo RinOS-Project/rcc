@@ -15,6 +15,18 @@ struct ConstructedValue {
     ConstructedValue(int source) : value(source) {}
 };
 
+struct OutOfRangeIntegerConversion {
+    constexpr operator int() const { return 40000; }
+};
+
+struct RuntimeIntegerConversion {
+    operator int() const;
+};
+
+struct FloatingConversion {
+    constexpr operator double() const { return 2.5; }
+};
+
 int main() {
     int source = 1;
     int source_array[1] = {1};
@@ -30,6 +42,9 @@ int main() {
     bool nonzero_integer{2};
     bool from_pointer{&source};
     bool from_array{source_array};
+    short constant_user_conversion{OutOfRangeIntegerConversion{}};
+    short runtime_user_conversion{RuntimeIntegerConversion{}};
+    int floating_user_conversion{FloatingConversion{}};
     return from_float.value + nested_out_of_range.nested.byte +
            sizeof(constructor_from_float) + out_of_range +
            array_out_of_range[0] + (int)inexact_integer +

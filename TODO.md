@@ -12941,6 +12941,11 @@ remains a separate open item.
       boundaries with GCC before claiming full conformance. Ordinary candidate
       viability and selected scalar/aggregate list handling are covered by the
       2026-11-01 continuation above.
-- [ ] Extend list narrowing constant evaluation beyond 64-bit integer values and
-      through user-defined conversion sequences; compare the remaining standard
-      cases with GCC C++20.
+- [x] Apply list-narrowing checks to selected user-defined conversion
+      functions. Permit the integer constant-expression exception only when a
+      `constexpr` conversion result fits; reject out-of-range constexpr results,
+      non-constant integer conversions, and floating-to-integer conversions.
+      GCC C++20 and RCC i686/AMD64 diagnostics, no-object checks, and AMD64
+      runtime parity pass in `test-cxx-list-narrowing`.
+- [ ] Extend integer constant-value narrowing checks beyond the current 64-bit
+      evaluator range and compare remaining C++20 boundary cases with GCC.

@@ -2958,7 +2958,7 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log)
 	$(GREP) -F -q "narrowing conversion" \
 		$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log
-	$(call CHECK_COUNT,narrowing conversion,$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log,11)
+	$(call CHECK_COUNT,narrowing conversion,$(TEST_OUT)/cxx-list-narrowing/gcc-invalid.log,14)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro \
@@ -2966,7 +2966,7 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log)
 	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log
-	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log,11)
+	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.log,14)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
@@ -2975,7 +2975,7 @@ test-cxx-list-narrowing: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log)
 	$(GREP) -F -q "narrowing conversion in C++ list initialization" \
 		$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log
-	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log,11)
+	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.log,14)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-list-narrowing/invalid-x64.ro)
 	@echo "C++ list-initialization narrowing tests completed"
 

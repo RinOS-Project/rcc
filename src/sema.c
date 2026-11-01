@@ -34558,8 +34558,10 @@ static bool sema_cxx_list_narrowing_conversion(Type* destination,
     Type* target;
     Type* integer_source;
     Type* integer_target;
+    Expr converted_constant;
     if (!rcc_parser_is_cxx_mode() || !destination || !initializer ||
-        initializer->kind == EXPR_COMPOUND) {
+        (initializer->kind == EXPR_COMPOUND &&
+         !initializer->compound_type)) {
         return false;
     }
     source = sema_expr(initializer);
@@ -34572,6 +34574,42 @@ static bool sema_cxx_list_narrowing_conversion(Type* destination,
         target = target->base;
     }
     if (!source || !target) return false;
+    if ((source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
+        (target->kind == TYPE_BOOL || type_is_integer(target) ||
+         target->kind == TYPE_ENUM || type_is_floating(target))) {
+        bool ambiguous = false;
+        TypeMethod* conversion = sema_find_cxx_conversion_method(
+            source, target, &ambiguous, initializer, false);
+        if (!conversion || ambiguous || !conversion->return_type) {
+            return false;
+        }
+        source = conversion->return_type;
+        if (source->kind == TYPE_PTR && source->is_reference) {
+            source = source->base;
+        }
+        if (!source) return false;
+        if (conversion->function_decl &&
+            conversion->function_decl->func_is_constexpr) {
+            SemaConstexprScalar converted_value;
+            if (sema_eval_constexpr_scalar_function(
+                    conversion->function_decl, initializer, NULL,
+                    NULL, 0, &converted_value)) {
+                memset(&converted_constant, 0, sizeof(converted_constant));
+                converted_constant.kind = converted_value.is_floating
+                    ? EXPR_FLOAT_LIT : EXPR_INT_LIT;
+                converted_constant.loc = initializer->loc;
+                converted_constant.type = source;
+                if (converted_value.is_floating) {
+                    converted_constant.float_val =
+                        converted_value.floating_value;
+                } else {
+                    converted_constant.int_val =
+                        converted_value.integer_value;
+                }
+                initializer = &converted_constant;
+            }
+        }
+    }
     if ((source->kind == TYPE_PTR || type_is_array(source) ||
          type_is_function(source)) && target->kind == TYPE_BOOL) {
         return true;
