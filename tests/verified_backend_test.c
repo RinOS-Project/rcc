@@ -13,8 +13,13 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <pthread.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#if defined(__x86_64__)
+#include <asm/prctl.h>
+#include <sys/syscall.h>
+#endif
 #endif
 
 #if defined(_WIN64)
@@ -22,6 +27,37 @@
 #else
 #define RINOS_ABI
 #endif
+
+typedef void (RINOS_ABI *VerifiedThreadExitCallback)(void*);
+typedef struct VerifiedThreadExitEntry {
+    VerifiedThreadExitCallback callback;
+    void* object;
+} VerifiedThreadExitEntry;
+typedef struct VerifiedThreadExitState {
+    VerifiedThreadExitEntry entries[8];
+    size_t count;
+} VerifiedThreadExitState;
+
+static _Thread_local VerifiedThreadExitState*
+    verified_thread_exit_state;
+int verified_dynamic_tls_aggregate_destructor_count;
+static int verified_dynamic_tls_dso_handle;
+
+static int RINOS_ABI verified_thread_atexit(
+    VerifiedThreadExitCallback callback, void* object, void* dso)
+{
+    (void)dso;
+    if (!verified_thread_exit_state || !callback || !object ||
+        verified_thread_exit_state->count >=
+            sizeof(verified_thread_exit_state->entries) /
+                sizeof(verified_thread_exit_state->entries[0])) {
+        return -1;
+    }
+    verified_thread_exit_state->entries[
+        verified_thread_exit_state->count++] =
+            (VerifiedThreadExitEntry){callback, object};
+    return 0;
+}
 
 extern void RINOS_ABI rin_cpp_exception_register_current_cleanup(
     void* callback, void* object);
@@ -200,9 +236,9 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                       size_t* mapping_size)
 {
     size_t page = verified_page_size();
-    const ObjSection* relocation_sources[4];
-    size_t relocation_bases[4] = {0u, 0u, 0u, 0u};
-    int relocation_indices[4] = {-1, -1, -1, -1};
+    const ObjSection* relocation_sources[5];
+    size_t relocation_bases[5] = {0u, 0u, 0u, 0u, 0u};
+    int relocation_indices[5] = {-1, -1, -1, -1, -1};
     size_t content_size;
     size_t trampoline_capacity = 0u;
     size_t trampoline_offset;
@@ -213,8 +249,9 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
     relocation_sources[1] = objfile_get_section(object, ".rodata");
     relocation_sources[2] = objfile_get_section(object, ".data");
     relocation_sources[3] = objfile_get_section(object, ".bss");
+    relocation_sources[4] = objfile_get_section(object, ".tls");
     content_size = 0u;
-    for (size_t source_index = 0u; source_index < 4u; ++source_index) {
+    for (size_t source_index = 0u; source_index < 5u; ++source_index) {
         const ObjSection* source = relocation_sources[source_index];
         if (!source) continue;
         size_t alignment = source->align ? source->align : 1u;
@@ -241,7 +278,7 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
         }
         assert(relocation_indices[source_index] >= 0);
     }
-    for (size_t source_index = 0u; source_index < 4u; ++source_index) {
+    for (size_t source_index = 0u; source_index < 5u; ++source_index) {
         const ObjSection* source = relocation_sources[source_index];
         if (!source) continue;
         for (ObjReloc* relocation = source->relocs; relocation;
@@ -259,7 +296,7 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
     size = ((content_size + (size_t)page - 1u) / page) * page;
     memory = verified_map(size);
     assert(memory != NULL);
-    for (size_t source_index = 0u; source_index < 4u; ++source_index) {
+    for (size_t source_index = 0u; source_index < 5u; ++source_index) {
         const ObjSection* source = relocation_sources[source_index];
         if (source && source->size != 0u) {
             memcpy((uint8_t*)memory + relocation_bases[source_index],
@@ -268,7 +305,7 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
     }
     {
         for (size_t source_index = 0u;
-             source_index < 4u; ++source_index) {
+             source_index < 5u; ++source_index) {
             const ObjSection* source = relocation_sources[source_index];
             if (!source) continue;
             for (ObjReloc* relocation = source->relocs; relocation;
@@ -284,7 +321,7 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                 assert(symbol != NULL &&
                        relocation->offset <= source->size);
                 if (symbol->section >= 0) {
-                    for (size_t target_index = 0u; target_index < 4u;
+                    for (size_t target_index = 0u; target_index < 5u;
                          ++target_index) {
                         const ObjSection* target_section =
                             relocation_sources[target_index];
@@ -318,7 +355,21 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                 }
                 place = (uint8_t*)memory + relocation_bases[source_index] +
                     relocation->offset;
-                if (relocation->type == RELOC_REL32) {
+                if (relocation->type == RELOC_TLSOFF32S) {
+                    const ObjSection* tls = relocation_sources[4];
+                    int64_t local_offset;
+                    int32_t encoded_tls_offset;
+                    assert(tls != NULL && symbol->binding == BIND_TLS &&
+                           symbol->section == relocation_indices[4]);
+                    local_offset = (int64_t)symbol->value;
+                    local_offset += relocation->addend;
+                    assert(local_offset >= 0 &&
+                           (uint64_t)local_offset < tls->memory_size &&
+                           local_offset <= INT32_MAX);
+                    encoded_tls_offset = (int32_t)local_offset;
+                    memcpy(place, &encoded_tls_offset,
+                           sizeof(encoded_tls_offset));
+                } else if (relocation->type == RELOC_REL32) {
                     if (symbol->section < 0) {
                         uint8_t* trampoline =
                             (uint8_t*)memory + trampoline_offset;
@@ -378,6 +429,33 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
     return memory;
 }
 
+#if defined(__x86_64__) && !defined(_WIN32)
+static void verified_use_host_gs_for_tls(
+    const ObjectFile* object, const ObjSection* text, void* memory)
+{
+    assert(object != NULL && object->arch == ARCH_X64 &&
+           text != NULL && memory != NULL);
+    for (const ObjReloc* relocation = text->relocs; relocation;
+         relocation = relocation->next) {
+        uint8_t* load;
+        if (relocation->type != RELOC_TLSOFF32S) continue;
+        assert(relocation->offset >= 12u);
+        load = (uint8_t*)memory + relocation->offset - 12u;
+        assert(load[0] == 0x64u && (load[1] & 0xf0u) == 0x40u &&
+               load[2] == 0x8bu && load[4] == 0x25u &&
+               (load[9] & 0xf0u) == 0x40u && load[10] == 0x81u);
+        /* Linux reserves FS for its own thread control block. GS is unused
+         * by the host ABI and can carry the RinOS TLS-base test header. */
+        load[0] = 0x65u;
+    }
+}
+#endif
+
+static void RINOS_ABI verified_test_abort(void)
+{
+    abort();
+}
+
 static void* symbol_address(void* text_memory, const ObjSymbol* symbol)
 {
     assert(text_memory != NULL && symbol != NULL && symbol->section == 0);
@@ -386,6 +464,13 @@ static void* symbol_address(void* text_memory, const ObjSymbol* symbol)
 
 static void* verified_runtime_import_address(const char* symbol_name)
 {
+    if (strcmp(symbol_name,
+               "verified_dynamic_tls_aggregate_destructor_count") == 0) {
+        return &verified_dynamic_tls_aggregate_destructor_count;
+    }
+    if (strcmp(symbol_name, "__dso_handle") == 0) {
+        return &verified_dynamic_tls_dso_handle;
+    }
     union {
         void (RINOS_ABI *generic)(void);
         void (RINOS_ABI *cleanup)(void*, void*);
@@ -397,6 +482,8 @@ static void* verified_runtime_import_address(const char* symbol_name)
         void (RINOS_ABI *longjmp_function)(void*, int);
         int (RINOS_ABI *guard_acquire)(unsigned long long*);
         void (RINOS_ABI *guard_action)(unsigned long long*);
+        int (RINOS_ABI *thread_atexit)(
+            VerifiedThreadExitCallback, void*, void*);
     } function;
     void* address = NULL;
     memset(&function, 0, sizeof(function));
@@ -461,6 +548,10 @@ static void* verified_runtime_import_address(const char* symbol_name)
         function.guard_action = __cxa_guard_release;
     } else if (strcmp(symbol_name, "__cxa_guard_abort") == 0) {
         function.guard_action = __cxa_guard_abort;
+    } else if (strcmp(symbol_name, "__cxa_thread_atexit") == 0) {
+        function.thread_atexit = verified_thread_atexit;
+    } else if (strcmp(symbol_name, "abort") == 0) {
+        function.generic = verified_test_abort;
     } else {
         return NULL;
     }
@@ -3859,6 +3950,308 @@ static void verify_static_local_tls_object(const char* path, uint16_t arch)
     objfile_free(object);
 }
 
+#if defined(__x86_64__) && !defined(_WIN32)
+typedef struct VerifiedHostTlsHeader {
+    void* tls_base;
+    void* reserved;
+} VerifiedHostTlsHeader;
+
+typedef int (RINOS_ABI *VerifiedDynamicTlsProbe)(int, int);
+typedef volatile int* (RINOS_ABI *VerifiedDynamicTlsAddress)(void);
+
+typedef struct VerifiedDynamicTlsShared {
+    pthread_mutex_t mutex;
+    pthread_cond_t condition;
+    int ready;
+    int release;
+    volatile int* local_addresses[2];
+    volatile int* global_addresses[2];
+} VerifiedDynamicTlsShared;
+
+typedef struct VerifiedDynamicTlsWorker {
+    const ObjectFile* object;
+    const ObjSection* text;
+    const ObjSection* tls;
+    void* mapping;
+    VerifiedDynamicTlsShared* shared;
+    VerifiedThreadExitState exit_state;
+    int slot;
+    int value;
+    int result;
+} VerifiedDynamicTlsWorker;
+
+static void* run_verified_dynamic_tls_worker(void* opaque)
+{
+    VerifiedDynamicTlsWorker* worker = opaque;
+    VerifiedHostTlsHeader header;
+    size_t page = verified_page_size();
+    size_t tls_size = (size_t)worker->tls->memory_size;
+    size_t tls_mapping_size = (tls_size + page - 1u) & ~(page - 1u);
+    void* tls_memory = NULL;
+    unsigned long long previous_gs = 0u;
+    bool gs_installed = false;
+    ObjSymbol* probe_symbol = objfile_find_symbol(
+        (ObjectFile*)worker->object, "verified_dynamic_tls_aggregate_probe");
+    ObjSymbol* local_address_symbol = objfile_find_symbol(
+        (ObjectFile*)worker->object,
+        "verified_dynamic_tls_aggregate_address");
+    ObjSymbol* global_address_symbol = objfile_find_symbol(
+        (ObjectFile*)worker->object, "verified_global_tls_aggregate_address");
+    VerifiedDynamicTlsProbe probe = NULL;
+    VerifiedDynamicTlsAddress local_address_fn = NULL;
+    VerifiedDynamicTlsAddress global_address_fn = NULL;
+    volatile int* local_address = NULL;
+    volatile int* global_address = NULL;
+    void* function_address;
+
+    worker->result = 1;
+    if (!page || !tls_size || !tls_mapping_size ||
+        !probe_symbol || !local_address_symbol || !global_address_symbol) {
+        goto synchronize;
+    }
+    tls_memory = verified_map(tls_mapping_size);
+    if (!tls_memory) goto synchronize;
+    memset(tls_memory, 0, tls_mapping_size);
+    if (worker->tls->size != 0u) {
+        memcpy(tls_memory, worker->tls->data,
+               (size_t)worker->tls->size);
+    }
+    header.tls_base = tls_memory;
+    header.reserved = &worker->exit_state;
+    verified_thread_exit_state = &worker->exit_state;
+    if (syscall(SYS_arch_prctl, ARCH_GET_GS, &previous_gs) != 0 ||
+        syscall(SYS_arch_prctl, ARCH_SET_GS, (unsigned long)&header) != 0) {
+        worker->result = 2;
+        goto synchronize;
+    }
+    gs_installed = true;
+
+    function_address = symbol_address(worker->mapping, probe_symbol);
+    memcpy(&probe, &function_address, sizeof(probe));
+    function_address = symbol_address(worker->mapping, local_address_symbol);
+    memcpy(&local_address_fn, &function_address,
+           sizeof(local_address_fn));
+    function_address = symbol_address(worker->mapping, global_address_symbol);
+    memcpy(&global_address_fn, &function_address,
+           sizeof(global_address_fn));
+    worker->result = probe(0, worker->value);
+    if (worker->result == 0) {
+        local_address = local_address_fn();
+        global_address = global_address_fn();
+        if (!local_address || *local_address != worker->value ||
+            !global_address || *global_address != worker->value + 1000) {
+            worker->result = 3;
+        } else if (probe(worker->value, worker->value + 100) != 0 ||
+                   local_address_fn() != local_address ||
+                   *local_address != worker->value + 100 ||
+                   global_address_fn() != global_address ||
+                   *global_address != worker->value + 1100) {
+            worker->result = 4;
+        }
+    }
+
+synchronize:
+    pthread_mutex_lock(&worker->shared->mutex);
+    worker->shared->local_addresses[worker->slot] = local_address;
+    worker->shared->global_addresses[worker->slot] = global_address;
+    ++worker->shared->ready;
+    pthread_cond_broadcast(&worker->shared->condition);
+    while (!worker->shared->release) {
+        pthread_cond_wait(&worker->shared->condition,
+                         &worker->shared->mutex);
+    }
+    pthread_mutex_unlock(&worker->shared->mutex);
+
+    if (gs_installed) {
+        while (worker->exit_state.count != 0u) {
+            VerifiedThreadExitEntry entry =
+                worker->exit_state.entries[--worker->exit_state.count];
+            entry.callback(entry.object);
+        }
+        verified_thread_exit_state = NULL;
+        if (syscall(SYS_arch_prctl, ARCH_SET_GS, previous_gs) != 0) {
+            worker->result = 5;
+        }
+    }
+    if (tls_memory && verified_unmap(tls_memory, tls_mapping_size) != 0) {
+        worker->result = 6;
+    }
+    return (void*)(intptr_t)worker->result;
+}
+
+static void execute_verified_dynamic_tls_object(
+    ObjectFile* object, const ObjSection* text, const ObjSection* tls)
+{
+    VerifiedDynamicTlsShared shared = {
+        PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER,
+        0, 0, {NULL, NULL}, {NULL, NULL}
+    };
+    VerifiedDynamicTlsWorker workers[2];
+    pthread_t threads[2];
+    int created = 0;
+    void* result;
+    size_t mapping_size = 0u;
+    void* mapping;
+
+    mapping = map_text(object, text, &mapping_size);
+    memset(workers, 0, sizeof(workers));
+    for (int index = 0; index < 2; ++index) {
+        workers[index].object = object;
+        workers[index].text = text;
+        workers[index].tls = tls;
+        workers[index].shared = &shared;
+        workers[index].slot = index;
+    }
+    workers[0].value = 13;
+    workers[1].value = 79;
+    assert(mapping != NULL && mapping_size != 0u);
+    verified_use_host_gs_for_tls(object, text, mapping);
+    workers[0].mapping = mapping;
+    workers[1].mapping = mapping;
+    verified_dynamic_tls_aggregate_destructor_count = 0;
+    for (; created < 2; ++created) {
+        if (pthread_create(&threads[created], NULL,
+                           run_verified_dynamic_tls_worker,
+                           &workers[created]) != 0) {
+            break;
+        }
+    }
+    pthread_mutex_lock(&shared.mutex);
+    while (shared.ready < created) {
+        pthread_cond_wait(&shared.condition, &shared.mutex);
+    }
+    if (created == 2 &&
+        (!shared.local_addresses[0] || !shared.local_addresses[1] ||
+         shared.local_addresses[0] == shared.local_addresses[1] ||
+         !shared.global_addresses[0] || !shared.global_addresses[1] ||
+         shared.global_addresses[0] == shared.global_addresses[1])) {
+        workers[0].result = 7;
+    }
+    shared.release = 1;
+    pthread_cond_broadcast(&shared.condition);
+    pthread_mutex_unlock(&shared.mutex);
+    for (int index = 0; index < created; ++index) {
+        if (pthread_join(threads[index], &result) != 0 || result != NULL) {
+            fprintf(stderr, "verified dynamic TLS worker failed (%d)\n",
+                    index);
+            abort();
+        }
+    }
+    assert(created == 2 && workers[0].result == 0 &&
+           workers[1].result == 0 &&
+           __atomic_load_n(&verified_dynamic_tls_aggregate_destructor_count,
+                           __ATOMIC_SEQ_CST) == 4);
+    assert(verified_unmap(mapping, mapping_size) == 0);
+    pthread_cond_destroy(&shared.condition);
+    pthread_mutex_destroy(&shared.mutex);
+}
+#endif
+
+static void verify_dynamic_tls_aggregate_object(const char* path,
+                                                uint16_t arch)
+{
+    static const char* const required_runtime_symbols[] = {
+        "__cxa_guard_acquire",
+        "__cxa_guard_release",
+        "__cxa_guard_abort",
+        "__cxa_thread_atexit",
+        "rin_cpp_exception_register_current_cleanup",
+        "rin_cpp_exception_unregister_current_cleanup",
+        "__dso_handle",
+        "abort",
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSection* tls;
+    ObjSection* section;
+    size_t callback_count = 0u;
+    size_t callback_reference_count = 0u;
+    size_t guard_symbol_count = 0u;
+    size_t guard_relocation_count = 0u;
+    size_t tls_relocation_count = 0u;
+    int text_section_index = 0;
+    int tls_section_index = 0;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    tls = objfile_get_section(object, ".tls");
+    assert(text != NULL && tls != NULL && tls->type == SECT_TLS &&
+           tls->memory_size >= 8u);
+    for (section = object->sections; section && section != text;
+         section = section->next) {
+        ++text_section_index;
+    }
+    assert(section == text);
+    for (section = object->sections; section && section != tls;
+         section = section->next) {
+        ++tls_section_index;
+    }
+    assert(section == tls);
+    for (ObjSymbol* symbol = object->symbols; symbol; symbol = symbol->next) {
+        if (strstr(symbol->name, "$rcc_static_cleanup")) {
+            ++callback_count;
+            assert(symbol->binding == BIND_CODE &&
+                   symbol->section == text_section_index &&
+                   symbol->type != SYM_UNDEF);
+        }
+        if (strstr(symbol->name, "$rcc_static_guard") ||
+            strstr(symbol->name, "$rcc_reference_guard")) {
+            ++guard_symbol_count;
+            assert(symbol->binding == BIND_TLS &&
+                   symbol->section == tls_section_index);
+        }
+    }
+    for (ObjReloc* relocation = text->relocs; relocation;
+         relocation = relocation->next) {
+        ObjSymbol* symbol = objfile_find_symbol(
+            object, relocation->symbol_name);
+        assert(symbol != NULL);
+        if (relocation->type == RELOC_TLSOFF32S) {
+            assert(symbol->binding == BIND_TLS &&
+                   symbol->section == tls_section_index);
+            ++tls_relocation_count;
+            if (strstr(symbol->name, "$rcc_static_guard") ||
+                strstr(symbol->name, "$rcc_reference_guard")) {
+                ++guard_relocation_count;
+            }
+        }
+        if (strstr(symbol->name, "$rcc_static_cleanup")) {
+            ++callback_reference_count;
+        }
+    }
+    assert(callback_count >= 2u && callback_reference_count >= 2u &&
+           guard_symbol_count == 2u && guard_relocation_count >= 2u &&
+           tls_relocation_count >= 4u);
+    for (size_t index = 0u;
+         index < sizeof(required_runtime_symbols) /
+                     sizeof(required_runtime_symbols[0]); ++index) {
+        assert(objfile_find_symbol(
+                   object, required_runtime_symbols[index]) != NULL);
+    }
+    assert(objfile_find_symbol(object, "__dso_handle")->binding == BIND_DATA);
+    {
+        ObjSymbol* local_initializer = objfile_find_symbol(
+            object,
+            "tests/verified_backend_dynamic_tls_aggregate.cpp::_Z29verified_local_tls_next_valuei");
+        ObjSymbol* global_initializer = objfile_find_symbol(
+            object,
+            "tests/verified_backend_dynamic_tls_aggregate.cpp::_Z30verified_global_tls_next_valuei");
+        assert(local_initializer != NULL &&
+               local_initializer->binding == BIND_CODE &&
+               local_initializer->section == text_section_index &&
+               local_initializer->type != SYM_UNDEF &&
+               global_initializer != NULL &&
+               global_initializer->binding == BIND_CODE &&
+               global_initializer->section == text_section_index &&
+               global_initializer->type != SYM_UNDEF);
+    }
+#if defined(__x86_64__) && !defined(_WIN32)
+    if (arch == ARCH_X64) {
+        execute_verified_dynamic_tls_object(object, text, tls);
+    }
+#endif
+    objfile_free(object);
+}
+
 static void verify_cxx_reference_local_object(const char* path,
                                               uint16_t arch,
                                               bool execute,
@@ -6401,6 +6794,22 @@ int main(int argc, char** argv)
         }
         verify_static_local_tls_object(argv[3], arch);
         puts("Verified function-static TLS guard and relocations passed");
+        return 0;
+    }
+    if (argc == 4 &&
+        strcmp(argv[1], "--dynamic-tls-aggregate-object") == 0) {
+        uint16_t arch;
+        if (strcmp(argv[2], "i686") == 0) {
+            arch = ARCH_X86;
+        } else if (strcmp(argv[2], "x86_64") == 0) {
+            arch = ARCH_X64;
+        } else {
+            fprintf(stderr, "unknown dynamic TLS architecture '%s'\n",
+                    argv[2]);
+            return 2;
+        }
+        verify_dynamic_tls_aggregate_object(argv[3], arch);
+        puts("Verified dynamic TLS aggregate guards and callbacks passed");
         return 0;
     }
     if (argc == 3 &&

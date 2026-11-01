@@ -463,6 +463,43 @@ static void verified_scope_static_object_relocations(
     }
 }
 
+static void verified_deduplicate_undefined_symbols(ObjectFile* object) {
+    ObjSymbol** symbol_link;
+    if (!object) return;
+    symbol_link = &object->symbols;
+    while (*symbol_link) {
+        ObjSymbol* symbol = *symbol_link;
+        bool duplicate = false;
+        if (symbol->type == SYM_UNDEF) {
+            bool passed_symbol = false;
+            for (ObjSymbol* candidate = object->symbols; candidate;
+                 candidate = candidate->next) {
+                if (candidate == symbol) {
+                    passed_symbol = true;
+                    continue;
+                }
+                if (candidate->binding != symbol->binding ||
+                    strcmp(candidate->name, symbol->name) != 0) {
+                    continue;
+                }
+                if (candidate->type != SYM_UNDEF ||
+                    !passed_symbol) {
+                    duplicate = true;
+                    break;
+                }
+            }
+        }
+        if (!duplicate) {
+            symbol_link = &symbol->next;
+            continue;
+        }
+        *symbol_link = symbol->next;
+        rcc_free((void*)symbol->name);
+        rcc_free(symbol);
+        --object->symbol_count;
+    }
+}
+
 static ModuleSymbol* verified_debug_symbol(Module* module, const char* name) {
     if (!module || !name) return NULL;
     for (int index = 0; index < module->symbol_count; ++index) {
@@ -1609,6 +1646,14 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     codegen_emit_global_data(data_module, (AST*)ast);
     verified_emit_typeinfo_ast(data_module, ast);
     codegen_emit_cxx_vtables(data_module);
+    if (data_module->static_local_cleanups) {
+        /* The classic callback emitter records addresses through the generic
+         * code-section relocation API.  Seed this ABI data symbol explicitly
+         * so the verified object bridge assigns its relocation data binding. */
+        module_add_symbol(data_module, "__dso_handle", 0u, false,
+                          MODULE_SYMBOL_DATA, true);
+    }
+    codegen_emit_static_cleanup_callbacks(data_module);
     /* The verified functions are appended after the data module has already
      * been converted to an object.  Defer all debug emission until those
      * functions are present so one DWARF unit covers data and code without
@@ -1628,6 +1673,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     }
     verified_scope_static_object_relocations(
         ast, translation_unit, object);
+    verified_deduplicate_undefined_symbols(object);
     for (item = ast->decls; item; item = item->next) {
         const Decl* declaration = item->decl;
         RccIrModule* module = NULL;
@@ -1794,6 +1840,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         }
         rcc_ir_module_destroy(module);
     }
+    verified_deduplicate_undefined_symbols(object);
     if (emitted == 0u) {
         rcc_free(debug_variable_locations);
         codegen_free(data_module);

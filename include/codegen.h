@@ -403,6 +403,8 @@ bool codegen_runtime_global_paren_aggregate(const Type* type,
                                            const Expr* initializer);
 bool codegen_runtime_global_aggregate_initializer(
     const Type* type, const Expr* initializer);
+void codegen_emit_static_cleanup_callbacks(Module* mod);
+void codegen_emit_static_cleanup_callbacks64(Module* mod);
 int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
                                           int stack_alignment);
 void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,

@@ -2640,6 +2640,60 @@ static bool lower_static_local_dynamic_scalar_supported(
          type_is_floating((Type*)type) || type->kind == TYPE_PTR);
 }
 
+static bool lower_dynamic_tls_aggregate_initializer_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    const Expr* initializer = declaration ? declaration->var_init : NULL;
+    const TypeField* field;
+    const ExprList* item;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        !declaration->var_is_thread_local ||
+        !declaration->var_dynamic_initializer ||
+        !declaration->var_reference_temporary_guard ||
+        declaration->storage != STORAGE_STATIC || !type ||
+        !type->cxx_class || type->kind != TYPE_STRUCT ||
+        type->size <= 0 || type->size > 65536 || type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (type->align & (type->align - 1)) != 0 ||
+        !ast_cxx_is_aggregate((Type*)type) ||
+        type->cxx_class->base_count != 0 ||
+        type->cxx_class->virtual_base_count != 0 ||
+        type->cxx_class->vtable_size != 0 ||
+        type->cxx_class->has_field_initializer ||
+        type->cxx_class->has_user_constructor || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor ||
+        initializer->compound_paren_init || !initializer->compound_init) {
+        return false;
+    }
+    field = type->fields;
+    item = initializer->compound_init;
+    while (field && item) {
+        const Type* field_type = field->type;
+        if (!field_type || field->is_bitfield || field->offset < 0 ||
+            field->offset > type->size ||
+            field_type->size > type->size - field->offset ||
+            field_type->is_atomic || field_type->is_reference ||
+            field_type->cleanup_function || field_type->cxx_class ||
+            item->designator_kind != INIT_DESIGNATOR_NONE ||
+            !item->expr || item->cxx_temporary_owner ||
+            item->cxx_temporary_cleanups ||
+            !(type_is_integer((Type*)field_type) ||
+              field_type->kind == TYPE_ENUM ||
+              type_is_floating((Type*)field_type) ||
+              (field_type->kind == TYPE_PTR &&
+               !field_type->cxx_is_member_pointer))) {
+            return false;
+        }
+        field = field->next;
+        item = item->next;
+    }
+    return !field && !item;
+}
+
+static bool lower_dynamic_tls_aggregate_initializer(
+    RccIrLowerContext* context, const Decl* declaration);
+
 static bool lower_static_volatile_aggregate_supported(
     const Decl* declaration) {
     Type unqualified_type;
@@ -2772,16 +2826,20 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            /* Dynamic TLS initialization and thread-exit cleanup are emitted
-             * together by the native code generator.  The verified object
-             * path does not yet serialize its cleanup callback, so route any
-             * guarded dynamic TLS reference through that complete lowering. */
+            /* Namespace-scope TLS initialization runs on first access; lower
+             * it with the same per-thread guard and destructor callback used
+             * by the native backend. */
             if (declaration->var_is_thread_local &&
                 declaration->var_dynamic_initializer &&
+                !declaration->var_is_static_local &&
                 (declaration->var_reference_temporary_guard ||
-                 declaration->var_reference_temporary_owner)) {
-                context->unsupported = true;
-                return lower_invalid_value();
+                 declaration->var_reference_temporary_owner) &&
+                (!lower_dynamic_tls_aggregate_initializer_supported(
+                     declaration) ||
+                 !lower_dynamic_tls_aggregate_initializer(
+                     context, declaration))) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
             }
             if (declaration->kind == DECL_FUNC) {
                 address = lower_append(
@@ -2801,6 +2859,8 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 declaration->type->cleanup_function ||
                 (declaration->var_is_static_local &&
                  !lower_static_local_dynamic_scalar_supported(declaration) &&
+                 !lower_dynamic_tls_aggregate_initializer_supported(
+                     declaration) &&
                  !lower_static_volatile_aggregate_supported(declaration) &&
                  (declaration->var_dynamic_initializer ||
                   declaration->var_reference_temporary_guard ||
@@ -10271,6 +10331,9 @@ static bool lower_statement_has_scope_cleanups(const Stmt* statement) {
             return false;
         case STMT_DECL:
             return statement->decl && statement->decl->kind == DECL_VAR &&
+                !statement->decl->var_is_static_local &&
+                !statement->decl->var_is_thread_local &&
+                statement->decl->storage != STORAGE_STATIC &&
                 (statement->decl->var_cleanup ||
                  statement->decl->var_cleanups);
         case STMT_IF:
@@ -10329,6 +10392,11 @@ static bool lower_statement_scope_cleanups_supported_impl(
             return true;
         case STMT_DECL:
             if (!statement->decl || statement->decl->kind != DECL_VAR) {
+                return true;
+            }
+            if (statement->decl->var_is_static_local ||
+                statement->decl->var_is_thread_local ||
+                statement->decl->storage == STORAGE_STATIC) {
                 return true;
             }
             if (statement->decl->var_cleanups) {
@@ -28215,6 +28283,179 @@ static bool lower_static_local_scalar_initializer(
     return true;
 }
 
+static bool lower_dynamic_tls_aggregate_initializer(
+    RccIrLowerContext* context, const Decl* declaration) {
+    const Decl* guard;
+    const Decl* cleanup_owner;
+    const TypeField* field;
+    const ExprList* item;
+    RccIrLowerValue guard_address;
+    RccIrLowerValue acquired;
+    RccIrLowerValue object;
+    RccIrValue operand;
+    RccIrBlock* initialize_block;
+    RccIrBlock* done_block;
+    RccIrInstruction* symbol;
+    if (!context ||
+        !lower_dynamic_tls_aggregate_initializer_supported(declaration)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    guard = declaration->var_reference_temporary_guard;
+    symbol = lower_append(
+        context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!symbol) return false;
+    rcc_ir_set_callee(symbol, decl_link_name(guard));
+    symbol->symbol_is_tls = guard->var_is_thread_local;
+    guard_address = lower_value(
+        symbol->result, rcc_ir_type_pointer(0u), true);
+    operand = guard_address.value;
+    acquired = lower_cxx_runtime_call(
+        context, "__cxa_guard_acquire", rcc_ir_type_integer(32u),
+        &operand, 1u);
+    initialize_block = rcc_ir_block_add(
+        context->function, "dynamic.tls.initialize");
+    done_block = rcc_ir_block_add(
+        context->function, "dynamic.tls.initialized");
+    if (!acquired.valid || !initialize_block || !done_block ||
+        !lower_conditional_branch(
+            context, acquired, initialize_block->id, done_block->id)) {
+        return false;
+    }
+
+    context->current = initialize_block;
+    context->terminated = false;
+    if (!lower_cxx_change_current_cleanup(
+            context, "__cxa_guard_abort", guard_address, true)) {
+        return false;
+    }
+    symbol = lower_append(
+        context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!symbol) return false;
+    rcc_ir_set_callee(symbol, decl_link_name(declaration));
+    symbol->symbol_is_tls = true;
+    object = lower_value(symbol->result, rcc_ir_type_pointer(0u), true);
+    object.volatile_access = declaration->type->is_volatile;
+
+    field = declaration->type->fields;
+    item = declaration->var_init->compound_init;
+    while (field && item) {
+        RccIrLowerValue value = lower_expression(context, item->expr);
+        RccIrLowerValue field_address;
+        value = lower_cast(context, value, field->type);
+        field_address = lower_byte_offset_address(
+            context, object, (uint64_t)field->offset);
+        if (!value.valid || !field_address.valid) return false;
+        field_address.volatile_access = field_address.volatile_access ||
+            field->type->is_volatile;
+        if (!lower_store_address(context, field_address, value)) return false;
+        field = field->next;
+        item = item->next;
+    }
+    if (field || item || context->unsupported) return false;
+
+    if (declaration->var_cleanups) {
+        static const char suffix[] = "$rcc_static_cleanup";
+        const char* owner_name;
+        size_t owner_length;
+        size_t suffix_length = sizeof(suffix) - 1u;
+        char* callback_name;
+        RccIrLowerValue callback;
+        RccIrLowerValue dso_handle;
+        RccIrLowerValue registered;
+        RccIrLowerValue registration_failed;
+        RccIrBlock* failure_block;
+        RccIrBlock* registered_block;
+        RccIrValue registration_arguments[3];
+
+        cleanup_owner = declaration->var_reference_temporary_owner
+            ? declaration->var_reference_temporary_owner : declaration;
+        owner_name = decl_link_name(cleanup_owner);
+        owner_length = owner_name ? strlen(owner_name) : 0u;
+        if (owner_length > SIZE_MAX - suffix_length - 1u) {
+            context->unsupported = true;
+            return false;
+        }
+        callback_name = rcc_alloc(owner_length + suffix_length + 1u);
+        if (!callback_name) {
+            context->unsupported = true;
+            return false;
+        }
+        if (owner_length) memcpy(callback_name, owner_name, owner_length);
+        memcpy(callback_name + owner_length, suffix, suffix_length + 1u);
+
+        symbol = lower_append(
+            context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!symbol) {
+            rcc_free(callback_name);
+            return false;
+        }
+        rcc_ir_set_callee(symbol, callback_name);
+        symbol->symbol_is_code = true;
+        rcc_free(callback_name);
+        callback = lower_value(
+            symbol->result, rcc_ir_type_pointer(0u), true);
+
+        symbol = lower_append(
+            context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!symbol) return false;
+        rcc_ir_set_callee(symbol, "__dso_handle");
+        dso_handle = lower_value(
+            symbol->result, rcc_ir_type_pointer(0u), true);
+        registration_arguments[0] = callback.value;
+        registration_arguments[1] = object.value;
+        registration_arguments[2] = dso_handle.value;
+        registered = lower_cxx_runtime_call(
+            context, "__cxa_thread_atexit", rcc_ir_type_integer(32u),
+            registration_arguments, 3u);
+        registration_failed = lower_truth(context, registered);
+        failure_block = rcc_ir_block_add(
+            context->function, "dynamic.tls.cleanup.registration.failed");
+        registered_block = rcc_ir_block_add(
+            context->function, "dynamic.tls.cleanup.registered");
+        if (!registered.valid || !registration_failed.valid ||
+            !failure_block || !registered_block ||
+            !lower_conditional_branch(
+                context, registration_failed, failure_block->id,
+                registered_block->id)) {
+            return false;
+        }
+
+        context->current = failure_block;
+        context->terminated = false;
+        (void)lower_cxx_runtime_call(
+            context, "abort", rcc_ir_type_void(), NULL, 0u);
+        if (context->unsupported ||
+            !lower_append(context, RCC_IR_UNREACHABLE,
+                          rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
+            return false;
+        }
+        context->terminated = true;
+
+        context->current = registered_block;
+        context->terminated = false;
+    }
+
+    if (!lower_cxx_change_current_cleanup(
+            context, "__cxa_guard_abort", guard_address, false)) {
+        return false;
+    }
+    operand = guard_address.value;
+    (void)lower_cxx_runtime_call(
+        context, "__cxa_guard_release", rcc_ir_type_void(),
+        &operand, 1u);
+    if (context->unsupported || !lower_branch(context, done_block->id)) {
+        return false;
+    }
+    context->current = done_block;
+    context->terminated = false;
+    return true;
+}
+
 static bool lower_declaration(RccIrLowerContext* context,
                               const Decl* declaration) {
     RccIrType type = rcc_ir_type_void();
@@ -28262,6 +28503,10 @@ static bool lower_declaration(RccIrLowerContext* context,
     if (declaration->var_is_static_local) {
         if (lower_static_volatile_aggregate_supported(declaration)) {
             return true;
+        }
+        if (lower_dynamic_tls_aggregate_initializer_supported(declaration)) {
+            return lower_dynamic_tls_aggregate_initializer(
+                context, declaration);
         }
         if (lower_static_local_dynamic_scalar_supported(declaration) &&
             !is_aggregate) {

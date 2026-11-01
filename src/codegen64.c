@@ -14042,6 +14042,13 @@ static void codegen_emit_static_local_cleanups64(Module* mod) {
     }
 }
 
+void codegen_emit_static_cleanup_callbacks64(Module* mod) {
+    if (!mod) return;
+    codegen_emit_static_local_cleanups64(mod);
+    resolve_func_calls64(mod);
+    resolve_labels64(mod);
+}
+
 static void codegen_emit_cxx_array_placement_cleanup_thunks64(Module* mod) {
     static const int argument_registers[] = {RDI, RSI, RDX, RCX, R8, R9};
     for (CxxArrayPlacementCleanupThunk* thunk =

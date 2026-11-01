@@ -73,6 +73,7 @@ BOOTSTRAP_ROOT = build/bootstrap
 ifeq ($(OS),Windows_NT)
 # Override this when the checkout is mounted at a different WSL path.
 WSL_RINCOMPILER_ROOT ?= /mnt/e/RinOS/public-base/toolchain/RinCompiler
+VERIFIED_TEST_THREAD_FLAGS =
 WINDOWS_TEST_OUT = $(subst /,\,$(TEST_OUT))
 CHECK_INIT_ARRAY = $(FINDSTR) /c:".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
@@ -82,6 +83,7 @@ CHECK_TEXT = $(FINDSTR) /c:"$(1)" "$(subst /,\,$(2))" >NUL
 CHECK_TEXT_ABSENT = $(POWERSHELL) -NoProfile -Command "$$text=Get-Content -Raw -LiteralPath '$(2)'; if ($$text.Contains('$(1)')) { exit 1 }"
 GREP = $(POWERSHELL) -NoProfile -File "$(CURDIR)/scripts/rcc_grep.ps1"
 else
+VERIFIED_TEST_THREAD_FLAGS = -pthread
 CHECK_INIT_ARRAY = $(GREP) -F -q ".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(1)
 CHECK_FINI_ARRAY = $(GREP) -F -q ".section .fini_array"
@@ -23527,7 +23529,8 @@ test-verified-cxx-static-local-scalar: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTI
 		tests/verified_backend_static_local.cpp > \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.log 2>&1
 	$(call CHECK_VERIFIED_STATIC_LOCAL_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.log)
-	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -I$(INCDIR) -o \
+	$(CC) $(CFLAGS) $(VERIFIED_TEST_THREAD_FLAGS) \
+		-Wl,--allow-multiple-definition -I$(INCDIR) -o \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME) \
@@ -23652,25 +23655,42 @@ test-verified-cxx-dynamic-tls-aggregate: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUN
 		-o $(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86.ro \
 		tests/verified_backend_dynamic_tls_aggregate.cpp > \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86.log 2>&1
-	$(call CHECK_TEXT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86.log)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64.ro \
 		tests/verified_backend_dynamic_tls_aggregate.cpp > \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64.log 2>&1
-	$(call CHECK_TEXT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64.log)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86-o2.ro \
 		tests/verified_backend_dynamic_tls_aggregate.cpp > \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86-o2.log 2>&1
-	$(call CHECK_TEXT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86-o2.log)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86-o2.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64-o2.ro \
 		tests/verified_backend_dynamic_tls_aggregate.cpp > \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64-o2.log 2>&1
-	$(call CHECK_TEXT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64-o2.log)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64-o2.log,0)
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -I$(INCDIR) -o \
+		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/verify \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/verify \
+		--dynamic-tls-aggregate-object i686 \
+		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86.ro
+	$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/verify \
+		--dynamic-tls-aggregate-object x86_64 \
+		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64.ro
+	$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/verify \
+		--dynamic-tls-aggregate-object i686 \
+		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x86-o2.ro
+	$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/verify \
+		--dynamic-tls-aggregate-object x86_64 \
+		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/x64-o2.ro
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
 		tests/verified_backend_dynamic_tls_aggregate.cpp
 ifeq ($(OS),Windows_NT)
@@ -23694,7 +23714,8 @@ else
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/rcc-host \
 		tests/verified_backend_dynamic_tls_aggregate_host.c \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/rcc-x64.o \
-		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) \
+		-lstdc++
 	$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/rcc-host
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
 		-o $(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/rcc-x64-o2.s \
@@ -23706,7 +23727,8 @@ else
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/rcc-o2-host \
 		tests/verified_backend_dynamic_tls_aggregate_host.c \
 		$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/rcc-x64-o2.o \
-		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) \
+		-lstdc++
 	$(TEST_OUT)/verified-cxx-dynamic-tls-aggregate/rcc-o2-host
 endif
 	@echo "C++ dynamic aggregate TLS initialization and cleanup tests completed"

@@ -12650,10 +12650,16 @@ remains a separate open item.
       oracle and RCC AMD64 host runs pass with two concurrent pthreads, distinct
       TLS addresses, independent field state, and one destructor per thread;
       verified object generation falls back to this complete native lowering.
-- [ ] Teach the verified object path to encode guarded dynamic TLS
-      initialization and thread-exit cleanup callbacks, then require zero
-      fallback and execute the resulting objects. Keep the current full native
-      fallback until those references and callbacks are present in `.ro`.
+- [x] Lower the same namespace-scope and function-local aggregate TLS
+      initializers in typed SSA. Emit per-thread guard acquire/abort/release,
+      ordered volatile field stores, and `__cxa_thread_atexit` callback
+      registration; serialize cleanup callback code and its references into
+      verified `.ro` objects. i686/AMD64 `-O0`/`-O2` generation reports zero
+      fallback, and object inspection checks TLS guard bindings/relocations,
+      callback definitions/references, `__dso_handle`, and runtime imports.
+      Execute AMD64 verified objects at `-O0`/`-O2` with two pthreads, checking
+      independent TLS addresses/state and both destructors per thread. Native
+      legacy execution and the GCC C++20 oracle also pass.
 
 ## RCC continuation (2026-10-31, concurrent C++ aggregate atomics)
 

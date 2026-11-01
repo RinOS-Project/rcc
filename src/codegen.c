@@ -22881,6 +22881,17 @@ static void codegen_emit_cxx_array_placement_cleanup_thunks32(Module* mod) {
     }
 }
 
+void codegen_emit_static_cleanup_callbacks(Module* mod) {
+    if (!mod) return;
+    if (g_opts.target_arch == ARCH_X64) {
+        codegen_emit_static_cleanup_callbacks64(mod);
+        return;
+    }
+    codegen_emit_static_local_cleanups32(mod);
+    resolve_func_calls(mod);
+    resolve_labels(mod);
+}
+
 static void codegen_emit_global_fini32(Module* mod) {
     const char* name = "__rcc_global_fini";
     GlobalFinalizer* finalizer;
