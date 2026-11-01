@@ -6345,7 +6345,8 @@ static DeclList* parse_parameter_list(bool* variadic) {
             parameter_array_type = parameter_type;
         }
         if (parser_cxx_mode && match(TOK_ASSIGN)) {
-            parameter_default = parse_assignment();
+            parameter_default = check(TOK_LBRACE)
+                ? parse_initializer() : parse_assignment();
         }
         parameter = decl_param(parameter_name, parameter_type,
                                parameter_index++, peek()->loc);

@@ -22450,6 +22450,17 @@ static void sema_analyze_cxx_default_arguments(Decl* function) {
          item; item = item->next) {
         Decl* parameter = item->decl;
         if (!parameter || !parameter->param_default) continue;
+        if (sema_cxx_is_untyped_braced_initializer(
+                parameter->param_default)) {
+            if (parameter->type && parameter->type->cxx_dependent) {
+                sema_cxx_analyze_braced_initializer_elements(
+                    parameter->param_default);
+            } else {
+                sema_initializer(parameter->type,
+                                 parameter->param_default);
+            }
+            continue;
+        }
         sema_expr(parameter->param_default);
         /* Default arguments follow C++ implicit-conversion rules.  In
          * particular, the C compatibility path in implicit_cast() permits
@@ -23014,6 +23025,7 @@ static bool sema_append_cxx_default_arguments(
     Expr* call, Decl* function, TypeParam** remaining, int supplied_count) {
     DeclList* declaration;
     TypeParam* parameter;
+    ExprList** argument_tail;
     int skipped = 0;
 
     if (!call || !function || function->kind != DECL_FUNC || !remaining) {
@@ -23026,12 +23038,22 @@ static bool sema_append_cxx_default_arguments(
     }
     parameter = *remaining;
     if (skipped != supplied_count) return false;
+    argument_tail = &call->call_args;
+    while (*argument_tail) argument_tail = &(*argument_tail)->next;
     while (parameter && declaration) {
         if (!declaration->decl || !declaration->decl->param_default) {
             return false;
         }
-        exprlist_append(&call->call_args,
-                        declaration->decl->param_default);
+        ExprList* argument = exprlist_new(
+            declaration->decl->param_default);
+        *argument_tail = argument;
+        argument_tail = &argument->next;
+        sema_prepare_reference_argument_cleanup(argument, parameter->type);
+        sema_prepare_cxx_by_value_class_argument(argument, parameter->type);
+        sema_prepare_derived_to_base_value_argument_cleanup(
+            argument, parameter->type);
+        sema_prepare_initializer_list_argument_cleanup(
+            argument, parameter->type);
         parameter = parameter->next;
         declaration = declaration->next;
     }
@@ -34943,6 +34965,13 @@ static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
     if (!type || type->cxx_dependent || !initializer) return;
+    if (rcc_parser_is_cxx_mode() &&
+        initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_cxx_initializer_list_materialized &&
+        initializer->compound_type &&
+        type_is_compatible(initializer->compound_type, type)) {
+        return;
+    }
     /* std::initializer_list construction is a language operation: lower its
      * backing const array and its ABI fields before ordinary class
      * constructor or aggregate initialization can reinterpret the braces. */

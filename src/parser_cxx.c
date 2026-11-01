@@ -12815,7 +12815,9 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                         rcc_parser_last_cxx_declarator_was_pack();
                     Expr* default_argument = NULL;
                     if (match(TOK_ASSIGN)) {
-                        default_argument = parse_assignment_expression();
+                        default_argument = check(TOK_LBRACE)
+                            ? rcc_parser_parse_initializer()
+                            : parse_assignment_expression();
                         saw_default = true;
                     } else if (saw_default) {
                         rcc_error(peek()->loc,
@@ -15125,7 +15127,11 @@ static DeclList* parse_cxx_lambda_parameters(CxxTemplate* tmpl) {
                 }
             }
         }
-        if (match(TOK_ASSIGN)) default_argument = parse_assignment_expression();
+        if (match(TOK_ASSIGN)) {
+            default_argument = check(TOK_LBRACE)
+                ? rcc_parser_parse_initializer()
+                : parse_assignment_expression();
+        }
         {
             Decl* parameter = decl_param(name, type, param_idx++, peek()->loc);
             parameter->param_is_pack = parameter_pack;
@@ -29721,7 +29727,9 @@ bool rcc_parse_cxx_deduction_guide(void) {
                 rcc_parser_last_cxx_declarator_was_pack() ||
                 match(TOK_ELLIPSIS);
             if (match(TOK_ASSIGN)) {
-                default_argument = parse_assignment_expression();
+                default_argument = check(TOK_LBRACE)
+                    ? rcc_parser_parse_initializer()
+                    : parse_assignment_expression();
                 saw_default_argument = true;
             } else if (saw_default_argument) {
                 rcc_error(

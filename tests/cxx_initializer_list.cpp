@@ -127,6 +127,27 @@ static int consume_empty(std::initializer_list<int> values) {
     return values.size() == 0 && values.begin() == values.end();
 }
 
+static int consume_defaulted(std::initializer_list<int> values = {4, 5}) {
+    return static_cast<int>(values.size());
+}
+
+static int consume_scalar_default(int value = {6}) {
+    return value;
+}
+
+static int consume_defaulted_tracked(
+    std::initializer_list<Tracked> values = {3, 4}) {
+    return values.size() == 2 && values.begin()[0].value == 3 &&
+           values.begin()[1].value == 4;
+}
+
+struct DefaultedInitializerList {
+    int size;
+    DefaultedInitializerList(
+        std::initializer_list<int> values = {7, 8})
+        : size(static_cast<int>(values.size())) {}
+};
+
 static int consume_reference(const std::initializer_list<Tracked>& values) {
     return values.size() == 2 && values.begin()[0].value == 5 &&
            values.begin()[1].value == 6 &&
@@ -168,6 +189,16 @@ static int test_empty_initializer_list_argument(void) {
     return consume_empty({});
 }
 
+static int test_braced_initializer_list_default_arguments(void) {
+    DefaultedInitializerList value;
+    int tracked_result;
+    initializer_list_reset_counts();
+    tracked_result = consume_defaulted_tracked();
+    return consume_defaulted() == 2 && value.size == 2 &&
+           consume_defaulted({9}) == 1 && consume_scalar_default() == 6 &&
+           tracked_result && initializer_list_counts_are(2, 2);
+}
+
 static int test_initializer_list_preference(void) {
     int function_choice = choose_overload({5, 6});
     int element_choice = choose_element_type({9, 10});
@@ -204,6 +235,7 @@ int main(void) {
     if (!test_local_lifetime()) failures |= 4;
     if (!test_empty_initializer_list()) failures |= 8;
     if (!test_empty_initializer_list_argument()) failures |= 32;
+    if (!test_braced_initializer_list_default_arguments()) failures |= 64;
     if (!test_initializer_list_preference()) failures |= 16;
     return failures;
 }
