@@ -2638,7 +2638,8 @@ static bool codegen_emit_static_aggregate_reference_temporaries_expr(
          * the current Module, so use its symbol table to avoid skipping the
          * definition in a second output module. */
         if (owner_symbol && owner_symbol->is_defined &&
-            owner_symbol->section == MODULE_SYMBOL_DATA) {
+            owner_symbol->section == (owner->var_is_thread_local
+                ? MODULE_SYMBOL_TLS : MODULE_SYMBOL_DATA)) {
             continue;
         }
         if (!type || type->size <= 0 || type->align < 0) {
@@ -2648,30 +2649,59 @@ static bool codegen_emit_static_aggregate_reference_temporaries_expr(
         }
         size = (uint32_t)type->size;
         alignment = type->align > 0 ? (uint32_t)type->align : 1u;
-        if (alignment > mod->data_align) mod->data_align = alignment;
-        aligned = ((uint64_t)mod->data.size + alignment - 1u) &
-                  ~((uint64_t)alignment - 1u);
-        if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
-            rcc_error(owner->loc,
-                      "aggregate reference temporary exceeds data limits");
-            return false;
+        if (owner->var_is_thread_local) {
+            aligned = ((uint64_t)mod->tls.size + alignment - 1u) &
+                      ~((uint64_t)alignment - 1u);
+            if (aligned > INT_MAX || size > UINT32_MAX - aligned) {
+                rcc_error(owner->loc,
+                          "TLS aggregate reference temporary exceeds limits");
+                return false;
+            }
+            codegen_ensure_tls_capacity(mod, (size_t)aligned + size);
+            if (mod->tls.size < aligned) {
+                memset(mod->tls.data + mod->tls.size, 0,
+                       (size_t)aligned - mod->tls.size);
+            }
+            offset = (uint32_t)aligned;
+            memset(mod->tls.data + offset, 0, size);
+            mod->tls.size = (size_t)aligned + size;
+            if (alignment > mod->tls_align) mod->tls_align = alignment;
+            owner->var_offset = (int)offset;
+            codegen_add_vtable_pointer(mod, MODULE_SYMBOL_TLS, offset, type);
+            module_add_symbol(mod, decl_link_name(owner), offset, true,
+                              MODULE_SYMBOL_TLS, false);
+            statically_initialized = codegen_emit_tls_initializer(
+                mod, type, item->expr, offset);
+        } else {
+            if (alignment > mod->data_align) mod->data_align = alignment;
+            aligned = ((uint64_t)mod->data.size + alignment - 1u) &
+                      ~((uint64_t)alignment - 1u);
+            if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+                rcc_error(owner->loc,
+                          "aggregate reference temporary exceeds data limits");
+                return false;
+            }
+            while (mod->data.size < aligned) emit_data(mod, zero, 1u);
+            offset = (uint32_t)mod->data.size;
+            while (size > sizeof(zero)) {
+                emit_data(mod, zero, sizeof(zero));
+                size -= sizeof(zero);
+            }
+            if (size) emit_data(mod, zero, size);
+            size = (uint32_t)type->size;
+            owner->var_offset = (int)offset;
+            codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset, type);
+            module_add_symbol(mod, decl_link_name(owner), offset, true,
+                              MODULE_SYMBOL_DATA, false);
+            statically_initialized = codegen_emit_static_initializer(
+                mod, type, item->expr, offset);
         }
-        while (mod->data.size < aligned) emit_data(mod, zero, 1u);
-        offset = (uint32_t)mod->data.size;
-        while (size > sizeof(zero)) {
-            emit_data(mod, zero, sizeof(zero));
-            size -= sizeof(zero);
-        }
-        if (size) emit_data(mod, zero, size);
-        size = (uint32_t)type->size;
-        owner->var_offset = (int)offset;
-        codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset, type);
-        module_add_symbol(mod, decl_link_name(owner), offset, true,
-                          MODULE_SYMBOL_DATA, false);
-        statically_initialized = codegen_emit_static_initializer(
-            mod, type, item->expr, offset);
         if (!statically_initialized) {
-            memset(mod->data.data + offset, 0, size);
+            if (owner->var_is_thread_local) {
+                memset(mod->tls.data + offset, 0, size);
+            } else {
+                memset(mod->data.data + offset, 0, size);
+            }
             owner->var_init = item->expr;
             if (local_guarded_initializer) {
                 owner->var_dynamic_initializer = true;
@@ -2900,7 +2930,7 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         !declaration->type || declaration->type->size <= 0) {
         return false;
     }
-    if (declaration->var_init && !declaration->var_is_thread_local &&
+    if (declaration->var_init &&
         !codegen_emit_static_aggregate_reference_temporaries_expr(
             mod, declaration, declaration->var_init, 0u, true)) {
         return false;

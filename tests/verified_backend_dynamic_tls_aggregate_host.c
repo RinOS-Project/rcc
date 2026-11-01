@@ -6,8 +6,11 @@ extern int verified_dynamic_tls_aggregate_probe(int expected_value,
                                                  int next_value);
 extern volatile int* verified_dynamic_tls_aggregate_address(void);
 extern volatile int* verified_global_tls_aggregate_address(void);
+extern const void* verified_dynamic_tls_reference_temporary_address(void);
 
 int verified_dynamic_tls_aggregate_destructor_count;
+int verified_dynamic_tls_reference_temp_destructor_count;
+int verified_dynamic_tls_reference_temp_order_failure_count;
 
 typedef struct SharedState {
     pthread_mutex_t mutex;
@@ -16,6 +19,7 @@ typedef struct SharedState {
     int release;
     volatile int* local_addresses[2];
     volatile int* global_addresses[2];
+    const void* reference_addresses[2];
 } SharedState;
 
 typedef struct WorkerContext {
@@ -29,6 +33,7 @@ static void* run_dynamic_tls_aggregate(void* argument) {
     SharedState* shared = context->shared;
     volatile int* local_address = NULL;
     volatile int* global_address = NULL;
+    const void* reference_address = NULL;
     int result = 0;
     int probe_result = verified_dynamic_tls_aggregate_probe(0,
                                                             context->value);
@@ -38,8 +43,11 @@ static void* run_dynamic_tls_aggregate(void* argument) {
     } else {
         local_address = verified_dynamic_tls_aggregate_address();
         global_address = verified_global_tls_aggregate_address();
+        reference_address =
+            verified_dynamic_tls_reference_temporary_address();
         if (!local_address || *local_address != context->value ||
-            !global_address || *global_address != context->value + 1000) {
+            !global_address || *global_address != context->value + 1000 ||
+            !reference_address) {
             result = 2;
         } else {
             probe_result = verified_dynamic_tls_aggregate_probe(
@@ -51,6 +59,8 @@ static void* run_dynamic_tls_aggregate(void* argument) {
                        *local_address != context->value + 100 ||
                        verified_global_tls_aggregate_address() !=
                            global_address ||
+                       verified_dynamic_tls_reference_temporary_address() !=
+                           reference_address ||
                        *global_address != context->value + 1100) {
                 result = 4;
             }
@@ -60,6 +70,7 @@ static void* run_dynamic_tls_aggregate(void* argument) {
     pthread_mutex_lock(&shared->mutex);
     shared->local_addresses[context->slot] = local_address;
     shared->global_addresses[context->slot] = global_address;
+    shared->reference_addresses[context->slot] = reference_address;
     ++shared->ready;
     pthread_cond_broadcast(&shared->condition);
     while (!shared->release) {
@@ -80,7 +91,7 @@ static void* run_dynamic_tls_aggregate(void* argument) {
 int main(void) {
     SharedState shared = {PTHREAD_MUTEX_INITIALIZER,
                           PTHREAD_COND_INITIALIZER, 0, 0,
-                          {NULL, NULL}, {NULL, NULL}};
+                          {NULL, NULL}, {NULL, NULL}, {NULL, NULL}};
     WorkerContext contexts[2] = {{13, 0, &shared}, {79, 1, &shared}};
     pthread_t threads[2];
     void* results[2] = {NULL, NULL};
@@ -110,8 +121,16 @@ int main(void) {
     if (!shared.local_addresses[0] || !shared.local_addresses[1] ||
         shared.local_addresses[0] == shared.local_addresses[1] ||
         !shared.global_addresses[0] || !shared.global_addresses[1] ||
-        shared.global_addresses[0] == shared.global_addresses[1]) return 4;
-    if (verified_dynamic_tls_aggregate_destructor_count != 4) return 5;
+        shared.global_addresses[0] == shared.global_addresses[1] ||
+        !shared.reference_addresses[0] || !shared.reference_addresses[1] ||
+        shared.reference_addresses[0] == shared.reference_addresses[1]) {
+        return 4;
+    }
+    if (verified_dynamic_tls_aggregate_destructor_count != 6 ||
+        verified_dynamic_tls_reference_temp_destructor_count != 2 ||
+        verified_dynamic_tls_reference_temp_order_failure_count != 0) {
+        return 5;
+    }
 
     pthread_cond_destroy(&shared.condition);
     pthread_mutex_destroy(&shared.mutex);

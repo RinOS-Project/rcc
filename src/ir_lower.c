@@ -2790,12 +2790,14 @@ static bool lower_dynamic_static_reference_temporary_supported(
         lower_temporary_cleanup_plan_list_supported(
             item->cxx_temporary_cleanups, owner,
             cleanup_array_indices, 0u, true);
-    return declaration && declaration->var_is_static_local &&
-        !declaration->var_is_thread_local && item &&
+    return declaration &&
+        (declaration->var_is_static_local ||
+         declaration->var_is_thread_local) && item &&
         item->cxx_temporary_static_storage &&
         (!item->cxx_temporary_cleanups || cleanup_class_type) &&
         owner && owner->var_is_global &&
-        !owner->var_is_thread_local && type && type->size > 0 &&
+        owner->var_is_thread_local == declaration->var_is_thread_local &&
+        type && type->size > 0 &&
         !type->is_reference && !type->cleanup_function &&
         !type->is_atomic && type->kind != TYPE_ARRAY &&
         type->kind != TYPE_UNION && type->kind != TYPE_VECTOR &&
@@ -3313,6 +3315,8 @@ static RccIrLowerValue lower_lvalue_address_impl(
     if (expression->kind == EXPR_MEMBER ||
         expression->kind == EXPR_PTR_MEMBER) {
         const Type* aggregate_type;
+        const Type* member_base_type = expression->member_base
+            ? expression->member_base->type : NULL;
         const TypeField* field = expression->member_field;
         RccIrLowerValue base;
         if (expression->kind == EXPR_PTR_MEMBER) {
@@ -3326,18 +3330,28 @@ static RccIrLowerValue lower_lvalue_address_impl(
              * aggregate temporary address in typed SSA.  Reuse that address
              * for a direct member projection instead of sending the whole
              * caller to the legacy backend. */
-            if (expression->member_base &&
-                expression->member_base->type &&
-                (expression->member_base->type->kind == TYPE_STRUCT ||
-                 expression->member_base->type->kind == TYPE_UNION) &&
+            bool call_returns_reference_to_aggregate =
+                expression->member_base &&
+                expression->member_base->kind == EXPR_CALL &&
+                member_base_type &&
+                member_base_type->kind == TYPE_PTR &&
+                member_base_type->is_reference &&
+                member_base_type->base &&
+                (member_base_type->base->kind == TYPE_STRUCT ||
+                 member_base_type->base->kind == TYPE_UNION);
+            if (member_base_type &&
+                (member_base_type->kind == TYPE_STRUCT ||
+                 member_base_type->kind == TYPE_UNION) &&
                 (expression->member_base->kind == EXPR_CALL ||
                  expression->member_base->kind == EXPR_VA_ARG)) {
+                base = lower_expression(context, expression->member_base);
+            } else if (call_returns_reference_to_aggregate) {
                 base = lower_expression(context, expression->member_base);
             } else {
                 base = lower_lvalue_address(context, expression->member_base);
             }
-            aggregate_type = expression->member_base
-                ? expression->member_base->type : NULL;
+            aggregate_type = call_returns_reference_to_aggregate
+                ? member_base_type->base : member_base_type;
         }
         if (!aggregate_type ||
             (aggregate_type->kind != TYPE_STRUCT &&
@@ -3466,8 +3480,12 @@ static RccIrLowerValue lower_lvalue_address(
     if (!address.valid || !expression) return address;
     volatile_access = expression->type && expression->type->is_volatile;
     if (expression->kind == EXPR_MEMBER) {
-        object_type = expression->member_base
+        const Type* member_base_type = expression->member_base
             ? expression->member_base->type : NULL;
+        object_type = member_base_type &&
+                member_base_type->kind == TYPE_PTR &&
+                member_base_type->is_reference
+            ? member_base_type->base : member_base_type;
     } else if (expression->kind == EXPR_PTR_MEMBER &&
                expression->member_base && expression->member_base->type &&
                expression->member_base->type->kind == TYPE_PTR) {
@@ -28836,6 +28854,7 @@ static bool lower_dynamic_static_aggregate_initializer(
                     rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
                 if (!symbol) return false;
                 rcc_ir_set_callee(symbol, decl_link_name(temporary_owner));
+                symbol->symbol_is_tls = temporary_owner->var_is_thread_local;
                 temporary_address = lower_value(
                     symbol->result, rcc_ir_type_pointer(0u), true);
                 if (temporary_owner->type->kind == TYPE_STRUCT) {
@@ -28894,6 +28913,7 @@ static bool lower_dynamic_static_aggregate_initializer(
                 if (!symbol) return false;
                 rcc_ir_set_callee(
                     symbol, decl_link_name(temporary_owner));
+                symbol->symbol_is_tls = temporary_owner->var_is_thread_local;
                 value = lower_value(
                     symbol->result, rcc_ir_type_pointer(0u), true);
             } else if (field->type->cxx_class) {

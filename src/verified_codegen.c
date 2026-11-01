@@ -1674,6 +1674,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     verified_scope_static_object_relocations(
         ast, translation_unit, object);
     verified_deduplicate_undefined_symbols(object);
+    objfile_rebuild_symbol_index(object);
     for (item = ast->decls; item; item = item->next) {
         const Decl* declaration = item->decl;
         RccIrModule* module = NULL;
@@ -1843,6 +1844,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         rcc_ir_module_destroy(module);
     }
     verified_deduplicate_undefined_symbols(object);
+    objfile_rebuild_symbol_index(object);
     if (emitted == 0u) {
         rcc_free(debug_variable_locations);
         codegen_free(data_module);

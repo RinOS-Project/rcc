@@ -253,6 +253,7 @@ ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type
                               SymbolBinding binding, int section, uint64_t value,
                               uint64_t size);
 ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name);
+void objfile_rebuild_symbol_index(ObjectFile* obj);
 
 /* Relocation operations */
 void objfile_add_reloc(ObjectFile* obj, int section, uint64_t offset,

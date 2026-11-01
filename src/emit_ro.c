@@ -539,6 +539,17 @@ ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name) {
     return NULL;
 }
 
+void objfile_rebuild_symbol_index(ObjectFile* obj) {
+    if (!obj) return;
+    rcc_free(obj->symbol_hash_slots);
+    obj->symbol_hash_slots = NULL;
+    obj->symbol_hash_capacity = 0u;
+    obj->symbol_hash_count = 0u;
+    for (ObjSymbol* symbol = obj->symbols; symbol; symbol = symbol->next) {
+        objfile_symbol_index_insert(obj, symbol);
+    }
+}
+
 /* ═══════════════════════════════════════
  * Relocation Operations
  * ═══════════════════════════════════════ */

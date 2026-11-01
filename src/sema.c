@@ -17548,19 +17548,21 @@ static void sema_prepare_aggregate_reference_temporary_cleanup(
     if (!rcc_parser_is_cxx_mode() || !declaration || !type ||
         declaration->kind != DECL_VAR ||
         (declaration->var_is_global && !declaration->var_is_static_local) ||
-        declaration->var_is_thread_local || declaration->var_is_block_extern ||
+        declaration->var_is_block_extern ||
         type->is_reference || !declaration->var_init) {
         return;
     }
     if (!sema_cxx_collect_aggregate_reference_cleanups_expr(
             declaration->var_init, &temporary_cleanups, 0u,
-            declaration->var_is_static_local)) {
+            declaration->var_is_static_local ||
+                declaration->var_is_thread_local)) {
         rcc_error(declaration->loc,
                   "aggregate reference temporary cleanup nesting limit exceeded");
         return;
     }
     if (!temporary_cleanups) return;
-    if (declaration->var_is_static_local) {
+    if (declaration->var_is_static_local ||
+        declaration->var_is_thread_local) {
         /* Cleanup plans execute in reverse list order.  Static aggregate
          * reference temporaries must therefore precede the aggregate's own
          * destructor plan so the aggregate is destroyed while its reference
@@ -17576,7 +17578,8 @@ static void sema_prepare_aggregate_reference_temporary_cleanup(
         while (tail->next) tail = tail->next;
         tail->next = temporary_cleanups;
     }
-    if (declaration->var_is_static_local &&
+    if ((declaration->var_is_static_local ||
+         declaration->var_is_thread_local) &&
         !sema_attach_static_initializer_guard(declaration)) {
         return;
     }
@@ -35029,10 +35032,12 @@ static void sema_cxx_prepare_static_aggregate_reference_temporaries_expr(
             owner->link_name = name;
             owner->storage = STORAGE_STATIC;
             owner->var_is_global = true;
+            owner->var_is_thread_local = declaration->var_is_thread_local;
             owner->var_offset = -1;
             item->cxx_temporary_static_storage = true;
         }
-        if (declaration->var_is_static_local &&
+        if ((declaration->var_is_static_local ||
+             declaration->var_is_thread_local) &&
             item->cxx_temporary_static_storage &&
             item->cxx_temporary_owner &&
             !item->cxx_temporary_cleanups &&
@@ -35065,7 +35070,9 @@ static void sema_cxx_prepare_static_aggregate_reference_temporaries(
     unsigned sequence = 0u;
     if (!declaration ||
         (!declaration->var_is_global && !declaration->var_is_static_local) ||
-        declaration->var_is_thread_local || !declaration->var_init) {
+        (declaration->var_is_thread_local &&
+         !declaration->var_is_static_local) ||
+        !declaration->var_init) {
         return;
     }
     sema_cxx_prepare_static_aggregate_reference_temporaries_expr(
@@ -37184,8 +37191,7 @@ static void sema_decl(Decl* decl) {
                 current_cxx_global_variable_initializer =
                     is_global && !decl->var_is_thread_local;
                 current_cxx_static_local_initializer =
-                    decl->var_is_static_local &&
-                    !decl->var_is_thread_local;
+                    decl->var_is_static_local;
                 current_cxx_automatic_variable_initializer =
                     !is_global && !decl->var_is_global &&
                     !decl->var_is_static_local &&

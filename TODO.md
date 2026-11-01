@@ -13191,6 +13191,14 @@ remains a separate open item.
       `test-verified-cxx-static-local-aggregate`; the GCC C++20 oracle passes,
       and i686/AMD64 verified objects pass at `-O0`/`-O2` with zero fallback
       plus x64 runtime execution.
+- [x] Extend verified TLS aggregate initialization to a reference member bound
+      to a nontrivial class prvalue. Keep its synthetic object and guard in TLS,
+      bind the verified relocation as TLS, and register aggregate/temporary
+      thread-exit cleanup in destruction order. The i686/AMD64 object verifier
+      passes at `-O0`/`-O2` with zero fallback; the x64 verified runtime passes
+      at both levels. WSL pthread runs verify distinct per-thread referents and
+      aggregate-before-temporary destruction. This regression also rebuilds the
+      verified object symbol index after internal symbol renaming and duplicate
+      removal.
 - [ ] Extend verified partial-subobject unwind to nested class members, arrays,
-      and constructor-built subobjects, and cover TLS aggregate temporary
-      lifetime and cleanup.
+      and constructor-built subobjects.

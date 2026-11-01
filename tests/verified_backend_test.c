@@ -41,6 +41,8 @@ typedef struct VerifiedThreadExitState {
 static _Thread_local VerifiedThreadExitState*
     verified_thread_exit_state;
 int verified_dynamic_tls_aggregate_destructor_count;
+int verified_dynamic_tls_reference_temp_destructor_count;
+int verified_dynamic_tls_reference_temp_order_failure_count;
 int verified_static_local_aggregate_destructions;
 static int verified_dynamic_tls_dso_handle;
 
@@ -477,6 +479,14 @@ static void* verified_runtime_import_address(const char* symbol_name)
     if (strcmp(symbol_name,
                "verified_dynamic_tls_aggregate_destructor_count") == 0) {
         return &verified_dynamic_tls_aggregate_destructor_count;
+    }
+    if (strcmp(symbol_name,
+               "verified_dynamic_tls_reference_temp_destructor_count") == 0) {
+        return &verified_dynamic_tls_reference_temp_destructor_count;
+    }
+    if (strcmp(symbol_name,
+               "verified_dynamic_tls_reference_temp_order_failure_count") == 0) {
+        return &verified_dynamic_tls_reference_temp_order_failure_count;
     }
     if (strcmp(symbol_name, "__dso_handle") == 0) {
         return &verified_dynamic_tls_dso_handle;
@@ -4142,6 +4152,7 @@ typedef struct VerifiedHostTlsHeader {
 
 typedef int (RINOS_ABI *VerifiedDynamicTlsProbe)(int, int);
 typedef volatile int* (RINOS_ABI *VerifiedDynamicTlsAddress)(void);
+typedef const void* (RINOS_ABI *VerifiedDynamicTlsConstAddress)(void);
 
 typedef struct VerifiedDynamicTlsShared {
     pthread_mutex_t mutex;
@@ -4150,6 +4161,7 @@ typedef struct VerifiedDynamicTlsShared {
     int release;
     volatile int* local_addresses[2];
     volatile int* global_addresses[2];
+    const void* reference_addresses[2];
 } VerifiedDynamicTlsShared;
 
 typedef struct VerifiedDynamicTlsWorker {
@@ -4181,16 +4193,22 @@ static void* run_verified_dynamic_tls_worker(void* opaque)
         "verified_dynamic_tls_aggregate_address");
     ObjSymbol* global_address_symbol = objfile_find_symbol(
         (ObjectFile*)worker->object, "verified_global_tls_aggregate_address");
+    ObjSymbol* reference_address_symbol = objfile_find_symbol(
+        (ObjectFile*)worker->object,
+        "verified_dynamic_tls_reference_temporary_address");
     VerifiedDynamicTlsProbe probe = NULL;
     VerifiedDynamicTlsAddress local_address_fn = NULL;
     VerifiedDynamicTlsAddress global_address_fn = NULL;
+    VerifiedDynamicTlsConstAddress reference_address_fn = NULL;
     volatile int* local_address = NULL;
     volatile int* global_address = NULL;
+    const void* reference_address = NULL;
     void* function_address;
 
     worker->result = 1;
     if (!page || !tls_size || !tls_mapping_size ||
-        !probe_symbol || !local_address_symbol || !global_address_symbol) {
+        !probe_symbol || !local_address_symbol || !global_address_symbol ||
+        !reference_address_symbol) {
         goto synchronize;
     }
     tls_memory = verified_map(tls_mapping_size);
@@ -4218,17 +4236,24 @@ static void* run_verified_dynamic_tls_worker(void* opaque)
     function_address = symbol_address(worker->mapping, global_address_symbol);
     memcpy(&global_address_fn, &function_address,
            sizeof(global_address_fn));
+    function_address = symbol_address(
+        worker->mapping, reference_address_symbol);
+    memcpy(&reference_address_fn, &function_address,
+           sizeof(reference_address_fn));
     worker->result = probe(0, worker->value);
     if (worker->result == 0) {
         local_address = local_address_fn();
         global_address = global_address_fn();
+        reference_address = reference_address_fn();
         if (!local_address || *local_address != worker->value ||
-            !global_address || *global_address != worker->value + 1000) {
+            !global_address || *global_address != worker->value + 1000 ||
+            !reference_address) {
             worker->result = 3;
         } else if (probe(worker->value, worker->value + 100) != 0 ||
                    local_address_fn() != local_address ||
                    *local_address != worker->value + 100 ||
                    global_address_fn() != global_address ||
+                   reference_address_fn() != reference_address ||
                    *global_address != worker->value + 1100) {
             worker->result = 4;
         }
@@ -4238,6 +4263,7 @@ synchronize:
     pthread_mutex_lock(&worker->shared->mutex);
     worker->shared->local_addresses[worker->slot] = local_address;
     worker->shared->global_addresses[worker->slot] = global_address;
+    worker->shared->reference_addresses[worker->slot] = reference_address;
     ++worker->shared->ready;
     pthread_cond_broadcast(&worker->shared->condition);
     while (!worker->shared->release) {
@@ -4268,7 +4294,7 @@ static void execute_verified_dynamic_tls_object(
 {
     VerifiedDynamicTlsShared shared = {
         PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER,
-        0, 0, {NULL, NULL}, {NULL, NULL}
+        0, 0, {NULL, NULL}, {NULL, NULL}, {NULL, NULL}
     };
     VerifiedDynamicTlsWorker workers[2];
     pthread_t threads[2];
@@ -4293,6 +4319,8 @@ static void execute_verified_dynamic_tls_object(
     workers[0].mapping = mapping;
     workers[1].mapping = mapping;
     verified_dynamic_tls_aggregate_destructor_count = 0;
+    verified_dynamic_tls_reference_temp_destructor_count = 0;
+    verified_dynamic_tls_reference_temp_order_failure_count = 0;
     for (; created < 2; ++created) {
         if (pthread_create(&threads[created], NULL,
                            run_verified_dynamic_tls_worker,
@@ -4308,7 +4336,11 @@ static void execute_verified_dynamic_tls_object(
         (!shared.local_addresses[0] || !shared.local_addresses[1] ||
          shared.local_addresses[0] == shared.local_addresses[1] ||
          !shared.global_addresses[0] || !shared.global_addresses[1] ||
-         shared.global_addresses[0] == shared.global_addresses[1])) {
+         shared.global_addresses[0] == shared.global_addresses[1] ||
+         !shared.reference_addresses[0] ||
+         !shared.reference_addresses[1] ||
+         shared.reference_addresses[0] == shared.reference_addresses[1] ||
+         verified_dynamic_tls_reference_temp_destructor_count != 0)) {
         workers[0].result = 7;
     }
     shared.release = 1;
@@ -4324,7 +4356,13 @@ static void execute_verified_dynamic_tls_object(
     assert(created == 2 && workers[0].result == 0 &&
            workers[1].result == 0 &&
            __atomic_load_n(&verified_dynamic_tls_aggregate_destructor_count,
-                           __ATOMIC_SEQ_CST) == 4);
+                           __ATOMIC_SEQ_CST) == 6 &&
+           __atomic_load_n(
+               &verified_dynamic_tls_reference_temp_destructor_count,
+               __ATOMIC_SEQ_CST) == 2 &&
+           __atomic_load_n(
+               &verified_dynamic_tls_reference_temp_order_failure_count,
+               __ATOMIC_SEQ_CST) == 0);
     assert(verified_unmap(mapping, mapping_size) == 0);
     pthread_cond_destroy(&shared.condition);
     pthread_mutex_destroy(&shared.mutex);
@@ -4353,6 +4391,7 @@ static void verify_dynamic_tls_aggregate_object(const char* path,
     size_t guard_symbol_count = 0u;
     size_t guard_relocation_count = 0u;
     size_t tls_relocation_count = 0u;
+    size_t reference_temporary_symbol_count = 0u;
     int text_section_index = 0;
     int tls_section_index = 0;
     assert(object != NULL && object->arch == arch);
@@ -4383,6 +4422,11 @@ static void verify_dynamic_tls_aggregate_object(const char* path,
             assert(symbol->binding == BIND_TLS &&
                    symbol->section == tls_section_index);
         }
+        if (strstr(symbol->name, "$rcc_aggregate_reference_temporary")) {
+            ++reference_temporary_symbol_count;
+            assert(symbol->binding == BIND_TLS &&
+                   symbol->section == tls_section_index);
+        }
     }
     for (ObjReloc* relocation = text->relocs; relocation;
          relocation = relocation->next) {
@@ -4402,8 +4446,9 @@ static void verify_dynamic_tls_aggregate_object(const char* path,
             ++callback_reference_count;
         }
     }
-    assert(callback_count >= 2u && callback_reference_count >= 2u &&
-           guard_symbol_count == 2u && guard_relocation_count >= 2u &&
+    assert(callback_count >= 3u && callback_reference_count >= 3u &&
+           reference_temporary_symbol_count >= 1u &&
+           guard_symbol_count >= 3u && guard_relocation_count >= 3u &&
            tls_relocation_count >= 4u);
     for (size_t index = 0u;
          index < sizeof(required_runtime_symbols) /
