@@ -22409,6 +22409,18 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                       type->cxx_template_param_index);
             return NULL;
         }
+        if (actual_template->kind == TMPL_CLASS &&
+            type->cxx_template_arg_pack_expansions) {
+            Type* dependent_class_id =
+                ast_arena_alloc(sizeof(*dependent_class_id));
+            *dependent_class_id = *type;
+            dependent_class_id->cxx_template = actual_template;
+            dependent_class_id->cxx_template_param_index = -1;
+            dependent_class_id->cxx_template_param_context = tmpl;
+            return substitute_template_type(
+                tmpl, dependent_class_id, arguments, argument_count,
+                value_args, value_present);
+        }
         nested_capacity = actual_template->param_count > 0
             ? (size_t)actual_template->param_count : 1u;
         nested_arguments = cxx_allocate_zeroed_array(
@@ -23849,6 +23861,19 @@ static int cxx_class_pack_index(CxxTemplate* tmpl) {
             (!tmpl->is_local_class_template &&
              index != tmpl->param_count - 1)) {
             return -1;
+        }
+        pack_index = index;
+    }
+    return pack_index;
+}
+
+static int cxx_template_signature_pack_index(const CxxTemplate* signature) {
+    int pack_index = -1;
+    if (!signature) return -1;
+    for (int index = 0; index < signature->param_count; ++index) {
+        if (!signature->params[index].is_pack) continue;
+        if (pack_index >= 0 || index != signature->param_count - 1) {
+            return -2;
         }
         pack_index = index;
     }
@@ -25783,6 +25808,27 @@ static int cxx_class_specialization_type_rank(const Type* pattern) {
         return rank + 1 + cxx_class_specialization_type_rank(pattern->base);
     }
     if ((pattern->kind == TYPE_STRUCT || pattern->kind == TYPE_UNION) &&
+        pattern->cxx_dependent && pattern->cxx_template_param_index >= 0 &&
+        pattern->cxx_template_arg_count > 0 &&
+        pattern->cxx_template_param_context &&
+        pattern->cxx_template_param_index <
+            pattern->cxx_template_param_context->param_count &&
+        pattern->cxx_template_param_context
+                ->params[pattern->cxx_template_param_index].kind ==
+            TPARAM_TEMPLATE) {
+        int template_rank = rank + 2;
+        for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+            if (pattern->cxx_template_arg_pack_expansions &&
+                pattern->cxx_template_arg_pack_expansions[index]) {
+                continue;
+            }
+            template_rank += cxx_class_specialization_type_rank(
+                pattern->cxx_template_args
+                    ? pattern->cxx_template_args[index] : NULL);
+        }
+        return template_rank;
+    }
+    if ((pattern->kind == TYPE_STRUCT || pattern->kind == TYPE_UNION) &&
         pattern->cxx_template && pattern->cxx_template_arg_count > 0 &&
         pattern->cxx_template_args && pattern->cxx_template->params &&
         pattern->cxx_template_arg_count <=
@@ -25866,6 +25912,81 @@ static bool cxx_class_specialization_has_function_type_pack(
     return false;
 }
 
+static bool cxx_class_specialization_has_template_id_pack_expansion(
+    const Type* type, unsigned depth) {
+    if (!type || depth >= 128u) return false;
+    if (type->cxx_template_arg_pack_expansions) {
+        for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+            if (type->cxx_template_arg_pack_expansions[index]) return true;
+        }
+    }
+    if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+         type->kind == TYPE_VECTOR) &&
+        cxx_class_specialization_has_template_id_pack_expansion(
+            type->base, depth + 1u)) {
+        return true;
+    }
+    if (type->cxx_is_member_pointer &&
+        cxx_class_specialization_has_template_id_pack_expansion(
+            type->cxx_member_pointer_owner, depth + 1u)) {
+        return true;
+    }
+    if (type->kind == TYPE_FUNC) {
+        if (cxx_class_specialization_has_template_id_pack_expansion(
+                type->ret_type, depth + 1u)) {
+            return true;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_class_specialization_has_template_id_pack_expansion(
+                    parameter->type, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (cxx_class_specialization_has_template_id_pack_expansion(
+                type->cxx_template_args
+                    ? type->cxx_template_args[index] : NULL,
+                depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool cxx_class_specialization_actual_template_argument_budget(
+    Type** arguments, int argument_count, size_t* budget_out) {
+    size_t budget = 0u;
+    if (budget_out) *budget_out = 0u;
+    if (!budget_out || argument_count < 0 ||
+        (argument_count > 0 && !arguments)) {
+        return false;
+    }
+    for (int index = 0; index < argument_count; ++index) {
+        Type* argument = arguments[index];
+        CxxClass* argument_class = argument ? argument->cxx_class : NULL;
+        int nested_count = argument_class &&
+                argument_class->template_identity_tmpl
+            ? argument_class->template_identity_arg_count
+            : argument_class && argument_class->templ
+                ? argument_class->template_arg_count
+                : argument ? argument->cxx_template_arg_count : 0;
+        if (nested_count < 0 ||
+            (size_t)nested_count > SIZE_MAX - budget) {
+            return false;
+        }
+        budget += (size_t)nested_count;
+    }
+    *budget_out = budget;
+    return true;
+}
+
+static bool cxx_deduce_class_specialization_expanded_type(
+    CxxTemplate* specialization, Type* pattern, Type* actual,
+    Type** candidate_arguments, int* candidate_pack_count,
+    int* specificity);
+
 static bool deduce_class_specialization_type(CxxTemplate* tmpl,
                                               Type* pattern, Type* actual,
                                               Type** arguments,
@@ -25891,6 +26012,131 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
     } else if (pattern->is_const != actual->is_const ||
                pattern->is_volatile != actual->is_volatile) {
         return false;
+    }
+    if (pattern->kind == TYPE_STRUCT && pattern->cxx_dependent &&
+        pattern->cxx_template_param_index >= 0 &&
+        pattern->cxx_template_param_index < tmpl->param_count &&
+        pattern->cxx_template_arg_count > 0 &&
+        tmpl->params[pattern->cxx_template_param_index].kind ==
+            TPARAM_TEMPLATE) {
+        int template_parameter_index = pattern->cxx_template_param_index;
+        TemplateParam* template_parameter =
+            &tmpl->params[template_parameter_index];
+        CxxClass* actual_class = actual->cxx_class;
+        CxxTemplate* actual_template = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_tmpl
+            : actual_class && actual_class->templ
+                ? actual_class->templ : actual->cxx_template;
+        Type** actual_arguments = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_args
+            : actual_class && actual_class->templ
+                ? actual_class->template_args : actual->cxx_template_args;
+        int actual_argument_count = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_arg_count
+            : actual_class && actual_class->templ
+                ? actual_class->template_arg_count
+                : actual->cxx_template_arg_count;
+        int signature_pack_index = cxx_template_signature_pack_index(
+            template_parameter->template_signature);
+        int expansion_index = -1;
+        Type* template_carrier;
+        if (!actual_template || actual_argument_count < 0 ||
+            signature_pack_index == -2 ||
+            !template_template_signature_matches(template_parameter,
+                                                actual_template) ||
+            (actual_argument_count > 0 && !actual_arguments) ||
+            !pattern->cxx_template_args) {
+            return false;
+        }
+        if (pattern->cxx_template_arg_pack_expansions) {
+            for (int index = 0; index < pattern->cxx_template_arg_count;
+                 ++index) {
+                if (!pattern->cxx_template_arg_pack_expansions[index]) {
+                    continue;
+                }
+                if (expansion_index >= 0 ||
+                    index != pattern->cxx_template_arg_count - 1) {
+                    return false;
+                }
+                expansion_index = index;
+            }
+        }
+        if ((expansion_index < 0 &&
+             actual_argument_count != pattern->cxx_template_arg_count) ||
+            (expansion_index >= 0 &&
+             (expansion_index != signature_pack_index || !pack_count ||
+              actual_argument_count < expansion_index))) {
+            return false;
+        }
+        template_carrier = arguments[template_parameter_index];
+        if (template_carrier) {
+            if (template_carrier->cxx_template != actual_template) {
+                return false;
+            }
+        } else {
+            template_carrier = type_struct(actual_template->name
+                ? actual_template->name : "<template>");
+            template_carrier->cxx_template = actual_template;
+            arguments[template_parameter_index] = template_carrier;
+        }
+        for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+            int signature_index = signature_pack_index >= 0 &&
+                    index >= signature_pack_index
+                ? signature_pack_index : index;
+            if (signature_index < 0 ||
+                signature_index >=
+                    template_parameter->template_signature->param_count) {
+                return false;
+            }
+            TemplateParam* nested_parameter =
+                &template_parameter->template_signature->params[
+                    signature_index];
+            Type* nested_pattern = pattern->cxx_template_args[index];
+            if (index == expansion_index) {
+                if (nested_parameter->kind != TPARAM_TYPE || !nested_pattern) {
+                    return false;
+                }
+                for (int actual_index = index;
+                     actual_index < actual_argument_count; ++actual_index) {
+                    if (!actual_arguments[actual_index] ||
+                        !cxx_deduce_class_specialization_expanded_type(
+                            tmpl, nested_pattern,
+                            actual_arguments[actual_index], arguments,
+                            pack_count, specificity)) {
+                        return false;
+                    }
+                }
+                continue;
+            }
+            if (index >= actual_argument_count ||
+                !actual_arguments[index]) {
+                return false;
+            }
+            if (nested_parameter->kind == TPARAM_TYPE) {
+                if (!deduce_class_specialization_type(
+                        tmpl, nested_pattern, actual_arguments[index],
+                        arguments, specificity, pack_count)) {
+                    return false;
+                }
+            } else if (nested_parameter->kind == TPARAM_TEMPLATE) {
+                CxxTemplate* nested_actual_template =
+                    actual_arguments[index]->cxx_template;
+                if (!nested_actual_template ||
+                    !template_template_signature_matches(
+                        nested_parameter, nested_actual_template) ||
+                    !nested_pattern ||
+                    nested_pattern->cxx_template != nested_actual_template) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if (specificity) *specificity += 2;
+        return true;
     }
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
         for (int index = 0; index < tmpl->param_count; ++index) {
@@ -28233,9 +28479,15 @@ static Type* cxx_instantiate_dependent_class_template(
     int selected_argument_count = 0;
     int pack_index;
     size_t selected_capacity;
+    size_t nested_template_argument_budget = 0u;
 
     if (!tmpl || argument_count < 0 ||
         (argument_count > 0 && (!arguments || !values || !value_present))) {
+        return NULL;
+    }
+    if (!cxx_class_specialization_actual_template_argument_budget(
+            arguments, argument_count, &nested_template_argument_budget)) {
+        rcc_error(loc, "class template nested argument state is too large");
         return NULL;
     }
     selected_capacity = argument_count > 0 ? (size_t)argument_count : 1u;
@@ -28250,6 +28502,12 @@ static Type* cxx_instantiate_dependent_class_template(
             selected_capacity = (size_t)specialization->param_count;
         }
     }
+    if (nested_template_argument_budget >
+        SIZE_MAX - selected_capacity) {
+        rcc_error(loc, "class template nested argument state is too large");
+        return NULL;
+    }
+    selected_capacity += nested_template_argument_budget;
     selected_arguments = cxx_allocate_zeroed_array(
         sizeof(*selected_arguments), selected_capacity);
     selected_values = cxx_allocate_zeroed_array(
@@ -28292,10 +28550,18 @@ static Type* cxx_instantiate_dependent_class_template(
         int expansion_count = 0;
         int candidate_pack_count = 0;
         bool function_type_pack = false;
+        bool nested_template_id_pack = false;
         if (specialization && specialization->param_count > 0 &&
             candidate_capacity < (size_t)specialization->param_count) {
             candidate_capacity = (size_t)specialization->param_count;
         }
+        if (nested_template_argument_budget >
+            SIZE_MAX - candidate_capacity) {
+            rcc_error(loc,
+                      "dependent class specialization state is too large");
+            return NULL;
+        }
+        candidate_capacity += nested_template_argument_budget;
         candidate_arguments = cxx_allocate_zeroed_array(
             sizeof(*candidate_arguments), candidate_capacity);
         candidate_values = cxx_allocate_zeroed_array(
@@ -28339,8 +28605,12 @@ static Type* cxx_instantiate_dependent_class_template(
                 if (cxx_class_specialization_has_function_type_pack(
                         specialization, pattern)) {
                     function_type_pack = true;
-                    break;
                 }
+                if (cxx_class_specialization_has_template_id_pack_expansion(
+                        pattern, 0u)) {
+                    nested_template_id_pack = true;
+                }
+                if (function_type_pack && nested_template_id_pack) break;
             }
         }
 
@@ -28483,7 +28753,7 @@ static Type* cxx_instantiate_dependent_class_template(
                     specialization_argument_count =
                         specialization_pack_index + candidate_pack_count;
                 }
-            } else if (function_type_pack) {
+            } else if (function_type_pack || nested_template_id_pack) {
                 int specialization_pack_index =
                     cxx_class_pack_index(specialization);
                 if (specialization_pack_index < 0 ||
@@ -28556,6 +28826,13 @@ static Type* cxx_instantiate_dependent_class_template(
                     specialization->params[parameter_index].is_pack) {
                     continue;
                 }
+                if (nested_template_id_pack &&
+                    parameter_index == specialization_pack_index &&
+                    specialization->params[parameter_index].kind ==
+                        TPARAM_TYPE &&
+                    specialization->params[parameter_index].is_pack) {
+                    continue;
+                }
                 if (specialization->params[parameter_index].kind ==
                         TPARAM_NONTYPE
                     ? !candidate_value_present[parameter_index]
@@ -28588,7 +28865,7 @@ static Type* cxx_instantiate_dependent_class_template(
                 candidate_argument_count =
                     cxx_class_pack_index(specialization) +
                     candidate_pack_count;
-            } else if (function_type_pack) {
+            } else if (function_type_pack || nested_template_id_pack) {
                 candidate_argument_count =
                     cxx_class_pack_index(specialization) +
                     candidate_pack_count;
@@ -29216,7 +29493,16 @@ static Type* parse_class_template_specialization_with_owner_type(
     }
     size_t candidate_capacity = argument_capacity;
     size_t function_type_parameter_budget = 0u;
+    size_t nested_template_argument_budget = 0u;
     bool has_function_type_pack_candidate = false;
+    if (!cxx_class_specialization_actual_template_argument_budget(
+            arguments, argument_count, &nested_template_argument_budget) ||
+        nested_template_argument_budget >
+            SIZE_MAX - candidate_capacity) {
+        rcc_error(loc, "class template nested argument state is too large");
+        return type_int;
+    }
+    candidate_capacity += nested_template_argument_budget;
     if (candidate_capacity < (size_t)tmpl->param_count) {
         candidate_capacity = (size_t)tmpl->param_count;
     }
@@ -29243,8 +29529,8 @@ static Type* parse_class_template_specialization_with_owner_type(
                 if (cxx_class_specialization_has_function_type_pack(
                         specialization, pattern)) {
                     has_function_type_pack_candidate = true;
-                    break;
                 }
+                if (has_function_type_pack_candidate) break;
             }
         }
     }
@@ -29315,6 +29601,7 @@ static Type* parse_class_template_specialization_with_owner_type(
         int expansion_count = 0;
         int candidate_pack_count = 0;
         bool function_type_pack = false;
+        bool nested_template_id_pack = false;
         bool matches = specialization &&
             cxx_class_specialization_pattern_layout(
                 specialization, argument_count, pattern_indices,
@@ -29331,8 +29618,12 @@ static Type* parse_class_template_specialization_with_owner_type(
                 if (cxx_class_specialization_has_function_type_pack(
                         specialization, pattern)) {
                     function_type_pack = true;
-                    break;
                 }
+                if (cxx_class_specialization_has_template_id_pack_expansion(
+                        pattern, 0u)) {
+                    nested_template_id_pack = true;
+                }
+                if (function_type_pack && nested_template_id_pack) break;
             }
         }
         for (int argument_index = 0; matches &&
@@ -29486,7 +29777,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                     specialization->params[parameter_index].is_pack) {
                     continue;
                 }
-                if (function_type_pack &&
+                if ((function_type_pack || nested_template_id_pack) &&
                     parameter_index == specialization_pack_index &&
                     specialization->params[parameter_index].kind ==
                         TPARAM_TYPE &&
@@ -29506,7 +29797,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                     candidate_argument_count =
                         cxx_class_pack_index(specialization) +
                         candidate_pack_count;
-                } else if (function_type_pack) {
+                } else if (function_type_pack || nested_template_id_pack) {
                     candidate_argument_count =
                         cxx_class_pack_index(specialization) +
                         candidate_pack_count;
@@ -49383,15 +49674,29 @@ static Type* parse_cxx_type_spec(void) {
                 active_template_template_parameter(template_template_index);
             Type* dependent = type_struct(name);
             int nested_count = 0;
+            int nested_capacity = 0;
+            int signature_pack_index = -1;
+            bool has_pack_expansion = false;
             dependent->cxx_dependent = true;
             dependent->cxx_template_param_index = template_template_index;
+            dependent->cxx_template_param_context = active_template;
+            if (parameter && parameter->template_signature) {
+                signature_pack_index = cxx_template_signature_pack_index(
+                    parameter->template_signature);
+                if (signature_pack_index == -2) {
+                    rcc_error(loc,
+                              "template-template parameter signature "
+                              "requires one trailing parameter pack");
+                }
+            }
             expect(TOK_LT, "template-template argument list");
             if (!check(TOK_GT)) {
                 do {
-                    if (!parameter ||
-                        !parameter->template_signature ||
-                        nested_count >=
-                            parameter->template_signature->param_count) {
+                    if (!parameter || !parameter->template_signature ||
+                        signature_pack_index == -2 ||
+                        (signature_pack_index < 0 &&
+                         nested_count >=
+                             parameter->template_signature->param_count)) {
                         rcc_error(peek()->loc,
                                   "template-template argument count exceeded");
                         while (!check(TOK_COMMA) && !check(TOK_GT) &&
@@ -49401,54 +49706,157 @@ static Type* parse_cxx_type_spec(void) {
                         if (check(TOK_COMMA)) advance();
                         continue;
                     }
-                    if (parameter->template_signature->params[nested_count].kind !=
-                        TPARAM_TYPE) {
+                    int signature_index = signature_pack_index >= 0 &&
+                            nested_count >= signature_pack_index
+                        ? signature_pack_index : nested_count;
+                    TemplateParam* nested_parameter =
+                        &parameter->template_signature->params[signature_index];
+                    Type* nested_type = NULL;
+                    Expr* nested_value = NULL;
+                    bool argument_pack_expansion = false;
+                    if (nested_parameter->kind == TPARAM_NONTYPE) {
                         Expr* value_expression;
                         rcc_parser_set_cxx_template_default_mode(true);
                         value_expression = parse_assignment_expression();
                         rcc_parser_set_cxx_template_default_mode(false);
-                        dependent->cxx_template_args = ast_arena_grow(
-                            dependent->cxx_template_args,
-                            sizeof(Type*) * (size_t)nested_count,
-                            sizeof(Type*) * (size_t)(nested_count + 1));
-                        dependent->cxx_template_value_args = ast_arena_grow(
-                            dependent->cxx_template_value_args,
-                            sizeof(Expr*) * (size_t)nested_count,
-                            sizeof(Expr*) * (size_t)(nested_count + 1));
-                        dependent->cxx_template_args[nested_count] =
-                            parameter->template_signature->params[nested_count].type
-                                ? parameter->template_signature->params[nested_count].type
-                                : type_int;
-                        dependent->cxx_template_value_args[nested_count++] =
-                            value_expression;
+                        nested_type = nested_parameter->type
+                            ? nested_parameter->type : type_int;
+                        nested_value = value_expression;
+                        argument_pack_expansion = match(TOK_ELLIPSIS);
+                    } else if (nested_parameter->kind == TPARAM_TYPE) {
+                        nested_type = rcc_parser_parse_cxx_declarator(
+                            parse_cxx_type_spec(), NULL, NULL);
+                        argument_pack_expansion =
+                            rcc_parser_last_cxx_declarator_was_pack() ||
+                            match(TOK_ELLIPSIS);
                     } else {
+                        const char* argument_name = check(TOK_IDENT) ||
+                                check(TOK_SCOPE)
+                            ? parse_qualified_name() : NULL;
+                        int source_parameter_index = argument_name &&
+                                active_template
+                            ? active_template_template_parameter_index(
+                                  argument_name)
+                            : -1;
+                        if (source_parameter_index >= 0 && active_template) {
+                            const TemplateParam* source_parameter =
+                                active_template_template_parameter(
+                                    source_parameter_index);
+                            if (!source_parameter ||
+                                !template_template_parameter_signatures_match(
+                                    nested_parameter->template_signature,
+                                    source_parameter->template_signature)) {
+                                rcc_error(loc,
+                                          "nested template-template argument "
+                                          "does not match its parameter list");
+                            }
+                            nested_type = type_struct(argument_name);
+                            nested_type->cxx_dependent = true;
+                            nested_type->cxx_template_param_index =
+                                source_parameter_index;
+                        } else {
+                            CxxTemplate* argument_template = argument_name
+                                ? find_template_template_argument(argument_name)
+                                : NULL;
+                            if (!argument_template ||
+                                !template_template_signature_matches(
+                                    nested_parameter, argument_template)) {
+                                rcc_error(loc,
+                                          "nested template-template argument "
+                                          "does not match its parameter list");
+                            }
+                            nested_type = type_struct(argument_name
+                                ? argument_name : "<invalid-template>");
+                            nested_type->cxx_template = argument_template;
+                        }
+                        argument_pack_expansion = match(TOK_ELLIPSIS);
+                    }
+                    if (nested_type && nested_parameter->kind != TPARAM_NONTYPE) {
+                        if (argument_pack_expansion) {
+                            if (signature_pack_index != signature_index ||
+                                !cxx_parser_template_pack_parameter_in_scopes(
+                                    active_template, nested_type, nested_value,
+                                    nested_parameter->kind)) {
+                                rcc_error(loc,
+                                          "template-template argument pack "
+                                          "expansion must name a matching "
+                                          "template parameter pack");
+                            }
+                        } else if (cxx_parser_template_pack_parameter_in_scopes(
+                                       active_template, nested_type,
+                                       nested_value,
+                                       nested_parameter->kind)) {
+                            rcc_error(loc,
+                                      "template parameter pack requires an "
+                                      "ellipsis in this template-template "
+                                      "argument");
+                        }
+                    } else if (nested_parameter->kind == TPARAM_NONTYPE &&
+                               argument_pack_expansion) {
+                        if (signature_pack_index != signature_index ||
+                            !cxx_parser_template_pack_parameter_in_scopes(
+                                active_template, NULL, nested_value,
+                                TPARAM_NONTYPE)) {
+                            rcc_error(loc,
+                                      "template-template non-type pack "
+                                      "expansion must name a matching "
+                                      "template parameter pack");
+                        }
+                    }
+                    if (nested_count == nested_capacity) {
+                        int next_capacity = nested_capacity > 0 &&
+                                nested_capacity <= INT_MAX / 2
+                            ? nested_capacity * 2 : nested_count + 1;
                         dependent->cxx_template_args = ast_arena_grow(
                             dependent->cxx_template_args,
-                            sizeof(Type*) * (size_t)nested_count,
-                            sizeof(Type*) * (size_t)(nested_count + 1));
+                            sizeof(Type*) * (size_t)nested_capacity,
+                            sizeof(Type*) * (size_t)next_capacity);
                         dependent->cxx_template_value_args = ast_arena_grow(
                             dependent->cxx_template_value_args,
-                            sizeof(Expr*) * (size_t)nested_count,
-                            sizeof(Expr*) * (size_t)(nested_count + 1));
-                        dependent->cxx_template_args[nested_count++] =
-                            parse_cxx_type_spec();
-                        dependent->cxx_template_value_args[nested_count - 1] =
-                            NULL;
+                            sizeof(Expr*) * (size_t)nested_capacity,
+                            sizeof(Expr*) * (size_t)next_capacity);
+                        dependent->cxx_template_arg_pack_expansions =
+                            ast_arena_grow(
+                                dependent->cxx_template_arg_pack_expansions,
+                                sizeof(bool) * (size_t)nested_capacity,
+                                sizeof(bool) * (size_t)next_capacity);
+                        memset(dependent->cxx_template_args + nested_capacity,
+                               0, sizeof(Type*) *
+                                      (size_t)(next_capacity - nested_capacity));
+                        memset(dependent->cxx_template_value_args +
+                                   nested_capacity,
+                               0, sizeof(Expr*) *
+                                      (size_t)(next_capacity - nested_capacity));
+                        memset(dependent->cxx_template_arg_pack_expansions +
+                                   nested_capacity,
+                               0, sizeof(bool) *
+                                      (size_t)(next_capacity - nested_capacity));
+                        nested_capacity = next_capacity;
                     }
+                    dependent->cxx_template_args[nested_count] = nested_type;
+                    dependent->cxx_template_value_args[nested_count] =
+                        nested_value;
+                    dependent->cxx_template_arg_pack_expansions[nested_count] =
+                        argument_pack_expansion;
+                    has_pack_expansion = has_pack_expansion ||
+                        argument_pack_expansion;
+                    ++nested_count;
                 } while (match(TOK_COMMA));
             }
             expect(TOK_GT, ">");
             if (!parameter || !parameter->template_signature) {
                 rcc_error(loc,
                           "template-template parameter has no signature");
-            } else if (nested_count >
+            } else if (signature_pack_index < 0 && nested_count >
                        parameter->template_signature->param_count) {
                 rcc_error(loc,
                           "template-template argument count exceeds its "
                           "parameter list");
             } else {
                 CxxTemplate* signature = parameter->template_signature;
-                while (nested_count < signature->param_count) {
+                int fixed_parameter_count = signature_pack_index >= 0
+                    ? signature_pack_index : signature->param_count;
+                while (nested_count < fixed_parameter_count) {
                     TemplateParam* default_parameter =
                         &signature->params[nested_count];
                     Type* default_type = NULL;
@@ -49492,21 +49900,53 @@ static Type* parse_cxx_type_spec(void) {
                                   "not be substituted");
                         break;
                     }
-                    dependent->cxx_template_args = ast_arena_grow(
-                        dependent->cxx_template_args,
-                        sizeof(Type*) * (size_t)nested_count,
-                        sizeof(Type*) * (size_t)(nested_count + 1));
-                    dependent->cxx_template_value_args = ast_arena_grow(
-                        dependent->cxx_template_value_args,
-                        sizeof(Expr*) * (size_t)nested_count,
-                        sizeof(Expr*) * (size_t)(nested_count + 1));
+                    if (nested_count == nested_capacity) {
+                        int next_capacity = nested_capacity > 0 &&
+                                nested_capacity <= INT_MAX / 2
+                            ? nested_capacity * 2 : nested_count + 1;
+                        dependent->cxx_template_args = ast_arena_grow(
+                            dependent->cxx_template_args,
+                            sizeof(Type*) * (size_t)nested_capacity,
+                            sizeof(Type*) * (size_t)next_capacity);
+                        dependent->cxx_template_value_args = ast_arena_grow(
+                            dependent->cxx_template_value_args,
+                            sizeof(Expr*) * (size_t)nested_capacity,
+                            sizeof(Expr*) * (size_t)next_capacity);
+                        dependent->cxx_template_arg_pack_expansions =
+                            ast_arena_grow(
+                                dependent->cxx_template_arg_pack_expansions,
+                                sizeof(bool) * (size_t)nested_capacity,
+                                sizeof(bool) * (size_t)next_capacity);
+                        memset(dependent->cxx_template_args + nested_capacity,
+                               0, sizeof(Type*) *
+                                      (size_t)(next_capacity - nested_capacity));
+                        memset(dependent->cxx_template_value_args +
+                                   nested_capacity,
+                               0, sizeof(Expr*) *
+                                      (size_t)(next_capacity - nested_capacity));
+                        memset(dependent->cxx_template_arg_pack_expansions +
+                                   nested_capacity,
+                               0, sizeof(bool) *
+                                      (size_t)(next_capacity - nested_capacity));
+                        nested_capacity = next_capacity;
+                    }
                     dependent->cxx_template_args[nested_count] = default_type;
                     dependent->cxx_template_value_args[nested_count] =
                         default_value;
+                    dependent->cxx_template_arg_pack_expansions[nested_count] =
+                        false;
                     ++nested_count;
+                }
+                if (nested_count < fixed_parameter_count) {
+                    rcc_error(loc,
+                              "template-template argument count does not "
+                              "match its parameter list");
                 }
             }
             dependent->cxx_template_arg_count = nested_count;
+            if (!has_pack_expansion) {
+                dependent->cxx_template_arg_pack_expansions = NULL;
+            }
             t = dependent;
         } else if (alias_tmpl) {
             if (class_scope_alias_template &&

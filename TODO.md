@@ -6852,6 +6852,11 @@ remains a separate open item.
       and empty-pack primary results against GCC C++20; native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
       generated execution, host execution, and existing diagnostic checks.
+- [x] Parse `Template<First, Rest...>` when `Template` is a dependent
+      template-template parameter, preserve its expansion through alias
+      substitution, and deduce empty and multi-element type packs in class
+      partial specializations. GCC C++20 syntax and native-Windows
+      `test-cxx-template-template-parameters` pass for i686/AMD64 generation.
 - [ ] Other template-template partial-specialization patterns, broader nested
       paths, dependent non-type conversions, and mixed multi-source pack
       patterns remain open.
