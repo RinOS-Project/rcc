@@ -13190,6 +13190,13 @@ remains a separate open item.
       viability, selected scalar/aggregate list handling, and C++17 fixed-
       underlying enum direct-list initialization are covered by the 2026-11-01
       continuations above.
+  - [x] Rank two `std::initializer_list` overloads by the worst element
+        conversion sequence, rather than comparing each element independently.
+        GCC chooses `initializer_list<int>` over `initializer_list<short>` for
+        `{short, char}` because the worst conversion is a promotion instead of
+        a conversion. Correct RCC overload ranking; GCC C++20, RCC i686/AMD64
+        generation, AMD64 runtime, and adjacent narrowing/ambiguity diagnostics
+        pass in `test-cxx-initializer-list`.
   - [x] Compare finite constant `double`-to-`float` underflow with GCC 13.2:
         positive and negative `1e-50` list initializers are accepted and become
         zero. Preserve the narrowing boundary in

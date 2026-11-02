@@ -107,6 +107,14 @@ int choose_element_type(std::initializer_list<long>) {
     return 4;
 }
 
+int choose_worst_element_conversion(std::initializer_list<short>) {
+    return 1;
+}
+
+int choose_worst_element_conversion(std::initializer_list<int>) {
+    return 2;
+}
+
 int choose_initializer_list_phase_fallback(std::initializer_list<int>) {
     return 1;
 }
@@ -279,6 +287,10 @@ static int test_braced_initializer_list_default_arguments(void) {
 static int test_initializer_list_preference(void) {
     int function_choice = choose_overload({5, 6});
     int element_choice = choose_element_type({9, 10});
+    short short_source = 1;
+    char char_source = 2;
+    int worst_element_conversion = choose_worst_element_conversion(
+        {short_source, char_source});
     int empty_list_function_choice = choose_empty_list_over_scalar({});
     int template_element_size = template_list_element_size({11, 12});
     TemplatedConstructorChoice templated_choice{13, 14};
@@ -306,6 +318,7 @@ static int test_initializer_list_preference(void) {
     initializer_list_reset_counts();
     ConstructorChoice constructor_choice{7, 8};
     return function_choice == 1 && element_choice == 3 &&
+           worst_element_conversion == 2 &&
            empty_list_function_choice == 1 &&
            template_element_size == sizeof(int) &&
            templated_choice.element_size == sizeof(int) + 2 &&

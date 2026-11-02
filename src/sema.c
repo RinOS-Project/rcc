@@ -14770,35 +14770,15 @@ static int cxx_conversion_vector_relation(
                 left_targets[index]);
             Type* right_element = sema_cxx_initializer_list_element_type(
                 right_targets[index]);
+            /* Exactly one initializer_list parameter receives the list
+             * sequence preference. When both are initializer_list, the
+             * precomputed ranks below are their worst element conversions;
+             * comparing every element independently changes that ordering. */
             if ((left_element != NULL) != (right_element != NULL)) {
                 initializer_list_sequence_comparison = true;
                 if (left_element) {
                     left_better = true;
                 } else {
-                    right_better = true;
-                }
-            } else if (left_element && right_element) {
-                bool element_left_better = false;
-                bool element_right_better = false;
-                initializer_list_sequence_comparison = true;
-                for (ExprList* item = argument->expr->compound_value_init
-                         ? NULL : argument->expr->compound_init;
-                     item; item = item->next) {
-                    int left_rank = item->expr
-                        ? sema_cxx_braced_argument_conversion_rank(
-                              item->expr, left_element, 0u)
-                        : -1;
-                    int right_rank = item->expr
-                        ? sema_cxx_braced_argument_conversion_rank(
-                              item->expr, right_element, 0u)
-                        : -1;
-                    if (left_rank < 0 || right_rank < 0) continue;
-                    if (left_rank < right_rank) element_left_better = true;
-                    if (left_rank > right_rank) element_right_better = true;
-                }
-                if (element_left_better && !element_right_better) {
-                    left_better = true;
-                } else if (element_right_better && !element_left_better) {
                     right_better = true;
                 }
             }
