@@ -19350,6 +19350,14 @@ test-atomic-private-access: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-private-access)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
 		tests/cxx_atomic_private_access_traits.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+		tests/cxx_atomic_defaulted_deleted_move.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-private-access/defaulted-deleted-move-x86.ro \
+		tests/cxx_atomic_defaulted_deleted_move.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-private-access/defaulted-deleted-move-x64.ro \
+		tests/cxx_atomic_defaulted_deleted_move.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/atomic-private-access/traits-x86.ro \
 		tests/cxx_atomic_private_access_traits.cpp

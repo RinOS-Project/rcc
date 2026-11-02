@@ -13503,6 +13503,10 @@ remains a separate open item.
       declared friend. GCC C++20 type-trait and `<atomic>` checks, RCC builtin
       traits, and type-specific invalid-instantiation diagnostics on i686/AMD64
       pass in `test-atomic-private-access`; `test-atomic-builtins` also passes.
+- [x] Ignore a defaulted move constructor that becomes deleted because a
+      subobject cannot be moved, allowing the viable copy constructor fallback
+      for `std::atomic<T>`. GCC C++20 traits and RCC i686/AMD64 compilation pass
+      in `test-atomic-private-access`.
 - [ ] Full overload viability for inherited/defaulted copy/move operations,
       broader type-trait conformance, and the remaining `<atomic>` API surface
       remain open.

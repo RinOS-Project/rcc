@@ -24355,6 +24355,8 @@ static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
             if (parameter_type->is_rvalue_reference) {
                 has_move_member = true;
                 if (check_root_move_members &&
+                    !(constructor->is_deleted &&
+                      constructor->is_defaulted) &&
                     (constructor->is_deleted ||
                      constructor->access != ACCESS_PUBLIC)) {
                     return true;
