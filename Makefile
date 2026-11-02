@@ -21149,6 +21149,18 @@ test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 -c \
 		-o $(TEST_OUT)/fenv-header/c23-x64.ro \
 		tests/fenv_access_optimizer.c
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -O2 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -S \
+		-o $(TEST_OUT)/fenv-header/round-pragma-x86.s \
+		tests/fenv_round_pragma_runtime.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/fenv-header/round-pragma-x86,\
+		$(TEST_OUT)/fenv-header/round-pragma-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -S \
+		-o $(TEST_OUT)/fenv-header/round-pragma-x64.s \
+		tests/fenv_round_pragma_runtime.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/round-pragma-x64,\
+		$(TEST_OUT)/fenv-header/round-pragma-x64.s)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 -frounding-math -c \
 		-o $(TEST_OUT)/fenv-header/rounding-math-x86.ro \
 		tests/frounding_math_optimizer.c

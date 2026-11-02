@@ -6481,7 +6481,8 @@ static void emit_x87_add_one_raw(Module* mod, const Type* type,
     emit_add_reg_imm(mod, ESP, width == 4 ? 4 : 8);
 }
 
-static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type) {
+static void gen_expr_as_type_impl(Module* mod, Expr* expr,
+                                  Type* target_type) {
     Type* source_type = expr ? expr->type : NULL;
     if (!expr || !target_type) {
         gen_expr(mod, expr);
@@ -6517,6 +6518,28 @@ static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type) {
             emit_x87_convert_float_to_integer(mod, source_type, target_type);
         }
     }
+}
+
+static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type) {
+    Expr conversion = {0};
+    bool fenv_round_active;
+    if (!expr || !target_type) {
+        gen_expr_as_type_impl(mod, expr, target_type);
+        return;
+    }
+    conversion.kind = EXPR_CAST;
+    conversion.loc = expr->loc;
+    conversion.type = target_type;
+    conversion.cast_type = target_type;
+    conversion.cast_expr = expr;
+    conversion.fenv_round_mode = expr->fenv_round_mode;
+    if (!rcc_fenv_round_expression_sensitive(&conversion)) {
+        gen_expr_as_type_impl(mod, expr, target_type);
+        return;
+    }
+    fenv_round_active = gen_fenv_round_begin32(mod, &conversion);
+    gen_expr_as_type_impl(mod, expr, target_type);
+    if (fenv_round_active) gen_fenv_round_end32(mod);
 }
 
 static void gen_complex_component_from_operand32(

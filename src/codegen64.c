@@ -2266,6 +2266,9 @@ static void gen64_float_to_integer(Module* mod, const Type* source_type,
 static void gen64_truth_value(Module* mod, const Type* type);
 static void gen64_convert_to_float(Module* mod, Type* source_type,
                                    Type* destination_type);
+static void gen64_convert_to_float_fenv(
+    Module* mod, Type* source_type, Type* destination_type,
+    const Expr* expression);
 
 static void gen64_float_cast(Module* mod, Expr* expression) {
     Type* source_type = expression && expression->cast_expr
@@ -2287,8 +2290,8 @@ static void gen64_float_cast(Module* mod, Expr* expression) {
         } else if (component_type) {
             emit64_load_typed(mod, RAX, RAX, 0, component_type);
             if (gen64_is_floating(destination_type)) {
-                gen64_convert_to_float(mod, component_type,
-                                       destination_type);
+                gen64_convert_to_float_fenv(mod, component_type,
+                                            destination_type, expression);
             } else if (type_is_integer(destination_type) ||
                        destination_type->kind == TYPE_ENUM) {
                 gen64_float_to_integer(mod, component_type,
@@ -2431,12 +2434,12 @@ static void gen64_float_compare(Module* mod, Expr* expression) {
     int second_cc = CC64_NP;
     bool disjunction = false;
     gen64_expr(mod, expression->binary_lhs);
-    gen64_convert_to_float(mod, expression->binary_lhs->type,
-                           comparison_type);
+    gen64_convert_to_float_fenv(mod, expression->binary_lhs->type,
+                                comparison_type, expression);
     emit64_push_reg(mod, RAX);
     gen64_expr(mod, expression->binary_rhs);
-    gen64_convert_to_float(mod, expression->binary_rhs->type,
-                           comparison_type);
+    gen64_convert_to_float_fenv(mod, expression->binary_rhs->type,
+                                comparison_type, expression);
     emit64_mov_reg_reg(mod, RCX, RAX);
     emit64_pop_reg(mod, RAX);
     emit64_mov_xmm_from_gpr(mod, 0, RAX, width);
@@ -5183,7 +5186,8 @@ static bool gen64_local_initializer(Module* mod, Type* type,
     }
     gen64_expr(mod, initializer);
     if (gen64_is_floating(type)) {
-        gen64_convert_to_float(mod, initializer->type, type);
+        gen64_convert_to_float_fenv(mod, initializer->type, type,
+                                   initializer);
     } else if (type_is_integer(type) || type->kind == TYPE_ENUM) {
         emit64_normalize_atomic_value(mod, RAX, type);
     }
@@ -6442,8 +6446,9 @@ static void gen64_cxx_alloc_array_cookie(
             } else {
                 gen64_expr(mod, argument_expr);
                 if (gen64_is_floating(parameter_type)) {
-                    gen64_convert_to_float(
-                        mod, argument_expr->type, parameter_type);
+                    gen64_convert_to_float_fenv(
+                        mod, argument_expr->type, parameter_type,
+                        argument_expr);
                 } else if (type_is_integer(parameter_type) ||
                            (parameter_type &&
                             parameter_type->kind == TYPE_ENUM)) {
@@ -6730,7 +6735,8 @@ static void gen64_cxx_init_array(Module* mod, Expr* expr) {
         emit64_mov_reg_mem(mod, RCX, RSP, 0);
         gen64_expr(mod, argument->expr);
         if (gen64_is_floating(element_type)) {
-            gen64_convert_to_float(mod, argument->expr->type, element_type);
+            gen64_convert_to_float_fenv(
+                mod, argument->expr->type, element_type, argument->expr);
         } else if (type_is_integer(element_type) ||
                    element_type->kind == TYPE_ENUM) {
             emit64_normalize_atomic_value(mod, RAX, element_type);
@@ -9794,11 +9800,13 @@ static bool gen64_complex_store_operand(Module* mod, Expr* expression,
             return false;
         }
         gen64_expr(mod, real->expr);
-        gen64_convert_to_float(mod, real->expr->type, component_type);
+        gen64_convert_to_float_fenv(mod, real->expr->type, component_type,
+                                    real->expr);
         emit64_store_typed(mod, RBP, destination_offset, RAX,
                            component_type);
         gen64_expr(mod, imaginary->expr);
-        gen64_convert_to_float(mod, imaginary->expr->type, component_type);
+        gen64_convert_to_float_fenv(mod, imaginary->expr->type,
+                                    component_type, imaginary->expr);
         emit64_store_typed(mod, RBP,
                            destination_offset + component_type->size,
                            RAX, component_type);
@@ -9811,13 +9819,15 @@ static bool gen64_complex_store_operand(Module* mod, Expr* expression,
         emit64_push_reg(mod, RAX);
         emit64_mov_reg_mem(mod, R11, RSP, 0);
         emit64_load_typed(mod, RAX, R11, 0, source_component);
-        gen64_convert_to_float(mod, source_component, component_type);
+        gen64_convert_to_float_fenv(mod, source_component, component_type,
+                                    expression);
         emit64_store_typed(mod, RBP, destination_offset, RAX,
                            component_type);
         emit64_mov_reg_mem(mod, R11, RSP, 0);
         emit64_load_typed(mod, RAX, R11, source_component->size,
                           source_component);
-        gen64_convert_to_float(mod, source_component, component_type);
+        gen64_convert_to_float_fenv(mod, source_component, component_type,
+                                    expression);
         emit64_store_typed(mod, RBP,
                            destination_offset + component_type->size,
                            RAX, component_type);
@@ -9826,7 +9836,8 @@ static bool gen64_complex_store_operand(Module* mod, Expr* expression,
     }
     if (!type_is_arithmetic(expression->type)) return false;
     gen64_expr(mod, expression);
-    gen64_convert_to_float(mod, expression->type, component_type);
+    gen64_convert_to_float_fenv(mod, expression->type, component_type,
+                                expression);
     emit64_store_typed(mod, RBP, destination_offset, RAX, component_type);
     emit64_xor_reg_reg(mod, RAX, RAX);
     emit64_store_typed(mod, RBP,
@@ -10571,12 +10582,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             if (gen64_is_floating(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
-                gen64_convert_to_float(mod, expr->binary_lhs->type,
-                                       expr->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_lhs->type, expr->type, expr);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
-                gen64_convert_to_float(mod, expr->binary_rhs->type,
-                                       expr->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_rhs->type, expr->type, expr);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x58,
@@ -10665,12 +10676,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             if (gen64_is_floating(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
-                gen64_convert_to_float(mod, expr->binary_lhs->type,
-                                       expr->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_lhs->type, expr->type, expr);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
-                gen64_convert_to_float(mod, expr->binary_rhs->type,
-                                       expr->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_rhs->type, expr->type, expr);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x5C,
@@ -10745,12 +10756,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             if (gen64_is_floating(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
-                gen64_convert_to_float(mod, expr->binary_lhs->type,
-                                       expr->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_lhs->type, expr->type, expr);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
-                gen64_convert_to_float(mod, expr->binary_rhs->type,
-                                       expr->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_rhs->type, expr->type, expr);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x59,
@@ -10773,12 +10784,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             if (expr->kind == EXPR_DIV && gen64_is_floating(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
-                gen64_convert_to_float(mod, expr->binary_lhs->type,
-                                       expr->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_lhs->type, expr->type, expr);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
-                gen64_convert_to_float(mod, expr->binary_rhs->type,
-                                       expr->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_rhs->type, expr->type, expr);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x5E,
@@ -11233,8 +11244,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                   expr->binary_lhs->type);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
-                gen64_convert_to_float(mod, expr->binary_rhs->type,
-                                       expr->binary_lhs->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_rhs->type,
+                    expr->binary_lhs->type, expr);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(
@@ -11369,8 +11381,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                   expr->binary_lhs->type);
                 emit64_push_reg(mod, RAX);
                 gen64_expr(mod, expr->binary_rhs);
-                gen64_convert_to_float(mod, expr->binary_rhs->type,
-                                       expr->binary_lhs->type);
+                gen64_convert_to_float_fenv(
+                    mod, expr->binary_rhs->type,
+                    expr->binary_lhs->type, expr);
                 emit64_mov_reg_reg(mod, RCX, RAX);
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(
@@ -11488,11 +11501,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, else_label);
             gen64_expr(mod, expr->cond_then);
-            gen64_convert_to_float(mod, expr->cond_then->type, expr->type);
+            gen64_convert_to_float_fenv(
+                mod, expr->cond_then->type, expr->type, expr);
             emit64_jmp_label(mod, end_label);
             emit64_label(mod, else_label);
             gen64_expr(mod, expr->cond_else);
-            gen64_convert_to_float(mod, expr->cond_else->type, expr->type);
+            gen64_convert_to_float_fenv(
+                mod, expr->cond_else->type, expr->type, expr);
             emit64_label(mod, end_label);
             break;
         }
@@ -11863,8 +11878,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         } else {
                             gen64_expr(mod, argument);
                             if (gen64_is_floating(value_type)) {
-                                gen64_convert_to_float(mod, argument->type,
-                                                       value_type);
+                                gen64_convert_to_float_fenv(
+                                    mod, argument->type, value_type,
+                                    argument);
                             } else if (type_is_integer(value_type) ||
                                        (value_type &&
                                         value_type->kind == TYPE_ENUM)) {
@@ -11902,8 +11918,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                          * value must be converted before it is copied to the
                          * temporary area, otherwise a float's 32-bit bits
                          * would be interpreted as a double. */
-                        gen64_convert_to_float(mod, argument->type,
-                                               passed_type);
+                        gen64_convert_to_float_fenv(
+                            mod, argument->type, passed_type, argument);
                     } else if (type_is_integer(passed_type) ||
                         (passed_type && passed_type->kind == TYPE_ENUM)) {
                         emit64_normalize_atomic_value(mod, RAX,
@@ -12596,6 +12612,30 @@ static void gen64_fenv_round_end(Module* mod) {
     emit64_memory_operand(mod, 2, RSP, 64);
     emit64_mov_reg_mem(mod, RAX, RSP, 48);
     emit64_add_reg_imm(mod, RSP, 80);
+}
+
+static void gen64_convert_to_float_fenv(
+    Module* mod, Type* source_type, Type* destination_type,
+    const Expr* expression) {
+    Expr conversion = {0};
+    bool fenv_round_active;
+    if (!expression) {
+        gen64_convert_to_float(mod, source_type, destination_type);
+        return;
+    }
+    conversion.kind = EXPR_CAST;
+    conversion.loc = expression->loc;
+    conversion.type = destination_type;
+    conversion.cast_type = destination_type;
+    conversion.cast_expr = (Expr*)expression;
+    conversion.fenv_round_mode = expression->fenv_round_mode;
+    if (!rcc_fenv_round_expression_sensitive(&conversion)) {
+        gen64_convert_to_float(mod, source_type, destination_type);
+        return;
+    }
+    fenv_round_active = gen64_fenv_round_begin(mod, &conversion);
+    gen64_convert_to_float(mod, source_type, destination_type);
+    if (fenv_round_active) gen64_fenv_round_end(mod);
 }
 
 static void gen64_expr(Module* mod, Expr* expr) {
@@ -13814,7 +13854,8 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
     }
     gen64_expr(mod, initializer);
     if (gen64_is_floating(type)) {
-        gen64_convert_to_float(mod, initializer->type, type);
+        gen64_convert_to_float_fenv(mod, initializer->type, type,
+                                    initializer);
     } else if (type_is_integer(type) || type->kind == TYPE_ENUM) {
         emit64_normalize_atomic_value(mod, RAX, type);
     }
@@ -14175,7 +14216,7 @@ static bool gen64_static_reference_temporary_initializer(
     } else {
         gen64_expr(mod, source);
         if (gen64_is_floating(type)) {
-            gen64_convert_to_float(mod, source->type, type);
+            gen64_convert_to_float_fenv(mod, source->type, type, source);
         } else if (type_is_integer(type) || type->kind == TYPE_ENUM) {
             emit64_normalize_atomic_value(mod, RAX, type);
         }
@@ -17513,6 +17554,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                         Expr converted_return = {0};
                         converted_return.kind = EXPR_CAST;
                         converted_return.loc = stmt->return_val->loc;
+                        converted_return.fenv_round_mode =
+                            stmt->return_val->fenv_round_mode;
                         converted_return.type =
                             current_function_return_type64;
                         converted_return.cast_type =

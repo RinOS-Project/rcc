@@ -1,6 +1,7 @@
 #include <math.h>
 
 #pragma STDC FENV_ACCESS ON
+#pragma STDC FENV_ROUND FE_DOWNWARD
 
 int fenv_header_compile_probe(unsigned int rounding, unsigned int exceptions)
 {
