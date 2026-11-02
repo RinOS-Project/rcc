@@ -19701,6 +19701,23 @@ static bool lower_fenv_round_type(const Type* type) {
         type_is_complex((Type*)type);
 }
 
+static bool lower_fenv_round_same_representation(
+    const Type* left, const Type* right) {
+    if (!left || !right) return false;
+    if (type_is_floating((Type*)left) &&
+        type_is_floating((Type*)right)) {
+        /* A no-op conversion must not leave a scoped hardware mode around
+         * evaluation of its operand, which can itself be a function call. */
+        return left->kind == right->kind && left->size == right->size;
+    }
+    if (type_is_complex((Type*)left) && type_is_complex((Type*)right)) {
+        return lower_fenv_round_same_representation(
+            left->complex_component_type,
+            right->complex_component_type);
+    }
+    return false;
+}
+
 bool rcc_fenv_round_expression_sensitive(const Expr* expression) {
     if (!expression || expression->fenv_round_mode ==
                            RCC_FENV_ROUND_DYNAMIC) return false;
@@ -19708,9 +19725,15 @@ bool rcc_fenv_round_expression_sensitive(const Expr* expression) {
         return lower_fenv_round_math_call(expression);
     }
     if (expression->kind == EXPR_CAST) {
-        return lower_fenv_round_type(expression->type) ||
-            (expression->cast_expr &&
-             lower_fenv_round_type(expression->cast_expr->type));
+        const Type* source_type = expression->cast_expr
+            ? expression->cast_expr->type : NULL;
+        const Type* target_type = expression->type;
+        if (!lower_fenv_round_type(source_type) &&
+            !lower_fenv_round_type(target_type)) {
+            return false;
+        }
+        return !lower_fenv_round_same_representation(
+            source_type, target_type);
     }
     if (!lower_fenv_round_type(expression->type)) return false;
     switch (expression->kind) {
