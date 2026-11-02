@@ -29277,9 +29277,17 @@ static Type* sema_expr(Expr* expr) {
             break;
         }
 
-        case EXPR_ALIGNOF:
+        case EXPR_ALIGNOF: {
+            Type* measured = type_remove_reference(expr->sizeof_type);
+            if ((!measured || !type_is_complete(measured) ||
+                 measured->kind == TYPE_FUNC) &&
+                (!measured || !measured->cxx_dependent)) {
+                rcc_error(expr->loc,
+                          "_Alignof requires a complete object type");
+            }
             expr->type = type_uint;
             break;
+        }
 
         case EXPR_CXX_TYPEID: {
             Type* operand_type = expr->cxx_typeid_is_type

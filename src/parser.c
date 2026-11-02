@@ -3729,9 +3729,6 @@ static Expr* parse_primary(void) {
             type = parse_type_name_declarator(type, loc);
         }
         expect(TOK_RPAREN, ")");
-        if (!type_is_complete(type) || type->kind == TYPE_FUNC) {
-            rcc_error(loc, "_Alignof requires a complete object type");
-        }
         return expr_alignof_type(type, loc);
     }
     if (match(TOK_SIZEOF)) {

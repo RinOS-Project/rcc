@@ -13475,3 +13475,12 @@ remains a separate open item.
       least the type's natural alignment. The `test-atomic-builtins` GCC syntax
       oracle and RCC i686/AMD64 `-O0`/`-O2` gates pass for 3-byte, 12-byte, and
       32-byte-aligned types.
+
+## RCC continuation (2026-11-02, dependent C++ alignof)
+
+- [x] Defer completeness checking for dependent `alignof(T)` until template
+      substitution, then diagnose an incomplete or function type in semantic
+      analysis. `test-cxx-alignas` checks substituted scalar/class/reference
+      alignments against GCC C++20; `test-cxx-alignas-invalid` checks direct
+      function types and incomplete/function instantiations against GCC and on
+      RCC i686/AMD64. The existing C17 `test-alignof` remains green.

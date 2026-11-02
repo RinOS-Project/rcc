@@ -54,6 +54,24 @@ alignas(16) struct CxxTemplateAligned {
 
 using CxxTemplateAlignedInt = CxxTemplateAligned<int>;
 
+template<typename T>
+constexpr unsigned cxx_dependent_alignof() {
+    return alignof(T);
+}
+
+template<typename T>
+constexpr unsigned cxx_dependent_reference_alignof() {
+    return alignof(T&);
+}
+
+static_assert(cxx_dependent_alignof<int>() == alignof(int),
+              "dependent alignof must resolve after type substitution");
+static_assert(cxx_dependent_alignof<CxxAlignedRecord>() ==
+                  alignof(CxxAlignedRecord),
+              "dependent class alignof must use the substituted class layout");
+static_assert(cxx_dependent_reference_alignof<int>() == alignof(int),
+              "dependent reference alignof must use the referent alignment");
+
 extern "C" int verified_cxx_local_alignment() {
     alignas(16384) int value = 9;
     return ((unsigned long)&value % 16384) == 0 && value == 9 ? 0 : 1;
