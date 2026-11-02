@@ -43,6 +43,9 @@ struct InitializerListPhaseFallbackValue {
 struct InitializerListPhaseFallbackDerived
     : InitializerListPhaseFallbackValue {};
 
+struct InitializerListPhaseFallbackVirtualDerived
+    : virtual InitializerListPhaseFallbackValue {};
+
 struct InitializerListPhaseFallbackConstructor {
     int selected;
 
@@ -282,6 +285,12 @@ static int test_initializer_list_preference(void) {
     InitializerListPhaseFallbackDerived function_fallback_value{{23}};
     int function_fallback = choose_initializer_list_phase_fallback(
         {function_fallback_value});
+    InitializerListPhaseFallbackVirtualDerived virtual_fallback_value{};
+    virtual_fallback_value.value = 24;
+    InitializerListPhaseFallbackConstructor virtual_constructor_fallback{
+        virtual_fallback_value};
+    int virtual_function_fallback = choose_initializer_list_phase_fallback(
+        {virtual_fallback_value});
     initializer_list_reset_counts();
     ConstructorChoice constructor_choice{7, 8};
     return function_choice == 1 && element_choice == 3 &&
@@ -296,6 +305,8 @@ static int test_initializer_list_preference(void) {
            default_argument_choice.selected == 3 &&
            constructor_fallback.selected == 22 &&
            function_fallback == 23 &&
+           virtual_constructor_fallback.selected == 24 &&
+           virtual_function_fallback == 24 &&
            constructor_choice.selected == 1 &&
            initializer_list_counts_are(1, 0);
 }
