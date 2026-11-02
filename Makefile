@@ -645,6 +645,7 @@ endif
 .PHONY: test-cxx-copy-list-explicit
 .PHONY: test-cxx-member-methods-invalid
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
+.PHONY: test-atomic-private-access
 .PHONY: test-cxx-conversion-distinct-user-sequences
 .PHONY: test-cxx-conversion-indirect-using
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
@@ -19152,7 +19153,7 @@ test-cxx-template-template-wide-mangling: $(RCXX_TARGET)
 test-cxx-trailing-return-noexcept: $(RCXX_TARGET)
 	$(call CXX_FRONTEND_ONLY_TEST,cxx-trailing-return-noexcept,cxx_trailing_return_noexcept.cpp)
 
-test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wait test-cxx-atomic-aggregate-concurrency
+test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wait test-cxx-atomic-aggregate-concurrency test-atomic-private-access
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x64)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -19344,6 +19345,65 @@ endif
 	$(GREP) -F -q "non-static member function 'read' requires an object" \
 		$(TEST_OUT)/atomic-cxx-x64/qualified-nonstatic.log
 	@echo "Dual-architecture integer/pointer atomic tests completed"
+
+test-atomic-private-access: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/atomic-private-access)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+		tests/cxx_atomic_private_access_traits.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-private-access/traits-x86.ro \
+		tests/cxx_atomic_private_access_traits.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-private-access/traits-x64.ro \
+		tests/cxx_atomic_private_access_traits.cpp
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -fsyntax-only \
+		tests/invalid_atomic_private_access.cpp, \
+		$(TEST_OUT)/atomic-private-access/gcc-invalid.log)
+	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/invalid-x86.ro \
+		tests/invalid_atomic_private_access.cpp, \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log)
+	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/invalid-x64.ro \
+		tests/invalid_atomic_private_access.cpp, \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log)
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyConstructorValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedCopyConstructorValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateMoveConstructorValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedMoveConstructorValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyAssignmentValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedCopyAssignmentValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateMoveAssignmentValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedMoveAssignmentValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyConstructorValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedCopyConstructorValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateMoveConstructorValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedMoveConstructorValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyAssignmentValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedCopyAssignmentValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateMoveAssignmentValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedMoveAssignmentValue'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/invalid-x86.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/invalid-x64.ro)
+	@echo "C++ atomic private/protected special-member constraints passed"
 
 .PHONY: test-atomic-wait test-clear-padding test-cxx-atomic-aggregate-concurrency
 test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)

@@ -24314,14 +24314,15 @@ static int cxx_atomic_assignment_special_member_kind(
 }
 
 /* GCC's std::atomic primary template checks copy/move construction and
- * assignment in addition to trivial copyability. Deleted special members
- * can leave a type trivially copyable while making one of those operations
- * unavailable. For a subobject, deleted copy operations propagate through
- * defaulted/implicit special members; a deleted move operation matters there
- * only when it suppresses the implicit copy operations. A defaulted deleted
- * move of the enclosing class is ignored by overload resolution, allowing
- * its copy operation to service rvalues. */
-static bool cxx_atomic_has_deleted_copy_move_special_member_impl(
+ * assignment in addition to trivial copyability. Private/protected or deleted
+ * direct special members can leave a type trivially copyable while making one
+ * of those operations unavailable. This bounded subobject scan propagates
+ * explicitly deleted copy operations through defaulted/implicit special
+ * members; a deleted move matters there only when it suppresses the implicit
+ * copy operations. A defaulted deleted move of the enclosing class is ignored
+ * by overload resolution, allowing its copy operation to service rvalues.
+ * Other subobject access and overload-viability cases remain unmodeled. */
+static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
     Type* value_type, bool check_root_move_members) {
     CxxClass* cls;
     bool has_move_member = false;
@@ -24332,7 +24333,7 @@ static bool cxx_atomic_has_deleted_copy_move_special_member_impl(
 
     if (!value_type) return false;
     if (value_type->kind == TYPE_ARRAY) {
-        return cxx_atomic_has_deleted_copy_move_special_member_impl(
+        return cxx_atomic_has_unavailable_copy_move_special_member_impl(
             value_type->base, false);
     }
     if (value_type->kind != TYPE_STRUCT && value_type->kind != TYPE_UNION) {
@@ -24352,11 +24353,17 @@ static bool cxx_atomic_has_deleted_copy_move_special_member_impl(
             }
             if (parameter_type->is_rvalue_reference) {
                 has_move_member = true;
-                if (check_root_move_members && constructor->is_deleted) {
+                if (check_root_move_members &&
+                    (constructor->is_deleted ||
+                     constructor->access != ACCESS_PUBLIC)) {
                     return true;
                 }
             } else {
                 has_copy_constructor = true;
+                if (check_root_move_members &&
+                    constructor->access != ACCESS_PUBLIC) {
+                    return true;
+                }
                 if (parameter_type->base->is_const ||
                     parameter_type->base->is_volatile) {
                     has_const_copy_constructor = true;
@@ -24386,11 +24393,16 @@ static bool cxx_atomic_has_deleted_copy_move_special_member_impl(
             if (cxx_atomic_assignment_special_member_kind(parameter_type,
                                                           value_type) == 2) {
                 has_move_member = true;
-                if (check_root_move_members && method->is_deleted) {
+                if (check_root_move_members &&
+                    (method->is_deleted || method->access != ACCESS_PUBLIC)) {
                     return true;
                 }
             } else {
                 has_copy_assignment = true;
+                if (check_root_move_members &&
+                    method->access != ACCESS_PUBLIC) {
+                    return true;
+                }
                 if ((parameter_type->kind == TYPE_PTR &&
                      (parameter_type->base->is_const ||
                       parameter_type->base->is_volatile)) ||
@@ -24413,14 +24425,14 @@ static bool cxx_atomic_has_deleted_copy_move_special_member_impl(
         for (int index = 0; index < cls->base_count; ++index) {
             CxxClass* base = cls->bases[index].base;
             if (base && base->type &&
-                cxx_atomic_has_deleted_copy_move_special_member_impl(
+                cxx_atomic_has_unavailable_copy_move_special_member_impl(
                     base->type, false)) {
                 return true;
             }
         }
     }
     for (TypeField* field = value_type->fields; field; field = field->next) {
-        if (cxx_atomic_has_deleted_copy_move_special_member_impl(
+        if (cxx_atomic_has_unavailable_copy_move_special_member_impl(
                 field->type, false)) {
             return true;
         }
@@ -24428,9 +24440,10 @@ static bool cxx_atomic_has_deleted_copy_move_special_member_impl(
     return false;
 }
 
-static bool cxx_atomic_has_deleted_copy_move_special_member(Type* value_type) {
-    return cxx_atomic_has_deleted_copy_move_special_member_impl(value_type,
-                                                                true);
+static bool cxx_atomic_has_unavailable_copy_move_special_member(
+    Type* value_type) {
+    return cxx_atomic_has_unavailable_copy_move_special_member_impl(
+        value_type, true);
 }
 
 static bool cxx_template_expand_local_using_base_pack(
@@ -24588,7 +24601,7 @@ static Type* instantiate_class_template_for_owner(
                 return type_struct(tmpl->name);
             }
             if (strcmp(atomic_template, "atomic") == 0 &&
-                cxx_atomic_has_deleted_copy_move_special_member(
+                cxx_atomic_has_unavailable_copy_move_special_member(
                     arguments[0])) {
                 CxxClass* value_class = arguments[0]->cxx_class;
                 rcc_error(loc,

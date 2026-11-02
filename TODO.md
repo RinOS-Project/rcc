@@ -13492,3 +13492,16 @@ remains a separate open item.
       then reject incomplete/function types in direct and instantiated uses.
       GCC C++20 `-pedantic-errors`, RCC i686/AMD64 positive and negative C++
       tests, C17 `test-alignof`, and VLA runtime/semantic suites pass.
+
+## RCC continuation (2026-11-02, atomic special-member access constraints)
+
+- [x] Reject primary `std::atomic<T>` when a directly declared copy/move
+      constructor or assignment operator is private or protected, while
+      preserving the type's trivially-copyable classification. GCC C++20
+      type-trait and `std::atomic` rejection oracles, RCC builtin-trait checks,
+      and type-specific invalid-instantiation diagnostics on i686/AMD64 pass in
+      `test-atomic-private-access`; the full `test-atomic-builtins` target also
+      passes.
+- [ ] Access control and overload viability for copy/move special members
+      inherited from bases or required by member subobjects remain open, along
+      with broader type-trait and `<atomic>` API coverage.
