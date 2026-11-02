@@ -28,13 +28,29 @@ struct IndirectConversionDerived : IndirectConversionMiddle {
     using IndirectConversionBase::operator int;
 };
 
+struct RefQualifiedConversionBase {
+    operator int() & {
+        return 31;
+    }
+};
+
+struct UnqualifiedConversionDerived : RefQualifiedConversionBase {
+    using RefQualifiedConversionBase::operator int;
+
+    operator int() {
+        return 47;
+    }
+};
+
 int main() {
     IndirectConversionDerived value;
 #ifdef TEST_AMBIGUOUS
     return value;
 #else
+    UnqualifiedConversionDerived ref_qualified_value;
     static_cast<IndirectConversionBase&>(value).value = 73;
     const IndirectConversionDerived& source = value;
-    return source == 73 ? 0 : 1;
+    return source == 73 &&
+           static_cast<int>(ref_qualified_value) == 47 ? 0 : 1;
 #endif
 }
