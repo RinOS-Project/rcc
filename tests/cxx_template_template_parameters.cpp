@@ -92,6 +92,33 @@ struct TemplateTemplateNestedPackSelection<Template<First, Rest...>> {
     static constexpr int rest_count = sizeof...(Rest);
 };
 
+template<class T, int N>
+struct TemplateTemplateNestedValueBox {};
+
+template<template<class, int> class Inner, class T, int N>
+struct TemplateTemplateNestedValueOuter {};
+
+template<class T>
+struct TemplateTemplateNestedValueSelection {
+    char selected[1];
+};
+
+template<template<class, int> class Template, class T, int N>
+struct TemplateTemplateNestedValueSelection<Template<T, N>> {
+    char selected[N];
+};
+
+template<class T>
+struct TemplateTemplateNestedTemplateSelection {
+    char selected[1];
+};
+
+template<template<template<class, int> class, class, int> class Outer,
+         template<class, int> class Inner, class T, int N>
+struct TemplateTemplateNestedTemplateSelection<Outer<Inner, T, N>> {
+    char selected[N];
+};
+
 using TemplateTemplateNestedPackAliasType =
     TemplateTemplateNestedPackAlias<TemplateTemplateTypePackBox,
                                     int, char, long>::type;
@@ -129,3 +156,10 @@ static_assert(TemplateTemplateNestedPackSelection<
                   TemplateTemplateTypePackBox<int, char, long>>::rest_count ==
               2,
               "template-template partial specialization deduces its pack");
+static_assert(sizeof(TemplateTemplateNestedValueSelection<
+                  TemplateTemplateNestedValueBox<int, 7>>) == 7,
+              "template-template partial specialization deduces nested non-type arguments");
+static_assert(sizeof(TemplateTemplateNestedTemplateSelection<
+                  TemplateTemplateNestedValueOuter<
+                      TemplateTemplateNestedValueBox, int, 9>>) == 9,
+              "nested template-template arguments deduce template and non-type parameters");

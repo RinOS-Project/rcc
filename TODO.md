@@ -13407,3 +13407,12 @@ remains a separate open item.
       lvalue-ref-qualified conversion reintroduced with `using`. GCC C++20 and
       RCC select the derived function for an lvalue; i686/AMD64 generation and
       AMD64 execution pass in `test-cxx-conversion-indirect-using`.
+
+## RCC continuation (2026-11-02, template-template partial specialization values)
+
+- [x] Deduce nested non-type and template-template arguments in
+      `Template<T, N>` and `Outer<Inner, T, N>` class partial specializations.
+      Strict GCC C++20 syntax and the i686/AMD64 generation checks in
+      `test-cxx-template-template-parameters` pass.
+- [ ] Continue with deeper nested paths and ordering/deduction involving
+      multiple distinct pack sources.
