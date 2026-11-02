@@ -28762,13 +28762,26 @@ static Type* sema_expr(Expr* expr) {
                 expr->type = type_uint;
             } else if (expr->sizeof_type) {
                 Type* measured = type_remove_reference(expr->sizeof_type);
+                if ((!measured || !type_is_complete(measured) ||
+                     measured->kind == TYPE_FUNC) &&
+                    (!measured || !measured->cxx_dependent)) {
+                    rcc_error(expr->loc,
+                              "sizeof requires a complete object type");
+                }
                 sema_validate_array_parameter_type(measured,
                                                    expr->loc, false);
                 sema_validate_restrict_type(measured, expr->loc);
                 sema_vla_bounds(measured, expr->loc);
                 expr->type = type_uint;
             } else {
-                sema_expr(expr->unary_operand);
+                Type* measured = type_remove_reference(
+                    sema_expr(expr->unary_operand));
+                if ((!measured || !type_is_complete(measured) ||
+                     measured->kind == TYPE_FUNC) &&
+                    (!measured || !measured->cxx_dependent)) {
+                    rcc_error(expr->loc,
+                              "sizeof requires a complete object type");
+                }
                 expr->type = type_uint;
             }
             break;

@@ -64,6 +64,16 @@ constexpr unsigned cxx_dependent_reference_alignof() {
     return alignof(T&);
 }
 
+template<typename T>
+constexpr unsigned cxx_dependent_sizeof() {
+    return sizeof(T);
+}
+
+template<typename T>
+constexpr unsigned cxx_dependent_reference_sizeof() {
+    return sizeof(T&);
+}
+
 static_assert(cxx_dependent_alignof<int>() == alignof(int),
               "dependent alignof must resolve after type substitution");
 static_assert(cxx_dependent_alignof<CxxAlignedRecord>() ==
@@ -71,6 +81,13 @@ static_assert(cxx_dependent_alignof<CxxAlignedRecord>() ==
               "dependent class alignof must use the substituted class layout");
 static_assert(cxx_dependent_reference_alignof<int>() == alignof(int),
               "dependent reference alignof must use the referent alignment");
+static_assert(cxx_dependent_sizeof<int>() == sizeof(int),
+              "dependent sizeof must resolve after type substitution");
+static_assert(cxx_dependent_sizeof<CxxAlignedRecord>() ==
+                  sizeof(CxxAlignedRecord),
+              "dependent class sizeof must use the substituted class layout");
+static_assert(cxx_dependent_reference_sizeof<int>() == sizeof(int),
+              "dependent reference sizeof must use the referent size");
 
 extern "C" int verified_cxx_local_alignment() {
     alignas(16384) int value = 9;

@@ -10175,12 +10175,16 @@ test-cxx-alignas-posix: $(RCXX_TARGET)
 test-cxx-alignas-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas-invalid)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas-invalid/dependent-alignof)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -fsyntax-only tests/cxx_dependent_alignof_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/dependent-alignof/gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_dependent_sizeof_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/gcc.log)
 ifeq ($(OS),Windows_NT)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alignas-invalid/x86.ro tests/cxx_alignas_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/x86.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alignas-invalid/x64.ro tests/cxx_alignas_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/x64.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alignas-invalid/dependent-alignof/x86.ro tests/cxx_dependent_alignof_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/dependent-alignof/x86.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alignas-invalid/dependent-alignof/x64.ro tests/cxx_dependent_alignof_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/dependent-alignof/x64.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x86.ro tests/cxx_dependent_sizeof_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x64.ro tests/cxx_dependent_sizeof_invalid.cpp,$(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x64.log)
 else
 	@if $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alignas-invalid/x86.ro \
@@ -10206,6 +10210,18 @@ else
 		>$(TEST_OUT)/cxx-alignas-invalid/dependent-alignof/x64.log 2>&1; then \
 		echo "alignof of an incomplete substituted type unexpectedly compiled on AMD64"; exit 1; \
 	fi
+	@if $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x86.ro \
+		tests/cxx_dependent_sizeof_invalid.cpp \
+		>$(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x86.log 2>&1; then \
+		echo "sizeof of an incomplete substituted type unexpectedly compiled on i686"; exit 1; \
+	fi
+	@if $(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x64.ro \
+		tests/cxx_dependent_sizeof_invalid.cpp \
+		>$(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x64.log 2>&1; then \
+		echo "sizeof of an incomplete substituted type unexpectedly compiled on AMD64"; exit 1; \
+	fi
 endif
 	$(GREP) -q "_Alignas alignment must be a power of two" \
 		$(TEST_OUT)/cxx-alignas-invalid/x86.log
@@ -10215,6 +10231,10 @@ endif
 		$(TEST_OUT)/cxx-alignas-invalid/dependent-alignof/x86.log
 	$(GREP) -F -q "_Alignof requires a complete object type" \
 		$(TEST_OUT)/cxx-alignas-invalid/dependent-alignof/x64.log
+	$(GREP) -F -q "sizeof requires a complete object type" \
+		$(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x86.log
+	$(GREP) -F -q "sizeof requires a complete object type" \
+		$(TEST_OUT)/cxx-alignas-invalid/dependent-sizeof/x64.log
 	@echo "RCC++ alignas diagnostics completed"
 
 test-cxx-constinit-posix: $(RCXX_TARGET)
@@ -11860,6 +11880,12 @@ test-cxx-structured-bindings: $(RCXX_TARGET)
 test-cxx-alignas: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas)
 	$(CXX) -std=c++20 -fsyntax-only tests/cxx_dependent_alignof.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-alignas/dependent-type-operators-x86.ro \
+		tests/cxx_dependent_alignof.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-alignas/dependent-type-operators-x64.ro \
+		tests/cxx_dependent_alignof.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-DRCC_TEST_WINDOWS_HOST_ASSEMBLY -S \
 		-o $(TEST_OUT)/cxx-alignas/x86.s tests/cxx_alignas.cpp
@@ -25580,6 +25606,13 @@ test-alignof: $(RCC_TARGET)
 		-o $(TEST_OUT)/alignof/invalid.ro tests/invalid_alignof.c,$(TEST_OUT)/alignof/invalid.log)
 	$(GREP) -q "_Alignof requires a complete object type" \
 		$(TEST_OUT)/alignof/invalid.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/alignof/invalid-sizeof.ro tests/invalid_sizeof.c,\
+		$(TEST_OUT)/alignof/invalid-sizeof.log)
+	$(GREP) -F -q "sizeof requires a complete object type" \
+		$(TEST_OUT)/alignof/invalid-sizeof.log
+	$(call EXPECT_FAILURE,$(CC) -std=c17 -pedantic-errors -fsyntax-only \
+		tests/invalid_sizeof.c,$(TEST_OUT)/alignof/invalid-sizeof-gcc.log)
 ifeq ($(OS),Windows_NT)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/alignof_run_test \
 		tests/alignof_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c

@@ -13484,3 +13484,11 @@ remains a separate open item.
       alignments against GCC C++20; `test-cxx-alignas-invalid` checks direct
       function types and incomplete/function instantiations against GCC and on
       RCC i686/AMD64. The existing C17 `test-alignof` remains green.
+
+## RCC continuation (2026-11-02, sizeof type completeness)
+
+- [x] Check complete object types for both `sizeof(type-id)` and
+      `sizeof(expression)`, defer dependent C++ operands until substitution,
+      then reject incomplete/function types in direct and instantiated uses.
+      GCC C++20 `-pedantic-errors`, RCC i686/AMD64 positive and negative C++
+      tests, C17 `test-alignof`, and VLA runtime/semantic suites pass.
