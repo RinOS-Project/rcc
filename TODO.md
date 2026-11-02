@@ -13343,3 +13343,16 @@ remains a separate open item.
       class elements. If a later element's constructor throws while building a
       nested subobject, unwind that element's completed children and the earlier
       completed array prefix, then verify retry and reverse-order exit cleanup.
+
+## RCC continuation (2026-11-02, C++20 atomic wait/notify runtime integration)
+
+- [x] Exercise the `include/atomic` C++20 `wait`, `notify_one`, and `notify_all`
+      wrappers through `atomic_runtime_fallback.c` with host wait hooks. Verify
+      that an unchanged value reparks instead of escaping and that notifications
+      release blocked wrapper calls. `test-atomic-wait` passes API generation on
+      i686/AMD64 at `-O0`/`-O2`, the GCC C++20 syntax oracle, runtime helper and
+      wrapper execution, and value-representation checks. The unrelated
+      `test-clear-padding` prerequisite was skipped because its Windows shell
+      redirection recipe cannot resolve `rcc.exe` from bash.
+- [ ] Full `<atomic>` type constraints, traits, and remaining constructor/API
+      overloads remain open.

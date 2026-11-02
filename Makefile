@@ -19456,6 +19456,11 @@ test-atomic-wait: $(RCC_TARGET) $(RCXX_TARGET) test-clear-padding
 		$(TEST_OUT)/atomic-wait/runtime-host.o \
 		-o $(TEST_OUT)/atomic-wait/host-runtime$(EXE_SUFFIX)
 	$(TEST_OUT)/atomic-wait/host-runtime$(EXE_SUFFIX)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pthread \
+		tests/atomic_wait_wrapper_runtime_test.cpp \
+		$(TEST_OUT)/atomic-wait/runtime-host.o \
+		-o $(TEST_OUT)/atomic-wait/wrapper-host-runtime$(EXE_SUFFIX)
+	$(TEST_OUT)/atomic-wait/wrapper-host-runtime$(EXE_SUFFIX)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/atomic-wait/value-representation-x86.s \
 		tests/atomic_wait_value_representation.cpp

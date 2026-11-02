@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 #if __cplusplus >= 202002L
-#include <__rcc_atomic_wait_value.h>
+#include "__rcc_atomic_wait_value.h"
 #endif
 
 #if __cplusplus >= 202002L
