@@ -13418,5 +13418,9 @@ remains a separate open item.
       `Wrapper<Inner<T, N>>` to bind nested non-type arguments. Strict GCC C++20
       syntax and the i686/AMD64 generation checks in
       `test-cxx-template-template-parameters` pass.
-- [ ] Continue with multiple distinct pack sources and their
+- [x] Deduce one type pack from repeated nested class-template-id sources.
+      Verify the empty pack, conflicting elements, and conflicting lengths
+      against strict GCC C++20 and the i686/AMD64 checks in
+      `test-cxx-template-template-parameters`.
+- [ ] Implement independent class-template parameter packs and their
       ordering/deduction interactions.

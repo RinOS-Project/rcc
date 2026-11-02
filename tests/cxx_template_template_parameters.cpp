@@ -144,6 +144,28 @@ struct TemplateTemplateDeepNestedValueSelection<
     char selected[N];
 };
 
+template<class... Types>
+struct TemplateTemplateRepeatedPackSource {};
+
+template<class... Types>
+struct TemplateTemplateRepeatedOtherPackSource {};
+
+template<class, class>
+struct TemplateTemplateRepeatedPackPair {};
+
+template<class T>
+struct TemplateTemplateRepeatedPackSelection {
+    char selected[1];
+};
+
+template<class... Types>
+struct TemplateTemplateRepeatedPackSelection<
+    TemplateTemplateRepeatedPackPair<
+        TemplateTemplateRepeatedPackSource<Types...>,
+        TemplateTemplateRepeatedOtherPackSource<Types...>>> {
+    char selected[sizeof...(Types) + 2];
+};
+
 using TemplateTemplateNestedPackAliasType =
     TemplateTemplateNestedPackAlias<TemplateTemplateTypePackBox,
                                     int, char, long>::type;
@@ -196,3 +218,25 @@ static_assert(sizeof(TemplateTemplateDeepNestedValueSelection<
                   TemplateTemplateNestedValueWrapper<
                       TemplateTemplateNestedValueBox<int, 13>>>) == 13,
               "template-template partial specialization deduces nested values recursively");
+static_assert(sizeof(TemplateTemplateRepeatedPackSelection<
+                  TemplateTemplateRepeatedPackPair<
+                      TemplateTemplateRepeatedPackSource<int, char>,
+                      TemplateTemplateRepeatedOtherPackSource<int, char>>>) ==
+                  4,
+              "nested template-ids deduce the same pack from repeated sources");
+static_assert(sizeof(TemplateTemplateRepeatedPackSelection<
+                  TemplateTemplateRepeatedPackPair<
+                      TemplateTemplateRepeatedPackSource< >,
+                      TemplateTemplateRepeatedOtherPackSource< > >>) == 2,
+              "repeated nested pack sources accept an empty pack");
+static_assert(sizeof(TemplateTemplateRepeatedPackSelection<
+                  TemplateTemplateRepeatedPackPair<
+                      TemplateTemplateRepeatedPackSource<int, char>,
+                      TemplateTemplateRepeatedOtherPackSource<int, short>>>) ==
+                  1,
+              "repeated nested pack sources reject conflicting elements");
+static_assert(sizeof(TemplateTemplateRepeatedPackSelection<
+                  TemplateTemplateRepeatedPackPair<
+                      TemplateTemplateRepeatedPackSource<int, char>,
+                      TemplateTemplateRepeatedOtherPackSource<int>>>) == 1,
+              "repeated nested pack sources reject conflicting lengths");
