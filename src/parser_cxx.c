@@ -11744,6 +11744,10 @@ static bool class_method_declares_shared_virtual_base(
 /* Publish methods of accessible bases on the derived class.  The layout pass
  * records the concrete offset used by this backend, so the alias can carry
  * the real base declaration and an explicit byte adjustment. */
+static bool cxx_class_base_subobject_adjustment(
+    CxxClass* derived, CxxClass* owner, unsigned depth, int* adjustment,
+    bool* ambiguous);
+
 static void register_inherited_class_methods(CxxClass* cls,
                                              TypeMethod*** tail) {
     if (!cls || !tail || !*tail || !cls->base_offsets) {
@@ -11810,6 +11814,90 @@ static void register_inherited_class_methods(CxxClass* cls,
                 inherited->this_owner = base->type;
                 inherited->this_adjustment = this_adjustment;
             }
+            inherited->next = NULL;
+            **tail = inherited;
+            *tail = &inherited->next;
+        }
+    }
+
+    /* A using-declaration may name an indirect base and restore one of its
+     * conversion functions after an intermediate class declared a conversion
+     * to the same target. Such a declaration is not present in the immediate
+     * base's published method list, so copy it from the named base itself. */
+    for (int using_index = 0;
+         using_index < cls->using_base_member_count; ++using_index) {
+        const char* member_name =
+            cls->using_base_members[using_index].member_name;
+        const char* base_name = cls->using_base_members[using_index].base_name;
+        Type* conversion_type =
+            cls->using_base_members[using_index].conversion_type;
+        CxxClass* using_base;
+        bool is_direct_base = false;
+        if (!member_name || strcmp(member_name, "operator conversion") != 0 ||
+            !base_name || !conversion_type) {
+            continue;
+        }
+        using_base = find_class(base_name);
+        if (!using_base || using_base == cls || !using_base->type ||
+            !using_base->type->is_complete) {
+            continue;
+        }
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* direct_base = cls->bases[base_index].base;
+            if (!direct_base && cls->bases[base_index].base_name) {
+                direct_base = find_class(cls->bases[base_index].base_name);
+            }
+            if (direct_base == using_base) {
+                is_direct_base = true;
+                break;
+            }
+        }
+        if (is_direct_base) continue;
+
+        for (TypeMethod* method = using_base->type->methods;
+             method; method = method->next) {
+            TypeMethod* inherited;
+            CxxClass* owner;
+            int this_adjustment = 0;
+            bool ambiguous_adjustment = false;
+            bool already_registered = false;
+            if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
+                strcmp(method->name, "operator conversion") != 0 ||
+                !method->function_decl ||
+                method->cxx_access == ACCESS_PRIVATE ||
+                !type_is_same_template_argument(method->return_type,
+                                                conversion_type)) {
+                continue;
+            }
+            owner = method->this_owner
+                ? method->this_owner->cxx_class : NULL;
+            if (!owner && method->function_decl->func_method_owner) {
+                owner = method->function_decl->func_method_owner->cxx_class;
+            }
+            if (!owner) owner = using_base;
+            if (!cxx_class_base_subobject_adjustment(
+                    cls, owner, 0u, &this_adjustment,
+                    &ambiguous_adjustment) || ambiguous_adjustment) {
+                continue;
+            }
+            for (TypeMethod* prior = cls->type->methods;
+                 prior; prior = prior->next) {
+                if (prior->function_decl == method->function_decl &&
+                    prior->this_owner == owner->type &&
+                    prior->this_adjustment == this_adjustment) {
+                    already_registered = true;
+                    break;
+                }
+            }
+            if (already_registered) continue;
+
+            inherited = ast_arena_alloc(sizeof(*inherited));
+            *inherited = *method;
+            inherited->cxx_access =
+                cls->using_base_members[using_index].access;
+            inherited->cxx_access_owner = cls;
+            inherited->this_owner = owner->type;
+            inherited->this_adjustment = this_adjustment;
             inherited->next = NULL;
             **tail = inherited;
             *tail = &inherited->next;
@@ -45906,7 +45994,7 @@ bool rcc_parser_cxx_resolve_dependent_function_template_call(Expr* expression) {
     return cxx_resolve_dependent_function_template_call(expression);
 }
 
-static bool cxx_member_template_this_adjustment(
+static bool cxx_class_base_subobject_adjustment(
     CxxClass* derived, CxxClass* owner, unsigned depth, int* adjustment,
     bool* ambiguous) {
     int found_adjustment = 0;
@@ -45930,7 +46018,7 @@ static bool cxx_member_template_this_adjustment(
         }
         if (!base || !derived->base_offsets ||
             derived->base_offsets[base_index] < 0 ||
-            !cxx_member_template_this_adjustment(
+            !cxx_class_base_subobject_adjustment(
                 base, owner, depth + 1u, &nested_adjustment,
                 &nested_ambiguous)) {
             if (nested_ambiguous && ambiguous) *ambiguous = true;
@@ -46537,7 +46625,7 @@ static int cxx_materialize_member_function_templates_internal(
             bool ambiguous_this_adjustment = false;
             CxxMethod* method = matched_methods[index];
             if (!method->is_static && !method->is_constructor &&
-                !cxx_member_template_this_adjustment(
+                !cxx_class_base_subobject_adjustment(
                     cls, method->owner, 0u, &this_adjustment,
                     &ambiguous_this_adjustment)) {
                 if (ambiguous_this_adjustment) {

@@ -3552,6 +3552,12 @@ remains a separate open item.
       GCC C++20 and RCC i686/AMD64 all diagnose the overload as ambiguous, with
       RCC producing no object; `test-cxx-conversion-distinct-user-sequences`
       covers the behavior.
+- [x] Restore an indirectly inherited conversion function when a derived
+      `using Base::operator T` names it after an intermediate same-target
+      declaration hid it. Preserve the complete base-subobject `this`
+      adjustment. GCC C++20 and RCC i686/AMD64 agree on the ambiguous and
+      single-viable cases; the generated x64 program verifies the adjustment
+      in `test-cxx-conversion-indirect-using`.
 - [ ] Complete the remaining set of implicit-object conversion relationships.
 - [x] Do not let a reference wrapper alone make a function-template pattern
   more specialized than its by-value counterpart when the non-pack scalar,
