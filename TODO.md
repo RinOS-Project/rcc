@@ -13390,3 +13390,13 @@ remains a separate open item.
       redirection recipe cannot resolve `rcc.exe` from bash.
 - [ ] Full `<atomic>` type constraints, traits, and remaining constructor/API
       overloads remain open.
+
+## RCC continuation (2026-11-02, ambiguous conversion return diagnostics)
+
+- [x] Distinguish an ambiguous user-defined conversion in a C++ return
+      statement from a generic incompatible-return-type error. Check the
+      dedicated diagnostic for direct and inherited conversion candidates and
+      invalid-object absence on i686/AMD64 in
+      `test-cxx-conversion-indirect-using` and
+      `test-cxx-conversion-operator`; the matching GCC ambiguity oracle and
+      successful conversion execution remain covered by these targets.

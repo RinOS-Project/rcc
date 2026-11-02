@@ -10830,10 +10830,10 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-gcc.log)
 	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/inherited-result-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.ro tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log)
-	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log
+	$(GREP) -F -q "ambiguous user-defined conversion in C++ return" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.ro tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log)
-	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log
+	$(GREP) -F -q "ambiguous user-defined conversion in C++ return" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.ro)
 	@echo "RCC++ user-defined conversion operator tests completed"
 
@@ -11518,10 +11518,10 @@ test-cxx-conversion-operator: $(RCXX_TARGET) \
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-gcc.log)
 	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/inherited-result-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.ro tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log)
-	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log
+	$(GREP) -F -q "ambiguous user-defined conversion in C++ return" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.ro tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log)
-	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log
+	$(GREP) -F -q "ambiguous user-defined conversion in C++ return" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.ro)
 
 test-cxx-nonmember-operator: $(RCXX_TARGET)
@@ -25732,11 +25732,11 @@ test-cxx-conversion-indirect-using: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTI
 	$(GREP) -F -q "conversion from 'IndirectConversionDerived' to 'int' is ambiguous" $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_AMBIGUOUS -c -o $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.ro tests/cxx_conversion_indirect_using.cpp,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.log)
-	$(GREP) -F -q "error:" $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.log
+	$(GREP) -F -q "ambiguous user-defined conversion in C++ return" $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_AMBIGUOUS -c -o $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x64.ro tests/cxx_conversion_indirect_using.cpp,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x64.log)
-	$(GREP) -F -q "error:" $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x64.log
+	$(GREP) -F -q "ambiguous user-defined conversion in C++ return" $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x64.ro)
 
 test-cxx-conversion-member-pointer-owner-path: $(RCXX_TARGET)
