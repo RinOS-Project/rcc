@@ -40,6 +40,9 @@ struct InitializerListPhaseFallbackValue {
     int value;
 };
 
+struct InitializerListPhaseFallbackDerived
+    : InitializerListPhaseFallbackValue {};
+
 struct InitializerListPhaseFallbackConstructor {
     int selected;
 
@@ -273,10 +276,12 @@ static int test_initializer_list_preference(void) {
     InitializerListRange nonempty_range{21};
     EmptyListDefaultChoice empty_list_default_choice{};
     EmptyListDefaultArgumentChoice default_argument_choice{};
+    InitializerListPhaseFallbackDerived constructor_fallback_value{{22}};
     InitializerListPhaseFallbackConstructor constructor_fallback{
-        InitializerListPhaseFallbackValue{22}};
+        constructor_fallback_value};
+    InitializerListPhaseFallbackDerived function_fallback_value{{23}};
     int function_fallback = choose_initializer_list_phase_fallback(
-        {InitializerListPhaseFallbackValue{23}});
+        {function_fallback_value});
     initializer_list_reset_counts();
     ConstructorChoice constructor_choice{7, 8};
     return function_choice == 1 && element_choice == 3 &&

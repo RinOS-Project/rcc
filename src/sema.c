@@ -23015,8 +23015,10 @@ static int sema_cxx_braced_argument_conversion_rank(
         item = argument->compound_init;
         if (item && item->expr && item->expr->type &&
             item->designator_kind == INIT_DESIGNATOR_NONE &&
-            cxx_same_parameter_type(
-                item->expr->type, destination, true)) {
+            (cxx_same_parameter_type(
+                 item->expr->type, destination, true) ||
+             sema_cxx_unique_public_base(
+                 item->expr->type, destination, NULL))) {
             return cxx_conversion_rank_detail(
                 item->expr, destination, NULL);
         }
@@ -35612,10 +35614,10 @@ static void sema_initializer(Type* type, Expr* initializer) {
         return;
     }
     /* A class with an ordinary converting constructor still receives an
-     * implicit copy constructor.  Treat a same-type one-argument initializer
-     * as that copy only when its memberwise copy is safe to lower; a
-     * nontrivial destructor alone does not make the implicit copy operation
-     * nontrivial. */
+     * implicit copy constructor. A one-element initializer of the same class
+     * or a derived class initializes through that copy operation, provided
+     * the memberwise copy is safe to lower; a nontrivial destructor alone
+     * does not make the implicit copy operation nontrivial. */
     if (rcc_parser_is_cxx_mode() && type->cxx_class &&
         (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         initializer->compound_init &&
@@ -35624,9 +35626,12 @@ static void sema_initializer(Type* type, Expr* initializer) {
             INIT_DESIGNATOR_NONE && initializer->compound_init->expr) {
         Expr* source = initializer->compound_init->expr;
         sema_expr(source);
-        if (source->type && type_is_compatible(type, source->type) &&
+        if (source->type &&
             (sema_cxx_trivially_copyable(type, 0) ||
-             sema_cxx_implicit_copy_constructor_lowerable(type, 0))) {
+             sema_cxx_implicit_copy_constructor_lowerable(type, 0)) &&
+            (type_is_compatible(type, source->type) ||
+             sema_cxx_apply_derived_to_base_value_cast(
+                 source, type, true))) {
             initializer->compound_copy_init = true;
             return;
         }

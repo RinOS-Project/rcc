@@ -13191,11 +13191,13 @@ remains a separate open item.
       `.ro` generation pass in `test-cxx-initializer-list`.
 - [x] Verify phase-two fallback to ordinary constructor and function overloads
       when an initializer-list candidate cannot convert its elements. A
-      one-element list containing the destination class now keeps its exact
-      conversion rank instead of being treated as aggregate-member
-      initialization. GCC C++20, RCC++ i686/AMD64 assembly and `.ro`, AMD64
-      runtime, and initializer-list narrowing/ambiguity/explicit diagnostics
-      pass in `test-cxx-initializer-list`.
+      one-element list containing the destination class or an object of a
+      public derived class now keeps the proper exact/derived-to-base conversion
+      instead of being treated as aggregate-member initialization. Private and
+      ambiguous base conversions remain nonviable. GCC C++20, RCC++ i686/AMD64
+      assembly and `.ro`, AMD64 runtime, and initializer-list
+      narrowing/ambiguity/explicit/base-access diagnostics pass in
+      `test-cxx-initializer-list`.
 - [x] Apply list-narrowing checks to selected user-defined conversion
       functions. Permit the integer constant-expression exception only when a
       `constexpr` conversion result fits; reject out-of-range constexpr results,
