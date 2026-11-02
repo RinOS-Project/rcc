@@ -24288,188 +24288,47 @@ static const char* cxx_standard_atomic_template_name(CxxTemplate* tmpl) {
     return NULL;
 }
 
-static bool cxx_atomic_parameter_is_same_type_reference(Type* parameter_type,
-                                                        Type* value_type) {
-    return parameter_type && parameter_type->kind == TYPE_PTR &&
-           parameter_type->is_reference && parameter_type->base &&
-           type_is_compatible(parameter_type->base, value_type);
+static Type* cxx_atomic_type_trait_reference(Type* value_type,
+                                             bool is_const,
+                                             bool is_rvalue) {
+    Type* referred_type;
+    Type* reference_type;
+    if (!value_type) return NULL;
+    referred_type = ast_arena_alloc(sizeof(*referred_type));
+    reference_type = ast_arena_alloc(sizeof(*reference_type));
+    if (!referred_type || !reference_type) return NULL;
+    *referred_type = *value_type;
+    referred_type->is_const = referred_type->is_const || is_const;
+    reference_type->kind = TYPE_PTR;
+    reference_type->base = referred_type;
+    reference_type->is_reference = true;
+    reference_type->is_rvalue_reference = is_rvalue;
+    return reference_type;
 }
 
-static bool cxx_atomic_constructor_has_defaulted_trailing_parameters(
-    CxxConstructorInfo* constructor) {
-    TypeParam* parameter;
-    DeclList* declaration_parameter;
-    if (!constructor || constructor->parameter_count < 1) return false;
-    parameter = constructor->parameters;
-    declaration_parameter = constructor->method && constructor->method->decl
-        ? constructor->method->decl->func_params : NULL;
-    for (int index = 0; index < constructor->parameter_count; ++index) {
-        if (!parameter) return false;
-        if (index > 0 &&
-            (!declaration_parameter || !declaration_parameter->decl ||
-             !declaration_parameter->decl->param_default)) {
-            return false;
-        }
-        parameter = parameter->next;
-        if (declaration_parameter) {
-            declaration_parameter = declaration_parameter->next;
-        }
-    }
-    return !parameter && !declaration_parameter;
-}
-
-static int cxx_atomic_assignment_special_member_kind(
-    Type* parameter_type, Type* value_type) {
-    if (!parameter_type || !value_type || !value_type->cxx_class) return 0;
-    if (parameter_type->kind == TYPE_PTR && parameter_type->is_reference) {
-        if (!parameter_type->base ||
-            parameter_type->base->cxx_class != value_type->cxx_class) {
-            return 0;
-        }
-        return parameter_type->is_rvalue_reference ? 2 : 1;
-    }
-    if ((parameter_type->kind == TYPE_STRUCT ||
-         parameter_type->kind == TYPE_UNION) &&
-        parameter_type->cxx_class == value_type->cxx_class) {
-        return 1;
-    }
-    return 0;
-}
-
-/* GCC's std::atomic primary template checks copy/move construction and
- * assignment in addition to trivial copyability. Private/protected or deleted
- * direct special members can leave a type trivially copyable while making one
- * of those operations unavailable. This bounded subobject scan propagates
- * inaccessible/deleted copy operations through defaulted/implicit special
- * members; a deleted move matters there only when it suppresses the implicit
- * copy operations. A defaulted deleted move of the enclosing class is ignored
- * by overload resolution, allowing its copy operation to service rvalues.
- * Broader overload-viability cases remain unmodeled. */
-static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
-    Type* value_type, bool check_root_move_members,
-    CxxClass* access_context) {
-    CxxClass* cls;
-    bool has_move_member = false;
-    bool has_copy_constructor = false;
-    bool has_const_copy_constructor = false;
-    bool has_copy_assignment = false;
-    bool has_const_copy_assignment = false;
-
-    if (!value_type) return false;
-    if (value_type->kind == TYPE_ARRAY) {
-        return cxx_atomic_has_unavailable_copy_move_special_member_impl(
-            value_type->base, false, access_context);
-    }
-    if (value_type->kind != TYPE_STRUCT && value_type->kind != TYPE_UNION) {
+static bool cxx_atomic_required_operations_are_available(Type* value_type) {
+    Type* const_lvalue_reference = cxx_atomic_type_trait_reference(
+        value_type, true, false);
+    Type* lvalue_reference = cxx_atomic_type_trait_reference(
+        value_type, false, false);
+    Type* rvalue_reference = cxx_atomic_type_trait_reference(
+        value_type, false, true);
+    CxxTypeTraitArgument copy_argument = {0};
+    CxxTypeTraitArgument move_argument = {0};
+    SourceLoc loc = {"<std::atomic>", 0, 0};
+    if (!const_lvalue_reference || !lvalue_reference || !rvalue_reference) {
         return false;
     }
-    cls = value_type->cxx_class;
-    if (cls) {
-        for (CxxConstructorInfo* constructor = cls->constructors;
-             constructor; constructor = constructor->next) {
-            TypeParam* parameter = constructor->parameters;
-            Type* parameter_type = parameter ? parameter->type : NULL;
-            if (!cxx_atomic_constructor_has_defaulted_trailing_parameters(
-                    constructor) || !parameter ||
-                !cxx_atomic_parameter_is_same_type_reference(parameter_type,
-                                                            value_type)) {
-                continue;
-            }
-            if (parameter_type->is_rvalue_reference) {
-                has_move_member = true;
-                if (check_root_move_members &&
-                    !(constructor->is_deleted &&
-                      constructor->is_defaulted) &&
-                    (constructor->is_deleted ||
-                     constructor->access != ACCESS_PUBLIC)) {
-                    return true;
-                }
-            } else {
-                has_copy_constructor = true;
-                if (constructor->access != ACCESS_PUBLIC &&
-                    !cxx_class_grants_friendship_to(cls, access_context)) {
-                    return true;
-                }
-                if (parameter_type->base->is_const ||
-                    parameter_type->base->is_volatile) {
-                    has_const_copy_constructor = true;
-                }
-                if (constructor->is_deleted) return true;
-            }
-        }
-
-        for (struct CxxMember* member = cls->members; member;
-             member = member->next) {
-            CxxMethod* method = member->method;
-            DeclList* parameter;
-            Type* parameter_type;
-            if (!method || !method->decl || !method->decl->type ||
-                !method->source_name ||
-                strcmp(method->source_name, "operator=") != 0) {
-                continue;
-            }
-            parameter = method->decl->func_params;
-            parameter_type = parameter && parameter->decl
-                ? parameter->decl->type : NULL;
-            if (!parameter || parameter->next ||
-                !cxx_atomic_assignment_special_member_kind(parameter_type,
-                                                           value_type)) {
-                continue;
-            }
-            if (cxx_atomic_assignment_special_member_kind(parameter_type,
-                                                          value_type) == 2) {
-                has_move_member = true;
-                if (check_root_move_members &&
-                    (method->is_deleted || method->access != ACCESS_PUBLIC)) {
-                    return true;
-                }
-            } else {
-                has_copy_assignment = true;
-                if (method->access != ACCESS_PUBLIC &&
-                    !cxx_class_grants_friendship_to(cls, access_context)) {
-                    return true;
-                }
-                if ((parameter_type->kind == TYPE_PTR &&
-                     (parameter_type->base->is_const ||
-                      parameter_type->base->is_volatile)) ||
-                    (parameter_type->kind != TYPE_PTR &&
-                     has_const_copy_constructor)) {
-                    has_const_copy_assignment = true;
-                }
-                if (method->is_deleted) return true;
-            }
-        }
-
-        if (!check_root_move_members && has_move_member &&
-            ((!has_copy_constructor || !has_const_copy_constructor) ||
-             (!has_copy_assignment || !has_const_copy_assignment))) {
-            return true;
-        }
-    }
-
-    if (cls) {
-        for (int index = 0; index < cls->base_count; ++index) {
-            CxxClass* base = cls->bases[index].base;
-            if (base && base->type &&
-                cxx_atomic_has_unavailable_copy_move_special_member_impl(
-                    base->type, false, cls)) {
-                return true;
-            }
-        }
-    }
-    for (TypeField* field = value_type->fields; field; field = field->next) {
-        if (cxx_atomic_has_unavailable_copy_move_special_member_impl(
-                field->type, false, cls)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool cxx_atomic_has_unavailable_copy_move_special_member(
-    Type* value_type) {
-    return cxx_atomic_has_unavailable_copy_move_special_member_impl(
-        value_type, true, NULL);
+    copy_argument.type = const_lvalue_reference;
+    copy_argument.loc = loc;
+    move_argument.type = rvalue_reference;
+    move_argument.loc = loc;
+    return rcc_sema_cxx_constructible(value_type, &copy_argument) &&
+           rcc_sema_cxx_constructible(value_type, &move_argument) &&
+           rcc_sema_cxx_assignable(lvalue_reference,
+                                   const_lvalue_reference) > 0 &&
+           rcc_sema_cxx_assignable(lvalue_reference,
+                                   rvalue_reference) > 0;
 }
 
 static bool cxx_template_expand_local_using_base_pack(
@@ -24627,7 +24486,7 @@ static Type* instantiate_class_template_for_owner(
                 return type_struct(tmpl->name);
             }
             if (strcmp(atomic_template, "atomic") == 0 &&
-                cxx_atomic_has_unavailable_copy_move_special_member(
+                !cxx_atomic_required_operations_are_available(
                     arguments[0])) {
                 CxxClass* value_class = arguments[0]->cxx_class;
                 rcc_error(loc,

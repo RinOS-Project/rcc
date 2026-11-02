@@ -13511,9 +13511,11 @@ remains a separate open item.
       subobject cannot be assigned from an rvalue, allowing copy assignment to
       handle rvalues. GCC C++20 traits, direct assignment, `<atomic>`, and RCC
       i686/AMD64 compilation pass in `test-atomic-private-access`.
-- [x] Include copy/move constructors with trailing default arguments in the
-      `<atomic>` special-member access scan. GCC constraint diagnostics and RCC
-      i686/AMD64 rejection pass in `test-atomic-private-access`.
+- [x] Check `std::atomic<T>`'s four copy/move construction and assignment
+      requirements through RCC semantic traits. Cover constructors with
+      trailing default arguments and reject non-const-only copy assignment.
+      GCC C++20 diagnostics and RCC i686/AMD64 rejection pass in
+      `test-atomic-private-access`.
 - [ ] Full overload viability for inherited/defaulted copy/move operations,
       broader type-trait conformance, and the remaining `<atomic>` API surface
       remain open.

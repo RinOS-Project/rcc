@@ -38,6 +38,14 @@ private:
         int = 0) = delete;
 };
 
+struct AtomicNonConstCopyAssignmentValue {
+    AtomicNonConstCopyAssignmentValue() = default;
+    AtomicNonConstCopyAssignmentValue(
+        const AtomicNonConstCopyAssignmentValue&) = default;
+    AtomicNonConstCopyAssignmentValue& operator=(
+        AtomicNonConstCopyAssignmentValue&) = default;
+};
+
 struct AtomicProtectedCopyConstructorValue {
     AtomicProtectedCopyConstructorValue() = default;
 
@@ -156,6 +164,8 @@ void instantiate_atomic_with_inaccessible_copy_move_members() {
         private_constructor_with_default_parameter;
     std::atomic<AtomicPrivateMoveConstructorWithDefaultParameter>
         private_move_constructor_with_default_parameter;
+    std::atomic<AtomicNonConstCopyAssignmentValue>
+        nonconst_copy_assignment;
     std::atomic<AtomicProtectedCopyConstructorValue> protected_constructor;
     std::atomic<AtomicPrivateMoveConstructorValue> private_move_constructor;
     std::atomic<AtomicProtectedMoveConstructorValue> protected_move_constructor;
@@ -171,6 +181,7 @@ void instantiate_atomic_with_inaccessible_copy_move_members() {
     (void)private_constructor;
     (void)private_constructor_with_default_parameter;
     (void)private_move_constructor_with_default_parameter;
+    (void)nonconst_copy_assignment;
     (void)protected_constructor;
     (void)private_move_constructor;
     (void)protected_move_constructor;

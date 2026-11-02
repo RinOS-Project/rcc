@@ -19384,6 +19384,10 @@ test-atomic-private-access: $(RCXX_TARGET)
 		$(TEST_OUT)/atomic-private-access/gcc-invalid.log
 	$(GREP) -F -q "std::is_move_constructible_v<AtomicPrivateMoveConstructorWithDefaultParameter>' evaluates to false" \
 		$(TEST_OUT)/atomic-private-access/gcc-invalid.log
+	$(GREP) -F -q "std::is_copy_assignable_v<AtomicNonConstCopyAssignmentValue>' evaluates to false" \
+		$(TEST_OUT)/atomic-private-access/gcc-invalid.log
+	$(GREP) -F -q "std::is_move_assignable_v<AtomicNonConstCopyAssignmentValue>' evaluates to false" \
+		$(TEST_OUT)/atomic-private-access/gcc-invalid.log
 	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/invalid-x86.ro)
 	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/invalid-x86.ro \
@@ -19397,6 +19401,8 @@ test-atomic-private-access: $(RCXX_TARGET)
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyConstructorValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x86.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyConstructorWithDefaultParameter'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNonConstCopyAssignmentValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x86.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedCopyConstructorValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x86.log
@@ -19421,6 +19427,8 @@ test-atomic-private-access: $(RCXX_TARGET)
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyConstructorValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x64.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyConstructorWithDefaultParameter'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNonConstCopyAssignmentValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x64.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedCopyConstructorValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x64.log
