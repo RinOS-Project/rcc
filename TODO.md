@@ -13190,6 +13190,11 @@ remains a separate open item.
       viability, selected scalar/aggregate list handling, and C++17 fixed-
       underlying enum direct-list initialization are covered by the 2026-11-01
       continuations above.
+  - [x] Compare finite constant `double`-to-`float` underflow with GCC 13.2:
+        positive and negative `1e-50` list initializers are accepted and become
+        zero. Preserve the narrowing boundary in
+        `test-cxx-list-narrowing` across GCC runtime, RCC i686/AMD64 generation,
+        and RCC AMD64 runtime.
 - [x] Verify that initializer-clause side effects run left to right and once
       for aggregate, array, and `std::initializer_list` initialization.
       GCC C++20 and RCC++ AMD64 runtime agree; RCC i686/AMD64 assembly and

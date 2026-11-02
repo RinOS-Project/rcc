@@ -49,6 +49,8 @@ int main() {
     unsigned char exact_unsigned_max{255};
     float exact_fraction{1.5};
     float rounded_fraction{1.1};
+    float positive_constant_underflow{1e-50};
+    float negative_constant_underflow{-1e-50};
     float exact_integer{16777216};
     double exact_wide_integer{9007199254740992ULL};
     double exact_ull_boundary{18446744073709549568ULL};
@@ -69,6 +71,8 @@ int main() {
     if (exact_signed_max != 127 || exact_signed_min != -128 ||
         exact_unsigned_max != 255) return 16;
     if (rounded_fraction != 1.1f) return 4;
+    if (positive_constant_underflow != 0.0f ||
+        negative_constant_underflow != 0.0f) return 17;
     if (exact_integer != 16777216.0f) return 5;
     if (exact_wide_integer != 9007199254740992.0) return 6;
     if (exact_ull_boundary != 18446744073709549568.0) return 15;
