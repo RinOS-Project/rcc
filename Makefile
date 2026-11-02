@@ -401,28 +401,28 @@ endef
 endif
 
 define CXX_VERIFIED_BACKEND_CXX_MATRIX
-$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 	-fverified-backend -v -c \
 	-o $(TEST_OUT)/$(1)/verified-x86.ro tests/$(2) \
 	>$(TEST_OUT)/$(1)/verified-x86.log
 $(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
 	$(TEST_OUT)/$(1)/verified-x86.log
 $(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x86.log,0)
-$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 	-fverified-backend -v -c \
 	-o $(TEST_OUT)/$(1)/verified-x64.ro tests/$(2) \
 	>$(TEST_OUT)/$(1)/verified-x64.log
 $(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
 	$(TEST_OUT)/$(1)/verified-x64.log
 $(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x64.log,0)
-$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 	-fverified-backend -v -c \
 	-o $(TEST_OUT)/$(1)/verified-x86-o2.ro tests/$(2) \
 	>$(TEST_OUT)/$(1)/verified-x86-o2.log
 $(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
 	$(TEST_OUT)/$(1)/verified-x86-o2.log
 $(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x86-o2.log,0)
-$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 	-fverified-backend -v -c \
 	-o $(TEST_OUT)/$(1)/verified-x64-o2.ro tests/$(2) \
 	>$(TEST_OUT)/$(1)/verified-x64-o2.log
@@ -807,13 +807,13 @@ test-cxx-wide-nested-class-template-specialization: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-wide-nested-class-template-specialization/gcc-host$(EXE_SUFFIX) \
 		tests/cxx_wide_nested_class_template_specialization.cpp
 	$(TEST_OUT)/cxx-wide-nested-class-template-specialization/gcc-host$(EXE_SUFFIX)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-wide-nested-class-template-specialization/verified-x86.ro \
 		tests/cxx_wide_nested_class_template_specialization.cpp \
 		>$(TEST_OUT)/cxx-wide-nested-class-template-specialization/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-nested-class-template-specialization/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-wide-nested-class-template-specialization/verified-x64.ro \
 		tests/cxx_wide_nested_class_template_specialization.cpp \
@@ -827,13 +827,13 @@ test-cxx-wide-structured-binding: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-wide-structured-binding/gcc-host$(EXE_SUFFIX) \
 		tests/cxx_wide_structured_binding.cpp
 	$(TEST_OUT)/cxx-wide-structured-binding/gcc-host$(EXE_SUFFIX)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-wide-structured-binding/verified-x86.ro \
 		tests/cxx_wide_structured_binding.cpp \
 		>$(TEST_OUT)/cxx-wide-structured-binding/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-structured-binding/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-wide-structured-binding/verified-x64.ro \
 		tests/cxx_wide_structured_binding.cpp \
@@ -903,13 +903,13 @@ test-cxx-wide-function-parameter-pack-deduction: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/gcc-host$(EXE_SUFFIX) \
 		tests/cxx_wide_function_parameter_pack_deduction.cpp
 	$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/gcc-host$(EXE_SUFFIX)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x86.ro \
 		tests/cxx_wide_function_parameter_pack_deduction.cpp \
 		>$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x64.ro \
 		tests/cxx_wide_function_parameter_pack_deduction.cpp \
@@ -923,13 +923,13 @@ test-cxx-wide-class-base-pack: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-wide-class-base-pack/gcc-host$(EXE_SUFFIX) \
 		tests/cxx_wide_class_base_pack.cpp
 	$(TEST_OUT)/cxx-wide-class-base-pack/gcc-host$(EXE_SUFFIX)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-wide-class-base-pack/verified-x86.ro \
 		tests/cxx_wide_class_base_pack.cpp \
 		>$(TEST_OUT)/cxx-wide-class-base-pack/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-class-base-pack/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-wide-class-base-pack/verified-x64.ro \
 		tests/cxx_wide_class_base_pack.cpp \
@@ -943,13 +943,13 @@ test-cxx-dependent-static-member-overload-count: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-dependent-static-member-overload-count/gcc-host$(EXE_SUFFIX) \
 		tests/cxx_dependent_static_member_overload_count.cpp
 	$(TEST_OUT)/cxx-dependent-static-member-overload-count/gcc-host$(EXE_SUFFIX)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-dependent-static-member-overload-count/verified-x86.ro \
 		tests/cxx_dependent_static_member_overload_count.cpp \
 		>$(TEST_OUT)/cxx-dependent-static-member-overload-count/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-dependent-static-member-overload-count/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-dependent-static-member-overload-count/verified-x64.ro \
 		tests/cxx_dependent_static_member_overload_count.cpp \
@@ -1576,7 +1576,7 @@ test-c23-va-start: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
 		-Ibootstrap/include -c \
 		-o $(TEST_OUT)/c23-va-start/x64.ro tests/c23_va_start.c
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
 		-Ibootstrap/include -fverified-backend -v -c \
 		-o $(TEST_OUT)/c23-va-start/x64-verified.ro tests/c23_va_start.c \
 		>$(TEST_OUT)/c23-va-start/x64-verified.log
@@ -1707,7 +1707,7 @@ test-c23-bitint-promotions: $(RCC_TARGET) $(RLD_TARGET)
 	$(CC) -o $(TEST_OUT)/c23-bitint-promotions/x64-host \
 		$(TEST_OUT)/c23-bitint-promotions/x64.s
 	$(TEST_OUT)/c23-bitint-promotions/x64-host
-	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -O2 -nostdinc \
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -O2 -nostdinc \
 		-Ibootstrap/include -fverified-backend -v -c \
 		-o $(TEST_OUT)/c23-bitint-promotions/verified-x86.ro \
 		tests/c23_bitint_promotions.c \
@@ -1715,7 +1715,7 @@ test-c23-bitint-promotions: $(RCC_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' \
 		$(TEST_OUT)/c23-bitint-promotions/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/c23-bitint-promotions/verified-x86.log,0)
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 -nostdinc \
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 -nostdinc \
 		-Ibootstrap/include -fverified-backend -v -c \
 		-o $(TEST_OUT)/c23-bitint-promotions/verified-x64.ro \
 		tests/c23_bitint_promotions.c \
@@ -1788,7 +1788,7 @@ test-c23-bitint-float-conversion: $(RCC_TARGET)
 		-Ibootstrap/include -c \
 		-o $(TEST_OUT)/c23-bitint-float-conversion/x64.ro \
 		tests/c23_bitint_float_conversion.c
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 \
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/c23-bitint-float-conversion/x64-verified.ro \
 		tests/c23_bitint_float_conversion.c \
@@ -1828,11 +1828,11 @@ test-c23-noreturn-attribute: $(RCC_TARGET)
 
 test-c23-nodiscard-attribute: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-nodiscard-attribute)
-	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -S \
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -S \
 		-o $(TEST_OUT)/c23-nodiscard-attribute/x86.s \
 		tests/c23_attribute_nodiscard.c \
 		>$(TEST_OUT)/c23-nodiscard-attribute/x86.log 2>&1
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S \
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -S \
 		-o $(TEST_OUT)/c23-nodiscard-attribute/x64.s \
 		tests/c23_attribute_nodiscard.c \
 		>$(TEST_OUT)/c23-nodiscard-attribute/x64.log 2>&1
@@ -2934,7 +2934,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/cxx-reference-alias-x64.ro \
 		tests/debug_info_inline_reference_alias.cpp
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.ro \
 		tests/debug_info_inline_reference_alias.cpp \
@@ -2942,7 +2942,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.ro \
 		tests/debug_info_inline_reference_alias.cpp \
@@ -2950,7 +2950,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.log,0)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86.ro \
 		tests/debug_info_inline_mutated_parameter.cpp \
@@ -2958,7 +2958,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 24 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.ro \
 		tests/debug_info_inline_mutated_parameter.cpp \
@@ -2966,7 +2966,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 24 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.log,0)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.ro \
 		tests/debug_info_inline_mutated_local.cpp \
@@ -2974,7 +2974,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x64.ro \
 		tests/debug_info_inline_mutated_local.cpp \
@@ -5709,14 +5709,14 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-type-pattern/gcc-host tests/cxx_function_template_type_pattern_partial_order.cpp
 	$(TEST_OUT)/cxx-function-template-type-pattern/gcc-host
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.ro \
 		tests/cxx_function_template_type_pattern_partial_order.cpp \
 		>$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.ro \
 		tests/cxx_function_template_type_pattern_partial_order.cpp \
 		>$(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.log
@@ -5735,14 +5735,14 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-explicit-pack-boundaries,cxx_function_template_explicit_pack_boundaries.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/gcc-host tests/cxx_function_template_explicit_pack_boundaries.cpp
 	$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/gcc-host
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x86.ro \
 		tests/cxx_function_template_explicit_pack_boundaries.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x64.ro \
 		tests/cxx_function_template_explicit_pack_boundaries.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x64.log
@@ -5764,14 +5764,14 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJELi7EJLi5EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
 	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi5EJicELi7EJLi3ELi4EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
 	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi3EJELi7EJLi5EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.ro \
 		tests/cxx_function_template_explicit_multi_pack_partition.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.ro \
 		tests/cxx_function_template_explicit_multi_pack_partition.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.log
@@ -5845,14 +5845,14 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJ5WrapA5WrapBEJilEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z39choose_zipped_template_type_value_packsIJEJEJEEiDp14TemplateTaggedIT_T0_XT1_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z39choose_zipped_template_type_value_packsIJ5WrapA5WrapBEJilEJLi3ELi7EEEiDp14TemplateTaggedIT_T0_XT1_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.ro \
 		tests/cxx_function_template_independent_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 19 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.ro \
 		tests/cxx_function_template_independent_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log
@@ -5894,14 +5894,14 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-independent-nontype-packs,cxx_function_template_independent_nontype_packs.cpp)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host tests/cxx_function_template_independent_nontype_packs.cpp
 	$(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.ro \
 		tests/cxx_function_template_independent_nontype_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.ro \
 		tests/cxx_function_template_independent_nontype_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.log
@@ -11839,17 +11839,41 @@ test-cxx-structured-bindings: $(RCXX_TARGET)
 
 test-cxx-alignas: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas)
-	$(call CXX_WINDOWS_ENTRY_TEST,cxx-alignas,cxx_alignas.cpp)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DRCC_TEST_WINDOWS_HOST_ASSEMBLY -S \
+		-o $(TEST_OUT)/cxx-alignas/x86.s tests/cxx_alignas.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-alignas/x86.o \
+		$(TEST_OUT)/cxx-alignas/x86.s
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-alignas/x86.o \
+		>$(TEST_OUT)/cxx-alignas/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-alignas/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DRCC_TEST_WINDOWS_HOST_ASSEMBLY -S \
+		-o $(TEST_OUT)/cxx-alignas/x64.s tests/cxx_alignas.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-alignas/x64.o \
+		$(TEST_OUT)/cxx-alignas/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-alignas/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-alignas/x64-host \
+		tests/cxx_language_core_host.c $(TEST_OUT)/cxx-alignas/x64.o
+	$(TEST_OUT)/cxx-alignas/x64-host
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-alignas/legacy-x86.ro tests/cxx_alignas.cpp
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-alignas/legacy-x64.ro tests/cxx_alignas.cpp
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-alignas/verified-x86.ro tests/cxx_alignas.cpp \
 		>$(TEST_OUT)/cxx-alignas/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-alignas/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-alignas/verified-x64.ro tests/cxx_alignas.cpp \
 		>$(TEST_OUT)/cxx-alignas/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-alignas/verified-x64.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/cxx-alignas/run-verified-test \
 		tests/alignas_host_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/cxx-alignas/run-verified-test --cxx \
+		$(TEST_OUT)/cxx-alignas/legacy-x86.ro \
+		$(TEST_OUT)/cxx-alignas/legacy-x64.ro
 	$(TEST_OUT)/cxx-alignas/run-verified-test --cxx \
 		$(TEST_OUT)/cxx-alignas/verified-x86.ro \
 		$(TEST_OUT)/cxx-alignas/verified-x64.ro
@@ -14402,14 +14426,14 @@ test-cxx-adl-function-template-candidates-posix: $(RCXX_TARGET) test-cxx-adl-fun
 
 test-cxx-adl-function-template-candidates-verified: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-function-template-candidates)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-adl-function-template-candidates/verified-x86.ro \
 		tests/cxx_adl_function_template_candidates.cpp \
 		>$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' \
 		$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-adl-function-template-candidates/verified-x64.ro \
 		tests/cxx_adl_function_template_candidates.cpp \
 		>$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x64.log
@@ -19279,25 +19303,25 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 	$(call MKDIR_P,$(TEST_OUT)/cxx-atomic-aggregate-concurrency)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -Iinclude -fsyntax-only \
 		tests/verified_backend_cxx_atomic_concurrency.cpp
-	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O0 \
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -O0 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o0.ro \
 		tests/verified_backend_atomic_lock_free.c \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o0.log,0)
-	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 \
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o2.ro \
 		tests/verified_backend_atomic_lock_free.c \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o2.log,0)
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O0 \
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -O0 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o0.ro \
 		tests/verified_backend_atomic_lock_free.c \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o0.log,0)
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o2.ro \
 		tests/verified_backend_atomic_lock_free.c \
@@ -19539,14 +19563,14 @@ test-clear-padding: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
 		-Ibootstrap/include -c -o $(TEST_OUT)/clear-padding/x64.ro \
 		tests/clear_padding.c
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
 		-Ibootstrap/include -fverified-backend -v -c \
 		-o $(TEST_OUT)/clear-padding/x64-verified.ro tests/clear_padding.c \
 		>$(TEST_OUT)/clear-padding/x64-verified.log
 	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
 		$(TEST_OUT)/clear-padding/x64-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/clear-padding/x64-verified.log,0)
-	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
 		-Ibootstrap/include -fverified-backend -v -c \
 		-o $(TEST_OUT)/clear-padding/x86-verified.ro tests/clear_padding.c \
 		>$(TEST_OUT)/clear-padding/x86-verified.log
@@ -25851,9 +25875,9 @@ test-cxx-prvalue-scalar-conversion-cleanup: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_
 	$(CC) -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.s
 	$(CXX) -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX) $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log
 	powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "0" "Verified backend fallback:" "$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log"
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.log
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.log
 	powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "0" "Verified backend fallback:" "$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.log"
 
 .PHONY: test-cxx-conversion-member-pointer-owner-ranking

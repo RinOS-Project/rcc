@@ -16296,7 +16296,8 @@ static CxxTemplate* cxx_nested_template_parameter_scope_child(
 }
 
 static Token* cxx_class_name_after_key(Token* token) {
-    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT)) {
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT &&
+                   token->type != TOK_UNION)) {
         return NULL;
     }
     token = token->next;
@@ -52363,7 +52364,7 @@ static bool cxx_top_level_class_declaration_starts(void) {
                    token->type != TOK_UNION)) {
         return false;
     }
-    token = token->next;
+    token = cxx_class_name_after_key(token);
     if (!token) return false;
     if (token->type == TOK_LBRACE) return true;
     if (token->type != TOK_IDENT) return false;

@@ -1,7 +1,9 @@
+#ifndef RCC_TEST_WINDOWS_HOST_ASSEMBLY
 extern "C" {
 alignas(16384) int cxx_aligned_global_16384;
 alignas(16384) int cxx_aligned_initialized_global_16384 = 13;
 }
+#endif
 
 struct CxxAlignedRecord {
     char tag;
@@ -103,8 +105,11 @@ int main() {
                   "class-template alignas must round instantiated size");
     return ((unsigned long)&value % 16) == 0 && value == 7 &&
         ((unsigned long)&extended_value % 16384) == 0 &&
-        extended_value == 9 && cxx_aligned_global_16384 == 0 &&
+        extended_value == 9 &&
+#ifndef RCC_TEST_WINDOWS_HOST_ASSEMBLY
+        cxx_aligned_global_16384 == 0 &&
         cxx_aligned_initialized_global_16384 == 13 &&
+#endif
         verified_cxx_local_alignment() == 0 &&
         legacy_cxx_aligned_stack_parameter_check(
             1, 2, 3, 4, 5, 6, 7, 8, 9) == 0 ? 0 : 1;

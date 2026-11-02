@@ -13451,3 +13451,19 @@ remains a separate open item.
       in ordinary legacy i686 and AMD64 functions. `test-static-stack-probe`
       checks the emitted probe sequence on both targets and executes both
       generated programs.
+
+## RCC continuation (2026-11-02, native-Windows C++ regression fixes)
+
+- [x] Make top-level C++ class declaration lookahead skip attributes after the
+      class-key, using the shared class-name parser for `class`, `struct`, and
+      `union`. `test-cxx-deprecated` accepts the global
+      `class [[deprecated]]` declaration and matches the expected diagnostics.
+- [x] Keep the Windows `test-cxx-alignas` gate compatible with MinGW COFF,
+      which cannot encode 16 KiB section alignment. The host-assembly variant
+      omits only those over-aligned globals while retaining class layout and
+      stack checks; legacy and verified `.ro` outputs still check global
+      alignment for i686/AMD64. The focused target passes.
+- [x] Use the absolute shell compiler executable in Windows recipe commands
+      that redirect compiler output, so native shell lookup does not depend on
+      resolving `rcc.exe`/`rcc++.exe` through the recipe environment. The
+      affected focused regression targets and C++ regression target set pass.
