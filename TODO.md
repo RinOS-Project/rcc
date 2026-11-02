@@ -3547,8 +3547,12 @@ remains a separate open item.
       object binding on a tie. GCC C++20 agrees for `int`/`long` result choices;
       `test-cxx-conversion-operator` passes i686/AMD64 generation and RCC/GCC
       host execution.
-- [ ] Ranking between distinct user-defined conversion sequences and the full
-      set of implicit-object conversion relationships remain open.
+- [x] Keep distinct user-defined conversion sequences using different
+      conversion functions incomparable when they target unrelated classes.
+      GCC C++20 and RCC i686/AMD64 all diagnose the overload as ambiguous, with
+      RCC producing no object; `test-cxx-conversion-distinct-user-sequences`
+      covers the behavior.
+- [ ] Complete the remaining set of implicit-object conversion relationships.
 - [x] Do not let a reference wrapper alone make a function-template pattern
   more specialized than its by-value counterpart when the non-pack scalar,
   class, or one-level unqualified-pointee pointer parameter lists become

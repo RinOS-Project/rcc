@@ -645,6 +645,7 @@ endif
 .PHONY: test-cxx-copy-list-explicit
 .PHONY: test-cxx-member-methods-invalid
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
+.PHONY: test-cxx-conversion-distinct-user-sequences
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
 .PHONY: test-verified-switch-nested
 .PHONY: test-verified-cxx-explicit-throwing-destructor
@@ -1246,6 +1247,7 @@ CXX_REGRESSION_TARGETS += test-cxx-reference-list-initialization
 CXX_REGRESSION_TARGETS += test-cxx-initializer-list
 CXX_REGRESSION_TARGETS += test-cxx-overload-ambiguous-diagnostics
 CXX_REGRESSION_TARGETS += test-cxx-nullptr-bool-conversion
+CXX_REGRESSION_TARGETS += test-cxx-conversion-distinct-user-sequences
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the
@@ -10411,7 +10413,7 @@ endif
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
 	@echo "RCC++ dependent template-template value diagnostics completed"
 
-test-cxx-conversion-operator-posix: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous
+test-cxx-conversion-operator-posix: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous test-cxx-conversion-distinct-user-sequences
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_external_member_declarations.cpp
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-operator/external-declarations-x86.ro)
@@ -11428,7 +11430,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-class-template-member-function-templates/x64.ro \
 		tests/cxx_class_template_member_function_templates.cpp
-test-cxx-conversion-operator: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous
+test-cxx-conversion-operator: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous test-cxx-conversion-distinct-user-sequences
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_external_member_declarations.cpp
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-operator/external-declarations-x86.ro)
@@ -25700,6 +25702,19 @@ test-cxx-conversion-reference-ranking-ambiguous: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-x64.ro tests/cxx_private_conversion_function_access_invalid.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-x64.log)
 	$(call CHECK_COUNT,method 'operator conversion' is not accessible,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-x64.log,2)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-x64.ro)
+
+test-cxx-conversion-distinct-user-sequences: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-distinct-user-sequences)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_distinct_user_sequences_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/gcc.log)
+	$(GREP) -F -q "call of overloaded 'choose_distinct_user_conversion" $(TEST_OUT)/cxx-conversion-distinct-user-sequences/gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.ro tests/cxx_conversion_distinct_user_sequences_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.log)
+	$(GREP) -F -q "ambiguous overload for 'choose_distinct_user_conversion'" $(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-distinct-user-sequences/x64.ro tests/cxx_conversion_distinct_user_sequences_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/x64.log)
+	$(GREP) -F -q "ambiguous overload for 'choose_distinct_user_conversion'" $(TEST_OUT)/cxx-conversion-distinct-user-sequences/x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/x64.ro)
 
 test-cxx-conversion-member-pointer-owner-path: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path)
