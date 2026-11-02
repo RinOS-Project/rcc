@@ -24295,6 +24295,29 @@ static bool cxx_atomic_parameter_is_same_type_reference(Type* parameter_type,
            type_is_compatible(parameter_type->base, value_type);
 }
 
+static bool cxx_atomic_constructor_has_defaulted_trailing_parameters(
+    CxxConstructorInfo* constructor) {
+    TypeParam* parameter;
+    DeclList* declaration_parameter;
+    if (!constructor || constructor->parameter_count < 1) return false;
+    parameter = constructor->parameters;
+    declaration_parameter = constructor->method && constructor->method->decl
+        ? constructor->method->decl->func_params : NULL;
+    for (int index = 0; index < constructor->parameter_count; ++index) {
+        if (!parameter) return false;
+        if (index > 0 &&
+            (!declaration_parameter || !declaration_parameter->decl ||
+             !declaration_parameter->decl->param_default)) {
+            return false;
+        }
+        parameter = parameter->next;
+        if (declaration_parameter) {
+            declaration_parameter = declaration_parameter->next;
+        }
+    }
+    return !parameter && !declaration_parameter;
+}
+
 static int cxx_atomic_assignment_special_member_kind(
     Type* parameter_type, Type* value_type) {
     if (!parameter_type || !value_type || !value_type->cxx_class) return 0;
@@ -24346,8 +24369,8 @@ static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
              constructor; constructor = constructor->next) {
             TypeParam* parameter = constructor->parameters;
             Type* parameter_type = parameter ? parameter->type : NULL;
-            if (constructor->parameter_count != 1 || !parameter ||
-                parameter->next ||
+            if (!cxx_atomic_constructor_has_defaulted_trailing_parameters(
+                    constructor) || !parameter ||
                 !cxx_atomic_parameter_is_same_type_reference(parameter_type,
                                                             value_type)) {
                 continue;

@@ -8,6 +8,36 @@ private:
         const AtomicPrivateCopyConstructorValue&) = default;
 };
 
+struct AtomicPrivateCopyConstructorWithDefaultParameter {
+    AtomicPrivateCopyConstructorWithDefaultParameter() = default;
+    AtomicPrivateCopyConstructorWithDefaultParameter(
+        AtomicPrivateCopyConstructorWithDefaultParameter&&) = default;
+    AtomicPrivateCopyConstructorWithDefaultParameter& operator=(
+        const AtomicPrivateCopyConstructorWithDefaultParameter&) = default;
+    AtomicPrivateCopyConstructorWithDefaultParameter& operator=(
+        AtomicPrivateCopyConstructorWithDefaultParameter&&) = default;
+
+private:
+    AtomicPrivateCopyConstructorWithDefaultParameter(
+        const AtomicPrivateCopyConstructorWithDefaultParameter&,
+        int = 0) = delete;
+};
+
+struct AtomicPrivateMoveConstructorWithDefaultParameter {
+    AtomicPrivateMoveConstructorWithDefaultParameter() = default;
+    AtomicPrivateMoveConstructorWithDefaultParameter(
+        const AtomicPrivateMoveConstructorWithDefaultParameter&) = default;
+    AtomicPrivateMoveConstructorWithDefaultParameter& operator=(
+        const AtomicPrivateMoveConstructorWithDefaultParameter&) = default;
+    AtomicPrivateMoveConstructorWithDefaultParameter& operator=(
+        AtomicPrivateMoveConstructorWithDefaultParameter&&) = default;
+
+private:
+    AtomicPrivateMoveConstructorWithDefaultParameter(
+        AtomicPrivateMoveConstructorWithDefaultParameter&&,
+        int = 0) = delete;
+};
+
 struct AtomicProtectedCopyConstructorValue {
     AtomicProtectedCopyConstructorValue() = default;
 
@@ -122,6 +152,10 @@ struct AtomicPrivateBaseOwner : AtomicPrivateCopyBase {};
 
 void instantiate_atomic_with_inaccessible_copy_move_members() {
     std::atomic<AtomicPrivateCopyConstructorValue> private_constructor;
+    std::atomic<AtomicPrivateCopyConstructorWithDefaultParameter>
+        private_constructor_with_default_parameter;
+    std::atomic<AtomicPrivateMoveConstructorWithDefaultParameter>
+        private_move_constructor_with_default_parameter;
     std::atomic<AtomicProtectedCopyConstructorValue> protected_constructor;
     std::atomic<AtomicPrivateMoveConstructorValue> private_move_constructor;
     std::atomic<AtomicProtectedMoveConstructorValue> protected_move_constructor;
@@ -135,6 +169,8 @@ void instantiate_atomic_with_inaccessible_copy_move_members() {
     std::atomic<AtomicPrivateMoveAssignmentValue> private_move_assignment;
     std::atomic<AtomicProtectedMoveAssignmentValue> protected_move_assignment;
     (void)private_constructor;
+    (void)private_constructor_with_default_parameter;
+    (void)private_move_constructor_with_default_parameter;
     (void)protected_constructor;
     (void)private_move_constructor;
     (void)protected_move_constructor;
