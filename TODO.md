@@ -13339,10 +13339,13 @@ remains a separate open item.
       constructor returns. The GCC C++20 oracle and verified i686/AMD64
       `-O0`/`-O2` builds pass with zero fallback; generated AMD64 execution
       passes on Windows and WSL.
-- [ ] Extend constructor-built partial-subobject unwind to fixed-size arrays of
-      class elements. If a later element's constructor throws while building a
-      nested subobject, unwind that element's completed children and the earlier
-      completed array prefix, then verify retry and reverse-order exit cleanup.
+- [x] Extend constructor-built partial-subobject unwind to fixed-size arrays
+      of class elements. A later element throws from a nested member constructor;
+      verify reverse cleanup of that partially built element and the earlier
+      completed array prefix, guard retry, and reverse-order exit cleanup.
+      `make test-verified-cxx-static-local-aggregate` passes the GCC oracle,
+      i686/AMD64 verified output at `-O0`/`-O2` with zero fallback, and x64
+      verified-object execution at both optimization levels.
 
 ## RCC continuation (2026-11-02, C++20 atomic wait/notify runtime integration)
 
