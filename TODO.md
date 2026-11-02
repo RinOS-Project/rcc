@@ -13516,6 +13516,11 @@ remains a separate open item.
       trailing default arguments and reject non-const-only copy assignment.
       GCC C++20 diagnostics and RCC i686/AMD64 rejection pass in
       `test-atomic-private-access`.
+- [x] Keep nested base subobject assignment probes from leaking suppressed
+      deleted-operator diagnostics into an enclosing copy/move trait probe.
+      GCC C++20 and RCC i686/AMD64 agree on inherited defaulted assignment
+      traits, triviality, and `std::atomic<T>` in
+      `test-atomic-private-access`.
 - [ ] Full overload viability for inherited/defaulted copy/move operations,
       broader type-trait conformance, and the remaining `<atomic>` API surface
       remain open.

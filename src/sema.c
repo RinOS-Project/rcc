@@ -22147,6 +22147,7 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
     Type* prior_method_owner;
     Decl* prior_function_decl;
     bool owns_symtab = false;
+    int error_count_before;
     int result;
     if (is_nothrow) *is_nothrow = false;
     if (is_trivial) *is_trivial = false;
@@ -22154,6 +22155,7 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
         source->cxx_dependent) {
         return -1;
     }
+    error_count_before = g_suppressed_error_count;
     prior_symtab = g_symtab;
     if (!g_symtab) {
         g_symtab = symtab_new();
@@ -22239,6 +22241,10 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
                     assignment->binary_rhs, 0u);
         }
     }
+    /* This probe's result carries all diagnostics produced while checking the
+     * candidate expression.  Do not let diagnostics from nested speculative
+     * assignment probes contaminate an enclosing overload-resolution probe. */
+    g_suppressed_error_count = error_count_before;
     current_cxx_method_owner = prior_method_owner;
     current_cxx_function_decl = prior_function_decl;
     if (owns_symtab) {
