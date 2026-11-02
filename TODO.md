@@ -13414,5 +13414,9 @@ remains a separate open item.
       `Template<T, N>` and `Outer<Inner, T, N>` class partial specializations.
       Strict GCC C++20 syntax and the i686/AMD64 generation checks in
       `test-cxx-template-template-parameters` pass.
-- [ ] Continue with deeper nested paths and ordering/deduction involving
-      multiple distinct pack sources.
+- [x] Deduce mixed fixed class-template-id arguments and recurse through
+      `Wrapper<Inner<T, N>>` to bind nested non-type arguments. Strict GCC C++20
+      syntax and the i686/AMD64 generation checks in
+      `test-cxx-template-template-parameters` pass.
+- [ ] Continue with multiple distinct pack sources and their
+      ordering/deduction interactions.

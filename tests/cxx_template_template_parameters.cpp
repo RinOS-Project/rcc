@@ -119,6 +119,31 @@ struct TemplateTemplateNestedTemplateSelection<Outer<Inner, T, N>> {
     char selected[N];
 };
 
+template<class T>
+struct TemplateTemplateNestedMixedSelection {
+    char selected[1];
+};
+
+template<template<class, int> class Inner, class T, int N>
+struct TemplateTemplateNestedMixedSelection<
+    TemplateTemplateNestedValueOuter<Inner, T, N>> {
+    char selected[N];
+};
+
+template<class T>
+struct TemplateTemplateNestedValueWrapper {};
+
+template<class T>
+struct TemplateTemplateDeepNestedValueSelection {
+    char selected[1];
+};
+
+template<template<class, int> class Inner, class T, int N>
+struct TemplateTemplateDeepNestedValueSelection<
+    TemplateTemplateNestedValueWrapper<Inner<T, N>>> {
+    char selected[N];
+};
+
 using TemplateTemplateNestedPackAliasType =
     TemplateTemplateNestedPackAlias<TemplateTemplateTypePackBox,
                                     int, char, long>::type;
@@ -163,3 +188,11 @@ static_assert(sizeof(TemplateTemplateNestedTemplateSelection<
                   TemplateTemplateNestedValueOuter<
                       TemplateTemplateNestedValueBox, int, 9>>) == 9,
               "nested template-template arguments deduce template and non-type parameters");
+static_assert(sizeof(TemplateTemplateNestedMixedSelection<
+                  TemplateTemplateNestedValueOuter<
+                      TemplateTemplateNestedValueBox, int, 11>>) == 11,
+              "fixed class template-ids deduce mixed type, value, and template arguments");
+static_assert(sizeof(TemplateTemplateDeepNestedValueSelection<
+                  TemplateTemplateNestedValueWrapper<
+                      TemplateTemplateNestedValueBox<int, 13>>>) == 13,
+              "template-template partial specialization deduces nested values recursively");

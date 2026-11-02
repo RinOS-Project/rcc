@@ -26429,26 +26429,80 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
                 ? actual_class->template_arg_count
                 : actual->cxx_template_arg_count;
         CxxTemplate* pattern_template = pattern->cxx_template;
-        bool type_only_arguments = true;
+        bool deducible_arguments = true;
         if (actual_template == pattern_template && actual_arguments &&
             pattern->cxx_template_args &&
             actual_argument_count == pattern->cxx_template_arg_count &&
             actual_argument_count == pattern_template->param_count) {
             for (int index = 0; index < actual_argument_count; ++index) {
-                if (pattern_template->params[index].kind != TPARAM_TYPE ||
-                    pattern_template->params[index].is_pack ||
+                if (pattern_template->params[index].is_pack ||
                     (pattern->cxx_template_arg_pack_expansions &&
                      pattern->cxx_template_arg_pack_expansions[index])) {
-                    type_only_arguments = false;
+                    deducible_arguments = false;
                     break;
                 }
             }
-            if (type_only_arguments) {
+            if (deducible_arguments) {
                 for (int index = 0; index < actual_argument_count; ++index) {
-                    if (!deduce_class_specialization_type(
-                            tmpl, pattern->cxx_template_args[index],
-                            actual_arguments[index], arguments, specificity,
-                            pack_count)) {
+                    TemplateParam* nested_parameter =
+                        &pattern_template->params[index];
+                    Type* nested_pattern = pattern->cxx_template_args[index];
+                    Type* nested_actual = actual_arguments[index];
+                    if (nested_parameter->kind == TPARAM_TYPE) {
+                        if (!deduce_class_specialization_type(
+                                tmpl, nested_pattern, nested_actual, arguments,
+                                specificity, pack_count)) {
+                            return false;
+                        }
+                    } else if (nested_parameter->kind == TPARAM_TEMPLATE) {
+                        CxxTemplate* nested_actual_template = nested_actual
+                            ? nested_actual->cxx_template : NULL;
+                        int nested_template_parameter_index = nested_pattern &&
+                                nested_pattern->cxx_dependent
+                            ? nested_pattern->cxx_template_param_index : -1;
+                        if (!nested_actual_template ||
+                            !template_template_signature_matches(
+                                nested_parameter, nested_actual_template)) {
+                            return false;
+                        }
+                        if (nested_template_parameter_index >= 0 &&
+                            nested_template_parameter_index <
+                                tmpl->param_count &&
+                            tmpl->params[
+                                nested_template_parameter_index].kind ==
+                                TPARAM_TEMPLATE) {
+                            Type* previous =
+                                arguments[nested_template_parameter_index];
+                            if (!template_template_signature_matches(
+                                    &tmpl->params[
+                                        nested_template_parameter_index],
+                                    nested_actual_template) ||
+                                (previous && previous->cxx_template !=
+                                                 nested_actual_template)) {
+                                return false;
+                            }
+                            if (!previous) {
+                                Type* carrier = type_struct(
+                                    nested_actual_template->name
+                                        ? nested_actual_template->name
+                                        : "<template>");
+                                carrier->cxx_template =
+                                    nested_actual_template;
+                                arguments[nested_template_parameter_index] =
+                                    carrier;
+                            }
+                            if (specificity) *specificity += 2;
+                        } else if (!nested_pattern ||
+                                   nested_pattern->cxx_template !=
+                                       nested_actual_template) {
+                            return false;
+                        }
+                    } else if (nested_parameter->kind == TPARAM_NONTYPE) {
+                        if (!pattern->cxx_template_value_args ||
+                            !pattern->cxx_template_value_args[index]) {
+                            return false;
+                        }
+                    } else {
                         return false;
                     }
                 }
@@ -26493,16 +26547,33 @@ static bool cxx_deduce_class_specialization_template_values(
     CxxTemplate* signature;
     int signature_pack_index;
     if (!specialization || !pattern || !actual || !candidate_values ||
-        !candidate_value_present || pattern->kind != TYPE_STRUCT ||
-        !pattern->cxx_dependent ||
-        (template_parameter_index = pattern->cxx_template_param_index) < 0 ||
-        template_parameter_index >= specialization->param_count ||
-        specialization->params[template_parameter_index].kind !=
-            TPARAM_TEMPLATE) {
+        !candidate_value_present) {
         return true;
     }
-    template_parameter = &specialization->params[template_parameter_index];
-    signature = template_parameter->template_signature;
+    if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR) {
+        return cxx_deduce_class_specialization_template_values(
+            specialization, pattern->base, actual->base, candidate_values,
+            candidate_value_present, specificity);
+    }
+    if (pattern->kind == TYPE_ARRAY && actual->kind == TYPE_ARRAY) {
+        return cxx_deduce_class_specialization_template_values(
+            specialization, pattern->base, actual->base, candidate_values,
+            candidate_value_present, specificity);
+    }
+    if (pattern->kind != TYPE_STRUCT || pattern->cxx_template_arg_count <= 0 ||
+        !pattern->cxx_template_args) {
+        return true;
+    }
+    template_parameter_index = pattern->cxx_dependent
+        ? pattern->cxx_template_param_index : -1;
+    template_parameter = template_parameter_index >= 0 &&
+            template_parameter_index < specialization->param_count &&
+            specialization->params[template_parameter_index].kind ==
+                TPARAM_TEMPLATE
+        ? &specialization->params[template_parameter_index] : NULL;
+    signature = template_parameter
+        ? template_parameter->template_signature : pattern->cxx_template;
+    if (!signature) return true;
     actual_class = actual->cxx_class;
     actual_template = actual_class && actual_class->template_identity_tmpl
         ? actual_class->template_identity_tmpl
@@ -26525,10 +26596,11 @@ static bool cxx_deduce_class_specialization_template_values(
             : actual->cxx_template_arg_count;
     signature_pack_index = cxx_template_signature_pack_index(signature);
     if (!actual_template || !signature ||
-        !template_template_signature_matches(template_parameter,
-                                             actual_template) ||
-        signature_pack_index == -2 || !pattern->cxx_template_value_args ||
-        !pattern->cxx_template_args ||
+        (template_parameter
+            ? !template_template_signature_matches(template_parameter,
+                                                   actual_template)
+            : actual_template != signature) ||
+        signature_pack_index == -2 ||
         (actual_argument_count > 0 && !actual_arguments)) {
         return false;
     }
@@ -26541,18 +26613,31 @@ static bool cxx_deduce_class_specialization_template_values(
         }
         const TemplateParam* nested_parameter =
             &signature->params[parameter_index];
-        if (nested_parameter->kind != TPARAM_NONTYPE) continue;
-        if (nested_parameter->is_pack || index >= actual_argument_count ||
-            (pattern->cxx_template_arg_pack_expansions &&
-             pattern->cxx_template_arg_pack_expansions[index]) ||
-            !pattern->cxx_template_value_args[index] || !actual_values ||
-            !actual_value_present || !actual_value_present[index] ||
-            !actual_arguments[index] ||
-            !deduce_class_specialization_value(
-                specialization, pattern->cxx_template_value_args[index],
-                actual_arguments[index], actual_values[index],
-                candidate_values, candidate_value_present, specificity)) {
-            return false;
+        bool is_expansion = pattern->cxx_template_arg_pack_expansions &&
+            pattern->cxx_template_arg_pack_expansions[index];
+        if (nested_parameter->kind == TPARAM_NONTYPE) {
+            if (nested_parameter->is_pack || index >= actual_argument_count ||
+                is_expansion || !pattern->cxx_template_value_args ||
+                !pattern->cxx_template_value_args[index] || !actual_values ||
+                !actual_value_present || !actual_value_present[index] ||
+                !actual_arguments[index] ||
+                !deduce_class_specialization_value(
+                    specialization,
+                    pattern->cxx_template_value_args[index],
+                    actual_arguments[index], actual_values[index],
+                    candidate_values, candidate_value_present,
+                    specificity)) {
+                return false;
+            }
+        } else if (!nested_parameter->is_pack && !is_expansion) {
+            if (index >= actual_argument_count || !actual_arguments ||
+                !actual_arguments[index] ||
+                !cxx_deduce_class_specialization_template_values(
+                    specialization, pattern->cxx_template_args[index],
+                    actual_arguments[index], candidate_values,
+                    candidate_value_present, specificity)) {
+                return false;
+            }
         }
     }
     return true;
