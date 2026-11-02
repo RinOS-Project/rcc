@@ -116,6 +116,16 @@ int choose_initializer_list_phase_fallback(
     return value.value;
 }
 
+int choose_initializer_list_derived_rank(
+    std::initializer_list<InitializerListPhaseFallbackValue>) {
+    return 1;
+}
+
+int choose_initializer_list_derived_rank(
+    std::initializer_list<InitializerListPhaseFallbackDerived>) {
+    return 2;
+}
+
 int choose_empty_list_over_scalar(std::initializer_list<int> values) {
     return values.size() == 0 ? 1 : -1;
 }
@@ -285,6 +295,8 @@ static int test_initializer_list_preference(void) {
     InitializerListPhaseFallbackDerived function_fallback_value{{23}};
     int function_fallback = choose_initializer_list_phase_fallback(
         {function_fallback_value});
+    int initializer_list_element_rank = choose_initializer_list_derived_rank(
+        {function_fallback_value});
     InitializerListPhaseFallbackVirtualDerived virtual_fallback_value{};
     virtual_fallback_value.value = 24;
     InitializerListPhaseFallbackConstructor virtual_constructor_fallback{
@@ -305,6 +317,7 @@ static int test_initializer_list_preference(void) {
            default_argument_choice.selected == 3 &&
            constructor_fallback.selected == 22 &&
            function_fallback == 23 &&
+           initializer_list_element_rank == 2 &&
            virtual_constructor_fallback.selected == 24 &&
            virtual_function_fallback == 24 &&
            constructor_choice.selected == 1 &&

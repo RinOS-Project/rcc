@@ -13198,6 +13198,12 @@ remains a separate open item.
       remain nonviable. GCC C++20, RCC++ i686/AMD64 assembly and `.ro`, AMD64
       runtime, and initializer-list narrowing/ambiguity/explicit/base-access
       diagnostics pass in `test-cxx-initializer-list`.
+- [x] Rank viable `std::initializer_list<Base>` and
+      `std::initializer_list<Derived>` overloads by their element conversion
+      sequences when the braced element is derived. GCC C++20 selects the exact
+      `Derived` sequence over derived-to-base conversion; RCC i686/AMD64
+      generation, `.ro` output, and AMD64 runtime agree in
+      `test-cxx-initializer-list`.
 - [x] Apply list-narrowing checks to selected user-defined conversion
       functions. Permit the integer constant-expression exception only when a
       `constexpr` conversion result fits; reject out-of-range constexpr results,
