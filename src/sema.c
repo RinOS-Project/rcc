@@ -104,6 +104,56 @@ static Decl* current_noexcept_resolution = NULL;
 static bool cxx_type_trait_nothrow_evaluation_unknown = false;
 static CxxNamespace* current_cxx_namespace = NULL;
 static AST* current_ast = NULL;
+static TypeMethod* sema_cxx_member_overload_list(Type* type);
+static DeclList* completed_class_template_method_bodies;
+static DeclList* completed_class_template_method_bodies_tail;
+
+void rcc_sema_queue_completed_class_template_method(Decl* declaration) {
+    DeclList* item;
+    Symbol* symbol;
+    if (!declaration || declaration->kind != DECL_FUNC ||
+        !declaration->func_body ||
+        declaration->func_class_template_body_queued_for_sema ||
+        declaration->func_class_template_body_sema_analyzed) {
+        return;
+    }
+    for (item = completed_class_template_method_bodies; item;
+         item = item->next) {
+        if (item->decl == declaration) return;
+    }
+    symbol = g_symtab && declaration->name
+        ? symtab_lookup(g_symtab, declaration->name) : NULL;
+    if (symbol && symbol->kind == SYM_FUNC && declaration->link_name) {
+        for (Decl* registered = symbol->decl; registered;
+             registered = registered->func_overload_next) {
+            if (registered == declaration || !registered->link_name ||
+                strcmp(registered->link_name, declaration->link_name) != 0) {
+                continue;
+            }
+            if (!registered->func_body) {
+                registered->func_body = declaration->func_body;
+                registered->func_is_defined = declaration->func_is_defined;
+            }
+            declaration->func_body = NULL;
+            declaration->func_template_body_deferred = false;
+            declaration->func_class_template_body_source_method = NULL;
+            declaration = registered;
+            if (declaration->func_class_template_body_queued_for_sema ||
+                declaration->func_class_template_body_sema_analyzed) {
+                return;
+            }
+            break;
+        }
+    }
+    declaration->func_class_template_body_queued_for_sema = true;
+    item = decllist_new(declaration);
+    if (completed_class_template_method_bodies_tail) {
+        completed_class_template_method_bodies_tail->next = item;
+    } else {
+        completed_class_template_method_bodies = item;
+    }
+    completed_class_template_method_bodies_tail = item;
+}
 
 typedef struct SemaCxxConversionGuard {
     Type* source;
@@ -1976,6 +2026,67 @@ static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
     return direct_symbol;
 }
 
+static Decl* sema_cxx_lookup_qualified_static_method(const char* name,
+                                                     SourceLoc use_loc) {
+    const char* separator;
+    const char* method_name;
+    char* owner_name;
+    size_t owner_length;
+    Symbol* owner_symbol;
+    Type* owner_type;
+    CxxClass* owner;
+    Decl* match = NULL;
+    if (!name) return NULL;
+    separator = strrchr(name, ':');
+    if (!separator || separator <= name || separator[-1] != ':') {
+        return NULL;
+    }
+    method_name = separator + 1;
+    if (!*method_name) return NULL;
+    owner_length = (size_t)(separator - name - 1);
+    owner_name = rcc_alloc(owner_length + 1u);
+    memcpy(owner_name, name, owner_length);
+    owner_name[owner_length] = '\0';
+    owner_symbol = symtab_lookup(g_symtab, owner_name);
+    rcc_free(owner_name);
+    if (!owner_symbol || owner_symbol->kind != SYM_TYPE ||
+        !(owner_type = owner_symbol->type) ||
+        (owner_type->kind != TYPE_STRUCT &&
+         owner_type->kind != TYPE_UNION) ||
+        !(owner = owner_type->cxx_class)) {
+        return NULL;
+    }
+    for (struct CxxMember* member = owner->members; member;
+         member = member->next) {
+        Decl* declaration = member->decl;
+        CxxMethod* method = member->method;
+        const char* declared_name = method && method->source_name
+            ? method->source_name : declaration ? declaration->name : NULL;
+        const char* leaf = declared_name ? strrchr(declared_name, ':') : NULL;
+        leaf = leaf && leaf > declared_name && leaf[-1] == ':'
+            ? leaf + 1 : declared_name;
+        if (!member->is_static || !method || !method->is_static ||
+            !declaration || declaration->kind != DECL_FUNC || !leaf ||
+            strcmp(leaf, method_name) != 0) {
+            continue;
+        }
+        if (!sema_cxx_member_accessible(owner, member->access)) {
+            rcc_error(use_loc, "member '%s' is not accessible", method_name);
+        }
+        if (match && match != declaration) {
+            /* The declaration's overload chain is the canonical candidate
+             * set.  Keep its head so normal call overload resolution applies. */
+            if (match->func_overload_next != declaration &&
+                declaration->func_overload_next != match) {
+                return NULL;
+            }
+        } else {
+            match = declaration;
+        }
+    }
+    return match;
+}
+
 static Decl* sema_cxx_immediate_function_designator(Expr* expression) {
     Decl* declaration = NULL;
     Symbol* symbol;
@@ -2787,6 +2898,7 @@ static bool sema_asm_register_name_supported(const char* name,
         if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
         if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
             strcmp(name, "g") == 0) return true;
+        if (strcmp(name, "x") == 0) return true;
         rcc_error(loc, "unsupported i686 inline asm %s register constraint '%s'",
                   output ? "output" : "input", name);
         return false;
@@ -2794,6 +2906,7 @@ static bool sema_asm_register_name_supported(const char* name,
     if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
     if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
         strcmp(name, "g") == 0) return true;
+    if (strcmp(name, "x") == 0) return true;
     if (!output && (strcmp(name, "{eax}") == 0 ||
                     strcmp(name, "{rax}") == 0 ||
                     strcmp(name, "{ebx}") == 0 ||
@@ -2889,7 +3002,8 @@ static bool sema_asm_clobber_supported(const char* name, SourceLoc loc) {
     static const char* const x86_names[] = {
         "eax", "ax", "al", "ah", "ebx", "bx", "bl", "bh",
         "ecx", "cx", "cl", "ch", "edx", "dx", "dl", "dh",
-        "esi", "si", "edi", "di", "cc", "memory"
+        "esi", "si", "edi", "di", "xmm0", "xmm1", "xmm2",
+        "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "cc", "memory"
     };
     static const char* const x64_names[] = {
         "rax", "eax", "ax", "al", "ah", "rbx", "ebx", "bx", "bl",
@@ -2919,6 +3033,15 @@ static bool sema_asm_clobber_supported(const char* name, SourceLoc loc) {
  * conflict check here, before code generation can silently let one pop
  * overwrite another operand. */
 static int sema_asm_fixed_register_id(const char* name) {
+    if (name && strncmp(name, "xmm", 3u) == 0 &&
+        name[3] >= '0' && name[3] <= '9') {
+        char* end;
+        long index = strtol(name + 3, &end, 10);
+        long register_limit = g_opts.target_arch == ARCH_X86 ? 8 : 16;
+        if (*end == '\0' && index >= 0 && index < register_limit) {
+            return 64 + (int)index;
+        }
+    }
     if (!name || !name[0]) return -1;
     if (strcmp(name, "a") == 0 || strcmp(name, "eax") == 0 ||
         strcmp(name, "rax") == 0 || strcmp(name, "ax") == 0 ||
@@ -2970,6 +3093,48 @@ static bool sema_asm_generic_gpr_operand(const AsmOperand* operand) {
     name = sema_asm_constraint_name(operand->constraint);
     return name && (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
                     strcmp(name, "g") == 0);
+}
+
+static bool sema_asm_xmm_operand(const AsmOperand* operand) {
+    const char* name = operand
+        ? sema_asm_constraint_name(operand->constraint) : NULL;
+    return name && strcmp(name, "x") == 0;
+}
+
+static bool sema_asm_xmm_type(const Type* type) {
+    return type && (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
+}
+
+static bool sema_asm_assign_xmm_registers(Stmt* stmt) {
+    bool used[16] = {false};
+    int register_count = g_opts.target_arch == ARCH_X86 ? 8 : 16;
+    AsmOperand* groups[2] = {stmt->asm_outputs, stmt->asm_inputs};
+
+    for (AsmClobber* clobber = stmt->asm_clobbers; clobber;
+         clobber = clobber->next) {
+        int id = sema_asm_fixed_register_id(clobber->reg);
+            if (id >= 64 && id < 64 + register_count) used[id - 64] = true;
+    }
+    for (size_t group = 0; group < 2u; ++group) {
+        for (AsmOperand* operand = groups[group]; operand;
+             operand = operand->next) {
+            if (!sema_asm_xmm_operand(operand)) continue;
+            operand->assigned_gpr = -2;
+            for (int index = 0; index < register_count; ++index) {
+                if (used[index]) continue;
+                used[index] = true;
+                operand->assigned_gpr = 64 + index;
+                break;
+            }
+            if (operand->assigned_gpr < 0) {
+                rcc_error(stmt->loc,
+                          "no available XMM register for inline asm operand '%s'",
+                          operand->constraint);
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 static bool sema_asm_nd_uses_immediate(const AsmOperand* operand) {
@@ -3169,6 +3334,15 @@ static void sema_asm_assign_registers(Stmt* stmt) {
     if (!stmt) return;
     for (AsmOperand* output = stmt->asm_outputs; output;
          output = output->next) {
+        if (sema_asm_xmm_operand(output)) output->assigned_gpr = -1;
+    }
+    for (AsmOperand* input = stmt->asm_inputs; input;
+         input = input->next) {
+        if (sema_asm_xmm_operand(input)) input->assigned_gpr = -1;
+    }
+    (void)sema_asm_assign_xmm_registers(stmt);
+    for (AsmOperand* output = stmt->asm_outputs; output;
+         output = output->next) {
         if (sema_asm_generic_gpr_operand(output)) {
             output->assigned_gpr = -1;
         }
@@ -3350,9 +3524,11 @@ static void sema_asm_stmt(Stmt* stmt) {
             rcc_error(op->expr->loc,
                       "inline asm memory output requires a complete object type");
         } else if (!sema_asm_memory_operand(op) &&
+                   !(sema_asm_xmm_operand(op) &&
+                     sema_asm_xmm_type(op->expr->type)) &&
                    !sema_asm_scalar_operand(op->expr->type)) {
             rcc_error(op->expr->loc,
-                      "inline asm output expression must have scalar integer or pointer type");
+                      "inline asm output expression must match its register class and have a supported scalar type");
         }
     }
     for (AsmOperand* op = stmt->asm_inputs; op; op = op->next) {
@@ -3370,9 +3546,11 @@ static void sema_asm_stmt(Stmt* stmt) {
                           "%s inline asm memory input requires a complete object type",
                           g_opts.target_arch == ARCH_X86 ? "i686" : "AMD64");
             }
-        } else if (!sema_asm_scalar_operand(op->expr->type)) {
+        } else if (!(sema_asm_xmm_operand(op) &&
+                     sema_asm_xmm_type(op->expr->type)) &&
+                   !sema_asm_scalar_operand(op->expr->type)) {
             rcc_error(op->expr->loc,
-                      "inline asm input expression must have scalar integer or pointer type");
+                      "inline asm input expression must match its register class and have a supported scalar type");
         } else if (sema_asm_immediate_name(op->constraint)) {
             int64_t immediate_value;
             if (!sema_is_integer_type(op->expr->type) ||
@@ -3968,7 +4146,8 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     }
     rcc_parser_cxx_materialize_conversion_templates(aggregate, target);
     sema_register_materialized_member_templates(aggregate);
-    for (method = aggregate->methods; method; method = method->next) {
+    for (method = sema_cxx_member_overload_list(aggregate);
+         method; method = method->next) {
         if (method_count >= SIZE_MAX / sizeof(*candidates)) {
             rcc_fatal("C++ conversion candidate table is too large");
         }
@@ -3976,7 +4155,8 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     }
     candidates = ast_arena_alloc(
         sizeof(*candidates) * (method_count > 0u ? method_count : 1u));
-    for (method = aggregate->methods; method; method = method->next) {
+    for (method = sema_cxx_member_overload_list(aggregate);
+         method; method = method->next) {
         Type* result_type;
         int object_qualification_rank;
         bool inherited_from_base;
@@ -5064,7 +5244,8 @@ static TypeMethod* sema_find_inline_method(Type* aggregate,
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
         return NULL;
     }
-    for (method = aggregate->methods; method; method = method->next) {
+    for (method = sema_cxx_member_overload_list(aggregate);
+         method; method = method->next) {
         if (method->kind != TYPE_METHOD_FUNCTION && method->name &&
             strcmp(method->name, name) == 0) return method;
     }
@@ -14777,6 +14958,11 @@ static bool sema_cxx_select_function_pointer_overload(
             selected_method->cxx_access_owner
                 ? selected_method->cxx_access_owner
                 : selected->func_method_owner->cxx_class;
+        if (selected->func_template_body_deferred &&
+            !rcc_cxx_complete_function_template_body(selected)) {
+            name->type = type_int;
+            address->type = type_int;
+        }
         return true;
     }
     if (!rcc_parser_is_cxx_mode() || !target || !expression ||
@@ -14798,6 +14984,11 @@ static bool sema_cxx_select_function_pointer_overload(
     }
     expression->ident_decl = selected;
     expression->type = selected->type;
+    if (selected->func_template_body_deferred &&
+        !rcc_cxx_complete_function_template_body(selected)) {
+        expression->type = type_int;
+        return true;
+    }
     if (selected->func_is_template_instance && current_ast) {
         bool present = false;
         for (DeclList* item = current_ast->decls; item; item = item->next) {
@@ -24237,8 +24428,8 @@ static bool sema_cxx_member_lookup_ambiguous(Type* aggregate,
             return true;
         }
     }
-    for (TypeMethod* method = aggregate->methods; method;
-         method = method->next) {
+    for (TypeMethod* method = sema_cxx_member_overload_list(aggregate);
+         method; method = method->next) {
         if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
             method->name && strcmp(method->name, name) == 0) {
             has_method = true;
@@ -24253,8 +24444,8 @@ static bool sema_cxx_class_declares_method_name(Type* aggregate,
                                                 const char* name) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
     if (!cls || !name) return false;
-    for (TypeMethod* method = aggregate->methods; method;
-         method = method->next) {
+    for (TypeMethod* method = sema_cxx_member_overload_list(aggregate);
+         method; method = method->next) {
         Decl* declaration;
         if (method->kind != TYPE_METHOD_FUNCTION || !method->function_decl ||
             !method->name || strcmp(method->name, name) != 0) {
@@ -24361,6 +24552,18 @@ static bool sema_cxx_method_is_ignored_defaulted_deleted_move_assignment(
         owner_type, parameter_type, 0u);
 }
 
+static TypeMethod* sema_cxx_member_overload_list(Type* type) {
+    Type* canonical_type = type && type->cxx_class
+        ? type->cxx_class->type : NULL;
+    if (type && type->methods) return type->methods;
+    if (type && type->cxx_class && type->cxx_class->templ &&
+        canonical_type && canonical_type != type &&
+        canonical_type->methods) {
+        return canonical_type->methods;
+    }
+    return type ? type->methods : NULL;
+}
+
 static bool sema_cxx_method_is_overload_candidate(
     Type* aggregate, const char* name, TypeMethod* method) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
@@ -24381,7 +24584,8 @@ static bool sema_cxx_method_is_overload_candidate(
     } else if (sema_cxx_class_declares_method_name(aggregate, name)) {
         return false;
     }
-    for (TypeMethod* derived = aggregate->methods; derived;
+    for (TypeMethod* derived = sema_cxx_member_overload_list(aggregate);
+         derived;
          derived = derived->next) {
         CxxClass* derived_owner =
             sema_cxx_declaring_method_owner(derived);
@@ -24426,7 +24630,7 @@ static bool sema_cxx_member_resolves_to_data_field(Type* aggregate,
             break;
         }
     }
-    for (TypeMethod* method = lookup_type->methods;
+    for (TypeMethod* method = sema_cxx_member_overload_list(lookup_type);
          method; method = method->next) {
         if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
             method->name && strcmp(method->name, name) == 0) {
@@ -24472,7 +24676,8 @@ static TypeMethod* sema_select_cxx_member_method(
                   name);
         return NULL;
     }
-    for (method = aggregate->methods; method; method = method->next) {
+    for (method = sema_cxx_member_overload_list(aggregate);
+         method; method = method->next) {
         if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
             method->name && strcmp(method->name, name) == 0 &&
             !method->function_decl->func_is_template_instance &&
@@ -24489,7 +24694,8 @@ static TypeMethod* sema_select_cxx_member_method(
         (size_t)(overload_method_count > 0 ? overload_method_count : 1));
     {
         int overload_index = 0;
-        for (method = aggregate->methods; method; method = method->next) {
+        for (method = sema_cxx_member_overload_list(aggregate);
+             method; method = method->next) {
             if (method->kind == TYPE_METHOD_FUNCTION &&
                 method->function_decl && method->name &&
                 strcmp(method->name, name) == 0 &&
@@ -28137,6 +28343,28 @@ static bool sema_cxx_plain_class_array_element(const Type* type) {
         !type->cleanup_function && !type->cleanup_field;
 }
 
+static Expr* sema_cxx_lvalue_to_rvalue_operand(Expr* expression) {
+    Type* reference_type = expression ? expression->type : NULL;
+    Type* value_type;
+    Expr* value;
+    if (!rcc_parser_is_cxx_mode() || !reference_type ||
+        !reference_type->is_reference || !reference_type->base) {
+        return expression;
+    }
+    value_type = reference_type->base;
+    if (value_type->kind == TYPE_ARRAY || value_type->kind == TYPE_FUNC ||
+        value_type->kind == TYPE_STRUCT || value_type->kind == TYPE_UNION ||
+        value_type->kind == TYPE_VECTOR) {
+        return expression;
+    }
+    /* A reference expression carries an address in the backend.  Model the
+     * built-in lvalue-to-rvalue conversion explicitly where an operator
+     * consumes its scalar value, leaving reference-binding contexts intact. */
+    value = expr_unary(EXPR_DEREF, expression, expression->loc);
+    value->type = value_type;
+    return value;
+}
+
 static Type* sema_expr(Expr* expr) {
     Expr* preanalyzed_binary_lhs = NULL;
     Type* preanalyzed_binary_lhs_type = NULL;
@@ -28535,6 +28763,16 @@ static Type* sema_expr(Expr* expr) {
                 }
                 break;
             }
+            if (expr->ident_name) {
+                Decl* qualified_method =
+                    sema_cxx_lookup_qualified_static_method(
+                        expr->ident_name, expr->loc);
+                if (qualified_method) {
+                    expr->ident_decl = qualified_method;
+                    expr->type = qualified_method->type;
+                    break;
+                }
+            }
             Symbol* sym = sema_cxx_lookup_name(expr->ident_name, expr->loc);
             if (!sym && current_cxx_method_owner && expr->ident_name) {
                 CxxClass* owner = current_cxx_method_owner->cxx_class;
@@ -28748,6 +28986,14 @@ static Type* sema_expr(Expr* expr) {
                 expr->unary_operand &&
                 expr->unary_operand->kind == EXPR_IDENT
                     ? expr->unary_operand->ident_decl : NULL;
+            if (addressed_function &&
+                addressed_function->kind == DECL_FUNC &&
+                addressed_function->func_template_body_deferred &&
+                !rcc_cxx_complete_function_template_body(
+                    addressed_function)) {
+                expr->type = type_int;
+                break;
+            }
             if (rcc_parser_is_cxx_mode() && addressed_function &&
                 addressed_function->kind == DECL_FUNC &&
                 addressed_function->func_is_consteval &&
@@ -29835,6 +30081,10 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "comparison requires arithmetic or pointer operands");
             }
+            expr->binary_lhs = sema_cxx_lvalue_to_rvalue_operand(
+                expr->binary_lhs);
+            expr->binary_rhs = sema_cxx_lvalue_to_rvalue_operand(
+                expr->binary_rhs);
             expr->type = type_int;
             break;
         }
@@ -31274,6 +31524,12 @@ static Type* sema_expr(Expr* expr) {
                 call_declaration =
                     sema_cxx_immediate_function_designator(
                         expr->call_func);
+            }
+            if (call_declaration &&
+                call_declaration->func_template_body_deferred &&
+                !rcc_cxx_complete_function_template_body(call_declaration)) {
+                expr->type = type_int;
+                break;
             }
             if (adl_arguments_in_speculative_immediate_context &&
                 (!call_declaration ||
@@ -37752,24 +38008,41 @@ static void sema_decl(Decl* decl) {
         case DECL_FUNC: {
             CxxNamespace* saved_cxx_namespace = current_cxx_namespace;
             bool saved_template_instance = current_func_template_instance;
-            sema_validate_global_allocation_operator(decl);
             if (rcc_parser_is_cxx_mode()) {
                 current_cxx_namespace = sema_decl_namespace(decl);
             }
             Decl* redeclaration_prior = NULL;
-            if (decl->func_is_auto_return && !decl->func_body) {
-                rcc_error(decl->loc,
-                          "auto return type requires a function definition");
-            }
             Symbol* sym = symtab_lookup(g_symtab, decl->name);
+            bool declaration_already_registered = false;
             bool cxx_overload_set = false;
             bool cxx_defaults_merged = false;
             Type* previous_method_owner = current_cxx_method_owner;
             Decl* previous_this_param = current_cxx_this_param;
             Decl* previous_cxx_function_decl = current_cxx_function_decl;
+            if (sym && sym->kind == SYM_FUNC) {
+                for (Decl* registered = sym->decl; registered;
+                     registered = registered->func_overload_next) {
+                    if (registered == decl) {
+                        declaration_already_registered = true;
+                        break;
+                    }
+                }
+            }
+            if (declaration_already_registered &&
+                decl->func_class_template_body_queued_for_sema) {
+                goto analyze_function_body;
+            }
+            sema_validate_global_allocation_operator(decl);
+            if (decl->func_is_auto_return && !decl->func_body) {
+                rcc_error(decl->loc,
+                          "auto return type requires a function definition");
+            }
             sema_validate_restrict_type(decl->type, decl->loc);
             sema_analyze_cxx_default_arguments(decl);
-            if (sym && sym->kind == SYM_FUNC &&
+            if (declaration_already_registered) {
+                cxx_overload_set = decl->func_has_cxx_linkage;
+                if (cxx_overload_set) sym->type = sym->decl->type;
+            } else if (sym && sym->kind == SYM_FUNC &&
                 decl->func_has_cxx_linkage) {
                 Decl** slot = &sym->decl;
                 while (*slot) {
@@ -37895,6 +38168,7 @@ static void sema_decl(Decl* decl) {
             }
             if (!cxx_overload_set) sym->type = decl->type;
 
+analyze_function_body:
             if (decl->func_body) {
                 sym->is_defined = true;
 
@@ -38089,9 +38363,13 @@ static void sema_decl(Decl* decl) {
 
 bool rcc_sema(AST* ast) {
     bool valid;
+    DeclList* processed_ast_tail;
     /* Create symbol table */
     g_symtab = symtab_new();
     current_ast = ast;
+    if (rcc_parser_is_cxx_mode()) {
+        rcc_parser_cxx_set_active_ast(ast);
+    }
     current_cxx_namespace = NULL;
     current_func_template_instance = false;
     static_local_counter = 0u;
@@ -38104,11 +38382,65 @@ bool rcc_sema(AST* ast) {
     for (DeclList* d = ast->decls; d; d = d->next) {
         sema_validate_stored_generic_lambda_decl(d->decl);
     }
+    processed_ast_tail = ast->decls;
+    while (processed_ast_tail && processed_ast_tail->next) {
+        processed_ast_tail = processed_ast_tail->next;
+    }
+
+    /* Class-template member bodies are substituted when a call selects the
+     * member. Analyze those completed bodies as ordinary functions, including
+     * any further deferred members selected by their statements. */
+    while (completed_class_template_method_bodies) {
+        DeclList* item = completed_class_template_method_bodies;
+        Decl* declaration = item->decl;
+        bool already_in_translation_unit = false;
+        completed_class_template_method_bodies = item->next;
+        if (!completed_class_template_method_bodies) {
+            completed_class_template_method_bodies_tail = NULL;
+        }
+        sema_decl(declaration);
+        declaration->func_class_template_body_queued_for_sema = false;
+        declaration->func_class_template_body_sema_analyzed = true;
+        for (DeclList* existing = ast->decls; existing;
+             existing = existing->next) {
+            if (existing->decl == declaration) {
+                already_in_translation_unit = true;
+                break;
+            }
+        }
+        if (!already_in_translation_unit) {
+            decllist_append(&ast->decls, declaration);
+        }
+        sema_validate_stored_generic_lambda_decl(declaration);
+
+        /* Completing a deferred method can instantiate member-function
+         * templates. Those declarations are appended to the translation unit
+         * after its ordinary semantic pass, so analyze each appended node
+         * before code generation. Walk dynamically because sema_decl may
+         * append further specializations. Deferred class-template methods
+         * already have their own queue entries and are handled there. */
+        for (DeclList* added = processed_ast_tail
+                 ? processed_ast_tail->next : ast->decls;
+             added; added = added->next) {
+            processed_ast_tail = added;
+            if (!added->decl || added->decl == declaration ||
+                added->decl->kind != DECL_FUNC ||
+                !added->decl->func_is_template_instance ||
+                added->decl->func_class_template_body_queued_for_sema) {
+                continue;
+            }
+            sema_decl(added->decl);
+            sema_validate_stored_generic_lambda_decl(added->decl);
+        }
+    }
 
     valid = g_error_count == 0;
     symtab_free(g_symtab);
     g_symtab = NULL;
     current_cxx_namespace = NULL;
     current_ast = NULL;
+    if (rcc_parser_is_cxx_mode()) {
+        rcc_parser_cxx_set_active_ast(NULL);
+    }
     return valid;
 }

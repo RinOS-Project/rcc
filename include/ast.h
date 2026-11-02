@@ -27,6 +27,7 @@ typedef struct TypeOffsetofDesignator TypeOffsetofDesignator;
 struct ExprList;
 struct Token;
 struct CxxClass;
+struct CxxMethod;
 struct CxxConstructorInfo;
 struct CxxNamespace;
 struct CxxTemplate;
@@ -1589,6 +1590,11 @@ struct Decl {
             /* Member-function template candidates defer body substitution
              * until overload selection chooses the specialization. */
             bool func_template_body_deferred;
+            /* A non-template member body from a class-template
+             * specialization is substituted only when that member is used. */
+            struct CxxMethod* func_class_template_body_source_method;
+            bool func_class_template_body_queued_for_sema;
+            bool func_class_template_body_sema_analyzed;
             struct CxxTemplate* func_template_owner;
             Type** func_template_args;
             int func_template_arg_count;

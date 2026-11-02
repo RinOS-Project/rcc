@@ -686,6 +686,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                            const bool* value_present,
                                            int arg_count);
 bool rcc_cxx_complete_function_template_body(Decl* instance);
+bool rcc_cxx_complete_class_template_method_body(Decl* instance);
+void rcc_parser_cxx_set_active_ast(AST* ast);
 Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                               Type** args, int arg_count);
 Expr* cxx_template_clone_expr_with_values(

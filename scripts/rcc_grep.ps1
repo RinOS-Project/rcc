@@ -72,6 +72,14 @@ if ($env:OS -eq 'Windows_NT' -and $Arguments.Count -gt 0) {
             [string]$argumentPaths[0], [System.StringComparison]::OrdinalIgnoreCase)
         if ($firstPathOffset -ge 0) {
             $beforePath = $rawCommandLine.Substring(0, $firstPathOffset)
+            # A quoted path's opening quote remains at the end of the command
+            # prefix because firstPathOffset points just after that quote.
+            # Remove it before extracting the quoted search pattern, otherwise
+            # the recovered text includes the path quote as an extra character.
+            $beforePath = $beforePath.TrimEnd()
+            if ($beforePath.EndsWith('"')) {
+                $beforePath = $beforePath.Substring(0, $beforePath.Length - 1)
+            }
             $lastSwitchEnd = -1
             foreach ($grepOption in @('-F', '-q', '-x', '-c')) {
                 $switchOffset = $beforePath.LastIndexOf(

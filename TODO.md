@@ -1,5 +1,35 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-11-03, dependent class-template virtual methods)
+
+- [x] Instantiate deferred virtual member bodies after resolving a concrete
+  class-template specialization's dependent bases and building its vtable.
+  Cover both explicit `override` and an implicit override without the
+  specifier; the vtable thunk now has a matching emitted definition.
+  `test-cxx-class-template-dependent-base` passes strict GCC C++20 syntax,
+  i686 freestanding link/runtime, i686/AMD64 object generation, and AMD64
+  generated-code execution.
+- [x] Defer ordinary class-template member bodies until use while preserving
+  static/member calls and diagnostics in the selected specialization. Check
+  one definition per used specialization, no unused `void` specialization,
+  GCC-matched incomplete-`sizeof` and `atomic<void*>` pointer-arithmetic
+  diagnostics, and absent invalid i686/AMD64 objects in
+  `test-cxx-deferred-class-template-member-bodies`.
+- [x] Keep a used nested class-template accessor on the ordinary method-call
+  path while its substituted body is deferred, so semantic instantiation and
+  the nested method ABI symbol are retained. `test-cxx-nested-class-templates`
+  verifies the symbol on both targets, generated AMD64 execution, and private
+  nested-template diagnostics with no invalid i686/AMD64 objects.
+- [x] Compare scalar reference conversion results by value in built-in C++
+  comparisons while preserving reference binding in initialization. Explicit
+  `static_cast<const int&>` comparison and reference-member initialization
+  both pass the C++ class-template methods gate, including AMD64 `-O0`/`-O2`
+  runtime.
+- [x] Resolve qualified static methods through local class-type aliases and
+  suppress the cascading fold-expansion diagnostic after a primary pack-length
+  mismatch. The nested dependent-type pack-invalid target reports the single
+  expected diagnostic and produces no i686/AMD64 object.
+
 ## RCC continuation (2026-11-01, array-decay overload ranking)
 
 - [x] Compare array-reference binding with array-to-pointer decay correctly

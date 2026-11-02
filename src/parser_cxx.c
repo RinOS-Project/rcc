@@ -20,6 +20,7 @@ typedef struct {
 } Parser;
 
 extern Parser parser;
+extern void rcc_sema_queue_completed_class_template_method(Decl*);
 extern void rcc_parser_set_cxx_template_default_mode(bool enabled);
 extern bool rcc_parser_type_lookup_is_ambiguous(const char* name);
 extern bool rcc_parser_cxx_split_template_close(void);
@@ -33,6 +34,10 @@ static CxxNamespace* active_namespace;
 static CxxClass* active_class;
 static CxxClass* active_template_class_definition;
 static AST* active_ast;
+
+void rcc_parser_cxx_set_active_ast(AST* ast) {
+    active_ast = ast;
+}
 static CxxFriendAccess* active_friend_access_context;
 static CxxFriendAccess* active_friend_signature_candidates;
 
@@ -2415,7 +2420,7 @@ Stmt* rcc_parse_cxx_qualified_conversion_definition(
 static CxxMethod* substitute_template_method(
     CxxTemplate* tmpl, CxxMethod* method, Type** arguments,
     int argument_count, const int64_t* value_args,
-    const bool* value_present);
+    const bool* value_present, bool defer_class_template_body);
 static void cxx_refresh_cached_class_template_member_definition(
     CxxTemplate* class_template, CxxMethod* source_method);
 static bool cxx_explicit_class_template_member_function_specialization_starts(
@@ -10528,6 +10533,9 @@ static void register_inline_class_accessors(CxxClass* cls) {
             method->is_defaulted || method->is_constructor ||
             method->is_destructor || !method->is_const ||
             method->is_volatile ||
+            method->decl->func_template_body_deferred ||
+            (method->source_name &&
+             strcmp(method->source_name, "operator conversion") == 0) ||
             method->decl->func_params || !method->decl->func_body ||
             method->decl->func_body->kind != STMT_BLOCK) {
             continue;
@@ -23126,11 +23134,13 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
                                              Type** arguments,
                                              int argument_count,
                                              const int64_t* value_args,
-                                             const bool* value_present) {
+                                             const bool* value_present,
+                                             bool defer_class_template_body) {
     CxxMethod* copy;
     DeclList* parameters;
     DeclList* saved_pack_parameters;
     Type* return_type;
+    bool defer_body;
     if (!method || !method->decl || !method->decl->type) return NULL;
     parameters = substitute_template_decl_parameters(
         tmpl, method->decl->func_params, arguments, argument_count,
@@ -23211,18 +23221,234 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
         tmpl, method->decl->func_noexcept_expr, arguments, argument_count,
         value_args, value_present);
     copy->vtable_index = method->vtable_index;
+    defer_body = defer_class_template_body && tmpl &&
+        tmpl->kind == TMPL_CLASS && method->decl->func_body &&
+        !method->member_template && !method->is_constructor &&
+        !method->is_destructor && !method->is_defaulted &&
+        !method->is_virtual && !method->is_constexpr &&
+        !method->decl->func_is_consteval &&
+        !method->decl->func_is_auto_return &&
+        !method->decl->func_is_decltype_auto_return;
     saved_pack_parameters = tmpl->active_pack_parameters;
     tmpl->active_pack_parameters = method->decl->func_params;
-    copy->decl->func_body = cxx_template_clone_stmt_with_values(
-        tmpl, method->decl->func_body, arguments, argument_count,
-        value_args, value_present);
+    copy->decl->func_body = defer_body
+        ? method->decl->func_body
+        : cxx_template_clone_stmt_with_values(
+              tmpl, method->decl->func_body, arguments, argument_count,
+              value_args, value_present);
     tmpl->active_pack_parameters = saved_pack_parameters;
+    copy->decl->func_class_template_body_source_method = NULL;
+    if (defer_body) {
+        Decl* declaration = copy->decl;
+        declaration->func_template_body_deferred = true;
+        declaration->func_class_template_body_source_method = method;
+        declaration->func_template_owner = tmpl;
+        declaration->func_template_arg_count = argument_count;
+        declaration->func_template_args = NULL;
+        declaration->func_template_value_args = NULL;
+        declaration->func_template_value_present = NULL;
+        declaration->func_template_pack_args = NULL;
+        declaration->func_template_pack_values = NULL;
+        declaration->func_template_pack_value_present = NULL;
+        declaration->func_template_pack_offsets = NULL;
+        declaration->func_template_pack_counts = NULL;
+        declaration->func_template_pack_count = tmpl->pending_pack_count;
+        if (argument_count > 0) {
+            declaration->func_template_args = ast_arena_alloc(
+                sizeof(declaration->func_template_args[0]) *
+                (size_t)argument_count);
+            memcpy(declaration->func_template_args, arguments,
+                   sizeof(declaration->func_template_args[0]) *
+                       (size_t)argument_count);
+            if (value_args) {
+                declaration->func_template_value_args = ast_arena_alloc(
+                    sizeof(declaration->func_template_value_args[0]) *
+                    (size_t)argument_count);
+                memcpy(declaration->func_template_value_args, value_args,
+                       sizeof(declaration->func_template_value_args[0]) *
+                           (size_t)argument_count);
+            }
+            if (value_present) {
+                declaration->func_template_value_present =
+                    ast_arena_alloc(
+                        sizeof(declaration->func_template_value_present[0]) *
+                        (size_t)argument_count);
+                memcpy(declaration->func_template_value_present,
+                       value_present,
+                       sizeof(declaration->func_template_value_present[0]) *
+                           (size_t)argument_count);
+            }
+        }
+        if (tmpl->pending_pack_count > 0) {
+            if (tmpl->pending_pack_args) {
+                declaration->func_template_pack_args = ast_arena_alloc(
+                    sizeof(declaration->func_template_pack_args[0]) *
+                    (size_t)tmpl->pending_pack_count);
+                memcpy(declaration->func_template_pack_args,
+                       tmpl->pending_pack_args,
+                       sizeof(declaration->func_template_pack_args[0]) *
+                           (size_t)tmpl->pending_pack_count);
+            }
+            if (tmpl->pending_pack_values) {
+                declaration->func_template_pack_values = ast_arena_alloc(
+                    sizeof(declaration->func_template_pack_values[0]) *
+                    (size_t)tmpl->pending_pack_count);
+                memcpy(declaration->func_template_pack_values,
+                       tmpl->pending_pack_values,
+                       sizeof(declaration->func_template_pack_values[0]) *
+                           (size_t)tmpl->pending_pack_count);
+            }
+            if (tmpl->pending_pack_value_present) {
+                declaration->func_template_pack_value_present =
+                    ast_arena_alloc(
+                        sizeof(declaration->func_template_pack_value_present[0]) *
+                        (size_t)tmpl->pending_pack_count);
+                memcpy(declaration->func_template_pack_value_present,
+                       tmpl->pending_pack_value_present,
+                       sizeof(declaration->func_template_pack_value_present[0]) *
+                           (size_t)tmpl->pending_pack_count);
+            }
+        }
+        if (tmpl->pending_pack_offsets) {
+            declaration->func_template_pack_offsets = ast_arena_alloc(
+                sizeof(declaration->func_template_pack_offsets[0]) *
+                (size_t)tmpl->param_count);
+            memcpy(declaration->func_template_pack_offsets,
+                   tmpl->pending_pack_offsets,
+                   sizeof(declaration->func_template_pack_offsets[0]) *
+                       (size_t)tmpl->param_count);
+        }
+        if (tmpl->pending_pack_counts) {
+            declaration->func_template_pack_counts = ast_arena_alloc(
+                sizeof(declaration->func_template_pack_counts[0]) *
+                (size_t)tmpl->param_count);
+            memcpy(declaration->func_template_pack_counts,
+                   tmpl->pending_pack_counts,
+                   sizeof(declaration->func_template_pack_counts[0]) *
+                       (size_t)tmpl->param_count);
+        }
+    } else {
+        copy->decl->func_template_body_deferred = false;
+        copy->decl->func_class_template_body_source_method = NULL;
+    }
     if (method->member_template) {
         (void)substitute_class_member_function_template(
             tmpl, method->member_template, copy, arguments, argument_count,
             value_args, value_present);
     }
     return copy;
+}
+
+static bool cxx_complete_class_template_method_body(
+    Decl* instance, bool queue_for_sema) {
+    CxxTemplate* tmpl;
+    CxxMethod* source_method;
+    CxxMethod* completed_method;
+    CxxClass* owner;
+    CxxClass* saved_active_class;
+    CxxNamespace* saved_active_namespace;
+    CxxTemplate* saved_active_template;
+    CxxClass* saved_active_class_instance;
+    CxxClass* saved_local_class_instance;
+    Type** saved_pending_pack_args;
+    bool* saved_pending_pack_expansions;
+    int64_t* saved_pending_pack_values;
+    bool* saved_pending_pack_value_present;
+    Expr** saved_pending_pack_value_expressions;
+    int saved_pending_pack_count;
+    int* saved_pending_pack_offsets;
+    int* saved_pending_pack_counts;
+    DeclList* saved_active_pack_parameters;
+
+    if (!instance || instance->kind != DECL_FUNC ||
+        !instance->func_class_template_body_source_method) {
+        return false;
+    }
+    tmpl = instance->func_template_owner;
+    source_method = instance->func_class_template_body_source_method;
+    owner = instance->func_method_owner
+        ? instance->func_method_owner->cxx_class : NULL;
+    if (!tmpl || tmpl->kind != TMPL_CLASS || !source_method || !owner ||
+        instance->func_template_arg_count < 0 ||
+        (instance->func_template_arg_count > 0 &&
+         !instance->func_template_args)) {
+        rcc_error(instance->loc,
+                  "class-template member body has incomplete specialization data");
+        return false;
+    }
+
+    saved_active_class = active_class;
+    saved_active_namespace = active_namespace;
+    saved_active_template = active_template;
+    saved_active_class_instance = tmpl->active_class_instance;
+    saved_local_class_instance = tmpl->local_class_instance;
+    saved_pending_pack_args = tmpl->pending_pack_args;
+    saved_pending_pack_expansions = tmpl->pending_pack_expansions;
+    saved_pending_pack_values = tmpl->pending_pack_values;
+    saved_pending_pack_value_present = tmpl->pending_pack_value_present;
+    saved_pending_pack_value_expressions =
+        tmpl->pending_pack_value_expressions;
+    saved_pending_pack_count = tmpl->pending_pack_count;
+    saved_pending_pack_offsets = tmpl->pending_pack_offsets;
+    saved_pending_pack_counts = tmpl->pending_pack_counts;
+    saved_active_pack_parameters = tmpl->active_pack_parameters;
+
+    active_class = owner;
+    active_namespace = owner->ns ? owner->ns : g_global_namespace;
+    active_template = tmpl;
+    tmpl->active_class_instance = owner;
+    if (tmpl->is_local_class_template) {
+        tmpl->local_class_instance = owner;
+    }
+    tmpl->pending_pack_args = instance->func_template_pack_args;
+    tmpl->pending_pack_expansions = NULL;
+    tmpl->pending_pack_values = instance->func_template_pack_values;
+    tmpl->pending_pack_value_present =
+        instance->func_template_pack_value_present;
+    tmpl->pending_pack_value_expressions = NULL;
+    tmpl->pending_pack_count = instance->func_template_pack_count;
+    tmpl->pending_pack_offsets = instance->func_template_pack_offsets;
+    tmpl->pending_pack_counts = instance->func_template_pack_counts;
+
+    completed_method = substitute_template_method(
+        tmpl, source_method, instance->func_template_args,
+        instance->func_template_arg_count,
+        instance->func_template_value_args,
+        instance->func_template_value_present, false);
+
+    active_class = saved_active_class;
+    active_namespace = saved_active_namespace;
+    active_template = saved_active_template;
+    tmpl->active_class_instance = saved_active_class_instance;
+    tmpl->local_class_instance = saved_local_class_instance;
+    tmpl->pending_pack_args = saved_pending_pack_args;
+    tmpl->pending_pack_expansions = saved_pending_pack_expansions;
+    tmpl->pending_pack_values = saved_pending_pack_values;
+    tmpl->pending_pack_value_present = saved_pending_pack_value_present;
+    tmpl->pending_pack_value_expressions =
+        saved_pending_pack_value_expressions;
+    tmpl->pending_pack_count = saved_pending_pack_count;
+    tmpl->pending_pack_offsets = saved_pending_pack_offsets;
+    tmpl->pending_pack_counts = saved_pending_pack_counts;
+    tmpl->active_pack_parameters = saved_active_pack_parameters;
+
+    if (!completed_method || !completed_method->decl ||
+        (source_method->decl->func_body &&
+         !completed_method->decl->func_body)) {
+        return false;
+    }
+    instance->func_body = completed_method->decl->func_body;
+    instance->func_is_defined = completed_method->decl->func_is_defined;
+    if (queue_for_sema) {
+        rcc_sema_queue_completed_class_template_method(instance);
+    }
+    instance->func_template_body_deferred = false;
+    instance->func_class_template_body_source_method = NULL;
+    return true;
+}
+
+bool rcc_cxx_complete_class_template_method_body(Decl* instance) {
+    return cxx_complete_class_template_method_body(instance, true);
 }
 
 static Decl* cxx_substitute_class_hidden_friend(
@@ -23661,7 +23887,7 @@ static void cxx_refresh_cached_class_template_member_definition(
             class_template->instances[index].args,
             class_template->instances[index].arg_count,
             class_template->instances[index].value_args,
-            class_template->instances[index].value_present);
+            class_template->instances[index].value_present, false);
         if (!refreshed_method || !refreshed_method->decl) continue;
 
         instance_method->decl->func_body = refreshed_method->decl->func_body;
@@ -25317,7 +25543,7 @@ static Type* instantiate_class_template_for_owner(
         CxxMethod* method = substitute_template_method(
             tmpl, member->method, substitution_arguments,
             substitution_argument_count, substitution_value_args,
-            substitution_value_present);
+            substitution_value_present, true);
         if (method) {
             method->owner = instance;
             method->decl->func_method_owner = instance->type;
@@ -25574,6 +25800,27 @@ static Type* instantiate_class_template_for_owner(
     }
     complete_cxx_default_member_initializers(instance);
     cxx_class_build_vtable(instance);
+    /* A member declared with `override` may not look virtual while its
+     * dependent base is still only a pattern.  Its body was therefore
+     * deferred by substitute_template_method.  Once this specialization's
+     * vtable identifies the actual overrides, instantiate those bodies now:
+     * vtable slots and adjusting thunks need concrete definitions even when
+     * the source never makes a direct call to the member.  The ordinary AST
+     * semantic pass will analyze these declarations after parsing. */
+    for (struct CxxMember* member = instance->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        Decl* declaration = method ? method->decl : NULL;
+        if (!method || !method->is_virtual || method->is_pure_virtual ||
+            !declaration ||
+            !declaration->func_class_template_body_source_method) {
+            continue;
+        }
+        if (!cxx_complete_class_template_method_body(declaration, false)) {
+            rcc_error(declaration->loc,
+                      "failed to instantiate virtual class-template member body");
+        }
+    }
     /* Template instances are normally kept only on their CxxTemplate.  The
      * object-image backend walks namespace classes when emitting vtables and
      * virtual-base offset tables, so publish instances that own ABI tables
@@ -25592,7 +25839,31 @@ static Type* instantiate_class_template_for_owner(
     register_inline_class_close_delegates(instance);
     register_inline_class_move_constructor(instance);
     register_inline_class_move_assignment(instance);
-    register_ordinary_class_methods(instance);
+    /* The structural inline lowerings above inspect a few simple member
+     * bodies (release/close and move operations) before they can create their
+     * field-based TypeMethod records. Keep the uninstantiated source AST
+     * visible for that inspection, then discard it so ordinary class-template
+     * bodies remain deferred until use. */
+    for (struct CxxMember* member = instance->members; member;
+         member = member->next) {
+        Decl* declaration = member->method ? member->method->decl : NULL;
+        if (declaration &&
+            declaration->func_class_template_body_source_method) {
+            declaration->func_body = NULL;
+        }
+    }
+    {
+        CxxTemplate* saved_registration_template = active_template;
+        /* A concrete nested class can be instantiated while its enclosing
+         * class-template method body is being substituted. Publish that
+         * specialization's ordinary methods in the AST; the active enclosing
+         * template must not make the concrete member set look like a pattern. */
+        if (tmpl->kind == TMPL_CLASS && !instance->type->cxx_dependent) {
+            active_template = NULL;
+        }
+        register_ordinary_class_methods(instance);
+        active_template = saved_registration_template;
+    }
     constructor_mask = lowerable_constructor_arity_mask(instance);
     if (constructor_mask != 0u) {
         rcc_parser_define_cxx_constructor_type(instance->name,

@@ -81,7 +81,7 @@ CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
 CHECK_FINI_ARRAY = $(FINDSTR) /c:".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(subst /,\,$(1))
 CHECK_TEXT = $(FINDSTR) /c:"$(1)" "$(subst /,\,$(2))" >NUL
-CHECK_TEXT_ABSENT = ! $(GREP) -F -q "$(1)" "$(2)"
+CHECK_TEXT_ABSENT = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(2)')) { exit 2 }; if (Select-String -LiteralPath '$(2)' -SimpleMatch -Pattern '$(1)' -Quiet) { exit 1 }"
 GREP = $(POWERSHELL) -NoProfile -File "$(CURDIR)/scripts/rcc_grep.ps1"
 else
 VERIFIED_TEST_THREAD_FLAGS = -pthread
@@ -654,6 +654,7 @@ endif
 .PHONY: test-atomic-private-access
 .PHONY: test-cxx-conversion-distinct-user-sequences
 .PHONY: test-cxx-conversion-indirect-using
+.PHONY: test-cxx-deferred-class-template-member-bodies
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
 .PHONY: test-verified-switch-nested
 .PHONY: test-verified-cxx-explicit-throwing-destructor
@@ -1037,6 +1038,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-parser-recovery \
 	test-cxx-member-function-template-explicit-specialization \
 	test-cxx-class-template-member-function-explicit-specialization \
+	test-cxx-deferred-class-template-member-bodies \
 	test-cxx-nested-class-template-member-function-explicit-specialization \
 	test-cxx-multi-declarator \
 	test-cxx-numeric-separators \
@@ -3764,9 +3766,9 @@ test-preprocessor-date-time: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/preprocessor-date-time)
 	$(DATE_TIME_ENV) $(RCC_SHELL_TARGET) -E tests/preprocessor_date_time.c > \
 		$(TEST_OUT)/preprocessor-date-time/c.i
-	$(GREP) -F -q 'const char rcc_preprocessor_date[] = "Jan  1 1970";' \
+	$(GREP) -F -q 'const char rcc_preprocessor_date[] = \"Jan  1 1970\";' \
 		$(TEST_OUT)/preprocessor-date-time/c.i
-	$(GREP) -F -q 'const char rcc_preprocessor_time[] = "00:00:00";' \
+	$(GREP) -F -q 'const char rcc_preprocessor_time[] = \"00:00:00\";' \
 		$(TEST_OUT)/preprocessor-date-time/c.i
 	$(DATE_TIME_ENV) $(RCXX_SHELL_TARGET) -std=c++20 -E \
 		tests/preprocessor_date_time.cpp > \
@@ -5330,6 +5332,49 @@ test-cxx-member-specifiers: $(RCXX_TARGET)
 		tests/cxx_member_specifiers.cpp
 	@echo "RCC++ class member specifier tests completed"
 
+test-cxx-deferred-class-template-member-bodies: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-deferred-class-template-member-bodies)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/positive-x86.ro \
+		tests/cxx_deferred_class_template_member_bodies.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/positive-x64.ro \
+		tests/cxx_deferred_class_template_member_bodies.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/positive-x64.s \
+		tests/cxx_deferred_class_template_member_bodies.cpp
+	$(call CHECK_COUNT,_ZN18DeferredMemberBodyIiE11static_sizeEv:,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/positive-x64.s,1)
+	$(call CHECK_COUNT,_ZNK18DeferredMemberBodyIiE11member_sizeEv:,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/positive-x64.s,1)
+	$(call CHECK_TEXT_ABSENT,_ZN18DeferredMemberBodyIvE11static_sizeEv,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/positive-x64.s)
+	$(call CHECK_TEXT_ABSENT,_ZNK18DeferredMemberBodyIvE11member_sizeEv,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/positive-x64.s)
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_deferred_class_template_member_bodies.cpp
+	$(call EXPECT_FAILURE,./$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_INVALID_STATIC_BODY -c -o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-x86.ro tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-x86.log)
+	$(GREP) -F -q "sizeof requires a complete object type" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-x86.ro)
+	$(call EXPECT_FAILURE,./$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_INVALID_STATIC_BODY -c -o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-x64.ro tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-x64.log)
+	$(GREP) -F -q "sizeof requires a complete object type" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-x64.ro)
+	$(call EXPECT_FAILURE,./$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_INVALID_MEMBER_BODY -c -o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-x86.ro tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-x86.log)
+	$(GREP) -F -q "sizeof requires a complete object type" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-x86.ro)
+	$(call EXPECT_FAILURE,./$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_INVALID_MEMBER_BODY -c -o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-x64.ro tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-x64.log)
+	$(GREP) -F -q "sizeof requires a complete object type" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-x64.ro)
+	$(call EXPECT_FAILURE,./$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_INVALID_ATOMIC_VOID_POINTER_ARITHMETIC -c -o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-x86.ro tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-x86.log)
+	$(GREP) -F -q "sizeof requires a complete object type" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-x86.ro)
+	$(call EXPECT_FAILURE,./$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_INVALID_ATOMIC_VOID_POINTER_ARITHMETIC -c -o $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-x64.ro tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-x64.log)
+	$(GREP) -F -q "sizeof requires a complete object type" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DTEST_INVALID_STATIC_BODY -fsyntax-only tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DTEST_INVALID_MEMBER_BODY -fsyntax-only tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DTEST_INVALID_ATOMIC_VOID_POINTER_ARITHMETIC -fsyntax-only tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-gcc.log)
+	$(GREP) -F -q "invalid application of 'sizeof'" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-gcc.log
+	$(GREP) -F -q "invalid application of 'sizeof'" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-gcc.log
+	$(GREP) -F -q "pointer to object type" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-gcc.log
+	@echo "RCC++ deferred class-template member-body tests completed"
+
 test-cxx-function-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-templates)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-parameter-count)
@@ -6599,14 +6644,14 @@ test-cxx-structural-pointer-offset-posix: $(RCXX_TARGET)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi0EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi1EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi2EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi3EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadcvPiplcvPcadL_Z32structural_pointer_offset_scalarELl4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi3EEEE7addressEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadcvPiplcvPcadL_Z32structural_pointer_offset_scalarELl4EEEE7addressEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadL_Z32structural_pointer_offset_valuesEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl0EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl1EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl2EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl3EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadcvPiplcvPcadL_Z32structural_pointer_offset_scalarELl4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl3EEEE7addressEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadcvPiplcvPcadL_Z32structural_pointer_offset_scalarELl4EEEE7addressEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-pointer-nested-array)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-structural-pointer-nested-array,cxx_structural_pointer_nested_array_nttp.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-pointer-nested-array/gcc-host tests/cxx_structural_pointer_nested_array_nttp.cpp
@@ -21141,22 +21186,26 @@ test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q "invalid #pragma STDC FENV_ACCESS" \
 		$(TEST_OUT)/fenv-header/invalid.log
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
 		-o $(TEST_OUT)/fenv-header/c-x86.ro tests/fenv_header_compile.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
 		-o $(TEST_OUT)/fenv-header/c-x64.ro tests/fenv_header_compile.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 -c \
 		-o $(TEST_OUT)/fenv-header/c23-x64.ro \
 		tests/fenv_access_optimizer.c
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -O2 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -S \
 		-o $(TEST_OUT)/fenv-header/round-pragma-x86.s \
 		tests/fenv_round_pragma_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/fenv-header/round-pragma-x86,\
 		$(TEST_OUT)/fenv-header/round-pragma-x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -S \
 		-o $(TEST_OUT)/fenv-header/round-pragma-x64.s \
 		tests/fenv_round_pragma_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/round-pragma-x64,\
@@ -21165,25 +21214,31 @@ test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/fenv-header/rounding-math-x86.ro \
 		tests/frounding_math_optimizer.c
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
-		-frounding-math -I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-frounding-math -I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
 		-o $(TEST_OUT)/fenv-header/rounding-math-cxx-x64.ro \
 		tests/fenv_header_compile.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
-		-frounding-math -I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-frounding-math -I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
 		-o $(TEST_OUT)/fenv-header/rounding-math-cxx-x86.ro \
 		tests/fenv_header_compile.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
 		-o $(TEST_OUT)/fenv-header/cxx-x86.ro tests/fenv_header_compile.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
 		-o $(TEST_OUT)/fenv-header/cxx-x64.ro tests/fenv_header_compile.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -S \
 		-o $(TEST_OUT)/fenv-header/runtime-x86.s tests/fenv_header_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/fenv-header/runtime-x86,$(TEST_OUT)/fenv-header/runtime-x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
-		-I$(RINOS_ROOT)/public-base/libs/libc -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -S \
 		-o $(TEST_OUT)/fenv-header/runtime-x64.s tests/fenv_header_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/runtime-x64,$(TEST_OUT)/fenv-header/runtime-x64.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 -S \

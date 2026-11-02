@@ -18488,6 +18488,9 @@ static int constraint_to_reg_for_operand(const char* constraint,
 
 static int asm_operand_register(const AsmOperand* operand) {
     if (!operand) return -1;
+    if (operand->assigned_gpr >= 64 && operand->assigned_gpr < 72) {
+        return operand->assigned_gpr;
+    }
     switch (operand->assigned_gpr) {
         case 0: return EAX;
         case 1: return EBX;
@@ -18522,6 +18525,15 @@ static bool asm_memory_frame_offset(const AsmOperand* operand,
 static bool asm_memory_constraint(const AsmOperand* operand) {
     return operand && strcmp(asm_constraint_name(operand->constraint),
                              "m") == 0;
+}
+
+static bool asm_xmm_register(int reg) {
+    return reg >= 64 && reg < 72;
+}
+
+static int asm_xmm_operand_width(const AsmOperand* operand) {
+    return operand && operand->expr && operand->expr->type &&
+           operand->expr->type->kind == TYPE_FLOAT ? 4 : 8;
 }
 
 static bool asm_parse_immediate8(const char* text, uint8_t* value) {
@@ -18669,6 +18681,11 @@ static bool asm_emit_x86_memory_group(Module* mod, const char* operand1,
 }
 
 static const char* asm_register_name(int reg) {
+    static const char* const xmm_names[] = {
+        "%xmm0", "%xmm1", "%xmm2", "%xmm3",
+        "%xmm4", "%xmm5", "%xmm6", "%xmm7"
+    };
+    if (reg >= 64 && reg < 72) return xmm_names[reg - 64];
     switch (reg) {
         case EAX: return "%eax";
         case ECX: return "%ecx";
@@ -18681,6 +18698,9 @@ static const char* asm_register_name(int reg) {
 }
 
 static const char* asm_register_name_width(int reg, char modifier) {
+    if (reg >= 64 && reg < 72) {
+        return modifier ? NULL : asm_register_name(reg);
+    }
     if (!modifier) return asm_register_name(reg);
     if (modifier == 'k') return asm_register_name(reg);
     if (modifier == 'w') {
@@ -18910,6 +18930,88 @@ static bool asm_parse_control_register(const char* text, int* control) {
     return true;
 }
 
+static bool asm_parse_xmm_register(const char* text, int* reg) {
+    if (!text || !reg) return false;
+    if (*text == '%') ++text;
+    if (strncmp(text, "xmm", 3u) != 0 || text[3] < '0' || text[3] > '7' ||
+        text[4] != '\0') return false;
+    *reg = text[3] - '0';
+    return true;
+}
+
+static bool asm_parse_x87_register(const char* text, int* index) {
+    if (!text || !index) return false;
+    if (*text == '%') ++text;
+    if (strcmp(text, "st") == 0) {
+        *index = 0;
+        return true;
+    }
+    if (strncmp(text, "st(", 3u) != 0 || text[3] < '0' || text[3] > '7' ||
+        text[4] != ')' || text[5] != '\0') return false;
+    *index = text[3] - '0';
+    return true;
+}
+
+static bool asm_emit_scalar_sse32(Module* mod, const char* mnemonic,
+                                  const char* source,
+                                  const char* destination) {
+    int prefix;
+    int opcode;
+    bool move;
+    int source_register;
+    int destination_register;
+    int base;
+    int32_t displacement;
+
+    if (strcmp(mnemonic, "movss") == 0) {
+        prefix = 0xF3; opcode = 0x10; move = true;
+    } else if (strcmp(mnemonic, "movsd") == 0) {
+        prefix = 0xF2; opcode = 0x10; move = true;
+    } else if (strcmp(mnemonic, "addss") == 0 ||
+               strcmp(mnemonic, "addsd") == 0) {
+        prefix = mnemonic[4] == 's' ? 0xF3 : 0xF2;
+        opcode = 0x58; move = false;
+    } else if (strcmp(mnemonic, "subss") == 0 ||
+               strcmp(mnemonic, "subsd") == 0) {
+        prefix = mnemonic[4] == 's' ? 0xF3 : 0xF2;
+        opcode = 0x5C; move = false;
+    } else if (strcmp(mnemonic, "mulss") == 0 ||
+               strcmp(mnemonic, "mulsd") == 0) {
+        prefix = mnemonic[4] == 's' ? 0xF3 : 0xF2;
+        opcode = 0x59; move = false;
+    } else if (strcmp(mnemonic, "divss") == 0 ||
+               strcmp(mnemonic, "divsd") == 0) {
+        prefix = mnemonic[4] == 's' ? 0xF3 : 0xF2;
+        opcode = 0x5E; move = false;
+    } else {
+        return false;
+    }
+
+    bool source_is_register = asm_parse_xmm_register(source,
+                                                      &source_register);
+    bool destination_is_register = asm_parse_xmm_register(
+        destination, &destination_register);
+    if (!move && !destination_is_register) return false;
+    if (source_is_register && destination_is_register) {
+        emit_sse128_reg(mod, destination_register, source_register, prefix,
+                        opcode);
+        return true;
+    }
+    if (!source_is_register && destination_is_register &&
+        asm_parse_x86_memory(source, &base, &displacement)) {
+        emit_sse128_memory(mod, destination_register, base, displacement,
+                           prefix, opcode);
+        return true;
+    }
+    if (move && source_is_register && !destination_is_register &&
+        asm_parse_x86_memory(destination, &base, &displacement)) {
+        emit_sse128_memory(mod, source_register, base, displacement,
+                           prefix, 0x11);
+        return true;
+    }
+    return false;
+}
+
 static bool emit_asm_instruction(Module* mod, const char* mnemonic,
                                   const char* op1, const char* op2,
                                   bool lock_prefix, bool repeat_prefix) {
@@ -18952,6 +19054,57 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
     else if (strcmp(mnemonic, "orl") == 0) mnemonic = "or";
     else if (strcmp(mnemonic, "xorl") == 0) mnemonic = "xor";
     else if (strcmp(mnemonic, "testl") == 0) mnemonic = "test";
+
+    if (op1 && op2 && asm_emit_scalar_sse32(mod, mnemonic, op1, op2)) {
+        return true;
+    }
+    if (asm_no_operands(op1, op2) && strcmp(mnemonic, "fld1") == 0) {
+        emit_byte(mod, 0xD9);
+        emit_byte(mod, 0xE8);
+        return true;
+    }
+    if (asm_no_operands(op1, op2) && strcmp(mnemonic, "fwait") == 0) {
+        emit_byte(mod, 0x9B);
+        return true;
+    }
+    if ((strcmp(mnemonic, "flds") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xD9u, -1, 0)) ||
+        (strcmp(mnemonic, "fldl") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xDDu, -1, 0)) ||
+        (strcmp(mnemonic, "fsts") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xD9u, -1, 2)) ||
+        (strcmp(mnemonic, "fstl") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xDDu, -1, 2)) ||
+        (strcmp(mnemonic, "fstps") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xD9u, -1, 3)) ||
+        (strcmp(mnemonic, "fstpl") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xDDu, -1, 3))) {
+        return true;
+    }
+    if (op1 && op2 && (strcmp(mnemonic, "faddp") == 0 ||
+                       strcmp(mnemonic, "fmulp") == 0 ||
+                       strcmp(mnemonic, "fsubp") == 0 ||
+                       strcmp(mnemonic, "fdivp") == 0)) {
+        int source_index;
+        int destination_index;
+        uint8_t opcode = strcmp(mnemonic, "faddp") == 0 ? 0xC0 :
+            strcmp(mnemonic, "fmulp") == 0 ? 0xC8 :
+            strcmp(mnemonic, "fsubp") == 0 ? 0xE8 : 0xF8;
+        if (asm_parse_x87_register(op1, &source_index) && source_index == 0 &&
+            asm_parse_x87_register(op2, &destination_index)) {
+            emit_byte(mod, 0xDE);
+            emit_byte(mod, (uint8_t)(opcode + destination_index));
+            return true;
+        }
+    }
+    if (strcmp(mnemonic, "fstp") == 0 && op1 && !op2) {
+        int index;
+        if (asm_parse_x87_register(op1, &index)) {
+            emit_byte(mod, 0xDD);
+            emit_byte(mod, (uint8_t)(0xD8 + index));
+            return true;
+        }
+    }
 
     if ((strcmp(mnemonic, "fnstenv") == 0 &&
          asm_emit_x86_memory_group(mod, op1, op2, 0xD9u, -1, 6)) ||
@@ -19677,6 +19830,10 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
             !asm_memory_constraint(operands[i].op) &&
             operands[i].reg >= 0 && operands[i].op->expr) {
             gen_expr(mod, operands[i].op->expr);
+            if (asm_xmm_register(operands[i].reg) &&
+                asm_xmm_operand_width(operands[i].op) == 8) {
+                emit_push_reg(mod, EDX);
+            }
             emit_push_reg(mod, EAX);
         }
     }
@@ -19684,6 +19841,10 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         if (!asm_memory_constraint(operands[i].op) &&
             operands[i].reg >= 0 && operands[i].op->expr) {
             gen_expr(mod, operands[i].op->expr);
+            if (asm_xmm_register(operands[i].reg) &&
+                asm_xmm_operand_width(operands[i].op) == 8) {
+                emit_push_reg(mod, EDX);
+            }
             emit_push_reg(mod, EAX);
         }
     }
@@ -19697,14 +19858,52 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     for (int i = total_operands - 1; i >= output_count; i--) {
         if (!asm_memory_constraint(operands[i].op) &&
             operands[i].reg >= 0 && operands[i].op->expr) {
-            emit_pop_reg(mod, operands[i].reg);
+            if (asm_xmm_register(operands[i].reg)) {
+                int xmm = operands[i].reg - 64;
+                if (asm_xmm_operand_width(operands[i].op) == 8) {
+                    emit_pop_reg(mod, EAX);
+                    emit_pop_reg(mod, EDX);
+                    emit_sub_reg_imm(mod, ESP, 8);
+                    emit_mov_mem_reg(mod, ESP, 0, EAX);
+                    emit_mov_mem_reg(mod, ESP, 4, EDX);
+                    emit_sse128_memory(mod, xmm, ESP, 0, 0xF3, 0x7E);
+                    emit_add_reg_imm(mod, ESP, 8);
+                } else {
+                    emit_pop_reg(mod, EAX);
+                    emit_byte(mod, 0x66);
+                    emit_byte(mod, 0x0F);
+                    emit_byte(mod, 0x6E);
+                    emit_byte(mod, modrm(3, xmm, EAX));
+                }
+            } else {
+                emit_pop_reg(mod, operands[i].reg);
+            }
         }
     }
     for (int i = output_count - 1; i >= 0; i--) {
         if (operands[i].op->constraint[0] == '+' &&
             !asm_memory_constraint(operands[i].op) &&
             operands[i].reg >= 0 && operands[i].op->expr) {
-            emit_pop_reg(mod, operands[i].reg);
+            if (asm_xmm_register(operands[i].reg)) {
+                int xmm = operands[i].reg - 64;
+                if (asm_xmm_operand_width(operands[i].op) == 8) {
+                    emit_pop_reg(mod, EAX);
+                    emit_pop_reg(mod, EDX);
+                    emit_sub_reg_imm(mod, ESP, 8);
+                    emit_mov_mem_reg(mod, ESP, 0, EAX);
+                    emit_mov_mem_reg(mod, ESP, 4, EDX);
+                    emit_sse128_memory(mod, xmm, ESP, 0, 0xF3, 0x7E);
+                    emit_add_reg_imm(mod, ESP, 8);
+                } else {
+                    emit_pop_reg(mod, EAX);
+                    emit_byte(mod, 0x66);
+                    emit_byte(mod, 0x0F);
+                    emit_byte(mod, 0x6E);
+                    emit_byte(mod, modrm(3, xmm, EAX));
+                }
+            } else {
+                emit_pop_reg(mod, operands[i].reg);
+            }
         }
     }
 
@@ -19873,6 +20072,14 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     for (int i = 0; i < output_count; i++) {
         if (!asm_memory_constraint(operands[i].op) &&
             operands[i].reg >= 0 && operands[i].op->expr) {
+            if (asm_xmm_register(operands[i].reg)) {
+                int width = asm_xmm_operand_width(operands[i].op);
+                gen_lvalue(mod, operands[i].op->expr);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_sse128_memory(mod, operands[i].reg - 64, ECX, 0,
+                                   width == 4 ? 0xF3 : 0xF2, 0x11);
+                continue;
+            }
             /* Get lvalue address */
             emit_push_reg(mod, operands[i].reg);  /* Save the result */
             gen_lvalue(mod, operands[i].op->expr);

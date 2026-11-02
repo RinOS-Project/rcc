@@ -11634,6 +11634,14 @@ Expr* cxx_template_clone_pack_expansion(
 static int template_function_parameter_pack_index(
     CxxTemplate* tmpl, const char* pack_name);
 
+static Expr* template_fold_error_recovery(const Expr* expression) {
+    SourceLoc loc = expression ? expression->loc
+                               : (SourceLoc){"<template>", 0, 0};
+    Expr* recovery = expr_int(0, loc);
+    recovery->type = type_int;
+    return recovery;
+}
+
 static Expr* template_clone_pack_fold(
     CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
     const int64_t* value_args, const bool* value_present) {
@@ -11695,12 +11703,12 @@ static Expr* template_clone_pack_fold(
         (expression->cxx_fold_pattern && pattern_pack_matches != 1)) {
         rcc_error(expression ? expression->loc : (SourceLoc){"<template>", 0, 0},
                   "C++ fold expression pattern must reference exactly one template parameter pack");
-        return expression;
+        return template_fold_error_recovery(expression);
     }
     if (tmpl->pending_pack_count < 0) {
         rcc_error(expression->loc,
                   "C++ fold expression requires a function-template pack specialization");
-        return expression;
+        return template_fold_error_recovery(expression);
     }
     if (expression->cxx_fold_init) {
         initializer = template_clone_expr(
@@ -11741,7 +11749,7 @@ static Expr* template_clone_pack_fold(
     if (pack_length < 0) {
         rcc_error(expression->loc,
                   "C++ fold expression requires a function-template pack specialization");
-        return expression;
+        return template_fold_error_recovery(expression);
     }
     if (pack_length == 0) {
         if (initializer) return initializer;
@@ -11755,7 +11763,7 @@ static Expr* template_clone_pack_fold(
         } else {
             rcc_error(expression->loc,
                       "empty C++ fold has no identity for this operator");
-            return expression;
+            return template_fold_error_recovery(expression);
         }
         if (expression->cxx_fold_operator != EXPR_COMMA) {
             result->type = type_int;
@@ -11773,7 +11781,7 @@ static Expr* template_clone_pack_fold(
             if (written < 0 || (size_t)written >= sizeof(name)) {
                 rcc_error(expression->loc,
                           "C++ fold parameter name is too long");
-                return expression;
+                return template_fold_error_recovery(expression);
             }
             errors_before = g_error_count;
             if (expression->cxx_fold_pattern) {
@@ -11786,7 +11794,7 @@ static Expr* template_clone_pack_fold(
                         pack_offset + index]) {
                     rcc_error(expression->loc,
                               "C++ non-type parameter pack value is missing");
-                    return expression;
+                    return template_fold_error_recovery(expression);
                 }
                 item = expr_int(tmpl->pending_pack_values[
                                     pack_offset + index],
@@ -11800,7 +11808,7 @@ static Expr* template_clone_pack_fold(
                     rcc_error(expression->loc,
                               "C++ fold expression pattern could not be cloned");
                 }
-                return expression;
+                return template_fold_error_recovery(expression);
             }
             if (!result) {
                 result = item;
@@ -11821,7 +11829,7 @@ static Expr* template_clone_pack_fold(
         if (written < 0 || (size_t)written >= sizeof(name)) {
             rcc_error(expression->loc,
                       "C++ fold parameter name is too long");
-            return expression;
+            return template_fold_error_recovery(expression);
         }
         errors_before = g_error_count;
         if (expression->cxx_fold_pattern) {
@@ -11833,7 +11841,7 @@ static Expr* template_clone_pack_fold(
                 !tmpl->pending_pack_value_present[pack_offset + index]) {
                 rcc_error(expression->loc,
                           "C++ non-type parameter pack value is missing");
-                return expression;
+                return template_fold_error_recovery(expression);
             }
             item = expr_int(
                 tmpl->pending_pack_values[pack_offset + index],
@@ -11847,7 +11855,7 @@ static Expr* template_clone_pack_fold(
                 rcc_error(expression->loc,
                           "C++ fold expression pattern could not be cloned");
             }
-            return expression;
+            return template_fold_error_recovery(expression);
         }
         if (!result) result = item;
         else result = expr_binary(expression->cxx_fold_operator,
@@ -14963,6 +14971,9 @@ bool rcc_cxx_complete_function_template_body(Decl* instance) {
     if (!instance || instance->kind != DECL_FUNC ||
         !instance->func_template_body_deferred) {
         return true;
+    }
+    if (instance->func_class_template_body_source_method) {
+        return rcc_cxx_complete_class_template_method_body(instance);
     }
     tmpl = instance->func_template_owner;
     if (!tmpl || !tmpl->func_def || !tmpl->func_def->func_body ||

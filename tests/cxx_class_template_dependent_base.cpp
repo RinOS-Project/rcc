@@ -80,6 +80,19 @@ struct DependentVirtualDispatchDerived
     }
 };
 
+template <typename T>
+struct DependentVirtualDispatchImplicitDerived
+    : virtual DependentVirtualDispatchBase<T> {
+    explicit DependentVirtualDispatchImplicitDerived(T initial)
+        : DependentVirtualDispatchBase<T>(initial) {}
+
+    /* This overrides a dependent virtual base member without the optional
+     * `override` specifier.  It still needs a concrete body for the vtable. */
+    T read() const {
+        return this->value + 2;
+    }
+};
+
 struct DependentAccessPrefix {
     int padding;
 };
@@ -223,10 +236,16 @@ int main() {
     DependentClassTemplateBase<long long>* virtual_wide_base = &virtual_wide;
     DependentVirtualDispatchDerived<int> virtual_dispatch_integer{37};
     DependentVirtualDispatchDerived<long long> virtual_dispatch_wide{41};
+    DependentVirtualDispatchImplicitDerived<int> implicit_virtual_dispatch_integer{43};
+    DependentVirtualDispatchImplicitDerived<long long> implicit_virtual_dispatch_wide{47};
     DependentVirtualDispatchBase<int>* virtual_dispatch_integer_base =
         &virtual_dispatch_integer;
     DependentVirtualDispatchBase<long long>* virtual_dispatch_wide_base =
         &virtual_dispatch_wide;
+    DependentVirtualDispatchBase<int>* implicit_virtual_dispatch_integer_base =
+        &implicit_virtual_dispatch_integer;
+    DependentVirtualDispatchBase<long long>* implicit_virtual_dispatch_wide_base =
+        &implicit_virtual_dispatch_wide;
     DependentDmiContainer<int> dependent_dmi_integer{};
     DependentDmiContainer<long long> dependent_dmi_wide{};
     DependentDmiReference<int> dependent_dmi_reference_integer{};
@@ -248,6 +267,8 @@ int main() {
                    virtual_wide_base->read() == 31 &&
                    virtual_dispatch_integer_base->read() == 38 &&
                    virtual_dispatch_wide_base->read() == 42 &&
+                   implicit_virtual_dispatch_integer_base->read() == 45 &&
+                   implicit_virtual_dispatch_wide_base->read() == 49 &&
                    dependent_private_access.read() == 42 &&
                    dependent_protected_access.read() == 82 &&
                    dependent_hiding.read() == 124 &&
