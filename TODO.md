@@ -13507,6 +13507,10 @@ remains a separate open item.
       subobject cannot be moved, allowing the viable copy constructor fallback
       for `std::atomic<T>`. GCC C++20 traits and RCC i686/AMD64 compilation pass
       in `test-atomic-private-access`.
+- [x] Ignore a defaulted move assignment that becomes deleted because a
+      subobject cannot be assigned from an rvalue, allowing copy assignment to
+      handle rvalues. GCC C++20 traits, direct assignment, `<atomic>`, and RCC
+      i686/AMD64 compilation pass in `test-atomic-private-access`.
 - [ ] Full overload viability for inherited/defaulted copy/move operations,
       broader type-trait conformance, and the remaining `<atomic>` API surface
       remain open.

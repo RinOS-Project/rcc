@@ -24250,6 +24250,29 @@ static bool sema_cxx_method_same_overload_signature(TypeMethod* left,
  * declaration in the derived class hides inherited declarations with the
  * same function signature, while other selected base overloads remain
  * candidates. */
+static bool sema_cxx_method_is_ignored_defaulted_deleted_move_assignment(
+    Type* aggregate, TypeMethod* method) {
+    DeclList* parameters;
+    Type* parameter_type;
+    Type* owner_type;
+    if (!aggregate || !method || !method->is_defaulted ||
+        !method->function_decl || !method->name ||
+        strcmp(method->name, "operator=") != 0) {
+        return false;
+    }
+    parameters = method->function_decl->func_params;
+    if (!parameters || parameters->next || !parameters->decl) return false;
+    parameter_type = parameters->decl->type;
+    if (sema_cxx_assignment_special_member_kind(
+            aggregate, parameter_type) != 2) {
+        return false;
+    }
+    if (method->is_deleted) return true;
+    owner_type = method->this_owner ? method->this_owner : aggregate;
+    return !sema_cxx_type_trait_assignment_subobjects_are_assignable(
+        owner_type, parameter_type, 0u);
+}
+
 static bool sema_cxx_method_is_overload_candidate(
     Type* aggregate, const char* name, TypeMethod* method) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
@@ -24257,6 +24280,10 @@ static bool sema_cxx_method_is_overload_candidate(
     bool has_using;
 
     if (!aggregate || !cls || !name || !method || !owner) return false;
+    if (sema_cxx_method_is_ignored_defaulted_deleted_move_assignment(
+            aggregate, method)) {
+        return false;
+    }
     if (owner == cls) return true;
     has_using = sema_cxx_class_has_using_member(cls, name);
     if (has_using) {
