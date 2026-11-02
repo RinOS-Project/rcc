@@ -19701,7 +19701,7 @@ static bool lower_fenv_round_type(const Type* type) {
         type_is_complex((Type*)type);
 }
 
-static bool lower_fenv_round_expression_sensitive(const Expr* expression) {
+bool rcc_fenv_round_expression_sensitive(const Expr* expression) {
     if (!expression || expression->fenv_round_mode ==
                            RCC_FENV_ROUND_DYNAMIC) return false;
     if (expression->kind == EXPR_CALL) {
@@ -19848,7 +19848,7 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             }
         }
     }
-    if (lower_fenv_round_expression_sensitive(expression)) {
+    if (rcc_fenv_round_expression_sensitive(expression)) {
         if (!lower_fenv_round_begin(context,
                                     expression->fenv_round_mode,
                                     &rounding_frame)) {

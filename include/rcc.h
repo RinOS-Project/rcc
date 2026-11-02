@@ -60,6 +60,9 @@ typedef enum {
     RCC_FENV_ROUND_TOWARDZERO,
 } RccFenvRoundMode;
 
+struct Expr;
+bool rcc_fenv_round_expression_sensitive(const struct Expr* expression);
+
 /* Maximum include paths and defines */
 #define RCC_MAX_INCLUDES 64
 #define RCC_MAX_DEFINES 128

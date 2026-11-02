@@ -440,6 +440,13 @@ static void emit64_and_reg_imm32(Module* mod, int reg, uint32_t immediate) {
     emit_dword(mod, immediate);
 }
 
+static void emit64_or_reg_imm32(Module* mod, int reg, uint32_t immediate) {
+    emit_rex(mod, false, 0, 0, reg);
+    emit_byte(mod, 0x81);
+    emit_byte(mod, modrm64(3, 1, reg));
+    emit_dword(mod, immediate);
+}
+
 static void emit64_sar_reg_imm(Module* mod, int reg, uint8_t amount) {
     emit_rex_w(mod, 0, reg);
     emit_byte(mod, 0xC1);
@@ -12513,6 +12520,84 @@ static void gen64_record_inline_debug_scope_ranges(
     }
 }
 
+static unsigned gen64_fenv_round_encoding(RccFenvRoundMode mode) {
+    switch (mode) {
+        case RCC_FENV_ROUND_TONEAREST: return 0u;
+        case RCC_FENV_ROUND_DOWNWARD: return 1u;
+        case RCC_FENV_ROUND_UPWARD: return 2u;
+        case RCC_FENV_ROUND_TOWARDZERO: return 3u;
+        default: return UINT_MAX;
+    }
+}
+
+static void gen64_fenv_memory(Module* mod, int opcode, int group,
+                              int32_t displacement) {
+    emit_byte(mod, (uint8_t)opcode);
+    emit64_memory_operand(mod, group, RSP, displacement);
+}
+
+/* Keep the 32-byte Windows x64 home area available for generated calls and
+ * place the nested FENV_ROUND record above it.  Restoring only MXCSR's RC bits
+ * retains exception flags raised by the expression. */
+static bool gen64_fenv_round_begin(Module* mod, const Expr* expression) {
+    unsigned encoding;
+    if (!rcc_fenv_round_expression_sensitive(expression)) {
+        return false;
+    }
+    encoding = gen64_fenv_round_encoding(expression->fenv_round_mode);
+    if (encoding > 3u) {
+        rcc_error(expression->loc, "unsupported FENV_ROUND mode in code generation");
+        return false;
+    }
+    emit64_sub_reg_imm(mod, RSP, 80);
+    emit64_mov_mem_reg(mod, RSP, 48, RAX);
+    gen64_fenv_memory(mod, 0xD9, 7, 56); /* FNSTCW original */
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xB7); /* MOVZX EAX, word [RSP+56] */
+    emit64_memory_operand(mod, RAX, RSP, 56);
+    emit64_and_reg_imm32(mod, RAX, ~UINT32_C(0x0c00));
+    emit64_or_reg_imm32(mod, RAX, (uint32_t)encoding << 10);
+    emit_byte(mod, 0x66);
+    emit_byte(mod, 0x89); /* MOV word [RSP+58], AX */
+    emit64_memory_operand(mod, RAX, RSP, 58);
+    gen64_fenv_memory(mod, 0xD9, 5, 58); /* FLDCW work */
+
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xAE); /* STMXCSR [RSP+60] */
+    emit64_memory_operand(mod, 3, RSP, 60);
+    emit64_memory_operand_width(mod, RAX, RSP, 60, 4);
+    emit64_and_reg_imm32(mod, RAX, UINT32_C(0x6000));
+    emit64_store_memory_operand_width(mod, RAX, RSP, 68, 4);
+    emit64_memory_operand_width(mod, RAX, RSP, 60, 4);
+    emit64_and_reg_imm32(mod, RAX, ~UINT32_C(0x6000));
+    emit64_or_reg_imm32(mod, RAX, (uint32_t)encoding << 13);
+    emit64_store_memory_operand_width(mod, RAX, RSP, 64, 4);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xAE); /* LDMXCSR [RSP+64] */
+    emit64_memory_operand(mod, 2, RSP, 64);
+    emit64_mov_reg_mem(mod, RAX, RSP, 48);
+    return true;
+}
+
+static void gen64_fenv_round_end(Module* mod) {
+    emit64_mov_mem_reg(mod, RSP, 48, RAX);
+    gen64_fenv_memory(mod, 0xD9, 5, 56); /* FLDCW original */
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xAE); /* STMXCSR current */
+    emit64_memory_operand(mod, 3, RSP, 64);
+    emit_byte(mod, 0x81); /* AND dword [RSP+64], ~0x6000 */
+    emit64_memory_operand(mod, 4, RSP, 64);
+    emit_dword(mod, ~UINT32_C(0x6000));
+    emit64_memory_operand_width(mod, RAX, RSP, 68, 4);
+    emit_byte(mod, 0x09); /* OR dword [RSP+64], EAX */
+    emit64_memory_operand(mod, RAX, RSP, 64);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xAE); /* LDMXCSR merged current */
+    emit64_memory_operand(mod, 2, RSP, 64);
+    emit64_mov_reg_mem(mod, RAX, RSP, 48);
+    emit64_add_reg_imm(mod, RSP, 80);
+}
+
 static void gen64_expr(Module* mod, Expr* expr) {
     const Decl* caller = NULL;
     const Decl* callee = NULL;
@@ -12524,12 +12609,14 @@ static void gen64_expr(Module* mod, Expr* expr) {
     uint32_t end;
     uint32_t scope_start;
     if (!expr) return;
+    bool fenv_round_active = gen64_fenv_round_begin(mod, expr);
     scope_start = code_offset(mod);
     if (!g_opts.debug_info ||
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
                                         &call_location, &arguments)) {
         gen64_expr_impl(mod, expr);
         gen64_normalize_bitint_value(mod, expr->type);
+        if (fenv_round_active) gen64_fenv_round_end(mod);
         gen64_record_inline_debug_scope_ranges(
             mod, expr, scope_start, code_offset(mod), false);
         return;
@@ -12545,6 +12632,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
     mod->debug_inline_active_call_plus_one = inline_call_index + 1u;
     gen64_expr_impl(mod, expr);
     gen64_normalize_bitint_value(mod, expr->type);
+    if (fenv_round_active) gen64_fenv_round_end(mod);
     end = code_offset(mod);
     gen64_record_inline_debug_scope_ranges(
         mod, expr, scope_start, end, false);
