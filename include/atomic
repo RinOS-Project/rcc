@@ -1058,7 +1058,8 @@ public:
     static constexpr bool is_always_lock_free =
         sizeof(T) == 1u || sizeof(T) == 2u ||
         sizeof(T) == 4u || sizeof(T) == 8u;
-    static constexpr size_t required_alignment = sizeof(T);
+    static constexpr size_t required_alignment =
+        sizeof(T) & (0u - sizeof(T));
 
     atomic_ref(T& object) noexcept : object_(object) {}
     atomic_ref(const atomic_ref&) noexcept = default;

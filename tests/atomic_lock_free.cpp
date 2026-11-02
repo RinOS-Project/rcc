@@ -59,6 +59,34 @@ struct AtomicRefAggregate {
     unsigned second;
 };
 
+struct AtomicRefThreeByte {
+    unsigned char bytes[3];
+};
+
+struct AtomicRefTwelveByte {
+    unsigned char bytes[12];
+};
+
+struct AtomicRefOverAlignedThreeByte {
+    alignas(32) unsigned char bytes[3];
+};
+
+static_assert(sizeof(AtomicRefThreeByte) == 3u);
+static_assert(sizeof(AtomicRefTwelveByte) == 12u);
+static_assert(sizeof(AtomicRefOverAlignedThreeByte) == 32u);
+static_assert(std::atomic_ref<AtomicRefThreeByte>::required_alignment >=
+              alignof(AtomicRefThreeByte));
+static_assert(std::atomic_ref<AtomicRefTwelveByte>::required_alignment >=
+              alignof(AtomicRefTwelveByte));
+static_assert(std::atomic_ref<AtomicRefOverAlignedThreeByte>::required_alignment >=
+              alignof(AtomicRefOverAlignedThreeByte));
+#if !defined(RCC_STDLIB_REFERENCE)
+static_assert(std::atomic_ref<AtomicRefThreeByte>::required_alignment == 1u);
+static_assert(std::atomic_ref<AtomicRefTwelveByte>::required_alignment == 4u);
+static_assert(std::atomic_ref<AtomicRefOverAlignedThreeByte>::required_alignment ==
+              32u);
+#endif
+
 union AtomicRefUnion {
     unsigned value;
     float floating;

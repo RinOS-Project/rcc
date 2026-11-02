@@ -13467,3 +13467,11 @@ remains a separate open item.
       that redirect compiler output, so native shell lookup does not depend on
       resolving `rcc.exe`/`rcc++.exe` through the recipe environment. The
       affected focused regression targets and C++ regression target set pass.
+
+## RCC continuation (2026-11-02, atomic_ref alignment values)
+
+- [x] Compute `atomic_ref<T>::required_alignment` as the largest power-of-two
+      divisor of `sizeof(T)`, keeping the value a valid target alignment and at
+      least the type's natural alignment. The `test-atomic-builtins` GCC syntax
+      oracle and RCC i686/AMD64 `-O0`/`-O2` gates pass for 3-byte, 12-byte, and
+      32-byte-aligned types.
