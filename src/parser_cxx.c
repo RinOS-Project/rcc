@@ -17639,12 +17639,15 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         if (!tmpl->member_method) recognize_versioned_function_template(tmpl);
     }
 
-    for (int index = 0; index < tmpl->param_count; ++index) {
-        if (tmpl->params[index].is_pack &&
-            tmpl->kind != TMPL_FUNCTION &&
-            cxx_class_pack_index(tmpl) < 0) {
+    if (tmpl->kind != TMPL_FUNCTION && cxx_class_pack_index(tmpl) < 0) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            if (!tmpl->params[index].is_pack) continue;
             rcc_error(loc,
-                      "only a single class-template parameter pack is supported");
+                      "class-template parameter pack '%s' must be the final "
+                      "parameter",
+                      tmpl->params[index].name
+                          ? tmpl->params[index].name : "<unnamed>");
+            break;
         }
     }
 
@@ -19513,6 +19516,36 @@ static bool cxx_out_of_class_conversion_member_template_definition_starts(
     return starts;
 }
 
+/* Class methods are entered into the AST when their class is parsed so the
+ * declaration participates in member lookup.  An out-of-class definition is
+ * parsed later, though, and its body must be semantically analyzed at that
+ * later source position.  Move the existing AST node after declarations that
+ * precede the definition; otherwise names declared between the class and the
+ * definition are incorrectly invisible in the method body. */
+static void cxx_relocate_member_definition_ast_node(Decl* declaration) {
+    DeclList** link;
+    DeclList* node;
+    DeclList* tail;
+
+    if (!active_ast || !declaration) return;
+    link = &active_ast->decls;
+    while (*link && (*link)->decl != declaration) {
+        link = &(*link)->next;
+    }
+    if (!*link) return;
+    node = *link;
+    if (!node->next) return;
+    *link = node->next;
+    node->next = NULL;
+    if (!active_ast->decls) {
+        active_ast->decls = node;
+        return;
+    }
+    tail = active_ast->decls;
+    while (tail->next) tail = tail->next;
+    tail->next = node;
+}
+
 static Stmt* cxx_parse_qualified_member_definition_body(
     CxxClass* cls, CxxMethod* method, DeclList* parameters, SourceLoc loc) {
     StmtList* statements = NULL;
@@ -19555,6 +19588,7 @@ static Stmt* cxx_parse_qualified_member_definition_body(
     rcc_parser_function_scope_pop();
     rcc_parser_enum_scope_restore(enum_scope);
     rcc_parser_cxx_end_function_parameters();
+    cxx_relocate_member_definition_ast_node(method->decl);
     return stmt_block(statements, loc);
 }
 
@@ -22990,7 +23024,8 @@ static DeclList* substitute_template_decl_parameters(
                     break;
                 }
                 written = snprintf(generated_name, sizeof(generated_name),
-                                   "__rcc_pack_arg_%d", pack_value);
+                                   "__rcc_pack_arg_%d_%d",
+                                   parameter->param_index, pack_value);
                 if (written < 0 || (size_t)written >= sizeof(generated_name)) {
                     rcc_error(parameter->loc,
                               "local member parameter name exceeds compiler limits");
@@ -50142,14 +50177,6 @@ static Type* parse_cxx_type_spec(void) {
                                           "expansion must name a matching "
                                           "template parameter pack");
                             }
-                        } else if (cxx_parser_template_pack_parameter_in_scopes(
-                                       active_template, nested_type,
-                                       nested_value,
-                                       nested_parameter->kind)) {
-                            rcc_error(loc,
-                                      "template parameter pack requires an "
-                                      "ellipsis in this template-template "
-                                      "argument");
                         }
                     } else if (nested_parameter->kind == TPARAM_NONTYPE &&
                                argument_pack_expansion) {

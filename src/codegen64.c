@@ -1817,6 +1817,36 @@ static void gen64_vla_alloc(Module* mod, Decl* decl) {
     emit64_mov_mem_reg(mod, RBP, decl->var_offset, RAX);
 }
 
+/* Probe each page of a large fixed frame before using its locals.  RAX is
+ * volatile and is not an incoming argument register in either x64 ABI. */
+static void gen64_static_stack_frame(Module* mod, int stack_size) {
+    int probe_loop_label;
+    int probe_partial_label;
+    int probe_done_label;
+    if (stack_size <= 0) return;
+    if (stack_size < 4096) {
+        emit64_sub_reg_imm(mod, RSP, stack_size);
+        return;
+    }
+    probe_loop_label = new_label64();
+    probe_partial_label = new_label64();
+    probe_done_label = new_label64();
+    emit64_mov_reg_imm32(mod, RAX, (uint32_t)stack_size);
+    emit64_label(mod, probe_loop_label);
+    emit64_cmp_reg_imm(mod, RAX, 4096);
+    emit64_jcc_label(mod, CC64_BE, probe_partial_label);
+    emit64_sub_reg_imm(mod, RSP, 4096);
+    emit64_mov_mem_reg8(mod, RSP, 0, RAX);
+    emit64_sub_reg_imm(mod, RAX, 4096);
+    emit64_jmp_label(mod, probe_loop_label);
+    emit64_label(mod, probe_partial_label);
+    emit64_test_reg_reg(mod, RAX, RAX);
+    emit64_jcc_label(mod, CC64_E, probe_done_label);
+    emit64_sub_reg_reg(mod, RSP, RAX);
+    emit64_mov_mem_reg8(mod, RSP, 0, RAX);
+    emit64_label(mod, probe_done_label);
+}
+
 static void gen64_vla_parameter_extents(Module* mod, Decl* decl) {
     if (!decl) return;
     for (DeclList* parameter = decl->func_params; parameter;
@@ -8009,6 +8039,18 @@ static ExprList* gen64_cxx_capture_constructor_arguments(
                 argument, parameter)) {
             Decl* temporary_decl;
             Expr* temporary_value;
+            /* Array-to-pointer conversion is normally implicit in a C++
+             * call.  Constructor lowering substitutes parameter references
+             * with these cached expressions, so retain the parameter's
+             * pointer value instead of turning the cached array temporary's
+             * address into the value. */
+            if (!reference_parameter && !parameter_object_temporary &&
+                parameter && parameter->type && value->type &&
+                parameter->type->kind == TYPE_PTR &&
+                (value->type->kind == TYPE_ARRAY ||
+                 value->type->kind == TYPE_FUNC)) {
+                value = expr_cast(parameter->type, value, value->loc);
+            }
             if (reference_parameter) {
                 Type* pointer_type = type_ptr(parameter->type->base);
                 gen64_lvalue(mod, value);
@@ -14195,7 +14237,7 @@ static void codegen_emit_global_init64(Module* mod) {
     add_func_def64(name, start);
     emit64_push_reg(mod, RBP);
     emit64_mov_reg_reg(mod, RBP, RSP);
-    if (stack_size > 0) emit64_sub_reg_imm(mod, RSP, stack_size);
+    gen64_static_stack_frame(mod, stack_size);
     gen64_clear_call_temporary_owners(mod);
     old_return_type = current_function_return_type64;
     current_function_return_type64 = NULL;
@@ -14254,7 +14296,7 @@ static void codegen_emit_static_local_cleanups64(Module* mod) {
         add_func_def64(item->callback_name, start);
         emit64_push_reg(mod, RBP);
         emit64_mov_reg_reg(mod, RBP, RSP);
-        if (stack_size > 0) emit64_sub_reg_imm(mod, RSP, stack_size);
+        gen64_static_stack_frame(mod, stack_size);
         current_function_return_type64 = NULL;
         active_cleanups64 = NULL;
         active_vla_scopes64 = NULL;
@@ -14476,7 +14518,7 @@ static void codegen_emit_global_fini64(Module* mod) {
     add_func_def64(name, start);
     emit64_push_reg(mod, RBP);
     emit64_mov_reg_reg(mod, RBP, RSP);
-    if (stack_size > 0) emit64_sub_reg_imm(mod, RSP, stack_size);
+    gen64_static_stack_frame(mod, stack_size);
     old_return_type = current_function_return_type64;
     current_function_return_type64 = NULL;
     old_cleanups = active_cleanups64;
@@ -18028,9 +18070,7 @@ static void gen64_function(Module* mod, Decl* decl) {
         emit64_mov_mem_reg(mod, RSP, 8, RAX);
         emit64_mov_reg_reg(mod, RBP, RSP);
     }
-    if (stack_size > 0) {
-        emit64_sub_reg_imm(mod, RSP, stack_size);
-    }
+    gen64_static_stack_frame(mod, stack_size);
     if (aligned_frame_rebase) {
         emit64_mov_mem_reg(mod, RBP, frame_base_spill_offset, R11);
     }

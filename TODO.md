@@ -13422,5 +13422,32 @@ remains a separate open item.
       Verify the empty pack, conflicting elements, and conflicting lengths
       against strict GCC C++20 and the i686/AMD64 checks in
       `test-cxx-template-template-parameters`.
-- [ ] Implement independent class-template parameter packs and their
-      ordering/deduction interactions.
+- [x] Enforce the C++ class-template parameter-list rule for packs: a pack
+      must be the final parameter, so independent multiple packs are not a
+      valid class-template form. Compare the targeted diagnostic with strict
+      GCC C++20 and verify rejection on i686/AMD64 in
+      `test-cxx-template-parameter-pack`.
+
+## RCC continuation (2026-11-02, nested pack and static lifetime regressions)
+
+- [x] Defer unexpanded-pack rejection inside a nested template-template
+      argument until the enclosing template argument has been parsed, so an
+      outer `...` can expand `AliasTemplates<OwnerTypes>` as one pattern.
+      `test-cxx-alias-templates` passes the GCC host checks, i686/AMD64 output,
+      and the existing invalid-argument diagnostics.
+- [x] Preserve both the source template-parameter index and pack-element index
+      when naming synthesized class-template member-function parameter-pack
+      arguments. The 33-element fold-expression case and GCC oracle pass in
+      `test-cxx-class-template-specialization` on i686/AMD64.
+- [x] Append static aggregate reference-temporary cleanup plans after the
+      aggregate cleanup plan, so reverse cleanup destroys temporaries in
+      reverse order before the aggregate. GCC and RCC both report exit order
+      `213` in `test-cxx-static-reference-subobjects`.
+- [x] Use the absolute Windows compiler path for verified-backend commands
+      with shell redirection in `test-cxx-template-template-signature-depth`;
+      the signature-depth target and adjacent template-pack/class-specialization
+      regressions pass.
+- [x] Probe every intervening page while allocating a large fixed stack frame
+      in ordinary legacy i686 and AMD64 functions. `test-static-stack-probe`
+      checks the emitted probe sequence on both targets and executes both
+      generated programs.

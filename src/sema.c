@@ -17755,14 +17755,16 @@ static void sema_prepare_aggregate_reference_temporary_cleanup(
     if (!temporary_cleanups) return;
     if (declaration->var_is_static_local ||
         declaration->var_is_thread_local) {
-        /* Cleanup plans execute in reverse list order.  Static aggregate
-         * reference temporaries must therefore precede the aggregate's own
-         * destructor plan so the aggregate is destroyed while its reference
-         * members still designate live objects. */
-        tail = temporary_cleanups;
-        while (tail->next) tail = tail->next;
-        tail->next = declaration->var_cleanups;
-        declaration->var_cleanups = temporary_cleanups;
+        /* Cleanup plans execute in reverse list order.  Place reference
+         * temporaries after the aggregate cleanup so the temporaries are
+         * destroyed first, matching the lifetime order used by GCC. */
+        tail = declaration->var_cleanups;
+        if (tail) {
+            while (tail->next) tail = tail->next;
+            tail->next = temporary_cleanups;
+        } else {
+            declaration->var_cleanups = temporary_cleanups;
+        }
     } else if (!declaration->var_cleanups) {
         declaration->var_cleanups = temporary_cleanups;
     } else {
@@ -18389,6 +18391,7 @@ static ExprList* sema_cxx_type_trait_argument_expressions(
         expression->kind = lvalue_reference ? EXPR_IDENT : EXPR_COMPOUND;
         expression->loc = arguments->loc;
         expression->type = arguments->type;
+        expression->cxx_type_trait_argument_probe = true;
         item->expr = expression;
         item->designator_kind = INIT_DESIGNATOR_NONE;
         item->next = NULL;
@@ -22858,6 +22861,7 @@ static bool sema_cxx_is_untyped_braced_initializer(
     const Expr* expression) {
     return rcc_parser_is_cxx_mode() && expression &&
            expression->kind == EXPR_COMPOUND &&
+           !expression->cxx_type_trait_argument_probe &&
            expression->compound_type == NULL &&
            !expression->compound_paren_init;
 }
@@ -29522,7 +29526,12 @@ static Type* sema_expr(Expr* expr) {
             } else {
                 expr->type = expr->compound_type;
                 sema_initializer(expr->compound_type, expr);
+                /* sema_initializer may collapse a single-element C++
+                 * braced initializer in place (for example a union default
+                 * member initializer) into its scalar expression.  Do not
+                 * read the compound-only union fields after that rewrite. */
                 if (rcc_parser_is_cxx_mode() &&
+                    expr->kind == EXPR_COMPOUND && expr->compound_type &&
                     expr->compound_type->cxx_class) {
                     ExprList* constructor_arguments =
                         expr->compound_value_init ? NULL : expr->compound_init;

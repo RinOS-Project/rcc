@@ -963,13 +963,13 @@ test-cxx-template-template-signature-depth: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-template-template-signature-depth/gcc-host \
 		tests/cxx_template_template_signature_depth.cpp
 	$(TEST_OUT)/cxx-template-template-signature-depth/gcc-host
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-template-template-signature-depth/verified-x86.ro \
 		tests/cxx_template_template_signature_depth.cpp \
 		>$(TEST_OUT)/cxx-template-template-signature-depth/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-template-template-signature-depth/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-template-template-signature-depth/verified-x64.ro \
 		tests/cxx_template_template_signature_depth.cpp \
@@ -1298,6 +1298,7 @@ C17_REGRESSION_TARGETS = \
 	test-control-flow \
 	test-parser-recovery \
 	test-static-assert \
+	test-static-stack-probe \
 	test-generic \
 	test-initializer-overrides \
 	test-initializer-brace-elision \
@@ -2484,6 +2485,26 @@ test-c-old-style: $(RCC_TARGET)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c-old-style/invalid.ro tests/c_old_style_invalid.c,$(TEST_OUT)/c-old-style/invalid.log)
 	$(GREP) -F -q "old-style parameter declaration names an unknown parameter" $(TEST_OUT)/c-old-style/invalid.log
 	@echo "C17 old-style function declaration tests completed"
+
+test-static-stack-probe: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/static-stack-probe)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/static-stack-probe/x86.s \
+		tests/compiler_static_stack_probe.c
+	$(GREP) -F -q ".byte 0x81, 0xec, 0x00, 0x10, 0x00, 0x00" \
+		$(TEST_OUT)/static-stack-probe/x86.s
+	$(GREP) -F -q "0x88, 0x04, 0x24" \
+		$(TEST_OUT)/static-stack-probe/x86.s
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/static-stack-probe/x86,$(TEST_OUT)/static-stack-probe/x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/static-stack-probe/x64.s \
+		tests/compiler_static_stack_probe.c
+	$(GREP) -F -q "0x48, 0x81, 0xec, 0x00, 0x10, 0x00, 0x00" \
+		$(TEST_OUT)/static-stack-probe/x64.s
+	$(GREP) -F -q "0x88, 0x04, 0x24" \
+		$(TEST_OUT)/static-stack-probe/x64.s
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/static-stack-probe/x64,$(TEST_OUT)/static-stack-probe/x64.s)
+	@echo "C17 large static stack frame probing tests completed"
 
 test-cxx-multi-declarator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-multi-declarator)
@@ -5225,7 +5246,7 @@ test-pic-tls: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/pic-tls/linked-x64.rin
 	@echo "PIC/PIE local-exec TLS relocation tests completed"
 
-test-cxx-new-array: $(RCXX_TARGET)
+test-cxx-new-array: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-new-array)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-new-array/x86.ro tests/cxx_new_array.cpp
@@ -5242,7 +5263,8 @@ test-cxx-new-array: $(RCXX_TARGET)
 		tests/cxx_new_array_constructor.cpp
 	$(CC) -o $(TEST_OUT)/cxx-new-array/constructor-run-test \
 		tests/cxx_new_array_constructor_run_test.c \
-		$(TEST_OUT)/cxx-new-array/constructor-x64.s
+		$(TEST_OUT)/cxx-new-array/constructor-x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-new-array/constructor-run-test
 ifeq ($(OS),Windows_NT)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-new-array/invalid.ro tests/cxx_new_array_parenthesized_rejected.cpp,$(TEST_OUT)/cxx-new-array/invalid.log)
@@ -5925,7 +5947,7 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_variadic_nonvariadic_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-gcc.log)
 	$(GREP) -F -q "no matching function" $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro)
-	@set +e; $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+	@set +e; $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro \
 		tests/cxx_function_template_overloads_partial_order_invalid.cpp \
 		>$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log 2>&1; status=$$?; set -e; \
@@ -5978,7 +6000,7 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -q "ambiguous function template overload for 'select_nullptr_pointer'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro)
-	@set +e; $(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro \
 		tests/cxx_function_template_overloads_partial_order_invalid.cpp \
 		>$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log 2>&1; status=$$?; set -e; \
@@ -6197,13 +6219,13 @@ test-cxx-function-template-references-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-references/start-x64.o \
 		$(TEST_OUT)/cxx-function-template-references/x64.o
 	$(TEST_OUT)/cxx-function-template-references/x64
-	! $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-template-references/invalid.ro \
 		tests/cxx_function_template_references_invalid.cpp \
 		>$(TEST_OUT)/cxx-function-template-references/invalid.log 2>&1
 	$(GREP) -q "no matching function template overload for 'read_rvalue'" \
 		$(TEST_OUT)/cxx-function-template-references/invalid.log
-	! $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid.ro \
 		tests/cxx_qualified_nested_alias_invalid.cpp \
 		>$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid.log 2>&1
@@ -7455,14 +7477,14 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-type-pattern/gcc-host.exe tests/cxx_function_template_type_pattern_partial_order.cpp
 	$(TEST_OUT)/cxx-function-template-type-pattern/gcc-host.exe
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.ro \
 		tests/cxx_function_template_type_pattern_partial_order.cpp \
 		>$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.ro \
 		tests/cxx_function_template_type_pattern_partial_order.cpp \
 		>$(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.log
@@ -7487,14 +7509,14 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-explicit-pack-boundaries,cxx_function_template_explicit_pack_boundaries.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/gcc-host.exe tests/cxx_function_template_explicit_pack_boundaries.cpp
 	$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/gcc-host.exe
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x86.ro \
 		tests/cxx_function_template_explicit_pack_boundaries.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x64.ro \
 		tests/cxx_function_template_explicit_pack_boundaries.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-pack-boundaries/verified-x64.log
@@ -7518,14 +7540,14 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJELi7EJLi5EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
 	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi5EJicELi7EJLi3ELi4EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
 	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi3EJELi7EJLi5EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.ro \
 		tests/cxx_function_template_explicit_multi_pack_partition.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.ro \
 		tests/cxx_function_template_explicit_multi_pack_partition.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.log
@@ -7599,14 +7621,14 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJ5WrapA5WrapBEJilEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z39choose_zipped_template_type_value_packsIJEJEJEEiDp14TemplateTaggedIT_T0_XT1_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z39choose_zipped_template_type_value_packsIJ5WrapA5WrapBEJilEJLi3ELi7EEEiDp14TemplateTaggedIT_T0_XT1_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.ro \
 		tests/cxx_function_template_independent_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 19 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.ro \
 		tests/cxx_function_template_independent_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log
@@ -7648,14 +7670,14 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-independent-nontype-packs,cxx_function_template_independent_nontype_packs.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host.exe tests/cxx_function_template_independent_nontype_packs.cpp
 	$(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host.exe
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.ro \
 		tests/cxx_function_template_independent_nontype_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.ro \
 		tests/cxx_function_template_independent_nontype_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.log
@@ -14596,9 +14618,11 @@ test-cxx-template-parameter-pack: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-template-parameter-pack/verified-x64.ro tests/cxx_template_parameter_pack.cpp
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-parameter-pack,cxx_template_parameter_pack.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.ro tests/cxx_template_parameter_pack_invalid.cpp,$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log)
-	$(GREP) -F -q "only a single class-template parameter pack is supported" $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log
+	$(GREP) -F -q "class-template parameter pack 'Ts' must be the final parameter" $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.ro tests/cxx_template_parameter_pack_invalid.cpp,$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log)
-	$(GREP) -F -q "only a single class-template parameter pack is supported" $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
+	$(GREP) -F -q "class-template parameter pack 'Ts' must be the final parameter" $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_template_parameter_pack_invalid.cpp,$(TEST_OUT)/cxx-template-parameter-pack/invalid-gcc.log)
+	$(GREP) -F -q "parameter pack 'Ts' must be at the end of the template parameter list" $(TEST_OUT)/cxx-template-parameter-pack/invalid-gcc.log
 	@echo "C++ type parameter pack arity tests completed"
 else
 test-cxx-template-parameter-pack: test-cxx-template-parameter-pack-posix
@@ -14648,14 +14672,17 @@ test-cxx-template-parameter-pack-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.ro \
 		tests/cxx_template_parameter_pack_invalid.cpp \
 		>$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log 2>&1
-	$(GREP) -q "only a single class-template parameter pack is supported" \
+	$(GREP) -F -q "class-template parameter pack 'Ts' must be the final parameter" \
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x86.log
 	! $(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.ro \
 		tests/cxx_template_parameter_pack_invalid.cpp \
 		>$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log 2>&1
-	$(GREP) -q "only a single class-template parameter pack is supported" \
+	$(GREP) -F -q "class-template parameter pack 'Ts' must be the final parameter" \
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_template_parameter_pack_invalid.cpp,$(TEST_OUT)/cxx-template-parameter-pack/invalid-gcc.log)
+	$(GREP) -F -q "parameter pack 'Ts' must be at the end of the template parameter list" \
+		$(TEST_OUT)/cxx-template-parameter-pack/invalid-gcc.log
 	@echo "C++ type parameter pack arity tests completed"
 
 ifeq ($(OS),Windows_NT)
@@ -17713,7 +17740,7 @@ endif
 	$(GREP) -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-inline-aggregates/private.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/arity.ro tests/cxx_constructor_arity_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/arity.log)
-	$(GREP) -q "no safely lowerable constructor accepts 0 arguments" \
+	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" \
 		$(TEST_OUT)/cxx-inline-aggregates/arity.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/const-reference.ro tests/cxx_const_reference_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/const-reference.log)
 	$(GREP) -q "incompatible type for argument 1 to 'reference_test::mutable_reference'" \
@@ -17722,7 +17749,7 @@ endif
 	$(GREP) -q "method 'secret' is not accessible" \
 		$(TEST_OUT)/cxx-inline-aggregates/private-method.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/template-arity.ro tests/cxx_template_constructor_arity_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/template-arity.log)
-	$(GREP) -q "no safely lowerable constructor accepts 1 argument" \
+	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" \
 		$(TEST_OUT)/cxx-inline-aggregates/template-arity.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.ro tests/cxx_versioned_template_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/versioned-rejected.log)
 	$(GREP) -q "function template 'unsafe_versioned' is not safely lowerable" \
@@ -20153,11 +20180,11 @@ endif
 test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/floating-math-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
-		-I../../libs/libc -c \
+		-I../../libs/libc -I$(RINOS_SDK_ROOT)/include -c \
 		-o $(TEST_OUT)/floating-math-builtins/c-x86.ro \
 		tests/compiler_float_math_builtins.c
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
-		-I../../libs/libc -S \
+		-I../../libs/libc -I$(RINOS_SDK_ROOT)/include -S \
 		-o $(TEST_OUT)/floating-math-builtins/c-x86.s \
 		tests/compiler_float_math_builtins.c
 	$(FLOATING_MATH_X86_LINK) -o $(TEST_OUT)/floating-math-builtins/c-x86 \
@@ -20173,17 +20200,19 @@ test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/floating-math-builtins/cxx-x86.s
 	$(TEST_OUT)/floating-math-builtins/cxx-x86
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
-		-I../../libs/libc -S \
+		-I../../libs/libc -I$(RINOS_SDK_ROOT)/include -S \
 		-o $(TEST_OUT)/floating-math-builtins/c-x64.s \
 		tests/compiler_float_math_builtins.c
 	$(CC) -no-pie -o $(TEST_OUT)/floating-math-builtins/c-x64 \
-		$(TEST_OUT)/floating-math-builtins/c-x64.s
+		$(TEST_OUT)/floating-math-builtins/c-x64.s \
+		tests/compiler_float_math_errno_runtime.c
 	$(TEST_OUT)/floating-math-builtins/c-x64
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/floating-math-builtins/cxx-x64.s \
 		tests/compiler_float_math_builtins.cpp
 	$(CC) -no-pie -o $(TEST_OUT)/floating-math-builtins/cxx-x64 \
-		$(TEST_OUT)/floating-math-builtins/cxx-x64.s
+		$(TEST_OUT)/floating-math-builtins/cxx-x64.s \
+		tests/compiler_float_math_errno_runtime.c
 	$(TEST_OUT)/floating-math-builtins/cxx-x64
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -DRCC_TEST_VERIFIED \
 		-fverified-backend -v -c \

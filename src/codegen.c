@@ -5914,6 +5914,36 @@ static void gen_vla_alloc(Module* mod, Decl* decl) {
     emit_mov_mem_reg(mod, EBP, decl->var_offset, EAX);
 }
 
+/* Fixed frames larger than a page must touch each intervening guard page.
+ * Keep the probe count in EAX so the i686 entry registers remain intact. */
+static void emit_static_stack_frame32(Module* mod, int stack_size) {
+    int probe_loop_label;
+    int probe_partial_label;
+    int probe_done_label;
+    if (stack_size <= 0) return;
+    if (stack_size < 4096) {
+        emit_sub_reg_imm(mod, ESP, stack_size);
+        return;
+    }
+    probe_loop_label = new_label();
+    probe_partial_label = new_label();
+    probe_done_label = new_label();
+    emit_mov_reg_imm(mod, EAX, (uint32_t)stack_size);
+    emit_label(mod, probe_loop_label);
+    emit_cmp_reg_imm(mod, EAX, 4096);
+    emit_jcc_label(mod, CC_BE, probe_partial_label);
+    emit_sub_reg_imm(mod, ESP, 4096);
+    emit_mov_mem_reg8(mod, ESP, 0, EAX);
+    emit_sub_reg_imm(mod, EAX, 4096);
+    emit_jmp_label(mod, probe_loop_label);
+    emit_label(mod, probe_partial_label);
+    emit_test_reg_reg(mod, EAX, EAX);
+    emit_jcc_label(mod, CC_E, probe_done_label);
+    emit_sub_reg_reg(mod, ESP, EAX);
+    emit_mov_mem_reg8(mod, ESP, 0, EAX);
+    emit_label(mod, probe_done_label);
+}
+
 static void codegen_assign_vla_parameter_slots(Decl* decl, int* stack_size) {
     if (!decl || !stack_size) return;
     for (DeclList* parameter = decl->func_params; parameter;
@@ -12890,6 +12920,18 @@ static ExprList* gen_cxx_capture_constructor_arguments32(
                 argument, parameter)) {
             Decl* temporary_decl;
             Expr* temporary_value;
+            /* Array-to-pointer conversion is normally implicit in a C++
+             * call.  Constructor lowering substitutes parameter references
+             * with these cached expressions, so retain the parameter's
+             * pointer value instead of turning the cached array temporary's
+             * address into the value. */
+            if (!reference_parameter && !parameter_object_temporary &&
+                parameter && parameter->type && value->type &&
+                parameter->type->kind == TYPE_PTR &&
+                (value->type->kind == TYPE_ARRAY ||
+                 value->type->kind == TYPE_FUNC)) {
+                value = expr_cast(parameter->type, value, value->loc);
+            }
             if (reference_parameter) {
                 Type* pointer_type = type_ptr(parameter->type->base);
                 gen_lvalue(mod, value);
@@ -23247,7 +23289,7 @@ static void codegen_emit_global_init32(Module* mod) {
     add_func_def(name, start);
     emit_push_reg(mod, EBP);
     emit_mov_reg_reg(mod, EBP, ESP);
-    if (stack_size > 0) emit_sub_reg_imm(mod, ESP, stack_size);
+    emit_static_stack_frame32(mod, stack_size);
     gen_clear_call_temporary_owners32(mod);
     old_return_type = current_function_return_type;
     current_function_return_type = NULL;
@@ -23405,7 +23447,7 @@ static void codegen_emit_static_local_cleanups32(Module* mod) {
         add_func_def(item->callback_name, start);
         emit_push_reg(mod, EBP);
         emit_mov_reg_reg(mod, EBP, ESP);
-        if (stack_size > 0) emit_sub_reg_imm(mod, ESP, stack_size);
+        emit_static_stack_frame32(mod, stack_size);
         current_function_return_type = NULL;
         active_cleanups = NULL;
         active_vla_scopes = NULL;
@@ -23547,7 +23589,7 @@ static void codegen_emit_global_fini32(Module* mod) {
     add_func_def(name, start);
     emit_push_reg(mod, EBP);
     emit_mov_reg_reg(mod, EBP, ESP);
-    if (stack_size > 0) emit_sub_reg_imm(mod, ESP, stack_size);
+    emit_static_stack_frame32(mod, stack_size);
     old_return_type = current_function_return_type;
     current_function_return_type = NULL;
     old_cleanups = active_cleanups;
@@ -24493,9 +24535,7 @@ static void gen_function(Module* mod, Decl* decl) {
     } else {
         emit_mov_reg_reg(mod, EBP, ESP);
     }
-    if (stack_size > 0) {
-        emit_sub_reg_imm(mod, ESP, stack_size);
-    }
+    emit_static_stack_frame32(mod, stack_size);
     old_frame_base_spill_offset =
         current_function_frame_base_spill_offset32;
     current_function_frame_base_spill_offset32 = frame_base_spill_offset;

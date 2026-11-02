@@ -773,6 +773,9 @@ struct Expr {
     /* Parentheses change decltype(auto) lvalue deduction, even though they
      * do not change ordinary expression lowering. */
     bool cxx_parenthesized;
+    /* Synthetic operands used by C++ type traits model value categories;
+     * they are not untyped braced-init-list expressions. */
+    bool cxx_type_trait_argument_probe;
     /* C++ conditional expressions preserve glvalue category only when both
      * operands have the same category and the same cv-qualified type. */
     bool cxx_conditional_lvalue;
