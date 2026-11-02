@@ -19179,17 +19179,17 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wai
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -Wno-overflow \
 		-Wno-deprecated-declarations \
 		-DRCC_STDLIB_REFERENCE -fsyntax-only tests/atomic_lock_free.cpp
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-union-dmi.ro \
 		tests/invalid_union_multiple_default_member_initializers.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-union-dmi.log)
 	$(GREP) -F -q "a union may have only one default member initializer" \
 		$(TEST_OUT)/atomic-cxx-x86/invalid-union-dmi.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-union-dmi.ro \
 		tests/invalid_union_multiple_default_member_initializers.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-union-dmi.log)
 	$(GREP) -F -q "a union may have only one default member initializer" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-union-dmi.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-type.ro \
 		tests/invalid_atomic_type.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-type.log)
 	$(GREP) -F -q "atomic requires trivially copyable type" \
@@ -19218,7 +19218,7 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wai
 		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNestedMoveOnlyOwner'" \
 		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-type.ro \
 		tests/invalid_atomic_type.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-type.log)
 	$(GREP) -F -q "atomic requires trivially copyable type" \
@@ -19247,28 +19247,28 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wai
 		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNestedMoveOnlyOwner'" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-reference.log)
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-reference.log)
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable object type" \
 		$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-reference.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-reference.log)
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-reference.log)
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable object type" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-reference.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_VOID -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-void.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-void.log)
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_VOID -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-void.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-void.log)
 	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
 		$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-void.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_VOID -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-void.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-void.log)
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_VOID -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-void.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-void.log)
 	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-void.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_FUNCTION -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-function.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-function.log)
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_FUNCTION -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-function.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-function.log)
 	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
 		$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-function.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_FUNCTION -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-function.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-function.log)
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_FUNCTION -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-function.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-function.log)
 	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-function.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-reference.log)
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-reference.log)
 	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
 		$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-reference.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-reference.log)
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-reference.log)
 	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-reference.log
 
@@ -19300,7 +19300,7 @@ else
 		$(TEST_OUT)/atomic-cxx-x64/atomic.ro \
 		$(TEST_OUT)/atomic-cxx-x64/atomic-o2.ro
 endif
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+	$(call EXPECT_FAILURE,./rcc.exe --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid.ro \
 		tests/invalid_atomic_builtin.c,$(TEST_OUT)/atomic-x86/invalid.log)
 	$(GREP) -F -q "__atomic_test_and_set requires a byte-sized object pointer" \
@@ -19317,7 +19317,7 @@ endif
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_is_lock_free second argument must have pointer or null-pointer type" \
 		$(TEST_OUT)/atomic-x86/invalid.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+	$(call EXPECT_FAILURE,./rcc.exe --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \
 		tests/invalid_atomic_order.c,$(TEST_OUT)/atomic-x64/invalid-order.log)
 	$(GREP) -F -q "__atomic_load does not accept release or acq_rel order" \
@@ -19326,19 +19326,19 @@ endif
 		$(TEST_OUT)/atomic-x64/invalid-order.log
 	$(GREP) -F -q "__atomic_signal_fence memory order is outside the range 0..5" \
 		$(TEST_OUT)/atomic-x64/invalid-order.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+	$(call EXPECT_FAILURE,./rcc.exe --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid-pointer.ro \
 		tests/invalid_pointer_atomic.c,$(TEST_OUT)/atomic-x86/invalid-pointer.log)
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+	$(call EXPECT_FAILURE,./rcc.exe --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-pointer.ro \
 		tests/invalid_pointer_atomic.c,$(TEST_OUT)/atomic-x64/invalid-pointer.log)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x86/qualified-nonstatic.ro \
 		tests/cxx_inherited_nonstatic_member_qualified_invalid.cpp,\
 		$(TEST_OUT)/atomic-cxx-x86/qualified-nonstatic.log)
 	$(GREP) -F -q "non-static member function 'read' requires an object" \
 		$(TEST_OUT)/atomic-cxx-x86/qualified-nonstatic.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x64/qualified-nonstatic.ro \
 		tests/cxx_inherited_nonstatic_member_qualified_invalid.cpp,\
 		$(TEST_OUT)/atomic-cxx-x64/qualified-nonstatic.log)
@@ -19360,12 +19360,12 @@ test-atomic-private-access: $(RCXX_TARGET)
 		tests/invalid_atomic_private_access.cpp, \
 		$(TEST_OUT)/atomic-private-access/gcc-invalid.log)
 	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/invalid-x86.ro)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/invalid-x86.ro \
 		tests/invalid_atomic_private_access.cpp, \
 		$(TEST_OUT)/atomic-private-access/invalid-x86.log)
 	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/invalid-x64.ro)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/invalid-x64.ro \
 		tests/invalid_atomic_private_access.cpp, \
 		$(TEST_OUT)/atomic-private-access/invalid-x64.log)
@@ -19385,6 +19385,12 @@ test-atomic-private-access: $(RCXX_TARGET)
 		$(TEST_OUT)/atomic-private-access/invalid-x86.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedMoveAssignmentValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateSubobjectCopyConstructorOwner'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateSubobjectCopyAssignmentOwner'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateBaseOwner'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x86.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateCopyConstructorValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x64.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedCopyConstructorValue'" \
@@ -19401,9 +19407,15 @@ test-atomic-private-access: $(RCXX_TARGET)
 		$(TEST_OUT)/atomic-private-access/invalid-x64.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicProtectedMoveAssignmentValue'" \
 		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateSubobjectCopyConstructorOwner'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateSubobjectCopyAssignmentOwner'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicPrivateBaseOwner'" \
+		$(TEST_OUT)/atomic-private-access/invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/invalid-x86.ro)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/invalid-x64.ro)
-	@echo "C++ atomic private/protected special-member constraints passed"
+	@echo "C++ atomic special-member access constraints passed"
 
 .PHONY: test-atomic-wait test-clear-padding test-cxx-atomic-aggregate-concurrency
 test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)

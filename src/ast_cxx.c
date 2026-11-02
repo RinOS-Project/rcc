@@ -15746,8 +15746,8 @@ static bool cxx_class_friend_name_matches(const CxxClass* target,
     return strcmp(normalized, candidate->name) == 0;
 }
 
-static bool cxx_class_grants_friendship_to(const CxxClass* target,
-                                           const CxxClass* candidate) {
+bool cxx_class_grants_friendship_to(const CxxClass* target,
+                                    const CxxClass* candidate) {
     if (!target || !candidate) return false;
     for (int index = 0; index < target->friend_class_count; ++index) {
         if (cxx_class_friend_name_matches(

@@ -13497,11 +13497,12 @@ remains a separate open item.
 
 - [x] Reject primary `std::atomic<T>` when a directly declared copy/move
       constructor or assignment operator is private or protected, while
-      preserving the type's trivially-copyable classification. GCC C++20
-      type-trait and `std::atomic` rejection oracles, RCC builtin-trait checks,
-      and type-specific invalid-instantiation diagnostics on i686/AMD64 pass in
-      `test-atomic-private-access`; the full `test-atomic-builtins` target also
-      passes.
-- [ ] Access control and overload viability for copy/move special members
-      inherited from bases or required by member subobjects remain open, along
-      with broader type-trait and `<atomic>` API coverage.
+      preserving the type's trivially-copyable classification. Propagate
+      inaccessible copy construction/assignment through base and member
+      subobjects, and preserve valid operations when the enclosing class is a
+      declared friend. GCC C++20 type-trait and `<atomic>` checks, RCC builtin
+      traits, and type-specific invalid-instantiation diagnostics on i686/AMD64
+      pass in `test-atomic-private-access`; `test-atomic-builtins` also passes.
+- [ ] Full overload viability for inherited/defaulted copy/move operations,
+      broader type-trait conformance, and the remaining `<atomic>` API surface
+      remain open.

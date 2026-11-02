@@ -24317,13 +24317,14 @@ static int cxx_atomic_assignment_special_member_kind(
  * assignment in addition to trivial copyability. Private/protected or deleted
  * direct special members can leave a type trivially copyable while making one
  * of those operations unavailable. This bounded subobject scan propagates
- * explicitly deleted copy operations through defaulted/implicit special
+ * inaccessible/deleted copy operations through defaulted/implicit special
  * members; a deleted move matters there only when it suppresses the implicit
  * copy operations. A defaulted deleted move of the enclosing class is ignored
  * by overload resolution, allowing its copy operation to service rvalues.
- * Other subobject access and overload-viability cases remain unmodeled. */
+ * Broader overload-viability cases remain unmodeled. */
 static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
-    Type* value_type, bool check_root_move_members) {
+    Type* value_type, bool check_root_move_members,
+    CxxClass* access_context) {
     CxxClass* cls;
     bool has_move_member = false;
     bool has_copy_constructor = false;
@@ -24334,7 +24335,7 @@ static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
     if (!value_type) return false;
     if (value_type->kind == TYPE_ARRAY) {
         return cxx_atomic_has_unavailable_copy_move_special_member_impl(
-            value_type->base, false);
+            value_type->base, false, access_context);
     }
     if (value_type->kind != TYPE_STRUCT && value_type->kind != TYPE_UNION) {
         return false;
@@ -24360,8 +24361,8 @@ static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
                 }
             } else {
                 has_copy_constructor = true;
-                if (check_root_move_members &&
-                    constructor->access != ACCESS_PUBLIC) {
+                if (constructor->access != ACCESS_PUBLIC &&
+                    !cxx_class_grants_friendship_to(cls, access_context)) {
                     return true;
                 }
                 if (parameter_type->base->is_const ||
@@ -24399,8 +24400,8 @@ static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
                 }
             } else {
                 has_copy_assignment = true;
-                if (check_root_move_members &&
-                    method->access != ACCESS_PUBLIC) {
+                if (method->access != ACCESS_PUBLIC &&
+                    !cxx_class_grants_friendship_to(cls, access_context)) {
                     return true;
                 }
                 if ((parameter_type->kind == TYPE_PTR &&
@@ -24426,14 +24427,14 @@ static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
             CxxClass* base = cls->bases[index].base;
             if (base && base->type &&
                 cxx_atomic_has_unavailable_copy_move_special_member_impl(
-                    base->type, false)) {
+                    base->type, false, cls)) {
                 return true;
             }
         }
     }
     for (TypeField* field = value_type->fields; field; field = field->next) {
         if (cxx_atomic_has_unavailable_copy_move_special_member_impl(
-                field->type, false)) {
+                field->type, false, cls)) {
             return true;
         }
     }
@@ -24443,7 +24444,7 @@ static bool cxx_atomic_has_unavailable_copy_move_special_member_impl(
 static bool cxx_atomic_has_unavailable_copy_move_special_member(
     Type* value_type) {
     return cxx_atomic_has_unavailable_copy_move_special_member_impl(
-        value_type, true);
+        value_type, true, NULL);
 }
 
 static bool cxx_template_expand_local_using_base_pack(

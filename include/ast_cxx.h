@@ -638,6 +638,8 @@ CxxClassAliasTemplate* cxx_class_find_inherited_alias_template(
     CxxClass* cls, const char* name, CxxClass* access_context,
     CxxClass** declaring_class, bool* ambiguous, bool* accessible);
 bool cxx_class_is_same_or_derived_from(CxxClass* cls, CxxClass* target);
+bool cxx_class_grants_friendship_to(const CxxClass* target,
+                                   const CxxClass* candidate);
 CxxTypeAlias* cxx_class_find_inherited_type_alias(
     CxxClass* cls, const char* name, CxxClass* access_context,
     bool* ambiguous, bool* accessible);
