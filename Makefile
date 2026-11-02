@@ -143,6 +143,7 @@ else
 EXPECT_FAILURE = $(subst /,\,$(subst ./,,$(1))) >$(subst /,\,$(2)) 2>&1 & if not errorlevel 1 exit /b 1
 endif
 CHECK_NONEMPTY = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)') -or (Get-Item -LiteralPath '$(1)').Length -eq 0) { exit 1 }"
+CHECK_EXISTS = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)')) { exit 1 }"
 COPY_FILE = $(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
 ASSERT_ABSENT = $(POWERSHELL) -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
 REMOVE_FILE = $(POWERSHELL) -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { Remove-Item -LiteralPath '$(1)' -Force }"
@@ -5296,19 +5297,19 @@ test-cxx-language-linkage: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-linkage/x64.ro \
 		tests/cxx_language_linkage.cpp
-	$(call CHECK_TEXT,_Z21call_language_linkagei,$(TEST_OUT)/cxx-language-linkage/x86.ro)
-	$(call CHECK_TEXT,_Z18cpp_linkage_importi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
-	$(call CHECK_TEXT,cpp_linkage_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
-	$(call CHECK_TEXT,linkage_import,$(TEST_OUT)/cxx-language-linkage/x86.ro)
-	$(call CHECK_TEXT,linkage_aggregate_member,$(TEST_OUT)/cxx-language-linkage/x86.ro)
-	$(call CHECK_TEXT,second_linkage_import,$(TEST_OUT)/cxx-language-linkage/x86.ro)
-	$(call CHECK_TEXT,c_linkage_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
-	$(call CHECK_TEXT,scoped_linkage_function,$(TEST_OUT)/cxx-language-linkage/x86.ro)
-	$(call CHECK_TEXT,scoped_c_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
-	$(call CHECK_TEXT,_ZN14scoped_linkage18scoped_cpp_counterE,$(TEST_OUT)/cxx-language-linkage/x64.ro)
-	$(call CHECK_TEXT,_ZN14scoped_linkage19call_scoped_linkageEi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
-	$(call CHECK_TEXT,_ZN14scoped_linkage17scoped_cpp_importEi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
-	$(call CHECK_TEXT,_Z29call_qualified_scoped_linkagei,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_BINARY_STRING,_Z21call_language_linkagei,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_BINARY_STRING,_Z18cpp_linkage_importi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_BINARY_STRING,cpp_linkage_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_BINARY_STRING,linkage_import,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_BINARY_STRING,linkage_aggregate_member,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_BINARY_STRING,second_linkage_import,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_BINARY_STRING,c_linkage_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_BINARY_STRING,scoped_linkage_function,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_BINARY_STRING,scoped_c_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_BINARY_STRING,_ZN14scoped_linkage18scoped_cpp_counterE,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_BINARY_STRING,_ZN14scoped_linkage19call_scoped_linkageEi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_BINARY_STRING,_ZN14scoped_linkage17scoped_cpp_importEi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_BINARY_STRING,_Z29call_qualified_scoped_linkagei,$(TEST_OUT)/cxx-language-linkage/x64.ro)
 ifeq ($(OS),Windows_NT)
 	$(POWERSHELL) -NoProfile -Command "if (Select-String -Quiet -SimpleMatch '_Z14linkage_importi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage23scoped_linkage_functionEi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage16scoped_c_counterE' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }"
 else
@@ -14286,21 +14287,21 @@ ifeq ($(OS),Windows_NT)
 	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/hello.c' -Destination '$(TEST_OUT)/multiple-inputs/c/first.c' -Force"
 	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/aggregate_copy.c' -Destination '$(TEST_OUT)/multiple-inputs/c/second.c' -Force"
 	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -c -MMD first.c second.c"
-	if not exist $(TEST_OUT)\multiple-inputs\c\first.ro exit /b 1
-	if not exist $(TEST_OUT)\multiple-inputs\c\second.ro exit /b 1
-	if not exist $(TEST_OUT)\multiple-inputs\c\first.d exit /b 1
-	if not exist $(TEST_OUT)\multiple-inputs\c\second.d exit /b 1
+	$(call CHECK_EXISTS,$(TEST_OUT)/multiple-inputs/c/first.ro)
+	$(call CHECK_EXISTS,$(TEST_OUT)/multiple-inputs/c/second.ro)
+	$(call CHECK_EXISTS,$(TEST_OUT)/multiple-inputs/c/first.d)
+	$(call CHECK_EXISTS,$(TEST_OUT)/multiple-inputs/c/second.d)
 	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -S first.c second.c"
-	if not exist $(TEST_OUT)\multiple-inputs\c\first.s exit /b 1
-	if not exist $(TEST_OUT)\multiple-inputs\c\second.s exit /b 1
+	$(call CHECK_EXISTS,$(TEST_OUT)/multiple-inputs/c/first.s)
+	$(call CHECK_EXISTS,$(TEST_OUT)/multiple-inputs/c/second.s)
 	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -E first.c second.c > combined.i"
 	$(GREP) -F -q "int main" $(TEST_OUT)/multiple-inputs/c/combined.i
 	$(GREP) -F -q "struct Pair" $(TEST_OUT)/multiple-inputs/c/combined.i
 	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_function_templates.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/first.cpp' -Force"
 	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_lambda.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/second.cpp' -Force"
 	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/cxx)'; & '$(abspath $(RCXX_TARGET))' --target x86_64-unknown-rinos -std=c++20 -c first.cpp second.cpp"
-	if not exist $(TEST_OUT)\multiple-inputs\cxx\first.ro exit /b 1
-	if not exist $(TEST_OUT)\multiple-inputs\cxx\second.ro exit /b 1
+	$(call CHECK_EXISTS,$(TEST_OUT)/multiple-inputs/cxx/first.ro)
+	$(call CHECK_EXISTS,$(TEST_OUT)/multiple-inputs/cxx/second.ro)
 else
 	cp tests/hello.c $(TEST_OUT)/multiple-inputs/c/first.c
 	cp tests/aggregate_copy.c $(TEST_OUT)/multiple-inputs/c/second.c
@@ -24547,10 +24548,10 @@ test-verified-sysv-sse-pair-return: $(RCC_TARGET) $(RCXX_TARGET) $(CXX_HOST_EXCE
 
 ifeq ($(OS),Windows_NT)
 define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
-%WINDIR%\System32\findstr.exe /l /c:"Verified backend: 12 function(s) emitted" "$(subst /,\,$(1))" >NUL
+$(GREP) -F -q "Verified backend: 12 function(s) emitted" "$(1)"
 endef
 define CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION
-%WINDIR%\System32\findstr.exe /l /c:"Verified backend: 6 function(s) emitted" "$(subst /,\,$(1))" >NUL
+$(GREP) -F -q "Verified backend: 6 function(s) emitted" "$(1)"
 endef
 else
 define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
