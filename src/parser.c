@@ -365,6 +365,22 @@ static void parser_apply_pack(Token* directive) {
     parser_pack_alignment = value;
 }
 
+static void parser_apply_fenv_round(Token* directive) {
+    if (!directive || directive->type != TOK_PRAGMA_FENV_ROUND ||
+        directive->value.int_val < RCC_FENV_ROUND_DYNAMIC ||
+        directive->value.int_val > RCC_FENV_ROUND_TOWARDZERO) {
+        if (directive) {
+            rcc_error(directive->loc,
+                      "invalid #pragma STDC FENV_ROUND mode");
+        }
+        return;
+    }
+    g_opts.fenv_round_mode = (RccFenvRoundMode)directive->value.int_val;
+    /* A fixed mode is observable by floating operations and calls.  Keep
+     * optimization conservative for the whole translation unit. */
+    g_opts.fenv_access = true;
+}
+
 static bool parser_tag_scope_is_visible(ParserTagScope* scope);
 
 typedef struct ParserCxxTypeLookup {
@@ -3430,9 +3446,24 @@ static Expr* parse_primary(void) {
     if (match(TOK_FLOAT_LIT)) {
         Token* literal = previous();
         Expr* expression = expr_float(literal->value.float_val, loc);
+        expression->float_literal_spelling = literal->float_spelling;
         if (literal->float_suffix) expression->type = type_float;
         else if (literal->float_long_suffix)
             expression->type = type_long_double;
+        if (expression->fenv_round_mode != RCC_FENV_ROUND_DYNAMIC &&
+            expression->float_literal_spelling) {
+            double rounded_literal;
+            if (!rcc_fenv_parse_float_literal(
+                    expression->float_literal_spelling,
+                    expression->fenv_round_mode,
+                    expression->type == type_float,
+                    &rounded_literal)) {
+                rcc_error(loc,
+                          "cannot parse floating constant in the active FENV_ROUND mode");
+            } else {
+                expression->float_val = rounded_literal;
+            }
+        }
         if (parser_cxx_mode && literal->user_literal_suffix) {
             return parse_cxx_user_literal_call(literal->user_literal_suffix,
                                                expression, NULL, loc);
@@ -6961,6 +6992,7 @@ static Stmt* parse_block(void) {
     ParserEnumConstant* saved_enum_constants = parser_enum_constants;
     ParserTagName* saved_tag_names = parser_tag_names;
     ParserTagScope* saved_tag_scope = parser_tag_scope;
+    RccFenvRoundMode saved_fenv_round_mode = g_opts.fenv_round_mode;
     ParserTagScope* block_tag_scope = ast_arena_alloc(
         sizeof(*block_tag_scope));
     void* saved_type_names = rcc_parser_type_scope_mark();
@@ -6975,6 +7007,10 @@ static Stmt* parse_block(void) {
         Token* iteration_start = parser.cur;
         int errors_before = g_error_count;
         bool preserve_recovery_boundary = false;
+        if (match(TOK_PRAGMA_FENV_ROUND)) {
+            parser_apply_fenv_round(previous());
+            continue;
+        }
         Stmt* s = parser_cxx_mode && rcc_parse_cxx_statement
             ? rcc_parse_cxx_statement() : parse_declaration();
         if (s) {
@@ -7004,6 +7040,7 @@ static Stmt* parse_block(void) {
     }
 
     expect(TOK_RBRACE, "}");
+    g_opts.fenv_round_mode = saved_fenv_round_mode;
     parser_enum_constants = saved_enum_constants;
     parser_tag_names = saved_tag_names;
     parser_tag_scope = saved_tag_scope;
@@ -8750,6 +8787,10 @@ Stmt* parse_declaration(void) {
  * ═══════════════════════════════════════ */
 
 static Stmt* parse_toplevel(void) {
+    if (match(TOK_PRAGMA_FENV_ROUND)) {
+        parser_apply_fenv_round(previous());
+        return NULL;
+    }
     if (match(TOK_PRAGMA_PACK)) {
         parser_apply_pack(previous());
         return NULL;

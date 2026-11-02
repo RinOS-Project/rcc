@@ -6,7 +6,9 @@
 #include "rcc.h"
 #include "ast.h"
 #include "ast_cxx.h"
+#include <errno.h>
 #include <limits.h>
+#include <stdlib.h>
 
 #define AST_ARENA_BLOCK_SIZE (64u * 1024u)
 
@@ -1314,8 +1316,220 @@ Type* type_common(Type* a, Type* b) {
  * Expression Constructors
  * ═══════════════════════════════════════ */
 
+static Expr* expr_allocate(SourceLoc loc) {
+    Expr* expression = rcc_alloc(sizeof(*expression));
+    expression->loc = loc;
+    expression->fenv_round_mode = g_opts.fenv_round_mode;
+    expression->float_literal_spelling = NULL;
+    return expression;
+}
+
+bool rcc_fenv_parse_float_literal(const char* spelling,
+                                  RccFenvRoundMode mode,
+                                  bool single_precision,
+                                  double* value_out) {
+    unsigned short saved_cw;
+    unsigned short rounded_cw;
+    unsigned int saved_mxcsr;
+    unsigned int rounded_mxcsr;
+    unsigned int encoding;
+    unsigned char saved_x87_environment[28];
+    char* end = NULL;
+    int saved_errno = errno;
+    bool parsed = false;
+    if (!spelling || !spelling[0] || !value_out) return false;
+    switch (mode) {
+        case RCC_FENV_ROUND_TONEAREST: encoding = 0u; break;
+        case RCC_FENV_ROUND_DOWNWARD: encoding = 1u; break;
+        case RCC_FENV_ROUND_UPWARD: encoding = 2u; break;
+        case RCC_FENV_ROUND_TOWARDZERO: encoding = 3u; break;
+        default:
+            errno = saved_errno;
+            return false;
+    }
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__i386__) || defined(__x86_64__))
+    __asm__ volatile("fnstcw %0\n\tstmxcsr %1\n\tfnstenv %2"
+                     : "=m"(saved_cw), "=m"(saved_mxcsr),
+                       "=m"(saved_x87_environment)
+                     : : "memory");
+    rounded_cw = (unsigned short)((saved_cw & ~0x0c00u) |
+                                 (encoding << 10));
+    rounded_mxcsr = (saved_mxcsr & ~0x6000u) | (encoding << 13);
+    __asm__ volatile("fldcw %0\n\tldmxcsr %1"
+                     : : "m"(rounded_cw), "m"(rounded_mxcsr)
+                     : "memory");
+#else
+    if (mode != RCC_FENV_ROUND_TONEAREST) {
+        errno = saved_errno;
+        return false;
+    }
+#endif
+    errno = 0;
+    if (single_precision) {
+        float parsed_float = strtof(spelling, &end);
+        parsed = end && end != spelling;
+        *value_out = (double)parsed_float;
+    } else {
+        double parsed_double = strtod(spelling, &end);
+        parsed = end && end != spelling;
+        *value_out = parsed_double;
+    }
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__i386__) || defined(__x86_64__))
+    __asm__ volatile("fldenv %0\n\tldmxcsr %1"
+                     : : "m"(saved_x87_environment), "m"(saved_mxcsr)
+                     : "memory");
+#endif
+    errno = saved_errno;
+    return parsed;
+}
+
+bool rcc_fenv_eval_binary_constant(int operation, double lhs, double rhs,
+                                  RccFenvRoundMode mode,
+                                  bool single_precision,
+                                  double* value_out) {
+    unsigned short saved_cw;
+    unsigned short rounded_cw;
+    unsigned int saved_mxcsr;
+    unsigned int rounded_mxcsr;
+    unsigned int encoding;
+    unsigned char saved_x87_environment[28];
+    bool evaluated = false;
+    if (!value_out || operation < 0 || operation > 3) return false;
+    switch (mode) {
+        case RCC_FENV_ROUND_TONEAREST: encoding = 0u; break;
+        case RCC_FENV_ROUND_DOWNWARD: encoding = 1u; break;
+        case RCC_FENV_ROUND_UPWARD: encoding = 2u; break;
+        case RCC_FENV_ROUND_TOWARDZERO: encoding = 3u; break;
+        default: return false;
+    }
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__i386__) || defined(__x86_64__))
+    __asm__ volatile("fnstcw %0\n\tstmxcsr %1\n\tfnstenv %2"
+                     : "=m"(saved_cw), "=m"(saved_mxcsr),
+                       "=m"(saved_x87_environment)
+                     : : "memory");
+    rounded_cw = (unsigned short)((saved_cw & ~0x0c00u) |
+                                 (encoding << 10));
+    rounded_mxcsr = (saved_mxcsr & ~0x6000u) | (encoding << 13);
+    __asm__ volatile("fldcw %0\n\tldmxcsr %1"
+                     : : "m"(rounded_cw), "m"(rounded_mxcsr)
+                     : "memory");
+#else
+    if (mode != RCC_FENV_ROUND_TONEAREST) return false;
+#endif
+    if (single_precision) {
+        volatile float left = (float)lhs;
+        volatile float right = (float)rhs;
+        volatile float result;
+        switch (operation) {
+            case 0: result = left + right; break;
+            case 1: result = left - right; break;
+            case 2: result = left * right; break;
+            case 3: result = left / right; break;
+            default: result = 0.0f; break;
+        }
+        *value_out = (double)result;
+        evaluated = true;
+    } else {
+        volatile double left = lhs;
+        volatile double right = rhs;
+        volatile double result;
+        switch (operation) {
+            case 0: result = left + right; break;
+            case 1: result = left - right; break;
+            case 2: result = left * right; break;
+            case 3: result = left / right; break;
+            default: result = 0.0; break;
+        }
+        *value_out = result;
+        evaluated = true;
+    }
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__i386__) || defined(__x86_64__))
+    __asm__ volatile("fldenv %0\n\tldmxcsr %1"
+                     : : "m"(saved_x87_environment), "m"(saved_mxcsr)
+                     : "memory");
+#endif
+    return evaluated;
+}
+
+bool rcc_fenv_convert_constant(double floating_value,
+                               uint64_t integer_bits,
+                               int64_t integer_signed,
+                               bool source_is_floating,
+                               bool source_is_unsigned,
+                               RccFenvRoundMode mode,
+                               bool single_precision,
+                               double* value_out) {
+    unsigned short saved_cw;
+    unsigned short rounded_cw;
+    unsigned int saved_mxcsr;
+    unsigned int rounded_mxcsr;
+    unsigned int encoding;
+    unsigned char saved_x87_environment[28];
+    if (!value_out) return false;
+    switch (mode) {
+        case RCC_FENV_ROUND_TONEAREST: encoding = 0u; break;
+        case RCC_FENV_ROUND_DOWNWARD: encoding = 1u; break;
+        case RCC_FENV_ROUND_UPWARD: encoding = 2u; break;
+        case RCC_FENV_ROUND_TOWARDZERO: encoding = 3u; break;
+        default: return false;
+    }
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__i386__) || defined(__x86_64__))
+    __asm__ volatile("fnstcw %0\n\tstmxcsr %1\n\tfnstenv %2"
+                     : "=m"(saved_cw), "=m"(saved_mxcsr),
+                       "=m"(saved_x87_environment)
+                     : : "memory");
+    rounded_cw = (unsigned short)((saved_cw & ~0x0c00u) |
+                                 (encoding << 10));
+    rounded_mxcsr = (saved_mxcsr & ~0x6000u) | (encoding << 13);
+    __asm__ volatile("fldcw %0\n\tldmxcsr %1"
+                     : : "m"(rounded_cw), "m"(rounded_mxcsr)
+                     : "memory");
+#else
+    if (mode != RCC_FENV_ROUND_TONEAREST) return false;
+#endif
+    if (single_precision) {
+        volatile float converted;
+        if (source_is_floating) {
+            volatile double source = floating_value;
+            converted = (float)source;
+        } else if (source_is_unsigned) {
+            volatile uint64_t source = integer_bits;
+            converted = (float)source;
+        } else {
+            volatile int64_t source = integer_signed;
+            converted = (float)source;
+        }
+        *value_out = (double)converted;
+    } else {
+        volatile double converted;
+        if (source_is_floating) {
+            volatile double source = floating_value;
+            converted = source;
+        } else if (source_is_unsigned) {
+            volatile uint64_t source = integer_bits;
+            converted = (double)source;
+        } else {
+            volatile int64_t source = integer_signed;
+            converted = (double)source;
+        }
+        *value_out = converted;
+    }
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__i386__) || defined(__x86_64__))
+    __asm__ volatile("fldenv %0\n\tldmxcsr %1"
+                     : : "m"(saved_x87_environment), "m"(saved_mxcsr)
+                     : "memory");
+#endif
+    return true;
+}
+
 Expr* expr_int(int64_t val, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_INT_LIT;
     e->loc = loc;
     e->int_val = val;
@@ -1395,7 +1609,7 @@ Expr* expr_integer_literal(uint64_t val, unsigned base,
 }
 
 Expr* expr_float(double val, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_FLOAT_LIT;
     e->loc = loc;
     e->float_val = val;
@@ -1431,7 +1645,7 @@ Expr* expr_bitint_literal(uint64_t value, bool is_unsigned, SourceLoc loc) {
 }
 
 Expr* expr_char(char val, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_CHAR_LIT;
     e->loc = loc;
     e->char_val = val;
@@ -1447,7 +1661,7 @@ Expr* expr_char_encoded(uint32_t val, uint8_t element_width, SourceLoc loc) {
         (element_width == 4u && val > UINT32_MAX)) {
         rcc_fatal("invalid encoded character literal value");
     }
-    e = rcc_alloc(sizeof(Expr));
+    e = expr_allocate(loc);
     e->kind = EXPR_CHAR_LIT;
     e->loc = loc;
     e->int_val = (int64_t)val;
@@ -1482,7 +1696,7 @@ Expr* expr_string_encoded_n(const char* val, size_t byte_length,
                             uint8_t element_width, SourceLoc loc) {
     Type* element_type;
     size_t code_unit_count;
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     if (element_width != 1u && element_width != 2u &&
         element_width != 4u) {
         rcc_fatal("invalid string literal code-unit width %u",
@@ -1511,7 +1725,7 @@ Expr* expr_string_encoded_n(const char* val, size_t byte_length,
 }
 
 Expr* expr_ident(const char* name, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_IDENT;
     e->loc = loc;
     e->ident_name = name;
@@ -1521,7 +1735,7 @@ Expr* expr_ident(const char* name, SourceLoc loc) {
 }
 
 Expr* expr_cxx_this(SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_CXX_THIS;
     e->loc = loc;
     e->type = NULL;
@@ -1530,7 +1744,7 @@ Expr* expr_cxx_this(SourceLoc loc) {
 }
 
 Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = kind;
     e->loc = loc;
     e->unary_operand = operand;
@@ -1547,7 +1761,7 @@ Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc) {
 }
 
 Expr* expr_binary(ExprKind kind, Expr* lhs, Expr* rhs, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = kind;
     e->loc = loc;
     e->binary_lhs = lhs;
@@ -1557,7 +1771,7 @@ Expr* expr_binary(ExprKind kind, Expr* lhs, Expr* rhs, SourceLoc loc) {
 }
 
 Expr* expr_cond(Expr* test, Expr* then_expr, Expr* else_expr, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_COND;
     e->loc = loc;
     e->cond_test = test;
@@ -1568,7 +1782,7 @@ Expr* expr_cond(Expr* test, Expr* then_expr, Expr* else_expr, SourceLoc loc) {
 }
 
 Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_CALL;
     e->loc = loc;
     e->call_func = func;
@@ -1618,7 +1832,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
 }
 
 Expr* expr_index(Expr* base, Expr* index, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_INDEX;
     e->loc = loc;
     e->index_base = base;
@@ -1628,7 +1842,7 @@ Expr* expr_index(Expr* base, Expr* index, SourceLoc loc) {
 }
 
 Expr* expr_member(Expr* base, const char* name, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_MEMBER;
     e->loc = loc;
     e->member_base = base;
@@ -1639,18 +1853,19 @@ Expr* expr_member(Expr* base, const char* name, SourceLoc loc) {
 }
 
 Expr* expr_cast(Type* type, Expr* expr, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_CAST;
     e->loc = loc;
     e->cast_expr = expr;
     e->cast_type = type;
+    if (expr) e->fenv_round_mode = expr->fenv_round_mode;
     e->type = type;
     return e;
 }
 
 Expr* expr_cxx_typeid(Type* operand_type, Expr* operand,
                       bool operand_is_type, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_CXX_TYPEID;
     e->loc = loc;
     e->cxx_typeid_operand_type = operand_type;
@@ -1663,7 +1878,7 @@ Expr* expr_cxx_typeid(Type* operand_type, Expr* operand,
 }
 
 Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_SIZEOF;
     e->loc = loc;
     e->unary_operand = expr;
@@ -1673,7 +1888,7 @@ Expr* expr_sizeof_expr(Expr* expr, SourceLoc loc) {
 }
 
 Expr* expr_sizeof_type(Type* type, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_SIZEOF;
     e->loc = loc;
     e->unary_operand = NULL;
@@ -1683,7 +1898,7 @@ Expr* expr_sizeof_type(Type* type, SourceLoc loc) {
 }
 
 Expr* expr_sizeof_pack(const char* name, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_SIZEOF;
     e->loc = loc;
     e->unary_operand = NULL;
@@ -1728,7 +1943,7 @@ Expr* expr_generic(Expr* control, GenericAssociation* associations,
 }
 
 Expr* expr_cxx_requires(ExprList* requirements, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_CXX_REQUIRES;
     e->loc = loc;
     e->cxx_requires_items = requirements;
@@ -1765,7 +1980,7 @@ void generic_association_append(GenericAssociation** list, Type* type,
 }
 
 Expr* expr_initializer_list(ExprList* items, SourceLoc loc) {
-    Expr* e = rcc_alloc(sizeof(Expr));
+    Expr* e = expr_allocate(loc);
     e->kind = EXPR_COMPOUND;
     e->loc = loc;
     e->compound_type = NULL;

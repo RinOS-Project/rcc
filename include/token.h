@@ -183,6 +183,7 @@ typedef enum {
     TOK_HASH,           /* # */
     TOK_HASHHASH,       /* ## */
     TOK_PRAGMA_PACK,    /* Preserved #pragma pack state transition */
+    TOK_PRAGMA_FENV_ROUND, /* C23 floating-point rounding scope transition */
 
     /* C++ specific operators */
     TOK_SCOPE,          /* :: */
@@ -239,6 +240,7 @@ typedef struct Token {
      * analysis and object emission from silently widening every literal. */
     bool float_suffix;
     bool float_long_suffix;
+    const char* float_spelling; /* Interned source digits, without separators. */
     SourceLoc loc;
     struct Token* next;
 } Token;

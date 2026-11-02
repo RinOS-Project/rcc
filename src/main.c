@@ -495,6 +495,8 @@ static int parse_args(int argc, char** argv) {
 static int compile_current_input(char** argv) {
     bool use_verified_backend = g_opts.verified_backend;
     bool complex_translation_unit = false;
+    bool fenv_round_translation_unit = false;
+    SourceLoc fenv_round_location = {0};
     type_configure_target(g_opts.target_arch);
 
     if (g_opts.verbose) {
@@ -640,11 +642,33 @@ static int compile_current_input(char** argv) {
 
     for (Token* token = tokens->head;
          token && token->type != TOK_EOF; token = token->next) {
+        if (token->type == TOK_PRAGMA_FENV_ROUND) {
+            if (!fenv_round_translation_unit) {
+                fenv_round_location = token->loc;
+            }
+            fenv_round_translation_unit = true;
+        }
         if (token->type == TOK__COMPLEX ||
             (token->type == TOK_IDENT && token->value.str_val &&
              strcmp(token->value.str_val, "__builtin_complex") == 0)) {
             complex_translation_unit = true;
             break;
+        }
+    }
+    if (fenv_round_translation_unit && !g_opts.preprocess_only &&
+        g_opts.output_format != OUTPUT_OBJ) {
+        rcc_error(fenv_round_location,
+                  "#pragma STDC FENV_ROUND currently requires typed SSA object output");
+        tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
+        return 1;
+    }
+    if (fenv_round_translation_unit && !g_opts.preprocess_only &&
+        !use_verified_backend) {
+        use_verified_backend = true;
+        if (g_opts.verbose) {
+            printf("FENV_ROUND: selecting typed SSA object backend\n");
         }
     }
     if (!use_verified_backend &&

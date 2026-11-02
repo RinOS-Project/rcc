@@ -7291,6 +7291,22 @@ static bool sema_eval_constexpr_scalar_expr(
     Expr* expression, SemaConstexprBinding* bindings,
     int binding_count, SemaConstexprScalar* value);
 
+static bool sema_fenv_scalar_as_float(
+    const SemaConstexprScalar* input, Type* type,
+    RccFenvRoundMode mode, double* value_out) {
+    if (!input || !type || !value_out ||
+        (type->kind != TYPE_FLOAT && type->kind != TYPE_DOUBLE)) {
+        return false;
+    }
+    return rcc_fenv_convert_constant(
+        input->floating_value,
+        input->is_floating ? 0u : sema_constexpr_integer_bits(input),
+        input->is_floating ? 0 : sema_constexpr_integer_signed(input),
+        input->is_floating,
+        !input->is_floating && input->type && input->type->is_unsigned,
+        mode, type->kind == TYPE_FLOAT, value_out);
+}
+
 static TypeField* initializer_field(Type* type, const char* name);
 
 static bool sema_eval_constexpr_scalar_object(
@@ -12943,6 +12959,30 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             if (!sema_eval_constexpr_scalar_expr(expression->cast_expr,
                                                   bindings, binding_count,
                                                   &left)) return false;
+            if (expression->cast_type &&
+                (expression->cast_type->kind == TYPE_FLOAT ||
+                 expression->cast_type->kind == TYPE_DOUBLE)) {
+                if (expression->fenv_round_mode ==
+                        RCC_FENV_ROUND_DYNAMIC && g_opts.fenv_access) {
+                    return false;
+                }
+                if (expression->fenv_round_mode !=
+                    RCC_FENV_ROUND_DYNAMIC) {
+                    if (!sema_fenv_scalar_as_float(
+                            &left, expression->cast_type,
+                            expression->fenv_round_mode,
+                            &value->floating_value)) {
+                        return false;
+                    }
+                    value->type = expression->cast_type;
+                    value->is_floating = true;
+                    value->is_pointer = false;
+                    value->integer_value = 0;
+                    value->pointer_declaration = NULL;
+                    value->pointer_offset = 0;
+                    return isfinite(value->floating_value);
+                }
+            }
             return sema_constexpr_scalar_convert(&left,
                                                  expression->cast_type, value);
         case EXPR_ADDR: {
@@ -13366,6 +13406,36 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                     ? left.floating_value : (double)left.integer_value;
                 double right_value = right.is_floating
                     ? right.floating_value : (double)right.integer_value;
+                if (expression->fenv_round_mode ==
+                        RCC_FENV_ROUND_DYNAMIC && g_opts.fenv_access) {
+                    return false;
+                }
+                result_type = expression->type &&
+                    (expression->type->kind == TYPE_FLOAT ||
+                     expression->type->kind == TYPE_DOUBLE)
+                    ? expression->type : type_double;
+                operation_type = result_type;
+                if (expression->kind == EXPR_EQ ||
+                    expression->kind == EXPR_NE ||
+                    expression->kind == EXPR_LT ||
+                    expression->kind == EXPR_GT ||
+                    expression->kind == EXPR_LE ||
+                    expression->kind == EXPR_GE) {
+                    operation_type = sema_common_arithmetic_type(
+                        left.type, expression->binary_lhs,
+                        right.type, expression->binary_rhs);
+                }
+                if (expression->fenv_round_mode !=
+                    RCC_FENV_ROUND_DYNAMIC &&
+                    (!operation_type ||
+                     !sema_fenv_scalar_as_float(
+                         &left, operation_type,
+                         expression->fenv_round_mode, &left_value) ||
+                     !sema_fenv_scalar_as_float(
+                         &right, operation_type,
+                         expression->fenv_round_mode, &right_value))) {
+                    return false;
+                }
                 if ((expression->kind == EXPR_DIV) && right_value == 0.0) {
                     return false;
                 }
@@ -13384,12 +13454,24 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                     }
                     return true;
                 }
-                result_type = expression->type &&
-                    (expression->type->kind == TYPE_FLOAT ||
-                     expression->type->kind == TYPE_DOUBLE)
-                    ? expression->type : type_double;
                 value->type = result_type;
                 value->is_floating = true;
+                if (expression->fenv_round_mode !=
+                    RCC_FENV_ROUND_DYNAMIC) {
+                    int operation = expression->kind == EXPR_ADD ? 0 :
+                        expression->kind == EXPR_SUB ? 1 :
+                        expression->kind == EXPR_MUL ? 2 :
+                        expression->kind == EXPR_DIV ? 3 : -1;
+                    if (operation < 0 ||
+                        !rcc_fenv_eval_binary_constant(
+                            operation, left_value, right_value,
+                            expression->fenv_round_mode,
+                            result_type->kind == TYPE_FLOAT,
+                            &value->floating_value)) {
+                        return false;
+                    }
+                    return isfinite(value->floating_value);
+                }
                 switch (expression->kind) {
                     case EXPR_ADD: value->floating_value = left_value + right_value; break;
                     case EXPR_SUB: value->floating_value = left_value - right_value; break;

@@ -54,6 +54,38 @@ static bool pragma_tail_is_space_or_comment(const char* cursor) {
     }
 }
 
+static int pragma_fenv_round_value(const char** cursor) {
+    const char* p = *cursor;
+    int mode = -1;
+    if (pragma_match_word(&p, "FE_DYNAMIC")) {
+        mode = RCC_FENV_ROUND_DYNAMIC;
+    } else if (pragma_match_word(&p, "FE_TONEAREST")) {
+        mode = RCC_FENV_ROUND_TONEAREST;
+    } else if (pragma_match_word(&p, "FE_DOWNWARD")) {
+        mode = RCC_FENV_ROUND_DOWNWARD;
+    } else if (pragma_match_word(&p, "FE_UPWARD")) {
+        mode = RCC_FENV_ROUND_UPWARD;
+    } else if (pragma_match_word(&p, "FE_TOWARDZERO")) {
+        mode = RCC_FENV_ROUND_TOWARDZERO;
+    } else if (isdigit((unsigned char)*p)) {
+        char* end = NULL;
+        unsigned long long value;
+        errno = 0;
+        value = strtoull(p, &end, 0);
+        if (end == p || errno == ERANGE) return -1;
+        while (*end == 'u' || *end == 'U' ||
+               *end == 'l' || *end == 'L') ++end;
+        p = end;
+        if (value == 0u) mode = RCC_FENV_ROUND_TONEAREST;
+        else if (value == 0x0400u) mode = RCC_FENV_ROUND_DOWNWARD;
+        else if (value == 0x0800u) mode = RCC_FENV_ROUND_UPWARD;
+        else if (value == 0x0c00u) mode = RCC_FENV_ROUND_TOWARDZERO;
+        else if (value == 0x7fffffffu) mode = RCC_FENV_ROUND_DYNAMIC;
+    }
+    if (mode >= 0) *cursor = p;
+    return mode;
+}
+
 void rcc_lexer_set_cxx_mode(bool enabled) {
     lexer_cxx_mode = enabled;
 }
@@ -242,6 +274,7 @@ const char* token_type_str(TokenType type) {
         case TOK_COLON: return ":";
         case TOK_ELLIPSIS: return "...";
         case TOK_PRAGMA_PACK: return "#pragma pack";
+        case TOK_PRAGMA_FENV_ROUND: return "#pragma STDC FENV_ROUND";
         default:
             for (int i = 0; keywords[i].name; i++) {
                 if (keywords[i].type == type) {
@@ -660,6 +693,7 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
     if (is_float) {
         tok = token_new(TOK_FLOAT_LIT, loc);
         tok->value.float_val = strtod(str, NULL);
+        tok->float_spelling = rcc_intern(str);
         tok->float_suffix = suffix_start < lex->pos &&
                             (*suffix_start == 'f' ||
                              *suffix_start == 'F');
@@ -1614,6 +1648,8 @@ static Token* handle_pragma_directive(Lexer* lex) {
     bool recognized = false;
     bool fenv_access = false;
     int fenv_setting = -1;
+    bool fenv_round = false;
+    int fenv_round_setting = -1;
 
     pragma_skip_space(&p);
     {
@@ -1632,6 +1668,15 @@ static Token* handle_pragma_directive(Lexer* lex) {
                 if (fenv_setting >= 0 &&
                     !pragma_tail_is_space_or_comment(fenv)) {
                     fenv_setting = -1;
+                }
+            } else if (pragma_match_word(&fenv, "FENV_ROUND")) {
+                fenv_round = true;
+                pragma_skip_space(&fenv);
+                fenv_round_setting = pragma_fenv_round_value(&fenv);
+                pragma_skip_space(&fenv);
+                if (fenv_round_setting >= 0 &&
+                    !pragma_tail_is_space_or_comment(fenv)) {
+                    fenv_round_setting = -1;
                 }
             }
         }
@@ -1690,6 +1735,16 @@ static Token* handle_pragma_directive(Lexer* lex) {
             g_opts.fenv_access = true;
         }
         return NULL;
+    }
+    if (fenv_round && !lexer_cxx_mode && g_opts.c_standard >= 23) {
+        if (fenv_round_setting < 0) {
+            rcc_error(loc,
+                      "invalid #pragma STDC FENV_ROUND; expected FE_DYNAMIC, FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, or FE_TOWARDZERO");
+            return NULL;
+        }
+        Token* token = token_new(TOK_PRAGMA_FENV_ROUND, loc);
+        token->value.int_val = fenv_round_setting;
+        return token;
     }
     if (!recognized) return NULL;
 
@@ -2005,6 +2060,7 @@ static void lex_normalize_adjacent_strings(TokenList* list, Lexer* lex) {
 /* Lex from string */
 TokenList* rcc_lex_string(const char* src, const char* filename) {
     g_opts.fenv_access = g_opts.frounding_math;
+    g_opts.fenv_round_mode = RCC_FENV_ROUND_DYNAMIC;
     /* Initialize lexer */
     Lexer lex = {
         .filename = filename,

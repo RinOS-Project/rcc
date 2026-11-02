@@ -49,6 +49,17 @@ typedef enum {
     SIGN_PROFILE_RELEASE,
 } SigningProfile;
 
+/* Internal values retained on parsed C23 expressions.  Zero intentionally
+ * means the dynamic floating-point environment so zero-initialized synthetic
+ * AST nodes keep the pre-C23 behavior. */
+typedef enum {
+    RCC_FENV_ROUND_DYNAMIC = 0,
+    RCC_FENV_ROUND_TONEAREST,
+    RCC_FENV_ROUND_DOWNWARD,
+    RCC_FENV_ROUND_UPWARD,
+    RCC_FENV_ROUND_TOWARDZERO,
+} RccFenvRoundMode;
+
 /* Maximum include paths and defines */
 #define RCC_MAX_INCLUDES 64
 #define RCC_MAX_DEFINES 128
@@ -99,6 +110,7 @@ typedef struct {
      * pragma boundaries keep observable floating-point environment effects. */
     bool fenv_access;
     bool frounding_math;       /* -frounding-math: honor dynamic rounding */
+    RccFenvRoundMode fenv_round_mode;
 
     /* Final artifact signing.  Keys are paths only and are never embedded. */
     const char* sign_key;
@@ -110,6 +122,23 @@ typedef struct {
     bool signing_profile_explicit;
     bool emit_unsigned_v3;      /* Internal packaging/debug stage only. */
 } CompilerOptions;
+
+bool rcc_fenv_parse_float_literal(const char* spelling,
+                                  RccFenvRoundMode mode,
+                                  bool single_precision,
+                                  double* value_out);
+bool rcc_fenv_eval_binary_constant(int operation, double lhs, double rhs,
+                                  RccFenvRoundMode mode,
+                                  bool single_precision,
+                                  double* value_out);
+bool rcc_fenv_convert_constant(double floating_value,
+                               uint64_t integer_bits,
+                               int64_t integer_signed,
+                               bool source_is_floating,
+                               bool source_is_unsigned,
+                               RccFenvRoundMode mode,
+                               bool single_precision,
+                               double* value_out);
 
 /* Canonical RinOS target triples accepted by every toolchain frontend. */
 #define RCC_TARGET_I686   "i686-unknown-rinos"

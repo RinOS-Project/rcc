@@ -755,6 +755,9 @@ struct Expr {
     ExprKind kind;
     Type* type;
     SourceLoc loc;
+    /* Constant rounding mode active at this source expression, or dynamic. */
+    RccFenvRoundMode fenv_round_mode;
+    const char* float_literal_spelling;
     /* Semantic analysis may revisit an expression; deprecation diagnostics
      * should still be emitted only once for this source-level use. */
     bool deprecated_warning_emitted;

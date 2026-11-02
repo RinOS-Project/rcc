@@ -19443,8 +19443,299 @@ static const Type* lower_cxx_member_object_type(const Expr* expression) {
     return type;
 }
 
+typedef struct {
+    RccIrLowerValue saved_cw;
+    RccIrLowerValue saved_mxcsr;
+    RccIrLowerValue work_cw;
+    RccIrLowerValue work_mxcsr;
+    bool active;
+} RccIrFenvRoundFrame;
+
+static bool lower_fenv_round_temp(
+    RccIrLowerContext* context, uint64_t size,
+    RccIrLowerValue* address) {
+    RccIrInstruction* allocation;
+    if (!context || !address || (size != 2u && size != 4u)) return false;
+    allocation = lower_append(context, RCC_IR_ALLOCA,
+                              rcc_ir_type_pointer(0u), NULL, 0u,
+                              NULL, 0u);
+    if (!allocation) return false;
+    rcc_ir_set_immediate(allocation, size);
+    allocation->alignment = (uint32_t)size;
+    *address = lower_value(allocation->result,
+                           rcc_ir_type_pointer(0u), true);
+    return address->valid;
+}
+
+static bool lower_fenv_round_instruction(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    RccIrX86FenvOperation operation) {
+    RccIrInstruction* instruction;
+    if (!address.valid || address.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    instruction = lower_append(context, RCC_IR_X86_FENV,
+                               rcc_ir_type_void(), &address.value, 1u,
+                               NULL, 0u);
+    if (!instruction) return false;
+    rcc_ir_set_immediate(instruction, (uint64_t)operation);
+    return true;
+}
+
+static RccIrLowerValue lower_fenv_round_load(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    RccIrType type) {
+    RccIrInstruction* instruction;
+    if (!address.valid || address.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    instruction = lower_append(context, RCC_IR_LOAD, type,
+                               &address.value, 1u, NULL, 0u);
+    return instruction
+        ? lower_value(instruction->result, type, true)
+        : lower_invalid_value();
+}
+
+static bool lower_fenv_round_store(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    RccIrLowerValue value) {
+    return lower_store_address(context, address, value);
+}
+
+static RccIrLowerValue lower_fenv_round_bits(
+    RccIrLowerContext* context, RccIrLowerValue current,
+    RccIrLowerValue saved, RccIrType type, uint64_t field_mask,
+    uint64_t mode_bits) {
+    uint64_t type_mask = type.bit_width >= 64u
+        ? UINT64_MAX : ((UINT64_C(1) << type.bit_width) - 1u);
+    RccIrLowerValue mask = lower_integer_constant(
+        context, type, true, field_mask);
+    RccIrLowerValue clear_mask = lower_integer_constant(
+        context, type, true, type_mask & ~field_mask);
+    RccIrLowerValue replacement = lower_integer_constant(
+        context, type, true, mode_bits);
+    RccIrValue operands[2];
+    RccIrInstruction* clear;
+    RccIrInstruction* bits;
+    RccIrInstruction* merged;
+    if (!current.valid || !saved.valid || !mask.valid || !clear_mask.valid ||
+        !replacement.valid) return lower_invalid_value();
+    operands[0] = current.value;
+    operands[1] = clear_mask.value;
+    clear = lower_append(context, RCC_IR_AND, type, operands, 2u,
+                         NULL, 0u);
+    operands[0] = saved.value;
+    operands[1] = mask.value;
+    bits = clear ? lower_append(context, RCC_IR_AND, type, operands, 2u,
+                                NULL, 0u) : NULL;
+    if (mode_bits != UINT64_MAX) {
+        operands[0] = clear ? clear->result : 0u;
+        operands[1] = replacement.value;
+        merged = bits ? lower_append(context, RCC_IR_OR, type,
+                                     operands, 2u, NULL, 0u) : NULL;
+    } else {
+        operands[0] = clear ? clear->result : 0u;
+        operands[1] = bits ? bits->result : 0u;
+        merged = bits ? lower_append(context, RCC_IR_OR, type,
+                                     operands, 2u, NULL, 0u) : NULL;
+    }
+    return merged ? lower_value(merged->result, type, true)
+                  : lower_invalid_value();
+}
+
+static unsigned lower_fenv_round_encoding(RccFenvRoundMode mode) {
+    switch (mode) {
+        case RCC_FENV_ROUND_TONEAREST: return 0u;
+        case RCC_FENV_ROUND_DOWNWARD: return 1u;
+        case RCC_FENV_ROUND_UPWARD: return 2u;
+        case RCC_FENV_ROUND_TOWARDZERO: return 3u;
+        default: return UINT_MAX;
+    }
+}
+
+static bool lower_fenv_round_begin(
+    RccIrLowerContext* context, RccFenvRoundMode mode,
+    RccIrFenvRoundFrame* frame) {
+    unsigned encoding = lower_fenv_round_encoding(mode);
+    RccIrType cw_type = rcc_ir_type_integer(16u);
+    RccIrType mxcsr_type = rcc_ir_type_integer(32u);
+    RccIrLowerValue current_cw;
+    RccIrLowerValue current_mxcsr;
+    RccIrLowerValue desired_cw;
+    RccIrLowerValue desired_mxcsr;
+    if (!context || !frame || encoding > 3u ||
+        !lower_fenv_round_temp(context, 2u, &frame->saved_cw) ||
+        !lower_fenv_round_temp(context, 4u, &frame->saved_mxcsr) ||
+        !lower_fenv_round_temp(context, 2u, &frame->work_cw) ||
+        !lower_fenv_round_temp(context, 4u, &frame->work_mxcsr) ||
+        !lower_fenv_round_instruction(context, frame->saved_cw,
+                                      RCC_IR_X86_FENV_FNSTCW) ||
+        !lower_fenv_round_instruction(context, frame->saved_mxcsr,
+                                      RCC_IR_X86_FENV_STMXCSR)) {
+        return false;
+    }
+    current_cw = lower_fenv_round_load(context, frame->saved_cw, cw_type);
+    current_mxcsr = lower_fenv_round_load(
+        context, frame->saved_mxcsr, mxcsr_type);
+    desired_cw = lower_fenv_round_bits(
+        context, current_cw, current_cw, cw_type,
+        UINT16_C(0x0c00), (uint64_t)encoding << 10);
+    desired_mxcsr = lower_fenv_round_bits(
+        context, current_mxcsr, current_mxcsr, mxcsr_type,
+        UINT32_C(0x6000), (uint64_t)encoding << 13);
+    if (!desired_cw.valid || !desired_mxcsr.valid ||
+        !lower_fenv_round_store(context, frame->work_cw, desired_cw) ||
+        !lower_fenv_round_store(context, frame->work_mxcsr, desired_mxcsr) ||
+        !lower_fenv_round_instruction(context, frame->work_cw,
+                                      RCC_IR_X86_FENV_FLDCW) ||
+        !lower_fenv_round_instruction(context, frame->work_mxcsr,
+                                      RCC_IR_X86_FENV_LDMXCSR)) {
+        return false;
+    }
+    frame->active = true;
+    return true;
+}
+
+static bool lower_fenv_round_end(
+    RccIrLowerContext* context, RccIrFenvRoundFrame* frame) {
+    RccIrType cw_type = rcc_ir_type_integer(16u);
+    RccIrType mxcsr_type = rcc_ir_type_integer(32u);
+    RccIrLowerValue current_cw;
+    RccIrLowerValue current_mxcsr;
+    RccIrLowerValue saved_cw;
+    RccIrLowerValue saved_mxcsr;
+    RccIrLowerValue restored_cw;
+    RccIrLowerValue restored_mxcsr;
+    if (!context || !frame || !frame->active) return true;
+    if (!lower_fenv_round_instruction(context, frame->work_cw,
+                                      RCC_IR_X86_FENV_FNSTCW) ||
+        !lower_fenv_round_instruction(context, frame->work_mxcsr,
+                                      RCC_IR_X86_FENV_STMXCSR)) {
+        return false;
+    }
+    current_cw = lower_fenv_round_load(context, frame->work_cw, cw_type);
+    saved_cw = lower_fenv_round_load(context, frame->saved_cw, cw_type);
+    current_mxcsr = lower_fenv_round_load(
+        context, frame->work_mxcsr, mxcsr_type);
+    saved_mxcsr = lower_fenv_round_load(
+        context, frame->saved_mxcsr, mxcsr_type);
+    restored_cw = lower_fenv_round_bits(
+        context, current_cw, saved_cw, cw_type,
+        UINT16_C(0x0c00), UINT64_MAX);
+    restored_mxcsr = lower_fenv_round_bits(
+        context, current_mxcsr, saved_mxcsr, mxcsr_type,
+        UINT32_C(0x6000), UINT64_MAX);
+    return restored_cw.valid && restored_mxcsr.valid &&
+        lower_fenv_round_store(context, frame->work_cw, restored_cw) &&
+        lower_fenv_round_store(context, frame->work_mxcsr, restored_mxcsr) &&
+        lower_fenv_round_instruction(context, frame->work_cw,
+                                     RCC_IR_X86_FENV_FLDCW) &&
+        lower_fenv_round_instruction(context, frame->work_mxcsr,
+                                     RCC_IR_X86_FENV_LDMXCSR);
+}
+
+static bool lower_fenv_round_math_call(const Expr* expression) {
+    static const char* const names[] = {
+        "acos", "acospi", "asin", "asinpi", "atan", "atanpi", "atan2",
+        "atan2pi", "acosh", "asinh", "atanh", "cos", "cospi", "sin",
+        "sinpi", "tan", "tanpi", "cosh", "sinh", "tanh", "exp",
+        "exp10", "exp10m1", "exp2", "exp2m1", "expm1", "frexp",
+        "ilogb", "ldexp", "log", "log10", "log10p1", "log1p", "log2",
+        "log2p1", "logb", "logp1", "modf", "scalbn", "scalbln",
+        "cbrt", "compoundn", "hypot", "pow", "pown", "powr", "rootn",
+        "rsqrt", "sqrt", "erf", "erfc", "lgamma", "tgamma", "ceil",
+        "floor", "nearbyint", "rint", "lrint", "llrint", "round",
+        "lround", "llround", "trunc", "fmod", "remainder", "remquo",
+        "fabs", "copysign", "nan", "nextafter", "nexttoward", "fdim", "fmax",
+        "fmin", "fma", "fadd", "dadd", "fsub", "dsub", "fmul",
+        "dmul", "fdiv", "ddiv", "ffma", "dfma", "fsqrt", "dsqrt",
+        "atof", "strtod", "strtof", "strtold", "strfromf", "strfromd",
+        "strfroml", "wcstod", "wcstof", "wcstold", "printf", "fprintf",
+        "sprintf", "snprintf", "vprintf", "vfprintf", "vsprintf",
+        "vsnprintf", "scanf", "fscanf", "sscanf", "vscanf", "vfscanf",
+        "vsscanf", "wprintf", "fwprintf", "swprintf", "vwprintf",
+        "vfwprintf", "vswprintf", "wscanf", "fwscanf", "swscanf",
+        "vwscanf", "vfwscanf", "vswscanf", "cabs", "carg", "cacos",
+        "casin", "catan",
+        "cacosh", "casinh", "catanh", "ccos", "csin", "ctan", "ccosh",
+        "csinh", "ctanh", "cexp", "clog", "cpow", "csqrt", "conj",
+        "cproj", NULL
+    };
+    const Expr* callee = expression ? expression->call_func : NULL;
+    const Decl* declaration = callee && callee->kind == EXPR_IDENT
+        ? callee->ident_decl : NULL;
+    const char* name = declaration ? declaration->name :
+        callee && callee->kind == EXPR_IDENT ? callee->ident_name : NULL;
+    size_t length;
+    if (!expression || expression->kind != EXPR_CALL || !name ||
+        expression->call_is_new || expression->call_is_delete) {
+        return false;
+    }
+    if (strncmp(name, "__builtin_", 10u) == 0) name += 10u;
+    length = strlen(name);
+    for (size_t i = 0u; names[i]; ++i) {
+        if (strcmp(name, names[i]) == 0) return true;
+    }
+    if (length > 1u && (name[length - 1u] == 'f' ||
+                       name[length - 1u] == 'l')) {
+        char base[32];
+        if (length >= sizeof(base)) return false;
+        memcpy(base, name, length - 1u);
+        base[length - 1u] = '\0';
+        name = base;
+        for (size_t i = 0u; names[i]; ++i) {
+            if (strcmp(name, names[i]) == 0) return true;
+        }
+        return false;
+    }
+    for (size_t i = 0u; names[i]; ++i) {
+        if (strcmp(name, names[i]) == 0) return true;
+    }
+    return false;
+}
+
+static bool lower_fenv_round_type(const Type* type) {
+    return type_is_floating((Type*)type) ||
+        type_is_complex((Type*)type);
+}
+
+static bool lower_fenv_round_expression_sensitive(const Expr* expression) {
+    if (!expression || expression->fenv_round_mode ==
+                           RCC_FENV_ROUND_DYNAMIC) return false;
+    if (expression->kind == EXPR_CALL) {
+        return lower_fenv_round_math_call(expression);
+    }
+    if (expression->kind == EXPR_CAST) {
+        return lower_fenv_round_type(expression->type) ||
+            (expression->cast_expr &&
+             lower_fenv_round_type(expression->cast_expr->type));
+    }
+    if (!lower_fenv_round_type(expression->type)) return false;
+    switch (expression->kind) {
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression) {
+    RccIrFenvRoundFrame rounding_frame = {0};
     RccIrLowerValue value;
     RccIrLowerValue null_value;
     RccIrLowerValue condition;
@@ -19453,6 +19744,7 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
     RccIrValue operands[3];
     RccIrInstruction* instruction;
     bool volatile_access;
+    bool rounding_active = false;
     size_t previous_inline_call_plus_one =
         context ? context->active_debug_inline_call_plus_one : 0u;
     const Stmt* previous_statement =
@@ -19556,6 +19848,15 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             }
         }
     }
+    if (lower_fenv_round_expression_sensitive(expression)) {
+        if (!lower_fenv_round_begin(context,
+                                    expression->fenv_round_mode,
+                                    &rounding_frame)) {
+            value = lower_invalid_value();
+            goto cleanup;
+        }
+        rounding_active = true;
+    }
     value = lower_expression_impl(context, expression);
     if (!value.valid || !expression ||
         !expression->cxx_member_pointer_adjustment_valid) {
@@ -19625,6 +19926,11 @@ cleanup:
     if (value.valid && expression) {
         value = lower_normalize_bitint_value(
             context, value, expression->type);
+    }
+    if (rounding_active && context && !context->terminated &&
+        !lower_fenv_round_end(context, &rounding_frame)) {
+        context->unsupported = true;
+        value = lower_invalid_value();
     }
     if (context) {
         context->active_debug_inline_call_plus_one =
