@@ -4204,6 +4204,32 @@ static bool cxx_reference_object_compatible(const Type* source,
     return type_is_compatible(&source_unqualified, &target_unqualified);
 }
 
+static bool sema_cxx_reference_target_is_const_qualified(
+    const Type* target) {
+    while (target && target->kind == TYPE_ARRAY) {
+        if (target->is_const) return true;
+        target = target->base;
+    }
+    return target && target->is_const;
+}
+
+static Type* sema_cxx_materialize_braced_array_type(
+    Type* target, Expr* initializer) {
+    int count = 0;
+    if (!target || target->kind != TYPE_ARRAY || target->array_len >= 0 ||
+        !target->base || !sema_cxx_is_untyped_braced_initializer(initializer) ||
+        initializer->compound_value_init) {
+        return NULL;
+    }
+    for (ExprList* item = initializer->compound_init; item;
+         item = item->next) {
+        if (count == INT_MAX) return NULL;
+        ++count;
+    }
+    if (count == 0) return NULL;
+    return type_array(target->base, count);
+}
+
 static bool sema_cxx_is_bitfield_expression(const Expr* expression) {
     if (!expression) return false;
     switch (expression->kind) {
@@ -4660,7 +4686,7 @@ reference_binding_source:
 reference_binding_validated:
         if (referred->kind != TYPE_FUNC &&
             ((!target->is_rvalue_reference && !is_lvalue(e) &&
-              !referred->is_const) ||
+              !sema_cxx_reference_target_is_const_qualified(referred)) ||
              (target->is_rvalue_reference && is_lvalue(e)))) {
             return NULL;
         }
@@ -14743,6 +14769,57 @@ static bool cxx_array_reference_and_decay_tie(
                                    pointer_target->base, false);
 }
 
+static Type* cxx_braced_array_reference_target(Type* target) {
+    if (target && target->kind == TYPE_PTR && target->is_reference) {
+        target = target->base;
+    }
+    return target && target->kind == TYPE_ARRAY ? target : NULL;
+}
+
+static bool cxx_braced_array_list_sequence_relation(
+    Expr* argument, Type* left_target, Type* right_target, int* relation) {
+    Type* left_array;
+    Type* right_array;
+    int64_t element_count = 0;
+    int64_t left_count;
+    int64_t right_count;
+    if (relation) *relation = 0;
+    if (!sema_cxx_is_untyped_braced_initializer(argument)) return false;
+    left_array = cxx_braced_array_reference_target(left_target);
+    right_array = cxx_braced_array_reference_target(right_target);
+    if (!left_array || !right_array || !left_array->base ||
+        !right_array->base ||
+        !cxx_same_parameter_type(left_array->base, right_array->base,
+                                 false)) {
+        return false;
+    }
+    if (!argument->compound_value_init) {
+        for (ExprList* item = argument->compound_init; item;
+             item = item->next) {
+            if (element_count == INT64_MAX) return false;
+            ++element_count;
+        }
+    }
+    left_count = left_array->array_len >= 0
+        ? left_array->array_len : element_count;
+    right_count = right_array->array_len >= 0
+        ? right_array->array_len : element_count;
+    if (relation && left_count < right_count) {
+        *relation = 1;
+    } else if (relation && left_count > right_count) {
+        *relation = -1;
+    } else if (relation && left_count == right_count &&
+               left_array->array_len >= 0 &&
+               right_array->array_len < 0) {
+        *relation = 1;
+    } else if (relation && left_count == right_count &&
+               left_array->array_len < 0 &&
+               right_array->array_len >= 0) {
+        *relation = -1;
+    }
+    return true;
+}
+
 static int cxx_conversion_vector_relation(
     const int* left, const int* right, Type* const* left_targets,
     Type* const* right_targets, TypeMethod* const* left_methods,
@@ -14763,6 +14840,7 @@ static int cxx_conversion_vector_relation(
                 left_targets ? left_targets[index] : NULL,
                 right_targets ? right_targets[index] : NULL);
         bool initializer_list_sequence_comparison = false;
+        bool array_list_sequence_comparison = false;
         if (index >= argument_offset && argument &&
             sema_cxx_is_untyped_braced_initializer(argument->expr) &&
             left_targets && right_targets) {
@@ -14782,6 +14860,15 @@ static int cxx_conversion_vector_relation(
                     right_better = true;
                 }
             }
+            if (!left_element && !right_element) {
+                int array_relation = 0;
+                array_list_sequence_comparison =
+                    cxx_braced_array_list_sequence_relation(
+                        argument->expr, left_targets[index],
+                        right_targets[index], &array_relation);
+                if (array_relation > 0) left_better = true;
+                if (array_relation < 0) right_better = true;
+            }
         }
         if (!initializer_list_sequence_comparison &&
             left_user_conversion && right_user_conversion) {
@@ -14798,7 +14885,8 @@ static int cxx_conversion_vector_relation(
             /* Distinct user-defined conversion functions are not ordered by
              * the ranks of their trailing standard conversions. */
         } else if (!array_reference_decay_tie &&
-                   !initializer_list_sequence_comparison) {
+                   !initializer_list_sequence_comparison &&
+                   !array_list_sequence_comparison) {
             if (left[index] < right[index]) left_better = true;
             if (left[index] > right[index]) right_better = true;
         }
@@ -17121,12 +17209,46 @@ static void sema_prepare_cxx_by_value_class_argument(
 
 static void sema_prepare_reference_argument_cleanup(ExprList* argument,
                                                     Type* parameter_type) {
+    Type* target_type;
+    Type* source_type;
+    Expr* source;
+    Decl* owner;
+    Expr* owner_object;
+    CxxCleanupPlan* cleanups = NULL;
+    int cleanup_budget = 4096;
     if (!argument || !argument->expr || !parameter_type ||
         !parameter_type->is_reference) {
         return;
     }
+    source = argument->expr;
+    target_type = parameter_type->base;
+    source_type = source->type;
+    if (source->kind == EXPR_COMPOUND && !is_lvalue(source) &&
+        !is_xvalue(source) && target_type &&
+        target_type->kind == TYPE_ARRAY && source_type &&
+        source_type->kind == TYPE_ARRAY &&
+        sema_cxx_type_has_destructor_cleanup(source_type, 0) &&
+        !argument->cxx_temporary_owner &&
+        !argument->cxx_temporary_cleanups) {
+        owner = decl_var("__rcc_array_reference_temporary",
+                         type_reference(source_type, false), NULL,
+                         source->loc);
+        owner_object = expr_ident(owner->name, source->loc);
+        owner_object->ident_decl = owner;
+        owner_object->type = source_type;
+        if (!sema_cxx_append_object_cleanups(
+                NULL, source_type, owner_object, &cleanups, 0,
+                &cleanup_budget, true, true) || !cleanups) {
+            rcc_error(source->loc,
+                      "array reference temporary cleanup metadata is incomplete");
+            return;
+        }
+        argument->cxx_temporary_owner = owner;
+        argument->cxx_temporary_cleanups = cleanups;
+        return;
+    }
     sema_prepare_class_prvalue_cleanup(
-        argument->expr, &argument->cxx_temporary_owner,
+        source, &argument->cxx_temporary_owner,
         &argument->cxx_temporary_cleanups,
         true,
         "class-prvalue reference argument cleanup is unsupported");
@@ -17981,6 +18103,16 @@ static bool sema_convert_cxx_constructor_arguments(
             if (initialization_type->kind == TYPE_PTR &&
                 initialization_type->is_reference) {
                 initialization_type = initialization_type->base;
+            }
+            if (initialization_type->kind == TYPE_ARRAY &&
+                initialization_type->array_len < 0) {
+                initialization_type = sema_cxx_materialize_braced_array_type(
+                    initialization_type, argument->expr);
+                if (!initialization_type) {
+                    rcc_error(argument->expr->loc,
+                              "cannot infer an array bound for the selected C++ reference argument");
+                    return false;
+                }
             }
             sema_initializer(initialization_type, argument->expr);
         }
@@ -22920,7 +23052,8 @@ static int sema_cxx_braced_argument_conversion_rank(
                 if (rank >= 0) return rank;
             }
             if ((!reference_type->is_rvalue_reference &&
-                 !reference_type->base->is_const) ||
+                 !sema_cxx_reference_target_is_const_qualified(
+                     reference_type->base)) ||
                 (reference_type->base->kind != TYPE_ARRAY &&
                  reference_type->base->kind != TYPE_STRUCT &&
                  reference_type->base->kind != TYPE_UNION)) {
@@ -22928,7 +23061,8 @@ static int sema_cxx_braced_argument_conversion_rank(
             }
         }
         if (!reference_type->is_rvalue_reference &&
-            !reference_type->base->is_const) {
+            !sema_cxx_reference_target_is_const_qualified(
+                reference_type->base)) {
             return -1;
         }
         destination = reference_type->base;
@@ -22955,8 +23089,11 @@ static int sema_cxx_braced_argument_conversion_rank(
         return worst_rank;
     }
     if (destination->kind == TYPE_ARRAY) {
-        if (!destination->base || destination->array_len < 0 ||
-            item_count > destination->array_len) {
+        if (!destination->base ||
+            (destination->array_len < 0 &&
+             (item_count == 0 || argument->compound_value_init)) ||
+            (destination->array_len >= 0 &&
+             item_count > destination->array_len)) {
             return -1;
         }
         for (item = argument->compound_init; item;
@@ -31023,7 +31160,19 @@ static Type* sema_expr(Expr* expr) {
                         initialization_type->is_reference) {
                         initialization_type = initialization_type->base;
                     }
-                    sema_initializer(initialization_type, argument->expr);
+                    if (initialization_type->kind == TYPE_ARRAY &&
+                        initialization_type->array_len < 0) {
+                        initialization_type =
+                            sema_cxx_materialize_braced_array_type(
+                                initialization_type, argument->expr);
+                    }
+                    if (initialization_type) {
+                        sema_initializer(initialization_type,
+                                         argument->expr);
+                    } else {
+                        rcc_error(argument->expr->loc,
+                                  "cannot infer an array bound for the selected C++ reference argument");
+                    }
                 } else if (!arguments_analyzed ||
                            unresolved_function_overload) {
                     Expr* contextual = argument->expr &&

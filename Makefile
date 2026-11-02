@@ -3539,6 +3539,26 @@ test-cxx-initializer-list: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-initializer-list/rcc-explicit-invalid-x64.log)
 	$(call CHECK_COUNT,copy-list-initialization selected an explicit constructor,$(TEST_OUT)/cxx-initializer-list/rcc-explicit-invalid-x64.log,2)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/explicit-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_braced_array_reference_nonconst_invalid.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/gcc-array-reference-nonconst.log)
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-initializer-list/gcc-array-reference-nonconst.log,1)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/array-reference-nonconst-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c \
+		-o $(TEST_OUT)/cxx-initializer-list/array-reference-nonconst-x86.ro \
+		tests/cxx_braced_array_reference_nonconst_invalid.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/rcc-array-reference-nonconst-x86.log)
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-initializer-list/rcc-array-reference-nonconst-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/array-reference-nonconst-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/array-reference-nonconst-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c \
+		-o $(TEST_OUT)/cxx-initializer-list/array-reference-nonconst-x64.ro \
+		tests/cxx_braced_array_reference_nonconst_invalid.cpp, \
+		$(TEST_OUT)/cxx-initializer-list/rcc-array-reference-nonconst-x64.log)
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-initializer-list/rcc-array-reference-nonconst-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/array-reference-nonconst-x64.ro)
 	@echo "C++ initializer_list tests completed"
 
 test-cxx-defaulted-equality: $(RCXX_TARGET)

@@ -9366,12 +9366,18 @@ static Expr* gen_reference_temporary_source(Expr* expression) {
 
 static bool gen_reference_argument_needs_temporary(Type* passed_type,
                                                    Expr* argument) {
+    Type* referred_type;
     if (!passed_type || !passed_type->is_reference || !argument ||
         gen_expr_is_lvalue(argument) || gen_expr_is_xvalue(argument)) {
         return false;
     }
+    referred_type = passed_type->base;
+    while (referred_type && referred_type->kind == TYPE_ARRAY) {
+        if (referred_type->is_const) return true;
+        referred_type = referred_type->base;
+    }
     return passed_type->is_rvalue_reference ||
-           (passed_type->base && passed_type->base->is_const);
+           (referred_type && referred_type->is_const);
 }
 
 static void gen_copy_aggregate32(Module* mod, int32_t destination_offset,
@@ -16103,11 +16109,13 @@ static void gen_call(Module* mod, Expr* expr) {
         Type* value_type;
         int value_bytes;
         reference_temp_offsets[i] = -1;
-        if (!gen_reference_argument_needs_temporary(passed_type, argument)) {
+        if (!args[i]->cxx_temporary_owner &&
+            !gen_reference_argument_needs_temporary(passed_type, argument)) {
             continue;
         }
         value_type = passed_type->base;
-        if (!value_type || gen_aggregate_type32(value_type)) continue;
+        if (!value_type || gen_aggregate_type32(value_type) ||
+            value_type->kind == TYPE_ARRAY) continue;
         if (gen_is_floating(value_type)) {
             value_bytes = gen_float_width(value_type);
         } else if (gen_is_integer64(value_type)) {
@@ -16125,7 +16133,8 @@ static void gen_call(Module* mod, Expr* expr) {
         Expr* argument = args[i]->expr;
         Type* passed_type = argument_types[i];
         if (passed_type && passed_type->is_reference) {
-            if (gen_reference_argument_needs_temporary(passed_type,
+            if (args[i]->cxx_temporary_owner ||
+                gen_reference_argument_needs_temporary(passed_type,
                                                        argument)) {
                 Type* value_type = passed_type->base;
                 int value_offset = reference_temp_offsets[i];
@@ -16134,7 +16143,8 @@ static void gen_call(Module* mod, Expr* expr) {
                               "reference temporary has no referred-to type");
                     continue;
                 }
-                if (gen_aggregate_type32(value_type)) {
+                if (gen_aggregate_type32(value_type) ||
+                    value_type->kind == TYPE_ARRAY) {
                     if (args[i]->cxx_temporary_owner) {
                         gen_expr(mod, argument);
                         emit_mov_mem_reg(

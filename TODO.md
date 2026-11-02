@@ -13197,6 +13197,15 @@ remains a separate open item.
         a conversion. Correct RCC overload ranking; GCC C++20, RCC i686/AMD64
         generation, AMD64 runtime, and adjacent narrowing/ambiguity diagnostics
         pass in `test-cxx-initializer-list`.
+  - [x] Support C++20 braced arguments bound to known- and unknown-bound array
+        references. Infer and materialize the initialized bound, rank bounded
+        candidates ahead of unknown-bound candidates when appropriate, and
+        inspect cv-qualification through array element types. Keep class array
+        elements alive through the call and destroy them in reverse order at
+        the end of the full-expression; reject binding a temporary array to a
+        non-const lvalue reference. GCC C++20, RCC i686/AMD64 assembly and `.ro`,
+        AMD64 runtime/destruction order, and negative diagnostic/object absence
+        pass in `test-cxx-initializer-list`.
   - [x] Compare finite constant `double`-to-`float` underflow with GCC 13.2:
         positive and negative `1e-50` list initializers are accepted and become
         zero. Preserve the narrowing boundary in

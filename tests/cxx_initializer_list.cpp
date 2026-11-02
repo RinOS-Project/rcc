@@ -6,6 +6,7 @@ extern "C" void initializer_list_reset_counts(void);
 extern "C" int initializer_list_counts_are(int constructed, int destroyed);
 
 static int initializer_list_clause_evaluation_order;
+static int braced_array_destruction_order;
 
 static int initializer_list_clause_value(int value) {
     initializer_list_clause_evaluation_order =
@@ -22,6 +23,20 @@ struct Tracked {
 
     ~Tracked() {
         initializer_list_record_destroyed(value);
+    }
+};
+
+struct BracedArrayTracked {
+    int value;
+
+    BracedArrayTracked(int input) : value(input) {
+        initializer_list_record_constructed(value);
+    }
+
+    ~BracedArrayTracked() {
+        initializer_list_record_destroyed(value);
+        braced_array_destruction_order =
+            braced_array_destruction_order * 100 + value;
     }
 };
 
@@ -113,6 +128,28 @@ int choose_worst_element_conversion(std::initializer_list<short>) {
 
 int choose_worst_element_conversion(std::initializer_list<int>) {
     return 2;
+}
+
+int choose_braced_array_bound(const int (&)[2]) {
+    return 1;
+}
+
+int choose_braced_array_bound(const int (&)[3]) {
+    return 2;
+}
+
+int choose_braced_unknown_array_bound(const int (&&)[]) {
+    return 1;
+}
+
+int choose_braced_unknown_array_bound(const int (&&)[2]) {
+    return 2;
+}
+
+static int consume_braced_array_reference(
+    const BracedArrayTracked (&values)[2]) {
+    return values[0].value == 26 && values[1].value == 27 &&
+           initializer_list_counts_are(2, 0);
 }
 
 int choose_initializer_list_phase_fallback(std::initializer_list<int>) {
@@ -241,6 +278,15 @@ static int test_reference_argument_lifetime(void) {
     return contents && initializer_list_counts_are(2, 2);
 }
 
+static int test_braced_array_reference_lifetime(void) {
+    int contents;
+    braced_array_destruction_order = 0;
+    initializer_list_reset_counts();
+    contents = consume_braced_array_reference({26, 27});
+    return contents && initializer_list_counts_are(2, 2) &&
+           braced_array_destruction_order == 2726;
+}
+
 static int test_local_lifetime(void) {
     int contents = 0;
     initializer_list_reset_counts();
@@ -291,6 +337,10 @@ static int test_initializer_list_preference(void) {
     char char_source = 2;
     int worst_element_conversion = choose_worst_element_conversion(
         {short_source, char_source});
+    int braced_array_bound = choose_braced_array_bound({30, 31});
+    int braced_unknown_array_short = choose_braced_unknown_array_bound({32});
+    int braced_unknown_array_exact = choose_braced_unknown_array_bound(
+        {33, 34});
     int empty_list_function_choice = choose_empty_list_over_scalar({});
     int template_element_size = template_list_element_size({11, 12});
     TemplatedConstructorChoice templated_choice{13, 14};
@@ -319,6 +369,9 @@ static int test_initializer_list_preference(void) {
     ConstructorChoice constructor_choice{7, 8};
     return function_choice == 1 && element_choice == 3 &&
            worst_element_conversion == 2 &&
+           braced_array_bound == 1 &&
+           braced_unknown_array_short == 1 &&
+           braced_unknown_array_exact == 2 &&
            empty_list_function_choice == 1 &&
            template_element_size == sizeof(int) &&
            templated_choice.element_size == sizeof(int) + 2 &&
@@ -368,6 +421,7 @@ int main(void) {
     int failures = 0;
     if (!test_argument_lifetime()) failures |= 1;
     if (!test_reference_argument_lifetime()) failures |= 2;
+    if (!test_braced_array_reference_lifetime()) failures |= 256;
     if (!test_local_lifetime()) failures |= 4;
     if (!test_empty_initializer_list()) failures |= 8;
     if (!test_empty_initializer_list_argument()) failures |= 32;

@@ -1509,12 +1509,18 @@ static Expr* gen64_reference_temporary_source(Expr* expression) {
 
 static bool gen64_reference_argument_needs_temporary(Type* passed_type,
                                                      Expr* argument) {
+    Type* referred_type;
     if (!passed_type || !passed_type->is_reference || !argument ||
         gen64_expr_is_lvalue(argument) || gen64_expr_is_xvalue(argument)) {
         return false;
     }
+    referred_type = passed_type->base;
+    while (referred_type && referred_type->kind == TYPE_ARRAY) {
+        if (referred_type->is_const) return true;
+        referred_type = referred_type->base;
+    }
     return passed_type->is_rvalue_reference ||
-           (passed_type->base && passed_type->base->is_const);
+           (referred_type && referred_type->is_const);
 }
 
 static bool gen64_type_has_vla(const Type* type) {
@@ -1859,7 +1865,7 @@ typedef struct {
     Gen64AggregateClass aggregate;
     bool is_aggregate;
     bool indirect_class;
-    bool materialize_rvalue_reference;
+    bool materialize_reference_temporary;
     bool memory;
     int storage;
     int temp_offset;
@@ -11620,7 +11626,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 call_arguments[i - 1].storage =
                     call_arguments[i - 1].is_aggregate
                         ? gen64_aggregate_storage(argument_types[i - 1]) : 8;
-                call_arguments[i - 1].materialize_rvalue_reference =
+                call_arguments[i - 1].materialize_reference_temporary =
+                    a->cxx_temporary_owner != NULL ||
                     gen64_reference_argument_needs_temporary(
                         argument_types[i - 1], a->expr);
             }
@@ -11684,13 +11691,15 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     argument->stack_offset = stack_bytes;
                     stack_bytes += argument->storage;
                 }
-                if (argument->materialize_rvalue_reference) {
+                if (argument->materialize_reference_temporary) {
                     Type* value_type = argument_types[i]->base;
                     if (!value_type) {
                         rcc_error(args[i]->expr->loc,
                                   "reference temporary has no referred-to type");
                     }
-                    if (value_type && gen64_is_aggregate(value_type)) {
+                    if (value_type &&
+                        (gen64_is_aggregate(value_type) ||
+                         value_type->kind == TYPE_ARRAY)) {
                         argument->value_temp_offset = -1;
                     } else {
                         argument->value_temp_offset = temp_bytes;
@@ -11787,9 +11796,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         mod, args[i]->cxx_temporary_owner,
                         args[i]->cxx_temporary_cleanups);
                 } else if (passed_type && passed_type->is_reference) {
-                    if (layout->materialize_rvalue_reference) {
+                    if (layout->materialize_reference_temporary) {
                         Type* value_type = passed_type->base;
-                        if (gen64_is_aggregate(value_type)) {
+                        if (gen64_is_aggregate(value_type) ||
+                            (value_type &&
+                             value_type->kind == TYPE_ARRAY)) {
                             if (args[i]->cxx_temporary_owner) {
                                 gen64_expr(mod, argument);
                                 emit64_mov_mem_reg(
