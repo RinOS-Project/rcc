@@ -13519,3 +13519,11 @@ remains a separate open item.
 - [ ] Full overload viability for inherited/defaulted copy/move operations,
       broader type-trait conformance, and the remaining `<atomic>` API surface
       remain open.
+
+## RCC continuation (2026-11-02, Windows shell-safe negative text checks)
+
+- [x] Replace the inline PowerShell expression in Windows `CHECK_TEXT_ABSENT`
+      with the existing `rcc_grep.ps1` fixed-string search under shell negation.
+      This avoids Git Bash expanding `$text` before PowerShell receives the
+      command. `test-cxx-template-local-classes` and the full Windows
+      `make test-cxx` aggregate pass.

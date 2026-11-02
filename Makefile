@@ -81,7 +81,7 @@ CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
 CHECK_FINI_ARRAY = $(FINDSTR) /c:".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(subst /,\,$(1))
 CHECK_TEXT = $(FINDSTR) /c:"$(1)" "$(subst /,\,$(2))" >NUL
-CHECK_TEXT_ABSENT = $(POWERSHELL) -NoProfile -Command "$$text=Get-Content -Raw -LiteralPath '$(2)'; if ($$text.Contains('$(1)')) { exit 1 }"
+CHECK_TEXT_ABSENT = ! $(GREP) -F -q "$(1)" "$(2)"
 GREP = $(POWERSHELL) -NoProfile -File "$(CURDIR)/scripts/rcc_grep.ps1"
 else
 VERIFIED_TEST_THREAD_FLAGS = -pthread
