@@ -1236,8 +1236,9 @@
         floating, pointer, and volatile scalars; x64 legacy and verified
         execution pass at `-O0` and `-O2`, and all twelve functions emit without
         verified-backend fallback for i686/AMD64 at both optimization levels.
-        Scalar-field aggregate initialization is covered separately below;
-        class-valued fields and partial subobject destruction remain open.
+        Scalar-field aggregates, class-valued fields, reference temporaries,
+        and partial-subobject destruction are covered by the focused
+        `test-verified-cxx-static-local-aggregate` items below.
   - [x] Support dynamically initialized function-local C++ `thread_local`
         integer and pointer scalars in legacy and verified backends. Keep each
         guard and object in TLS, register guard-abort cleanup before evaluating
