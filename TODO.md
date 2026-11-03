@@ -13825,6 +13825,10 @@ remains a separate open item.
       emits one function with zero fallback for i686/AMD64 at `-O0` and `-O2`
       in `test-verified-cxx-inherited-assignment`, included by
       `test-verified-backend` and production `test-ci`.
+- [x] Keep a user-declared deleted inherited move assignment in overload
+      resolution so an rvalue is not incorrectly assigned through the copy
+      overload; retain lvalue copy assignment. GCC C++20, RCC i686/AMD64, and
+      normal/`-O2` x64 runtime pass in `test-atomic-private-access`.
 - [ ] Lower large fixed-bound arrays without per-element AST/code expansion.
 - [ ] Complete remaining inherited assignment overload viability and related
       type-trait coverage.

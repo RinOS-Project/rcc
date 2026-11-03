@@ -301,6 +301,22 @@ struct CvInheritedAssignmentDerived : CvInheritedAssignmentBase {
     using CvInheritedAssignmentBase::operator=;
 };
 
+struct UserDeletedMoveInheritedAssignmentBase {
+    int value;
+    UserDeletedMoveInheritedAssignmentBase& operator=(
+        const UserDeletedMoveInheritedAssignmentBase& source) {
+        value = source.value;
+        return *this;
+    }
+    UserDeletedMoveInheritedAssignmentBase& operator=(
+        UserDeletedMoveInheritedAssignmentBase&&) = delete;
+};
+
+struct UserDeletedMoveInheritedAssignmentDerived :
+    UserDeletedMoveInheritedAssignmentBase {
+    using UserDeletedMoveInheritedAssignmentBase::operator=;
+};
+
 static int array_element_copy_assignment_calls;
 static int array_element_move_assignment_calls;
 static int array_element_assignment_order;
@@ -415,6 +431,12 @@ static_assert(__is_assignable(CvInheritedAssignmentDerived&,
 static_assert(__is_assignable(CvInheritedAssignmentDerived&,
                               const CvInheritedAssignmentBase&));
 static_assert(__is_assignable(
+    UserDeletedMoveInheritedAssignmentDerived&,
+    const UserDeletedMoveInheritedAssignmentBase&));
+static_assert(!__is_assignable(
+    UserDeletedMoveInheritedAssignmentDerived&,
+    UserDeletedMoveInheritedAssignmentBase&&));
+static_assert(__is_assignable(
     ExtendedVirtualDefaultedAssignment&,
     const ExtendedVirtualDefaultedAssignment&));
 static_assert(__is_assignable(
@@ -484,6 +506,12 @@ static_assert(std::is_assignable_v<CvInheritedAssignmentDerived&,
                                    CvInheritedAssignmentBase&>);
 static_assert(std::is_assignable_v<CvInheritedAssignmentDerived&,
                                    const CvInheritedAssignmentBase&>);
+static_assert(std::is_assignable_v<
+    UserDeletedMoveInheritedAssignmentDerived&,
+    const UserDeletedMoveInheritedAssignmentBase&>);
+static_assert(!std::is_assignable_v<
+    UserDeletedMoveInheritedAssignmentDerived&,
+    UserDeletedMoveInheritedAssignmentBase&&>);
 static_assert(std::is_assignable_v<
     ExtendedVirtualDefaultedAssignment&,
     const ExtendedVirtualDefaultedAssignment&>);
@@ -886,8 +914,15 @@ int main() {
         static_cast<CvInheritedAssignmentBase&>(
             cv_overload_destination).const_calls != 0) return 26;
     cv_overload_destination = const_cv_source;
-    return static_cast<CvInheritedAssignmentBase&>(
-               cv_overload_destination).nonconst_calls == 1 &&
-           static_cast<CvInheritedAssignmentBase&>(
-               cv_overload_destination).const_calls == 1 ? 0 : 27;
+    if (static_cast<CvInheritedAssignmentBase&>(
+            cv_overload_destination).nonconst_calls != 1 ||
+        static_cast<CvInheritedAssignmentBase&>(
+            cv_overload_destination).const_calls != 1) return 27;
+
+    UserDeletedMoveInheritedAssignmentDerived deleted_move_destination;
+    UserDeletedMoveInheritedAssignmentBase deleted_move_copy_source;
+    deleted_move_copy_source.value = 233;
+    deleted_move_destination = deleted_move_copy_source;
+    return static_cast<UserDeletedMoveInheritedAssignmentBase&>(
+               deleted_move_destination).value == 233 ? 0 : 28;
 }
