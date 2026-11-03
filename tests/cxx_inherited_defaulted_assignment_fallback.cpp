@@ -124,6 +124,33 @@ struct TrackedVirtualAssignmentBase {
     }
 };
 
+static int virtual_using_member_copy_assignment_calls;
+static int virtual_using_member_move_assignment_calls;
+
+struct VirtualUsingAssignmentMember {
+    int value;
+    VirtualUsingAssignmentMember& operator=(
+        const VirtualUsingAssignmentMember& source) {
+        value = source.value;
+        ++virtual_using_member_copy_assignment_calls;
+        return *this;
+    }
+    VirtualUsingAssignmentMember& operator=(
+        VirtualUsingAssignmentMember&& source) {
+        value = source.value;
+        ++virtual_using_member_move_assignment_calls;
+        return *this;
+    }
+};
+
+struct VirtualUsingAssignmentBase {
+    VirtualUsingAssignmentMember member;
+    VirtualUsingAssignmentBase& operator=(
+        const VirtualUsingAssignmentBase&) = default;
+    VirtualUsingAssignmentBase& operator=(
+        VirtualUsingAssignmentBase&&) = default;
+};
+
 #if !defined(__RCC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wvirtual-move-assign"
@@ -151,6 +178,31 @@ struct ExtendedVirtualDefaultedAssignment :
         const ExtendedVirtualDefaultedAssignment&) = default;
     ExtendedVirtualDefaultedAssignment& operator=(
         ExtendedVirtualDefaultedAssignment&&) = default;
+};
+#if !defined(__RCC__)
+#pragma GCC diagnostic pop
+#endif
+
+#if !defined(__RCC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wvirtual-move-assign"
+#endif
+struct VirtualUsingDefaultedAssignment :
+    virtual VirtualUsingAssignmentBase {
+    using VirtualUsingAssignmentBase::operator=;
+    int marker;
+};
+#if !defined(__RCC__)
+#pragma GCC diagnostic pop
+#endif
+
+#if !defined(__RCC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wvirtual-move-assign"
+#endif
+struct ExtendedVirtualUsingAssignment :
+    VirtualUsingDefaultedAssignment {
+    long long padding[8];
 };
 #if !defined(__RCC__)
 #pragma GCC diagnostic pop
@@ -241,6 +293,12 @@ static_assert(__is_assignable(
     DirectVirtualDefaultedAssignment&,
     DirectVirtualDefaultedAssignment&&));
 static_assert(__is_assignable(
+    VirtualUsingDefaultedAssignment&,
+    const VirtualUsingAssignmentBase&));
+static_assert(__is_assignable(
+    VirtualUsingDefaultedAssignment&,
+    VirtualUsingAssignmentBase&&));
+static_assert(__is_assignable(
     ExtendedVirtualDefaultedAssignment&,
     const ExtendedVirtualDefaultedAssignment&));
 static_assert(__is_assignable(
@@ -279,6 +337,12 @@ static_assert(std::is_assignable_v<
 static_assert(std::is_assignable_v<
     DirectVirtualDefaultedAssignment&,
     DirectVirtualDefaultedAssignment&&>);
+static_assert(std::is_assignable_v<
+    VirtualUsingDefaultedAssignment&,
+    const VirtualUsingAssignmentBase&>);
+static_assert(std::is_assignable_v<
+    VirtualUsingDefaultedAssignment&,
+    VirtualUsingAssignmentBase&&>);
 static_assert(std::is_assignable_v<
     ExtendedVirtualDefaultedAssignment&,
     const ExtendedVirtualDefaultedAssignment&>);
@@ -396,6 +460,65 @@ int main() {
             virtual_move_destination).value != 107 ||
         virtual_move_destination.tail != 109 ||
         virtual_base_move_assignment_calls != 1) return 8;
+
+    VirtualUsingDefaultedAssignment virtual_using_copy_destination;
+    VirtualUsingAssignmentBase virtual_using_copy_source;
+    static_cast<VirtualUsingAssignmentBase&>(
+        virtual_using_copy_destination).member.value = 191;
+    virtual_using_copy_destination.marker = 193;
+    virtual_using_copy_source.member.value = 197;
+    virtual_using_member_copy_assignment_calls = 0;
+    virtual_using_copy_destination = virtual_using_copy_source;
+    if (static_cast<VirtualUsingAssignmentBase&>(
+            virtual_using_copy_destination).member.value != 197 ||
+        virtual_using_copy_destination.marker != 193 ||
+        virtual_using_member_copy_assignment_calls != 1) return 15;
+
+    VirtualUsingDefaultedAssignment virtual_using_move_destination;
+    VirtualUsingAssignmentBase virtual_using_move_source;
+    static_cast<VirtualUsingAssignmentBase&>(
+        virtual_using_move_destination).member.value = 199;
+    virtual_using_move_destination.marker = 211;
+    virtual_using_move_source.member.value = 223;
+    virtual_using_member_move_assignment_calls = 0;
+    virtual_using_move_destination = static_cast<
+        VirtualUsingAssignmentBase&&>(virtual_using_move_source);
+    if (static_cast<VirtualUsingAssignmentBase&>(
+            virtual_using_move_destination).member.value != 223 ||
+        virtual_using_move_destination.marker != 211 ||
+        virtual_using_member_move_assignment_calls != 1) return 16;
+
+    ExtendedVirtualUsingAssignment extended_using_destination;
+    VirtualUsingAssignmentBase extended_using_copy_source;
+    static_cast<VirtualUsingAssignmentBase&>(
+        extended_using_destination).member.value = 269;
+    static_cast<VirtualUsingAssignmentBase&>(
+        extended_using_copy_source).member.value = 271;
+    extended_using_destination.marker = 277;
+    extended_using_destination.padding[0] = 281;
+    virtual_using_member_copy_assignment_calls = 0;
+    static_cast<VirtualUsingDefaultedAssignment&>(
+        extended_using_destination) = extended_using_copy_source;
+    if (static_cast<VirtualUsingAssignmentBase&>(
+            extended_using_destination).member.value != 271 ||
+        extended_using_destination.marker != 277 ||
+        extended_using_destination.padding[0] != 281 ||
+        virtual_using_member_copy_assignment_calls != 1) return 17;
+
+    VirtualUsingAssignmentBase extended_using_move_source;
+    static_cast<VirtualUsingAssignmentBase&>(
+        extended_using_destination).member.value = 283;
+    static_cast<VirtualUsingAssignmentBase&>(
+        extended_using_move_source).member.value = 293;
+    virtual_using_member_move_assignment_calls = 0;
+    static_cast<VirtualUsingDefaultedAssignment&>(
+        extended_using_destination) = static_cast<
+            VirtualUsingAssignmentBase&&>(extended_using_move_source);
+    if (static_cast<VirtualUsingAssignmentBase&>(
+            extended_using_destination).member.value != 293 ||
+        extended_using_destination.marker != 277 ||
+        extended_using_destination.padding[0] != 281 ||
+        virtual_using_member_move_assignment_calls != 1) return 18;
 
     ExtendedVirtualDefaultedAssignment extended_copy_destination;
     ExtendedVirtualDefaultedAssignment extended_copy_source;

@@ -26995,6 +26995,7 @@ static bool sema_cxx_expand_defaulted_assignment(
     int special_member_kind;
     int expected_adjustment = -1;
     bool inherited_using_base;
+    bool inherited_virtual_base = false;
     Expr* base_lhs;
     Expr* replacement;
     bool is_trivial;
@@ -27038,16 +27039,33 @@ static bool sema_cxx_expand_defaulted_assignment(
             expected_adjustment != method->this_adjustment) {
             return false;
         }
+        for (int index = 0; complete_type->cxx_class->virtual_bases &&
+             index < complete_type->cxx_class->virtual_base_count; ++index) {
+            if (complete_type->cxx_class->virtual_bases[index].base ==
+                base_type->cxx_class) {
+                inherited_virtual_base = true;
+                break;
+            }
+        }
     } else if (method->cxx_access_owner ||
                method->this_adjustment != 0) {
         return false;
     }
     is_trivial = sema_cxx_type_trait_assignment_subobjects_are_trivial(
         base_type, parameter_type, 0u);
-    base_lhs = inherited_using_base
-        ? sema_cxx_object_base(
-              original_lhs, complete_type, base_type, expected_adjustment)
-        : original_lhs;
+    if (!inherited_using_base) {
+        base_lhs = original_lhs;
+    } else if (inherited_virtual_base) {
+        /* A using-inherited operator may be invoked on a base subobject of a
+         * more-derived complete object. Resolve its virtual base through the
+         * vbtable attached to that object instead of reusing the declaring
+         * class's complete-object byte offset. */
+        base_lhs = sema_cxx_object_virtual_base(
+            original_lhs, complete_type, base_type);
+    } else {
+        base_lhs = sema_cxx_object_base(
+            original_lhs, complete_type, base_type, expected_adjustment);
+    }
     if (!base_lhs) return false;
     base_lhs->cxx_synthesized_assignment_subobject = true;
     if (is_trivial) {

@@ -13800,9 +13800,15 @@ remains a separate open item.
       copy/move assignability traits are false, and direct assignment reports
       the deleted operator. GCC and RCC i686/AMD64 negative diagnostics pass in
       `test-atomic-private-access`.
+- [x] Expand copy/move assignments inherited with `using Base::operator=`
+      when `Base` is a direct virtual base. Compute the base lvalue through the
+      object's vbtable, including when the declaring class is itself a base
+      subobject; verify each user-defined member assignment runs once and
+      neighboring members stay unchanged. GCC C++20, RCC i686/AMD64, and
+      normal/`-O2` x64 execution pass in `test-atomic-private-access`.
 - [ ] Lower large fixed-bound arrays without per-element AST/code expansion.
-      Complete inherited assignment overload viability and virtual-base cases
-      reached through inherited `using` declarations.
+      Complete broader inherited assignment overload viability and indirect
+      virtual-base routes through inherited `using` declarations.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 
