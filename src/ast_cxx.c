@@ -10114,9 +10114,9 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                         substituted_expression->int_val;
                 } else if (value_resolved) {
                     value_resolved =
-                        rcc_parser_cxx_template_non_type_constant_value(
-                            substituted_expression,
-                            &nested_values[nested_count]);
+                        rcc_parser_cxx_eval_template_integer_expression(
+                            substituted_expression, tmpl, value_args,
+                            value_present, &nested_values[nested_count]);
                 }
                 if (!value_resolved && tmpl &&
                     tmpl->kind == TMPL_FUNCTION) {

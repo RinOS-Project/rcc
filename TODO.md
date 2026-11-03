@@ -14076,3 +14076,13 @@ remains a separate open item.
       at `-O0` and `-O2`.
 - [ ] Full structural non-type argument equivalence, additional member layouts,
       structural packs, and unsupported C++20 forms remain open.
+
+## RCC continuation (2026-11-04, dependent member-template NTTP substitution)
+
+- [x] Keep template-context constant-expression evaluation for ordinary
+      dependent class-template non-type arguments while preserving the separate
+      packed-value path for structural class arguments. This resolves dependent
+      static member-template calls after function-template substitution without
+      regressing the structural class NTTP cases. The complete
+      `make -j1 test-cxx-function-template-overloads` gate passes, including
+      GCC checks, i686/AMD64 generation, and AMD64 execution.
