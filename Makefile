@@ -23130,6 +23130,7 @@ test-ir-lowering: $(RCC_TARGET)
 	@echo "Dual-architecture scalar AST to typed SSA lowering tests completed"
 
 .PHONY: test-verified-goto test-verified-atomic-vla-rmw \
+	test-verified-cxx-atomic-floating \
 	test-verified-atomic-fetch-add \
 	test-verified-vla-local-bound \
 	test-verified-builtins test-verified-bitcounts
@@ -23364,7 +23365,61 @@ test-verified-atomic-fetch-add: $(RCC_TARGET)
 	@echo "Verified atomic floating-point and generic/_n load-store/exchange/compare-exchange, bitwise/NAND/min/max/uinc/udec, legacy sync RMW/CAS/lock operations, fences, and test-and-set/clear tests completed"
 
 .PHONY: test-verified-atomic-aggregate-widths
-test-verified-backend: test-verified-atomic-aggregate-widths
+test-verified-backend: test-verified-cxx-atomic-floating \
+	test-verified-atomic-aggregate-widths
+
+test-verified-cxx-atomic-floating: $(RCXX_TARGET) \
+	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) \
+	$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-atomic-floating-x86.ro \
+		tests/verified_backend_cxx_atomic_floating.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-atomic-floating-x86.log
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/verified-backend/cxx-atomic-floating-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-atomic-floating-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -O2 -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-atomic-floating-x86-o2.ro \
+		tests/verified_backend_cxx_atomic_floating.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-atomic-floating-x86-o2.log
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/verified-backend/cxx-atomic-floating-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-atomic-floating-x86-o2.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-atomic-floating-x64.ro \
+		tests/verified_backend_cxx_atomic_floating.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-atomic-floating-x64.log
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/verified-backend/cxx-atomic-floating-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-atomic-floating-x64.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-atomic-floating-x64-o2.ro \
+		tests/verified_backend_cxx_atomic_floating.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-atomic-floating-x64-o2.log
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/verified-backend/cxx-atomic-floating-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-atomic-floating-x64-o2.log,0)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-fsyntax-only tests/verified_backend_cxx_atomic_floating.cpp
+	$(CC) $(CFLAGS) -Wno-unused-but-set-variable \
+		-DRCC_TEST_CXX_ATOMIC_FLOATING -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/cxx-atomic-floating-run$(EXE_SUFFIX) \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME) \
+		$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c
+	$(TEST_OUT)/verified-backend/cxx-atomic-floating-run$(EXE_SUFFIX) \
+		--cxx-atomic-floating-object \
+		$(TEST_OUT)/verified-backend/cxx-atomic-floating-x64.ro
+	$(TEST_OUT)/verified-backend/cxx-atomic-floating-run$(EXE_SUFFIX) \
+		--cxx-atomic-floating-object \
+		$(TEST_OUT)/verified-backend/cxx-atomic-floating-x64-o2.ro
+	@echo "Verified C++ long-double atomic local operations completed"
 
 test-verified-atomic-aggregate-widths: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

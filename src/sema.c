@@ -18032,16 +18032,15 @@ static void sema_prepare_aggregate_reference_temporary_cleanup(
     if (!temporary_cleanups) return;
     if (declaration->var_is_static_local ||
         declaration->var_is_thread_local) {
-        /* Cleanup plans execute in reverse list order.  Place reference
-         * temporaries after the aggregate cleanup so the temporaries are
-         * destroyed first, matching the lifetime order used by GCC. */
-        tail = declaration->var_cleanups;
+        /* Cleanup plans execute in reverse list order.  Put reference
+         * temporaries before the aggregate cleanup so the aggregate is
+         * destroyed while its referenced temporaries are still alive. */
+        tail = temporary_cleanups;
         if (tail) {
             while (tail->next) tail = tail->next;
-            tail->next = temporary_cleanups;
-        } else {
-            declaration->var_cleanups = temporary_cleanups;
+            tail->next = declaration->var_cleanups;
         }
+        declaration->var_cleanups = temporary_cleanups;
     } else if (!declaration->var_cleanups) {
         declaration->var_cleanups = temporary_cleanups;
     } else {

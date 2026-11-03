@@ -368,10 +368,10 @@ int main(void)
 #endif
     __cxa_finalize(&__dso_handle);
 #ifdef RCC_STATIC_AGGREGATE_REFERENCE_TEST
-    if (cxx_static_aggregate_reference_order != 213 ||
+    if (cxx_static_aggregate_reference_order != 321 ||
         cxx_static_aggregate_reference_constructions != 2) {
         fprintf(stderr,
-                "static aggregate reference state: order %d (expected 213), constructions %d (expected 2)\n",
+                "static aggregate reference state: order %d (expected 321), constructions %d (expected 2)\n",
                 cxx_static_aggregate_reference_order,
                 cxx_static_aggregate_reference_constructions);
         return 95;

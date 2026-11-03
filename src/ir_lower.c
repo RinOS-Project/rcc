@@ -22509,6 +22509,20 @@ static bool lower_struct_type_supported(const Type* type) {
               type, 0u)));
 }
 
+/* A C++ constructor initializes the active object's members and may
+ * intentionally declare its storage volatile (as std::atomic does). Such a
+ * local can use volatile-insensitive storage validation when the selected
+ * initializer calls that constructor directly; ordinary aggregate copying
+ * remains subject to the stricter volatile-member checks. */
+static bool lower_cxx_constructed_volatile_object_supported(
+    const Type* type, const Expr* initializer) {
+    return g_opts.cxx_mode && type && type->kind == TYPE_STRUCT &&
+        type->cxx_class && initializer &&
+        initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_constructor &&
+        lower_storage_type_supported_ignoring_volatile_internal(type, 0u);
+}
+
 static bool lower_union_type_supported(const Type* type) {
     return type && type->kind == TYPE_UNION &&
         (lower_storage_type_supported_internal(type, 0u) ||
@@ -24057,6 +24071,8 @@ static bool lower_cxx_initialize_constructor_members(
             }
         } else if (value_initialize) {
             source = NULL;
+        } else if (!argument && initializer->value) {
+            source = initializer->value;
         } else if (!argument || argument->next ||
                    !(source = argument->expr)) {
             context->unsupported = true;
@@ -24281,7 +24297,8 @@ static bool lower_cxx_initialize_constructor_members(
         } else if (value_initialize) {
             value = lower_zero_initializer(context, field->type);
         } else {
-            source = initializer->is_default_member_initializer
+            source = initializer->is_default_member_initializer ||
+                    !initializer->arguments
                 ? initializer->value : initializer->arguments->expr;
             if (field->type->is_reference) {
                 value = lower_lvalue_address(context, source);
@@ -28251,7 +28268,9 @@ static bool lower_struct_initializer(
     const Type* type, const Expr* initializer) {
     const TypeField* cursor;
     const ExprList* item;
-    if (!lower_struct_type_supported(type) || !initializer ||
+    if ((!lower_struct_type_supported(type) &&
+         !lower_cxx_constructed_volatile_object_supported(
+             type, initializer)) || !initializer ||
         initializer->kind != EXPR_COMPOUND) {
         context->unsupported = true;
         return false;
@@ -28277,7 +28296,8 @@ static bool lower_struct_initializer(
         return lower_cxx_copy_trivial_storage(
             context, base, source.value, type, 0u);
     }
-    if (!lower_zero_struct_storage(context, base, type)) {
+    if (!lower_cxx_constructed_volatile_object_supported(type, initializer) &&
+        !lower_zero_struct_storage(context, base, type)) {
         context->unsupported = true;
         return false;
     }
@@ -28641,7 +28661,9 @@ static bool lower_initialize_struct_storage(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type, const Expr* initializer) {
     RccIrLowerValue source;
-    if (!lower_struct_type_supported(type) || !initializer) {
+    if ((!lower_struct_type_supported(type) &&
+         !lower_cxx_constructed_volatile_object_supported(
+             type, initializer)) || !initializer) {
         context->unsupported = true;
         return false;
     }
@@ -30027,6 +30049,9 @@ static bool lower_declaration(RccIrLowerContext* context,
         lower_i686_wide_scalar_type(declaration->type);
     bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
         declaration->var_init != NULL;
+    bool cxx_constructed_volatile_object_supported =
+        is_struct && lower_cxx_constructed_volatile_object_supported(
+                         declaration->type, declaration->var_init);
     /* Type-only declarations in a block (typedefs, local struct/union/enum
      * declarations, and static assertions) have already been handled by the
      * parser/sema layers. They do not allocate storage or produce IR. Keep
@@ -30090,6 +30115,7 @@ static bool lower_declaration(RccIrLowerContext* context,
                      declaration->type)) ||
                 (is_struct &&
                  !lower_struct_type_supported(declaration->type) &&
+                 !cxx_constructed_volatile_object_supported &&
                  !is_supported_volatile_local_aggregate) ||
                 (is_union &&
                  !lower_union_type_supported(declaration->type) &&

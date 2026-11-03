@@ -13471,8 +13471,8 @@ remains a separate open item.
       `test-cxx-class-template-specialization` on i686/AMD64.
 - [x] Append static aggregate reference-temporary cleanup plans after the
       aggregate cleanup plan, so reverse cleanup destroys temporaries in
-      reverse order before the aggregate. GCC and RCC both report exit order
-      `213` in `test-cxx-static-reference-subobjects`.
+      reverse order after the aggregate destructor. GCC and RCC both report
+      exit order `321` in `test-cxx-static-reference-subobjects`.
 - [x] Use the absolute Windows compiler path for verified-backend commands
       with shell redirection in `test-cxx-template-template-signature-depth`;
       the signature-depth target and adjacent template-pack/class-specialization
@@ -13591,3 +13591,21 @@ remains a separate open item.
       existing compare-exchange loops. GCC C++20 availability assertions,
       i686/AMD64 generation, and AMD64 `-O0`/`-O2` generated execution pass in
       `test-atomic-builtins`; the checks use RinOS's binary64 `long double` ABI.
+
+## RCC continuation (2026-11-03, verified local floating atomics)
+
+- [x] Lower constructor-initialized C++ locals with volatile internal storage
+      without treating their `value_()` initializer as malformed or emitting
+      pre-constructor volatile zero stores. Cover local
+      `std::atomic<long double>` and aligned `std::atomic_ref<long double>`
+      arithmetic in `test-verified-cxx-atomic-floating`; GCC C++20 syntax,
+      i686/AMD64 `-O0`/`-O2` verified objects with zero fallback, and x64
+      generated-object execution pass.
+- [x] Fix static-local aggregate reference-temporary destruction order. Cleanup
+      plans execute in reverse list order, so place temporary cleanup nodes
+      before the aggregate cleanup: the aggregate destructor then runs while
+      referenced temporaries are alive. `test-verified-cxx-static-local-aggregate`
+      passes i686/AMD64 `-O0`/`-O2` verified generation with zero fallback,
+      x64 execution at both optimization levels, and native x86/x64 assembly
+      checks. Confirm GCC's process-exit order with the matching legacy fixture
+      and update its expected destruction sequence from `213` to `321`.

@@ -89,6 +89,14 @@ extern int cxx_static_reference_atexit_finalizations;
 extern int RINOS_ABI __cxa_atexit(
     VerifiedThreadExitCallback callback, void* object, void* dso);
 extern void RINOS_ABI __cxa_finalize(void* dso);
+#ifdef RCC_TEST_CXX_ATOMIC_FLOATING
+extern unsigned long long __rin_atomic_wait_prepare_v1(void);
+extern void __rin_atomic_wait_park_v1(
+    const volatile void* object, size_t size,
+    unsigned long long generation);
+extern void __rin_atomic_notify_v1(
+    const volatile void* object, size_t size, int notify_all);
+#endif
 extern int RINOS_ABI verified_runtime_setjmp(void* buffer) __asm__("setjmp");
 extern void RINOS_ABI verified_runtime_longjmp(
     void* buffer, int value) __asm__("longjmp");
@@ -99,6 +107,25 @@ static int verified_partial_array_destructor_order;
 static int verified_partial_array_capture_destructor_trace;
 static int verified_partial_array_destructor_trace[32];
 static size_t verified_partial_array_destructor_trace_count;
+
+#ifdef RCC_TEST_CXX_ATOMIC_FLOATING
+static unsigned long long RINOS_ABI verified_atomic_wait_prepare(void)
+{
+    return __rin_atomic_wait_prepare_v1();
+}
+
+static void RINOS_ABI verified_atomic_wait_park(
+    const volatile void* object, size_t size, unsigned long long generation)
+{
+    __rin_atomic_wait_park_v1(object, size, generation);
+}
+
+static void RINOS_ABI verified_atomic_notify(
+    const volatile void* object, size_t size, int notify_all)
+{
+    __rin_atomic_notify_v1(object, size, notify_all);
+}
+#endif
 
 int RINOS_ABI verified_partial_array_next_ctor(void)
 {
@@ -506,11 +533,28 @@ static void* verified_runtime_import_address(const char* symbol_name)
             VerifiedThreadExitCallback, void*, void*);
         int (RINOS_ABI *thread_atexit)(
             VerifiedThreadExitCallback, void*, void*);
+#ifdef RCC_TEST_CXX_ATOMIC_FLOATING
+        unsigned long long (RINOS_ABI *atomic_wait_prepare)(void);
+        void (RINOS_ABI *atomic_wait_park)(
+            const volatile void*, size_t, unsigned long long);
+        void (RINOS_ABI *atomic_notify)(const volatile void*, size_t, int);
+#endif
     } function;
     void* address = NULL;
     memset(&function, 0, sizeof(function));
+#ifdef RCC_TEST_CXX_ATOMIC_FLOATING
+    if (strcmp(symbol_name, "__rin_atomic_wait_prepare_v1") == 0) {
+        function.atomic_wait_prepare = verified_atomic_wait_prepare;
+    } else if (strcmp(symbol_name, "__rin_atomic_wait_park_v1") == 0) {
+        function.atomic_wait_park = verified_atomic_wait_park;
+    } else if (strcmp(symbol_name, "__rin_atomic_notify_v1") == 0) {
+        function.atomic_notify = verified_atomic_notify;
+    } else if (strcmp(symbol_name,
+               "rin_cpp_exception_register_current_cleanup") == 0) {
+#else
     if (strcmp(symbol_name,
                "rin_cpp_exception_register_current_cleanup") == 0) {
+#endif
         function.cleanup = rin_cpp_exception_register_current_cleanup;
     } else if (strcmp(symbol_name,
                       "rin_cpp_exception_unregister_current_cleanup") == 0) {
@@ -3913,6 +3957,30 @@ static void verify_static_local_scalar_object(const char* path)
     objfile_free(object);
 }
 
+static void verify_cxx_atomic_floating_object(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* entry_symbol;
+    size_t mapping_size;
+    void* memory;
+    int (RINOS_ABI *entry)(void);
+    void* address;
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    entry_symbol = objfile_find_symbol(object, "main");
+    assert(text != NULL && entry_symbol != NULL &&
+           entry_symbol->type == SYM_GLOBAL &&
+           entry_symbol->binding == BIND_CODE && entry_symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, entry_symbol);
+    memcpy(&entry, &address, sizeof(entry));
+    assert(entry() == 0);
+    assert(entry() == 0);
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 static void verify_static_local_aggregate_object(const char* path)
 {
     ObjectFile* object = objfile_read(path);
@@ -7284,6 +7352,12 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--sysv-va-aggregate-straddle-object") == 0) {
         verify_sysv_va_aggregate_straddle_object(argv[2]);
         puts("Verified x86-64 SysV aggregate straddle object passed");
+        return 0;
+    }
+    if (argc == 3 &&
+        strcmp(argv[1], "--cxx-atomic-floating-object") == 0) {
+        verify_cxx_atomic_floating_object(argv[2]);
+        puts("Verified C++ floating atomic local object passed");
         return 0;
     }
     if (argc == 4 &&
