@@ -1385,8 +1385,23 @@
         Native-Windows and POSIX generated AMD64 execution plus i686/AMD64 object
         generation pass in `test-cxx-member-pointer-reference-lifetime`; the
         POSIX `test-cxx` alias now reaches its explicit recipe instead of silently
-        skipping this phony target. Keep this open until RinOS runtime integration
-        is covered.
+        skipping this phony target. Keep this open until the generated fixture
+        runs through the booted RinOS target runtime under QEMU.
+  - [x] Run the generated AMD64 fixture through RinOS's production
+        `cxx_guard.inc`, `rin_atexit_registry.inc`, and
+        `rin_exit_lifecycle.c` in the POSIX host harness. Verify callback order
+        and exactly-once process finalization by invoking the lifecycle twice;
+        `test-cxx-member-pointer-reference-lifetime` passes for i686 generation
+        and AMD64 execution. Booted RinOS target runtime coverage remains a
+        separate acceptance item.
+  - [x] Wire the RCC++ fixture into the existing signed RinOS import-test
+        service. Its C callback reports initialization success and the exact
+        final destructor sequence; the existing smoke gates require both
+        markers in order. The RCC++ assembly, RinOS C callback compile, combined
+        ELF relocatable link, host test, and release-gate contract all pass.
+  - [ ] Build the test ISO and observe both markers from the booted service in
+        RinOS QEMU; this remains pending while another task owns the shared
+        Meson build directory.
   - [x] Add global and block-static reference regressions where a side-effecting
         pointer-to-member selector applies a base-class member to a derived
         temporary. Verify selected values, one-time selection, stable local

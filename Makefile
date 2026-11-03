@@ -6760,9 +6760,12 @@ test-cxx-member-pointer-reference-lifetime-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
 		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.o
-	$(CC) $(CFLAGS) -no-pie \
+	$(CC) $(CFLAGS) -DRCC_STATIC_REFERENCE_RIN_RUNTIME_TEST \
+		-I../../../libs/rinruntime/include \
+		-no-pie \
 		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64-host \
 		tests/cxx_static_reference_host.c \
+		../../../libs/rinruntime/rin_exit_lifecycle.c \
 		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.o
 	$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64-host
 	@echo "C++ pointer-to-member static reference lifetime tests passed for i686 and AMD64"

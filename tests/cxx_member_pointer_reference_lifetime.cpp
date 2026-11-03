@@ -4,9 +4,16 @@ int cxx_static_reference_expected_events = 3269875;
 int cxx_static_reference_pointer_selections = 0;
 }
 
+#ifdef RCC_STATIC_REFERENCE_QEMU_RUNTIME_TEST
+extern "C" void rin_rcc_static_reference_qemu_event(int value);
+#endif
+
 static void record_pointer_reference_event(int value) {
     cxx_static_reference_events =
         cxx_static_reference_events * 10 + value;
+#ifdef RCC_STATIC_REFERENCE_QEMU_RUNTIME_TEST
+    rin_rcc_static_reference_qemu_event(value);
+#endif
 }
 
 struct PointerReferenceChild {
@@ -61,7 +68,11 @@ static const PointerReferenceChild& pointer_reference_derived_local() {
     return value;
 }
 
+#ifdef RCC_STATIC_REFERENCE_QEMU_RUNTIME_TEST
+extern "C" int rin_rcc_static_reference_main() {
+#else
 int main() {
+#endif
     if (pointer_reference_global.value != 47) return 1;
     if (pointer_reference_cast_global.value != 61) return 3;
     if (pointer_reference_derived_global.value != 79 ||

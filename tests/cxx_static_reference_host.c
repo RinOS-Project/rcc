@@ -1,7 +1,9 @@
 #include <stddef.h>
 #include <stdio.h>
-#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+#if defined(RCC_STATIC_REFERENCE_TLS_TEST) || \
+    defined(RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST)
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -20,6 +22,10 @@
 #include <rinruntime/rin_exit_lifecycle.h>
 #endif
 
+#ifdef RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST
+#include "../../../../public-base/libs/libcxx/cxx_guard.inc"
+#endif
+
 #if defined(_WIN32) && defined(__x86_64__)
 #define RIN_SYSV __attribute__((sysv_abi))
 #else
@@ -28,12 +34,14 @@
 
 typedef void (RIN_SYSV *CxxExitCallback)(void*);
 
+#ifndef RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST
 typedef struct CxxExitEntry {
     CxxExitCallback callback;
     void* argument;
     void* dso;
     int active;
 } CxxExitEntry;
+#endif
 
 #ifndef RCC_STATIC_REFERENCE_TLS_TEST
 typedef struct CxxExceptionCleanupEntry {
@@ -43,8 +51,10 @@ typedef struct CxxExceptionCleanupEntry {
 } CxxExceptionCleanupEntry;
 #endif
 
+#ifndef RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST
 static CxxExitEntry cxx_exit_entries[16];
 static size_t cxx_exit_count;
+#endif
 #ifndef RCC_STATIC_REFERENCE_TLS_TEST
 static CxxExceptionCleanupEntry cxx_exception_cleanups[16];
 static size_t cxx_exception_cleanup_count;
@@ -88,6 +98,20 @@ extern int RIN_SYSV cxx_static_reference_tls_worker(int value);
 extern int RIN_SYSV rcc_generated_main(void);
 extern void RIN_SYSV __rcc_global_init(void);
 extern void RIN_SYSV __rcc_global_fini(void);
+int RIN_SYSV __cxa_atexit(CxxExitCallback callback, void* argument, void* dso);
+void RIN_SYSV __cxa_finalize(void* dso);
+
+#ifdef RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST
+static void cxx_static_reference_process_finalize(void)
+{
+    __cxa_finalize(&__dso_handle);
+}
+
+static void cxx_static_reference_fini_finalize(void)
+{
+    __rcc_global_fini();
+}
+#endif
 
 #ifdef RCC_STATIC_REFERENCE_TLS_TEST
 static volatile int cxx_static_reference_process_finalized;
@@ -128,6 +152,7 @@ static int cxx_static_reference_run_tls_thread(int value)
 }
 #endif
 
+#ifndef RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST
 int RIN_SYSV __cxa_guard_acquire(long long* guard)
 {
     unsigned char* bytes = (unsigned char*)guard;
@@ -163,7 +188,19 @@ void RIN_SYSV __cxa_guard_abort(long long* guard)
     ++cxx_static_reference_tls_retry_guard_aborts;
 #endif
 }
+#endif
 
+#ifdef RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST
+int RIN_SYSV __cxa_atexit(CxxExitCallback callback, void* argument, void* dso)
+{
+    return cxx_host_cxa_atexit(callback, argument, dso);
+}
+
+void RIN_SYSV __cxa_finalize(void* dso)
+{
+    cxx_host_cxa_finalize(dso);
+}
+#else
 int RIN_SYSV __cxa_atexit(CxxExitCallback callback, void* argument, void* dso)
 {
     if (!callback || !argument || cxx_exit_count ==
@@ -188,6 +225,7 @@ void RIN_SYSV __cxa_finalize(void* dso)
         entry->callback(entry->argument);
     }
 }
+#endif
 
 #ifndef RCC_STATIC_REFERENCE_TLS_TEST
 void RIN_SYSV rin_cpp_exception_register_current_cleanup(
@@ -366,7 +404,18 @@ int main(void)
         return 91;
     }
 #endif
+#ifdef RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST
+    rin_exit_lifecycle_run(rin_atexit_global_destructors_state(),
+                           __rin_cxa_thread_finalize,
+                           cxx_static_reference_process_finalize,
+                           cxx_static_reference_fini_finalize);
+    rin_exit_lifecycle_run(rin_atexit_global_destructors_state(),
+                           __rin_cxa_thread_finalize,
+                           cxx_static_reference_process_finalize,
+                           cxx_static_reference_fini_finalize);
+#else
     __cxa_finalize(&__dso_handle);
+#endif
 #ifdef RCC_STATIC_AGGREGATE_REFERENCE_TEST
     if (cxx_static_aggregate_reference_order != 321 ||
         cxx_static_aggregate_reference_constructions != 2) {
@@ -377,7 +426,9 @@ int main(void)
         return 95;
     }
 #endif
+#ifndef RCC_STATIC_REFERENCE_RIN_RUNTIME_TEST
     __rcc_global_fini();
+#endif
     if (cxx_static_reference_events != cxx_static_reference_expected_events) {
         fprintf(stderr, "static-reference events: expected %d, got %d\n",
                 cxx_static_reference_expected_events,
