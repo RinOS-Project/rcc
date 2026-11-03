@@ -26,6 +26,12 @@ typedef struct {
     bool valid;
 } RccIrLowerValue;
 
+typedef struct RccIrLowerArrayAssignmentLoop {
+    const Decl* index_declaration;
+    RccIrLowerValue index_address;
+    struct RccIrLowerArrayAssignmentLoop* previous;
+} RccIrLowerArrayAssignmentLoop;
+
 typedef struct {
     RccIrLowerValue low;
     RccIrLowerValue high;
@@ -159,6 +165,7 @@ typedef struct {
     RccIrLowerScopeCleanup* allocated_scope_cleanups;
     RccIrLowerVlaAllocation* vla_allocations;
     RccIrLowerVlaAllocation* allocated_vla_allocations;
+    RccIrLowerArrayAssignmentLoop* array_assignment_loops;
     RccIrLowerVlaBoundCapture* vla_bound_captures;
     RccIrLowerScratchAllocation* allocated_scratch;
     RccIrLowerLabel* labels;
@@ -630,6 +637,16 @@ static RccIrLowerLocal* lower_find_local(RccIrLowerContext* context,
     RccIrLowerLocal* local = context ? context->locals : NULL;
     while (local && local->declaration != declaration) local = local->next;
     return local;
+}
+
+static RccIrLowerArrayAssignmentLoop* lower_find_array_assignment_loop(
+    RccIrLowerContext* context, const Decl* declaration) {
+    RccIrLowerArrayAssignmentLoop* loop = context
+        ? context->array_assignment_loops : NULL;
+    while (loop && loop->index_declaration != declaration) {
+        loop = loop->previous;
+    }
+    return loop;
 }
 
 static bool lower_add_local(RccIrLowerContext* context,
@@ -3374,6 +3391,10 @@ static RccIrLowerValue lower_lvalue_address_impl(
         return lower_expression(context, expression);
     }
     if (expression->kind == EXPR_IDENT) {
+        RccIrLowerArrayAssignmentLoop* array_loop =
+            lower_find_array_assignment_loop(
+                context, expression->ident_decl);
+        if (array_loop) return array_loop->index_address;
         local = lower_find_local(context, expression->ident_decl);
         if (!local) {
             const Decl* declaration = expression->ident_decl;
@@ -18255,6 +18276,106 @@ static bool lower_wide_scalar_call(
                                   expression->type->is_unsigned, result);
 }
 
+static RccIrLowerValue lower_defaulted_array_assignment_loop(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Decl* index_declaration = expression
+        ? expression->cxx_defaulted_array_loop_index : NULL;
+    RccIrType index_type;
+    RccIrInstruction* allocation;
+    RccIrLowerValue index_address;
+    RccIrLowerValue index_value;
+    RccIrLowerValue limit;
+    RccIrLowerValue one;
+    RccIrValue operands[2];
+    RccIrInstruction* compare;
+    RccIrInstruction* increment;
+    RccIrBlock* condition_block;
+    RccIrBlock* body_block;
+    RccIrBlock* exit_block;
+    RccIrLowerArrayAssignmentLoop loop_frame;
+    if (!context || !expression || !index_declaration ||
+        index_declaration->kind != DECL_VAR ||
+        !index_declaration->type ||
+        expression->cxx_defaulted_array_loop_count <= 0 ||
+        !expression->binary_rhs || !lower_type(type_int, &index_type) ||
+        index_type.kind != RCC_IR_TYPE_INTEGER) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return lower_invalid_value();
+    rcc_ir_set_immediate(allocation, index_type.bit_width / 8u);
+    allocation->alignment = index_type.bit_width / 8u;
+    index_address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    index_value = lower_integer_constant(context, index_type, true, 0u);
+    if (!index_value.valid ||
+        !lower_store_address(context, index_address, index_value)) {
+        return lower_invalid_value();
+    }
+    condition_block = rcc_ir_block_add(
+        context->function, "defaulted.array.assign.cond");
+    body_block = rcc_ir_block_add(
+        context->function, "defaulted.array.assign.body");
+    exit_block = rcc_ir_block_add(
+        context->function, "defaulted.array.assign.end");
+    if (!condition_block || !body_block || !exit_block ||
+        !lower_branch(context, condition_block->id)) {
+        return lower_invalid_value();
+    }
+    loop_frame.index_declaration = index_declaration;
+    loop_frame.index_address = index_address;
+    loop_frame.previous = context->array_assignment_loops;
+    context->array_assignment_loops = &loop_frame;
+
+    context->current = condition_block;
+    context->terminated = false;
+    index_value = lower_load_address(context, index_address, type_int);
+    limit = lower_integer_constant(
+        context, index_type, true,
+        (uint64_t)expression->cxx_defaulted_array_loop_count);
+    if (!index_value.valid || !limit.valid) return lower_invalid_value();
+    operands[0] = index_value.value;
+    operands[1] = limit.value;
+    compare = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+        operands, 2u, NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_ULT);
+    if (!lower_conditional_branch(
+            context,
+            lower_value(compare->result, rcc_ir_type_integer(1u), true),
+            body_block->id, exit_block->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = body_block;
+    context->terminated = false;
+    if (!lower_expression(context, expression->binary_rhs).valid ||
+        context->terminated) {
+        return lower_invalid_value();
+    }
+    index_value = lower_load_address(context, index_address, type_int);
+    one = lower_integer_constant(context, index_type, true, 1u);
+    if (!index_value.valid || !one.valid) return lower_invalid_value();
+    operands[0] = index_value.value;
+    operands[1] = one.value;
+    increment = lower_append(
+        context, RCC_IR_ADD, index_type, operands, 2u, NULL, 0u);
+    if (!increment || !lower_store_address(
+            context, index_address,
+            lower_value(increment->result, index_type, true)) ||
+        !lower_branch(context, condition_block->id)) {
+        return lower_invalid_value();
+    }
+    context->array_assignment_loops = loop_frame.previous;
+    context->current = exit_block;
+    context->terminated = false;
+    return lower_integer_constant(context, index_type, true, 0u);
+}
+
 static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                                              const Expr* expression) {
     RccIrType type;
@@ -18578,7 +18699,8 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             return lower_lvalue_address(context, expression->unary_operand);
         case EXPR_DEREF:
             if (expression->type &&
-                (expression->type->kind == TYPE_STRUCT ||
+                (expression->type->kind == TYPE_ARRAY ||
+                 expression->type->kind == TYPE_STRUCT ||
                  expression->type->kind == TYPE_UNION ||
                  type_is_cxx_member_function_pointer(expression->type))) {
                 return lower_lvalue_address(context, expression);
@@ -18779,6 +18901,10 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
         case EXPR_RSHIFT_ASSIGN:
             return lower_compound_assignment(context, expression);
         case EXPR_COMMA:
+            if (expression->cxx_synthesized_defaulted_array_loop) {
+                return lower_defaulted_array_assignment_loop(
+                    context, expression);
+            }
             (void)lower_expression(context, expression->binary_lhs);
             return lower_expression(context, expression->binary_rhs);
         case EXPR_CALL:
@@ -22629,8 +22755,7 @@ static bool lower_array_initializer(
 static bool lower_struct_type_supported(const Type* type) {
     return type && type->kind == TYPE_STRUCT &&
         (lower_storage_type_supported_internal(type, 0u) ||
-         (!g_opts.cxx_mode &&
-          lower_type_has_volatile_subobject(type, 0u) &&
+         (lower_type_has_volatile_subobject(type, 0u) &&
           lower_storage_type_supported_ignoring_volatile_internal(
               type, 0u)));
 }

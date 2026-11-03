@@ -13831,7 +13831,7 @@ remains a separate open item.
       assignment diagnoses the deleted function; RCC i686/AMD64 both reject it
       without producing an object. Trait, lvalue runtime, and normal/`-O2` x64
       checks pass in `test-atomic-private-access`.
-- [ ] Lower all large fixed-bound array assignments without per-element
+- [x] Lower all large fixed-bound array assignments without per-element
       AST/code expansion.
   - [x] Lower defaulted copy/move assignment for large multidimensional arrays
         of nonvolatile, non-atomic scalar leaves as a forward runtime byte loop.
@@ -13840,9 +13840,13 @@ remains a separate open item.
         `-O0`/`-O2` execution, code-size bounds, and verified i686/AMD64
         `-O0`/`-O2` emission with zero fallback pass in
         `test-verified-cxx-defaulted-large-array-assignment`.
-  - [ ] Lower arrays whose elements require user-defined assignment or
+  - [x] Lower arrays whose elements require user-defined assignment or
         volatile/atomic access with runtime loops that preserve each element's
-        C++ assignment semantics.
+        C++ assignment semantics. Verify exactly-once, forward-order copy and
+        move calls, volatile values, and atomic load/store assignment in
+        `test-verified-cxx-defaulted-large-array-assignment`; legacy i686 and
+        x64 `-O0`/`-O2` execution plus verified i686/AMD64 `-O0`/`-O2` emission
+        pass with zero fallback.
 - [ ] Complete remaining inherited assignment overload viability and related
       type-trait coverage.
 

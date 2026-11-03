@@ -9448,6 +9448,9 @@ static bool gen_expr_is_lvalue(Expr* expression) {
         case EXPR_COND:
             return expression->cxx_conditional_lvalue;
         case EXPR_COMMA:
+            if (expression->cxx_synthesized_defaulted_array_loop) {
+                return false;
+            }
             return rcc_parser_is_cxx_mode() &&
                    gen_expr_is_lvalue(expression->binary_rhs);
         case EXPR_CALL:
@@ -16655,6 +16658,33 @@ static void gen_cxx_defaulted_array_copy32(Module* mod, Expr* expr) {
     emit_pop_reg(mod, ESI);
 }
 
+static void gen_cxx_defaulted_array_assignment_loop32(
+    Module* mod, Expr* expr) {
+    Decl* index = expr ? expr->cxx_defaulted_array_loop_index : NULL;
+    int loop_label;
+    int done_label;
+    if (!index || index->var_offset >= 0 ||
+        expr->cxx_defaulted_array_loop_count <= 0 || !expr->binary_rhs) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<array-assignment>", 0, 0},
+                  "defaulted array assignment loop has no frame index");
+        return;
+    }
+    loop_label = new_label();
+    done_label = new_label();
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_mov_mem_reg(mod, EBP, index->var_offset, EAX);
+    emit_label(mod, loop_label);
+    emit_mov_reg_mem(mod, EAX, EBP, index->var_offset);
+    emit_cmp_reg_imm(mod, EAX, expr->cxx_defaulted_array_loop_count);
+    emit_jcc_label(mod, CC_AE, done_label);
+    gen_expr(mod, expr->binary_rhs);
+    emit_mov_reg_mem(mod, EAX, EBP, index->var_offset);
+    emit_add_reg_imm(mod, EAX, 1);
+    emit_mov_mem_reg(mod, EBP, index->var_offset, EAX);
+    emit_jmp_label(mod, loop_label);
+    emit_label(mod, done_label);
+}
+
 static void gen_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -18417,6 +18447,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_COMMA:
+            if (expr->cxx_synthesized_defaulted_array_loop) {
+                gen_cxx_defaulted_array_assignment_loop32(mod, expr);
+                break;
+            }
             if (type_is_complex(expr->type)) {
                 gen_expr(mod, expr->binary_lhs);
                 gen_expr(mod, expr->binary_rhs);
@@ -20818,6 +20852,34 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                                          stack_alignment);
             break;
         case EXPR_COMMA:
+            if (expression->cxx_synthesized_defaulted_array_loop) {
+                Decl* index = expression->cxx_defaulted_array_loop_index;
+                if (!index || expression->cxx_defaulted_array_loop_count <= 0) {
+                    *bytes = INT_MAX;
+                    break;
+                }
+                if (index->var_offset == 0) {
+                    int size = type_int && type_int->size > 0
+                        ? type_int->size : 4;
+                    int alignment = type_int && type_int->align > 0
+                        ? type_int->align : 4;
+                    int64_t extent;
+                    if (alignment < stack_alignment) {
+                        alignment = stack_alignment;
+                    }
+                    extent = (int64_t)*bytes + size;
+                    if (extent > INT_MAX) {
+                        *bytes = INT_MAX;
+                    } else {
+                        *bytes = codegen_align_frame_bytes(
+                            (int)extent, alignment);
+                        index->var_offset = -*bytes;
+                    }
+                }
+                codegen_assign_compound_expr(
+                    expression->binary_rhs, bytes, stack_alignment);
+                break;
+            }
             if (gen_aggregate_type32(expression->type) &&
                 expression->aggregate_offset == 0) {
                 int size = expression->type->size;

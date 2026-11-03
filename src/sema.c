@@ -26632,6 +26632,35 @@ static bool sema_cxx_defaulted_array_plain_scalar(Type* type,
     return (!destination || !type->is_const) && type_is_scalar(type);
 }
 
+static bool sema_cxx_type_has_volatile_subobject(
+    Type* type, unsigned depth) {
+    if (!type || depth >= 64u) return true;
+    if (type->is_volatile) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return sema_cxx_type_has_volatile_subobject(
+            type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return false;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (sema_cxx_type_has_volatile_subobject(
+                field->type, depth + 1u)) {
+            return true;
+        }
+    }
+    if (type->cxx_class) {
+        CxxClass* cls = type->cxx_class;
+        for (int index = 0; index < cls->base_count; ++index) {
+            if (!cls->bases || !cls->bases[index].base ||
+                !cls->bases[index].base->type ||
+                sema_cxx_type_has_volatile_subobject(
+                    cls->bases[index].base->type, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 /* Build the elementwise assignment for a fixed array member. Arrays are not
  * assignment expressions in C++, so resolve class element operators in
  * subscript order. Large arrays of nonvolatile plain scalars use a compact
@@ -26666,6 +26695,45 @@ static Expr* sema_cxx_defaulted_array_assignment(
             copy->type = destination_type;
             copy->cxx_synthesized_defaulted_array_copy = true;
             return copy;
+        }
+        if (destination_type->size >= 64 &&
+            destination_type->array_len > 0 &&
+            destination_type->array_len <= INT_MAX &&
+            source->type->size == destination_type->size) {
+            Decl* index_decl = decl_var(
+                "__rcc_defaulted_array_assignment_index",
+                type_int, NULL, loc);
+            Expr* index = expr_ident(index_decl->name, loc);
+            Expr* destination_element;
+            Expr* source_element;
+            Expr* element_assignment;
+            Expr* loop;
+            Type* source_element_type =
+                sema_cxx_assignment_source_field_type(
+                    destination_type->base, source_object_type);
+            if (!source_element_type) return NULL;
+            index->ident_decl = index_decl;
+            index->type = type_int;
+            destination_element = expr_index(destination, index, loc);
+            source_element = expr_index(source, index, loc);
+            destination_element->type = destination_type->base;
+            destination_element->cxx_synthesized_assignment_subobject = true;
+            source_element->type = source_element_type;
+            source_element->cxx_synthesized_assignment_subobject = true;
+            element_assignment = sema_cxx_defaulted_array_assignment(
+                destination_element, source_element,
+                destination_type->base, source_object_type,
+                is_move, loc, depth + 1u);
+            if (!element_assignment) return NULL;
+            loop = expr_binary(
+                EXPR_COMMA, expr_int(0, loc), element_assignment, loc);
+            if (!loop) return NULL;
+            loop->type = type_void;
+            loop->cxx_synthesized_defaulted_array_loop = true;
+            loop->cxx_defaulted_array_loop_index = index_decl;
+            loop->cxx_defaulted_array_loop_count =
+                (int)destination_type->array_len;
+            return loop;
         }
         for (int64_t index = 0; index < destination_type->array_len; ++index) {
             Type* source_element_type =
@@ -27147,8 +27215,9 @@ static bool sema_cxx_expand_defaulted_assignment(
                method->this_adjustment != 0) {
         return false;
     }
-    is_trivial = sema_cxx_type_trait_assignment_subobjects_are_trivial(
-        base_type, parameter_type, 0u);
+    is_trivial = !sema_cxx_type_has_volatile_subobject(base_type, 0u) &&
+        sema_cxx_type_trait_assignment_subobjects_are_trivial(
+            base_type, parameter_type, 0u);
     if (!inherited_using_base) {
         base_lhs = original_lhs;
     } else {
@@ -31142,6 +31211,19 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_COMMA: {
+            if (expr->cxx_synthesized_defaulted_array_loop) {
+                if (!expr->cxx_defaulted_array_loop_index ||
+                    expr->cxx_defaulted_array_loop_count <= 0 ||
+                    !expr->binary_rhs) {
+                    rcc_error(expr->loc,
+                              "synthesized defaulted array loop is incomplete");
+                    expr->type = type_void;
+                    break;
+                }
+                (void)sema_expr(expr->binary_rhs);
+                expr->type = type_void;
+                break;
+            }
             sema_expr(expr->binary_lhs);
             expr->type = sema_expr(expr->binary_rhs);
             break;

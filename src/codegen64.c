@@ -1465,6 +1465,9 @@ static bool gen64_expr_is_lvalue(Expr* expression) {
         case EXPR_COND:
             return expression->cxx_conditional_lvalue;
         case EXPR_COMMA:
+            if (expression->cxx_synthesized_defaulted_array_loop) {
+                return false;
+            }
             return rcc_parser_is_cxx_mode() &&
                    gen64_expr_is_lvalue(expression->binary_rhs);
         case EXPR_CALL:
@@ -10158,6 +10161,33 @@ static void gen64_defaulted_array_copy(Module* mod, Expr* expr) {
     emit64_mov_reg_reg(mod, RAX, R11);
 }
 
+static void gen64_defaulted_array_assignment_loop(
+    Module* mod, Expr* expr) {
+    Decl* index = expr ? expr->cxx_defaulted_array_loop_index : NULL;
+    int loop_label;
+    int done_label;
+    if (!index || index->var_offset >= 0 ||
+        expr->cxx_defaulted_array_loop_count <= 0 || !expr->binary_rhs) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<array-assignment>", 0, 0},
+                  "defaulted array assignment loop has no frame index");
+        return;
+    }
+    loop_label = new_label64();
+    done_label = new_label64();
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    emit64_mov_mem_reg(mod, RBP, index->var_offset, RAX);
+    emit64_label(mod, loop_label);
+    emit64_mov_reg_mem(mod, RAX, RBP, index->var_offset);
+    emit64_cmp_reg_imm(mod, RAX, expr->cxx_defaulted_array_loop_count);
+    emit64_jcc_label(mod, CC64_AE, done_label);
+    gen64_expr(mod, expr->binary_rhs);
+    emit64_mov_reg_mem(mod, RAX, RBP, index->var_offset);
+    emit64_add_reg_imm(mod, RAX, 1);
+    emit64_mov_mem_reg(mod, RBP, index->var_offset, RAX);
+    emit64_jmp_label(mod, loop_label);
+    emit64_label(mod, done_label);
+}
+
 static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -12438,6 +12468,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_COMMA:
+            if (expr->cxx_synthesized_defaulted_array_loop) {
+                gen64_defaulted_array_assignment_loop(mod, expr);
+                break;
+            }
             if (type_is_complex(expr->type)) {
                 gen64_expr(mod, expr->binary_lhs);
                 gen64_expr(mod, expr->binary_rhs);

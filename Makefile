@@ -25750,18 +25750,18 @@ test-verified-cxx-defaulted-large-array-assignment: $(RCXX_TARGET)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x86.ro \
 		tests/cxx_defaulted_large_array_assignment.cpp
-	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x86.ro,32768)
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x86.ro,65536)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64.s \
 		tests/cxx_defaulted_large_array_assignment.cpp
-	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64.s,98304)
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64.s,131072)
 	$(CC) -o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64$(EXE_SUFFIX) \
 		$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64.s
 	$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64$(EXE_SUFFIX)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -std=c++20 -S \
 		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2.s \
 		tests/cxx_defaulted_large_array_assignment.cpp
-	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2.s,98304)
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2.s,131072)
 	$(CC) -o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2$(EXE_SUFFIX) \
 		$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2.s
 	$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2$(EXE_SUFFIX)
@@ -25770,7 +25770,7 @@ test-verified-cxx-defaulted-large-array-assignment: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.ro \
 		tests/cxx_defaulted_large_array_assignment.cpp \
 		>$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.log
-	$(call CHECK_COUNT,Verified backend: 2 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.log,1)
+	$(call CHECK_COUNT,Verified backend: 5 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.log,1)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.log,0)
 	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.ro,32768)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
@@ -25778,7 +25778,7 @@ test-verified-cxx-defaulted-large-array-assignment: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.ro \
 		tests/cxx_defaulted_large_array_assignment.cpp \
 		>$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.log
-	$(call CHECK_COUNT,Verified backend: 2 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.log,1)
+	$(call CHECK_COUNT,Verified backend: 5 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.log,1)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.log,0)
 	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.ro,32768)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -O2 -std=c++20 \
@@ -25786,7 +25786,7 @@ test-verified-cxx-defaulted-large-array-assignment: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.ro \
 		tests/cxx_defaulted_large_array_assignment.cpp \
 		>$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.log
-	$(call CHECK_COUNT,Verified backend: 2 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.log,1)
+	$(call CHECK_COUNT,Verified backend: 5 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.log,1)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.log,0)
 	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.ro,32768)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -std=c++20 \
@@ -25794,10 +25794,10 @@ test-verified-cxx-defaulted-large-array-assignment: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.ro \
 		tests/cxx_defaulted_large_array_assignment.cpp \
 		>$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.log
-	$(call CHECK_COUNT,Verified backend: 2 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.log,1)
+	$(call CHECK_COUNT,Verified backend: 5 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.log,1)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.log,0)
 	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.ro,32768)
-	@echo "Large scalar defaulted-array assignment passes legacy and verified backends"
+	@echo "Large defaulted-array assignment loops pass legacy and verified backends"
 
 test-verified-cxx-inherited-assignment: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-inherited-assignment)

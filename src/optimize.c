@@ -5684,6 +5684,10 @@ static void optimize_expr(Expr** expression) {
     int64_t result;
     if (!expression || !*expression) return;
     value = *expression;
+    if (value->cxx_synthesized_defaulted_array_loop) {
+        optimize_expr(&value->binary_rhs);
+        return;
+    }
     switch (value->kind) {
         case EXPR_NOEXCEPT:
             if (value->cxx_noexcept_value_valid) {
@@ -5912,6 +5916,7 @@ static void optimize_expr(Expr** expression) {
             }
             return;
         case EXPR_COMMA:
+            if (value->cxx_synthesized_defaulted_array_loop) return;
             if (integer_literal(value->binary_lhs, &left)) {
                 *expression = value->binary_rhs;
             }
