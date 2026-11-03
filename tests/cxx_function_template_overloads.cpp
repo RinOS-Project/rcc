@@ -1815,6 +1815,30 @@ constexpr int pack_order_constexpr_template_default_value(T value) {
 template<typename T>
 concept PackOrderConstexprDefaultInt = sizeof(T) == sizeof(int);
 
+template<typename... Args>
+constexpr int pack_order_trailing_constraint_pack_probe(Args...) {
+    return sizeof...(Args);
+}
+
+static_assert(pack_order_trailing_constraint_pack_probe(1, 2) == 2);
+
+template<typename T>
+concept PackOrderTrailingConstraint = sizeof(T) >= sizeof(int);
+
+template<typename T>
+constexpr int pack_order_trailing_concept_selection(T)
+    requires PackOrderTrailingConstraint<T> {
+    return 1;
+}
+
+template<typename T>
+constexpr int pack_order_trailing_concept_selection(T)
+    requires (PackOrderTrailingConstraint<T> && sizeof(T) == sizeof(int)) {
+    return 2;
+}
+
+static_assert(pack_order_trailing_concept_selection(1) == 2);
+
 template<typename T>
 constexpr int pack_order_overloaded_constexpr_template_default_value(
     T value) {

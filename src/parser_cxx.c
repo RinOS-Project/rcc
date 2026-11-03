@@ -5908,6 +5908,11 @@ static bool cxx_variable_template_specialization_starts(void) {
     for (candidate = parser.cur; candidate; candidate = candidate->next) {
         Token* token;
         int angle_depth = 0;
+        /* A template-id in a trailing function requires-clause is a
+         * constraint expression, not a variable-template declarator. The
+         * function declarator is complete before this token, so no variable
+         * template specialization can begin later in the declaration. */
+        if (candidate->type == TOK_REQUIRES) return false;
         if (candidate->type == TOK_LBRACE) {
             return false;
         }

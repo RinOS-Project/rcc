@@ -1,5 +1,14 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-11-03, trailing concept-id requires-clause)
+
+- [x] Stop variable-template-specialization lookahead at a trailing
+  `requires` token, so a bare concept-id followed by a function body is not
+  misclassified as a variable-template declarator. Add a regression with a
+  preceding parameter-pack template and constrained overload subsumption;
+  GCC C++20, RCC i686/x86_64 generation and execution, and
+  `test-cxx-function-template-overloads-posix` pass.
+
 ## RCC continuation (2026-11-03, C++20 template-template argument ADL)
 
 - [x] Include the namespace of a class template used as a template-template
