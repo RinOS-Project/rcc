@@ -13724,3 +13724,11 @@ remains a separate open item.
       retaining two-order compare-exchange. test-atomic-builtins passes with
       C++17/C++20 header probes, both target architectures, runtime checks,
       linking, and RIN validation.
+
+## RCC continuation (2026-11-03, C++20 atomic_ref availability and explicit construction)
+
+- [x] Expose std::atomic_ref only in C++20 and mark both its generic and
+      pointer constructors explicit, matching GCC. Add negative GCC/RCC probes
+      for pre-C++20 availability and C++20 copy-initialization. The full
+      test-atomic-builtins gate passes with i686/AMD64 generation, runtime
+      checks, linking, and RIN validation.

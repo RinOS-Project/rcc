@@ -817,6 +817,7 @@ public:
     }
 };
 
+#if __cplusplus >= 202002L
 #define __RCC_ATOMIC_REF_INTEGER_FETCH(T) \
     inline T __rcc_atomic_ref_fetch_add( \
         T* object, T operand, memory_order order) noexcept { \
@@ -935,7 +936,7 @@ public:
     static constexpr size_t required_alignment =
         sizeof(T) & (0u - sizeof(T));
 
-    atomic_ref(T& object) noexcept : object_(object) {}
+    explicit atomic_ref(T& object) noexcept : object_(object) {}
     atomic_ref(const atomic_ref&) noexcept = default;
     atomic_ref& operator=(const atomic_ref&) = delete;
 
@@ -1151,7 +1152,7 @@ public:
         sizeof(T*) == 4u || sizeof(T*) == 8u;
     static constexpr size_t required_alignment = sizeof(T*);
 
-    atomic_ref(T*& object) noexcept : object_(object) {}
+    explicit atomic_ref(T*& object) noexcept : object_(object) {}
     self_type& operator=(const self_type&) = delete;
     bool is_lock_free() const noexcept {
         return __atomic_is_lock_free(sizeof(T*), &object_);
@@ -1268,6 +1269,7 @@ public:
 private:
     T*& object_;
 };
+#endif
 
 typedef atomic<bool> atomic_bool;
 typedef atomic<char> atomic_char;

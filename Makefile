@@ -19220,6 +19220,14 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wai
 		-DRCC_TEST_ATOMIC_FLAG_FREE -fsyntax-only \
 		tests/atomic_flag_cxx17_api.cpp,\
 		$(TEST_OUT)/atomic-feature-macros/gcc-cxx17-free.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++17 \
+		-DRCC_TEST_ATOMIC_REF_CXX17 -fsyntax-only \
+		tests/atomic_ref_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/gcc-cxx17-atomic-ref.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 \
+		-DRCC_TEST_ATOMIC_REF_IMPLICIT_CTOR -fsyntax-only \
+		tests/atomic_ref_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/gcc-cxx20-atomic-ref-implicit.log)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/atomic-feature-macros/cxx17-x86.ro \
 		tests/atomic_feature_macros.cpp
@@ -19235,9 +19243,33 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wai
 		tests/atomic_flag_cxx17_api.cpp,\
 		$(TEST_OUT)/atomic-feature-macros/invalid-free-cxx17-x86.log)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-feature-macros/invalid-free-cxx17-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++17 -DRCC_TEST_ATOMIC_REF_CXX17 -c \
+		-o $(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-cxx17-x86.ro \
+		tests/atomic_ref_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-cxx17-x86.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-cxx17-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -DRCC_TEST_ATOMIC_REF_IMPLICIT_CTOR -c \
+		-o $(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-implicit-x86.ro \
+		tests/atomic_ref_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-implicit-x86.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-implicit-x86.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/atomic-feature-macros/cxx17-x64.ro \
 		tests/atomic_feature_macros.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++17 -DRCC_TEST_ATOMIC_REF_CXX17 -c \
+		-o $(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-cxx17-x64.ro \
+		tests/atomic_ref_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-cxx17-x64.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-cxx17-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -DRCC_TEST_ATOMIC_REF_IMPLICIT_CTOR -c \
+		-o $(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-implicit-x64.ro \
+		tests/atomic_ref_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-implicit-x64.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-feature-macros/invalid-atomic-ref-implicit-x64.ro)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/atomic-feature-macros/cxx20-x86.ro \
 		tests/atomic_feature_macros.cpp
