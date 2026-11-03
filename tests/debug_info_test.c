@@ -2601,7 +2601,8 @@ static void verify_cxx_for_initializer_scope(const char* path,
 
 static void verify_multiple_return_frame_fde(const ObjSection* frame,
                                              const char* function_symbol,
-                                             uint16_t architecture);
+                                             uint16_t architecture,
+                                             size_t expected_epilogues);
 static void verify_saved_callee_register_rules(
     const ObjSection* frame, const char* function_symbol,
     uint16_t architecture);
@@ -2632,7 +2633,7 @@ static void verify_optimized_verified_debug_object(
            locations != NULL);
     verify_multiple_return_frame_fde(
         frame, "tests/verified_backend_debug.c::verified_debug_multi_return",
-        architecture);
+        architecture, 3u);
     verify_saved_callee_register_rules(
         frame, "verified_debug_preserved_registers", architecture);
     assert(find_variable_location(info, strings, locations, "value",
@@ -7730,7 +7731,8 @@ static size_t count_frame_body_restores(const ObjSection* frame,
 
 static void verify_multiple_return_frame_fde(const ObjSection* frame,
                                              const char* function_symbol,
-                                             uint16_t architecture)
+                                             uint16_t architecture,
+                                             size_t expected_epilogues)
 {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint8_t frame_register = architecture == ARCH_X64 ? 6u : 5u;
@@ -7757,10 +7759,11 @@ static void verify_multiple_return_frame_fde(const ObjSection* frame,
         assert(read_u32(frame->data, fde_offset + 4u) == 0u);
         assert(count_epilogue_cfa_restores(
                    frame, instruction_offset, instruction_end,
-                   stack_register, frame_register, pointer_size) == 3u);
+                   stack_register, frame_register, pointer_size) ==
+               expected_epilogues);
         assert(count_frame_body_restores(
                    frame, instruction_offset, instruction_end,
-                   frame_register, pointer_size) == 2u);
+                   frame_register, pointer_size) == expected_epilogues - 1u);
         return;
     }
     assert(0 && "function has no relocated multi-return debug-frame FDE");
@@ -7906,6 +7909,8 @@ static void verify_aligned_debug_object(const char* path,
     } else {
         verify_first_frame_fde(frame, architecture);
     }
+    verify_multiple_return_frame_fde(frame, "debug_aligned_frame",
+                                     architecture, 4u);
     objfile_free(object);
 }
 
@@ -9061,7 +9066,8 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     verify_first_frame_fde(frame, architecture);
     if (strcmp(source_file, "tests/debug_info.c") == 0) {
         verify_multiple_return_frame_fde(
-            frame, "tests/debug_info.c::debug_aggregate_sum", architecture);
+            frame, "tests/debug_info.c::debug_aggregate_sum", architecture,
+            3u);
     }
     assert(info->relocs != NULL && info->size > 16u);
     assert(info->data[4] == 4u && info->data[5] == 0u);
@@ -9371,7 +9377,7 @@ static void verify_verified_debug_object(const char* path,
     verify_first_frame_fde(frame, architecture);
     verify_multiple_return_frame_fde(
         frame, "tests/verified_backend_debug.c::verified_debug_multi_return",
-        architecture);
+        architecture, 3u);
     assert(find_function_die(info, strings, "verified_debug_static",
                              architecture == ARCH_X64 ? 8u : 4u) !=
            UINT64_MAX);

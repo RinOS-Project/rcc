@@ -4104,6 +4104,8 @@ static void emit_function_epilogue32(Module* mod,
     if (frame_base_spill_offset != 0) {
         emit_mov_reg_mem(mod, ESP, EBP, frame_base_spill_offset);
         emit_pop_reg(mod, EBP);
+        module_add_debug_frame_epilogue(mod, code_offset(mod),
+                                        code_offset(mod) + 1u);
     } else {
         emit_leave(mod);
     }

@@ -2515,6 +2515,8 @@ static void gen64_function_epilogue(Module* mod,
         emit64_mov_reg_mem(mod, RSP, RBP,
                            frame_base_spill_offset);
         emit64_pop_reg(mod, RBP);
+        module_add_debug_frame_epilogue(mod, code_offset(mod),
+                                        code_offset(mod) + 1u);
     } else {
         emit64_leave(mod);
     }
