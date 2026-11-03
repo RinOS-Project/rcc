@@ -13646,3 +13646,15 @@ remains a separate open item.
       `requires` probes followed by runtime calls retain fully typed bodies.
       GCC C++20 reference syntax and `test-atomic-builtins` pass; both target
       architectures compile at `-O0` and `-O2`, with RIN validation accepted.
+
+## RCC continuation (2026-11-03, nonvolatile atomic free API parity)
+
+- [x] Add the separate nonvolatile overloads GCC provides for
+      `atomic_is_lock_free`, `atomic_init`, load/store/exchange, weak/strong
+      compare-exchange (including explicit-order forms), and `atomic_flag`
+      test/test-and-set/clear APIs. Keep the volatile overloads and dispatch
+      each overload directly to its matching member function. Extend the live
+      C++20 atomic fixture to call the non-explicit store, exchange, weak
+      compare-exchange, and explicit strong compare-exchange forms. GCC
+      reference syntax and `test-atomic-builtins` pass for i686/AMD64 at
+      `-O0`/`-O2`, with atomic runtime checks and linked RIN validation.

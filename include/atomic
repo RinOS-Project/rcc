@@ -1499,8 +1499,18 @@ typedef atomic<char8_t> atomic_char8_t;
 #endif
 
 template<class T>
+bool atomic_is_lock_free(const atomic<T>* object) noexcept {
+    return object->is_lock_free();
+}
+
+template<class T>
 bool atomic_is_lock_free(const volatile atomic<T>* object) noexcept {
     return object->is_lock_free();
+}
+
+template<class T>
+void atomic_init(atomic<T>* object, T desired) noexcept {
+    object->store(desired, memory_order_relaxed);
 }
 
 template<class T>
@@ -1509,8 +1519,17 @@ void atomic_init(volatile atomic<T>* object, T desired) noexcept {
 }
 
 template<class T>
+T atomic_load(const atomic<T>* object) noexcept {
+    return object->load();
+}
+template<class T>
 T atomic_load(const volatile atomic<T>* object) noexcept {
     return object->load();
+}
+template<class T>
+T atomic_load_explicit(const atomic<T>* object,
+                       memory_order order) noexcept {
+    return object->load(order);
 }
 template<class T>
 T atomic_load_explicit(const volatile atomic<T>* object,
@@ -1519,8 +1538,17 @@ T atomic_load_explicit(const volatile atomic<T>* object,
 }
 
 template<class T>
+void atomic_store(atomic<T>* object, T desired) noexcept {
+    object->store(desired);
+}
+template<class T>
 void atomic_store(volatile atomic<T>* object, T desired) noexcept {
     object->store(desired);
+}
+template<class T>
+void atomic_store_explicit(atomic<T>* object, T desired,
+                           memory_order order) noexcept {
+    object->store(desired, order);
 }
 template<class T>
 void atomic_store_explicit(volatile atomic<T>* object, T desired,
@@ -1529,8 +1557,17 @@ void atomic_store_explicit(volatile atomic<T>* object, T desired,
 }
 
 template<class T>
+T atomic_exchange(atomic<T>* object, T desired) noexcept {
+    return object->exchange(desired);
+}
+template<class T>
 T atomic_exchange(volatile atomic<T>* object, T desired) noexcept {
     return object->exchange(desired);
+}
+template<class T>
+T atomic_exchange_explicit(atomic<T>* object, T desired,
+                           memory_order order) noexcept {
+    return object->exchange(desired, order);
 }
 template<class T>
 T atomic_exchange_explicit(volatile atomic<T>* object, T desired,
@@ -1539,9 +1576,21 @@ T atomic_exchange_explicit(volatile atomic<T>* object, T desired,
 }
 
 template<class T>
+bool atomic_compare_exchange_weak(atomic<T>* object, T* expected,
+                                  T desired) noexcept {
+    return object->compare_exchange_weak(*expected, desired);
+}
+template<class T>
 bool atomic_compare_exchange_weak(volatile atomic<T>* object, T* expected,
                                   T desired) noexcept {
     return object->compare_exchange_weak(*expected, desired);
+}
+template<class T>
+bool atomic_compare_exchange_weak_explicit(
+    atomic<T>* object, T* expected, T desired,
+    memory_order success, memory_order failure) noexcept {
+    return object->compare_exchange_weak(
+        *expected, desired, success, failure);
 }
 template<class T>
 bool atomic_compare_exchange_weak_explicit(
@@ -1551,9 +1600,21 @@ bool atomic_compare_exchange_weak_explicit(
         *expected, desired, success, failure);
 }
 template<class T>
+bool atomic_compare_exchange_strong(atomic<T>* object, T* expected,
+                                    T desired) noexcept {
+    return object->compare_exchange_strong(*expected, desired);
+}
+template<class T>
 bool atomic_compare_exchange_strong(volatile atomic<T>* object, T* expected,
                                     T desired) noexcept {
     return object->compare_exchange_strong(*expected, desired);
+}
+template<class T>
+bool atomic_compare_exchange_strong_explicit(
+    atomic<T>* object, T* expected, T desired,
+    memory_order success, memory_order failure) noexcept {
+    return object->compare_exchange_strong(
+        *expected, desired, success, failure);
 }
 template<class T>
 bool atomic_compare_exchange_strong_explicit(
@@ -1814,22 +1875,43 @@ T* atomic_fetch_sub_explicit(atomic<T*>* object, ptrdiff_t operand,
     return object->fetch_sub(operand, order);
 }
 
+inline bool atomic_flag_test_and_set(atomic_flag* object) noexcept {
+    return object->test_and_set();
+}
 inline bool atomic_flag_test_and_set(volatile atomic_flag* object) noexcept {
     return object->test_and_set();
 }
+inline bool atomic_flag_test(const atomic_flag* object) noexcept {
+    return object->test();
+}
 inline bool atomic_flag_test(const volatile atomic_flag* object) noexcept {
     return object->test();
+}
+inline bool atomic_flag_test_explicit(
+    const atomic_flag* object, memory_order order) noexcept {
+    return object->test(order);
 }
 inline bool atomic_flag_test_explicit(
     const volatile atomic_flag* object, memory_order order) noexcept {
     return object->test(order);
 }
 inline bool atomic_flag_test_and_set_explicit(
+    atomic_flag* object, memory_order order) noexcept {
+    return object->test_and_set(order);
+}
+inline bool atomic_flag_test_and_set_explicit(
     volatile atomic_flag* object, memory_order order) noexcept {
     return object->test_and_set(order);
 }
+inline void atomic_flag_clear(atomic_flag* object) noexcept {
+    object->clear();
+}
 inline void atomic_flag_clear(volatile atomic_flag* object) noexcept {
     object->clear();
+}
+inline void atomic_flag_clear_explicit(
+    atomic_flag* object, memory_order order) noexcept {
+    object->clear(order);
 }
 inline void atomic_flag_clear_explicit(
     volatile atomic_flag* object, memory_order order) noexcept {

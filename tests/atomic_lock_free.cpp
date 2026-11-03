@@ -968,6 +968,21 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (std::atomic_compare_exchange_strong(&zero, &api_expected, 5u) ||
         api_expected != 4u || std::atomic_load(&zero) != 4u)
         return 93u;
+    std::atomic_store(&zero, 1u);
+    if (std::atomic_load(&zero) != 1u ||
+        std::atomic_exchange_explicit(
+            &zero, 2u, std::memory_order_acq_rel) != 1u ||
+        std::atomic_load(&zero) != 2u)
+        return 151u;
+    api_expected = 2u;
+    if (!std::atomic_compare_exchange_weak(&zero, &api_expected, 3u) ||
+        std::atomic_load(&zero) != 3u)
+        return 152u;
+    api_expected = 3u;
+    if (!std::atomic_compare_exchange_strong_explicit(
+            &zero, &api_expected, 4u, std::memory_order_acq_rel,
+            std::memory_order_acquire) || std::atomic_load(&zero) != 4u)
+        return 153u;
     if (std::atomic_fetch_add(&zero, 1u) != 4u ||
         std::atomic_load(&zero) != 5u ||
         std::atomic_fetch_add_explicit(
