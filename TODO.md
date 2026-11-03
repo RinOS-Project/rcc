@@ -3125,6 +3125,14 @@
       for sixteen input pairs; verify three contiguous PC ranges and zero
       verified-backend fallback on i686 and AMD64 through
       `test-debug-info-inline-expression`.
+  - [ ] Keep mutable inline-local locations correct when optimized code ranges
+      are not ordered by source statement. A conditional initializer followed
+      by `local = delta ? local + 5 : initial - 2` and `local += delta * 3`
+      currently emits only one range and evaluates its first value as `-16`
+      for `initial=-9, delta=-4` (the expected initial value is `-9`). Build a
+      control-flow-aware PC mapping and verify initialization, both assignment
+      arms, and the later update across sixteen input pairs on i686/AMD64 with
+      zero verified-backend fallback.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
