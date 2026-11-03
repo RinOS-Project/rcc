@@ -81,6 +81,107 @@ struct AtomicRefOverAlignedThreeByte {
     alignas(32) unsigned char bytes[3];
 };
 
+#if __cplusplus >= 202002L
+template<class Atomic, class Value>
+concept AtomicHasExplicitTemplateWait = requires(Atomic& value, Value old) {
+    value.template wait<>(old);
+};
+
+template<class Atomic>
+concept AtomicHasExplicitTemplateNotify = requires(Atomic& value) {
+    value.template notify_one<>();
+    value.template notify_all<>();
+};
+
+template<class Atomic, class Value>
+concept AtomicHasVolatileWait =
+    requires(volatile Atomic& value, Value old) { value.wait(old); };
+
+template<class Atomic>
+concept AtomicHasVolatileNotify = requires(volatile Atomic& value) {
+    value.notify_one();
+    value.notify_all();
+};
+
+template<class Atomic, class Value>
+concept AtomicHasWait = requires(Atomic& value, Value old) { value.wait(old); };
+
+template<class Atomic>
+concept AtomicHasNotify = requires(Atomic& value) {
+    value.notify_one();
+    value.notify_all();
+};
+
+template<class T>
+concept AtomicHasVolatileFreeWait =
+    requires(volatile std::atomic<T>* value, T old) {
+        std::atomic_wait(value, old);
+    };
+
+template<class T>
+concept AtomicHasVolatileFreeNotify =
+    requires(volatile std::atomic<T>* value) {
+        std::atomic_notify_one(value);
+        std::atomic_notify_all(value);
+    };
+
+template<class Atomic>
+concept AtomicFlagHasVolatileFreeWait =
+    requires(volatile Atomic* value) { std::atomic_flag_wait(value, false); };
+
+template<class Atomic>
+concept AtomicFlagHasVolatileFreeNotify =
+    requires(volatile Atomic* value) {
+        std::atomic_flag_notify_one(value);
+        std::atomic_flag_notify_all(value);
+    };
+
+static_assert(AtomicHasWait<std::atomic<unsigned>, unsigned>);
+static_assert(AtomicHasNotify<std::atomic<unsigned>>);
+static_assert(AtomicHasWait<std::atomic<AtomicRefThreeByte>,
+                            AtomicRefThreeByte>);
+static_assert(AtomicHasNotify<std::atomic<AtomicRefThreeByte>>);
+static_assert(AtomicHasWait<std::atomic<int*>, int*>);
+static_assert(AtomicHasNotify<std::atomic<int*>>);
+static_assert(AtomicHasWait<std::atomic_ref<unsigned>, unsigned>);
+static_assert(AtomicHasNotify<std::atomic_ref<unsigned>>);
+static_assert(AtomicHasWait<std::atomic_ref<int*>, int*>);
+static_assert(AtomicHasNotify<std::atomic_ref<int*>>);
+static_assert(requires(std::atomic_flag& flag) {
+    flag.wait(false);
+    flag.notify_one();
+    flag.notify_all();
+});
+
+static_assert(!AtomicHasExplicitTemplateWait<std::atomic<unsigned>, unsigned>);
+static_assert(!AtomicHasExplicitTemplateNotify<std::atomic<unsigned>>);
+static_assert(!AtomicHasExplicitTemplateWait<std::atomic<int*>, int*>);
+static_assert(!AtomicHasExplicitTemplateNotify<std::atomic<int*>>);
+static_assert(!AtomicHasExplicitTemplateWait<std::atomic_ref<unsigned>,
+                                             unsigned>);
+static_assert(!AtomicHasExplicitTemplateNotify<std::atomic_ref<unsigned>>);
+static_assert(!AtomicHasExplicitTemplateWait<std::atomic_ref<int*>, int*>);
+static_assert(!AtomicHasExplicitTemplateNotify<std::atomic_ref<int*>>);
+static_assert(!AtomicHasExplicitTemplateWait<std::atomic_flag, bool>);
+static_assert(!AtomicHasExplicitTemplateNotify<std::atomic_flag>);
+
+static_assert(!AtomicHasVolatileWait<std::atomic<unsigned>, unsigned>);
+static_assert(!AtomicHasVolatileNotify<std::atomic<unsigned>>);
+static_assert(!AtomicHasVolatileWait<std::atomic<AtomicRefThreeByte>,
+                                     AtomicRefThreeByte>);
+static_assert(!AtomicHasVolatileNotify<std::atomic<AtomicRefThreeByte>>);
+static_assert(!AtomicHasVolatileWait<std::atomic<int*>, int*>);
+static_assert(!AtomicHasVolatileNotify<std::atomic<int*>>);
+static_assert(!AtomicHasVolatileWait<std::atomic_flag, bool>);
+static_assert(!AtomicHasVolatileNotify<std::atomic_flag>);
+static_assert(!AtomicHasVolatileFreeWait<unsigned>);
+static_assert(!AtomicHasVolatileFreeNotify<unsigned>);
+static_assert(!AtomicHasVolatileFreeWait<AtomicRefThreeByte>);
+static_assert(!AtomicHasVolatileFreeNotify<AtomicRefThreeByte>);
+static_assert(!AtomicFlagHasVolatileFreeWait<std::atomic_flag>);
+static_assert(!AtomicFlagHasVolatileFreeNotify<std::atomic_flag>);
+#endif
+
 static_assert(sizeof(AtomicRefThreeByte) == 3u);
 static_assert(sizeof(AtomicRefTwelveByte) == 12u);
 static_assert(sizeof(AtomicRefOverAlignedThreeByte) == 32u);

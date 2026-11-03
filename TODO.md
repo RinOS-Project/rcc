@@ -13616,3 +13616,13 @@ remains a separate open item.
       x64 execution at both optimization levels, and native x86/x64 assembly
       checks. Confirm GCC's process-exit order with the matching legacy fixture
       and update its expected destruction sequence from `213` to `321`.
+
+## RCC continuation (2026-11-03, C++20 atomic wait API declarations)
+
+- [x] Match the C++20 `wait`/`notify` declarations for `atomic_flag`,
+      `atomic<T>`, and `atomic_ref<T>` to GCC: these member APIs are
+      non-template and have no volatile-qualified overloads. Remove the
+      corresponding extra volatile overloads from the free `atomic_wait` and
+      `atomic_flag_wait` wrappers. Compile-time positive/negative availability
+      concepts in `atomic_lock_free.cpp` agree with GCC; `test-atomic-wait` and
+      `test-atomic-builtins` pass, including i686/AMD64 and `-O0`/`-O2` builds.

@@ -309,7 +309,6 @@ public:
         return __atomic_load_n(&value_, memory_order_seq_cst) != 0u;
     }
 #if __cplusplus >= 202002L
-    template<class U = bool>
     void wait(bool old,
               memory_order order = memory_order_seq_cst) const noexcept {
         for (;;) {
@@ -320,31 +319,10 @@ public:
             __rin_atomic_wait_park_v1(&value_, sizeof(value_), generation);
         }
     }
-    template<class U = bool>
-    void wait(bool old,
-              memory_order order = memory_order_seq_cst) const volatile noexcept {
-        for (;;) {
-            if ((__atomic_load_n(&value_, order) != 0u) != old) return;
-            const unsigned long long generation =
-                __rin_atomic_wait_prepare_v1();
-            if ((__atomic_load_n(&value_, order) != 0u) != old) continue;
-            __rin_atomic_wait_park_v1(&value_, sizeof(value_), generation);
-        }
-    }
-    template<class U = bool>
     void notify_one() noexcept {
         __rin_atomic_notify_v1(&value_, sizeof(value_), 0);
     }
-    template<class U = bool>
-    void notify_one() volatile noexcept {
-        __rin_atomic_notify_v1(&value_, sizeof(value_), 0);
-    }
-    template<class U = bool>
     void notify_all() noexcept {
-        __rin_atomic_notify_v1(&value_, sizeof(value_), 1);
-    }
-    template<class U = bool>
-    void notify_all() volatile noexcept {
         __rin_atomic_notify_v1(&value_, sizeof(value_), 1);
     }
 #endif
@@ -423,7 +401,6 @@ public:
     }
 
 #if __cplusplus >= 202002L
-    template<class U = T>
     void wait(T old,
               memory_order order = memory_order_seq_cst) const noexcept {
         for (;;) {
@@ -436,39 +413,10 @@ public:
             __rin_atomic_wait_park_v1(&value_, sizeof(T), generation);
         }
     }
-    template<class U = T>
-    void wait(T old,
-              memory_order order = memory_order_seq_cst) const volatile noexcept
-        requires (sizeof(U) == 1u || sizeof(U) == 2u ||
-                  sizeof(U) == 4u || sizeof(U) == 8u) {
-        for (;;) {
-            const T observed = this->load(order);
-            if (!__rcc_atomic_wait_value_equal_v1(observed, old)) return;
-            const unsigned long long generation =
-                __rin_atomic_wait_prepare_v1();
-            const T rechecked = this->load(order);
-            if (!__rcc_atomic_wait_value_equal_v1(rechecked, old)) continue;
-            __rin_atomic_wait_park_v1(&value_, sizeof(T), generation);
-        }
-    }
-    template<class U = T>
     void notify_one() noexcept {
         __rin_atomic_notify_v1(&value_, sizeof(T), 0);
     }
-    template<class U = T>
-    void notify_one() volatile noexcept
-        requires (sizeof(U) == 1u || sizeof(U) == 2u ||
-                  sizeof(U) == 4u || sizeof(U) == 8u) {
-        __rin_atomic_notify_v1(&value_, sizeof(T), 0);
-    }
-    template<class U = T>
     void notify_all() noexcept {
-        __rin_atomic_notify_v1(&value_, sizeof(T), 1);
-    }
-    template<class U = T>
-    void notify_all() volatile noexcept
-        requires (sizeof(U) == 1u || sizeof(U) == 2u ||
-                  sizeof(U) == 4u || sizeof(U) == 8u) {
         __rin_atomic_notify_v1(&value_, sizeof(T), 1);
     }
 #endif
@@ -1142,7 +1090,6 @@ public:
         return result;
     }
 #if __cplusplus >= 202002L
-    template<class U = T>
     void wait(T old,
               memory_order order = memory_order_seq_cst) const noexcept {
         for (;;) {
@@ -1155,11 +1102,9 @@ public:
             __rin_atomic_wait_park_v1(&object_, sizeof(T), generation);
         }
     }
-    template<class U = T>
     void notify_one() const noexcept {
         __rin_atomic_notify_v1(&object_, sizeof(T), 0);
     }
-    template<class U = T>
     void notify_all() const noexcept {
         __rin_atomic_notify_v1(&object_, sizeof(T), 1);
     }
@@ -1412,7 +1357,6 @@ public:
         return result;
     }
 #if __cplusplus >= 202002L
-    template<class U = T>
     void wait(T* old,
               memory_order order = memory_order_seq_cst) const noexcept {
         for (;;) {
@@ -1425,11 +1369,9 @@ public:
             __rin_atomic_wait_park_v1(&object_, sizeof(T*), generation);
         }
     }
-    template<class U = T>
     void notify_one() const noexcept {
         __rin_atomic_notify_v1(&object_, sizeof(T*), 0);
     }
-    template<class U = T>
     void notify_all() const noexcept {
         __rin_atomic_notify_v1(&object_, sizeof(T*), 1);
     }
@@ -1715,17 +1657,8 @@ inline void atomic_flag_clear_explicit(
 
 #if __cplusplus >= 202002L
 template<class T>
-inline void atomic_wait(const volatile atomic<T>* object, T old) noexcept {
-    object->wait(old);
-}
-template<class T>
 inline void atomic_wait(const atomic<T>* object, T old) noexcept {
     object->wait(old);
-}
-template<class T>
-inline void atomic_wait_explicit(const volatile atomic<T>* object, T old,
-                                 memory_order order) noexcept {
-    object->wait(old, order);
 }
 template<class T>
 inline void atomic_wait_explicit(const atomic<T>* object, T old,
@@ -1733,45 +1666,23 @@ inline void atomic_wait_explicit(const atomic<T>* object, T old,
     object->wait(old, order);
 }
 template<class T>
-inline void atomic_notify_one(volatile atomic<T>* object) noexcept {
-    object->notify_one();
-}
-template<class T>
 inline void atomic_notify_one(atomic<T>* object) noexcept {
     object->notify_one();
-}
-template<class T>
-inline void atomic_notify_all(volatile atomic<T>* object) noexcept {
-    object->notify_all();
 }
 template<class T>
 inline void atomic_notify_all(atomic<T>* object) noexcept {
     object->notify_all();
 }
 
-inline void atomic_flag_wait(const volatile atomic_flag* object,
-                             bool old) noexcept {
+inline void atomic_flag_wait(atomic_flag* object, bool old) noexcept {
     object->wait(old);
 }
-inline void atomic_flag_wait(const atomic_flag* object, bool old) noexcept {
-    object->wait(old);
-}
-inline void atomic_flag_wait_explicit(const volatile atomic_flag* object,
-                                      bool old, memory_order order) noexcept {
-    object->wait(old, order);
-}
-inline void atomic_flag_wait_explicit(const atomic_flag* object, bool old,
+inline void atomic_flag_wait_explicit(atomic_flag* object, bool old,
                                       memory_order order) noexcept {
     object->wait(old, order);
 }
-inline void atomic_flag_notify_one(volatile atomic_flag* object) noexcept {
-    object->notify_one();
-}
 inline void atomic_flag_notify_one(atomic_flag* object) noexcept {
     object->notify_one();
-}
-inline void atomic_flag_notify_all(volatile atomic_flag* object) noexcept {
-    object->notify_all();
 }
 inline void atomic_flag_notify_all(atomic_flag* object) noexcept {
     object->notify_all();
