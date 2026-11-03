@@ -23927,7 +23927,29 @@ static Decl* sema_select_cxx_overload_candidates(
                 bool candidate_is_template =
                     candidate->func_is_template_instance;
                 bool best_is_template = best->func_is_template_instance;
-                if (best_is_template && !candidate_is_template) {
+                bool constraints_comparable = false;
+                int constraint_relation =
+                    rcc_parser_cxx_member_constraint_relation(
+                        candidate, best, &constraints_comparable);
+                if (constraints_comparable && constraint_relation > 0) {
+                    best = candidate;
+                    if (argument_count > 0) {
+                        memcpy(best_ranks, candidate_ranks,
+                               sizeof(*best_ranks) *
+                                   (size_t)argument_count);
+                        memcpy(best_targets, candidate_targets,
+                               sizeof(*best_targets) *
+                                   (size_t)argument_count);
+                        memcpy(best_methods, candidate_methods,
+                               sizeof(*best_methods) *
+                                   (size_t)argument_count);
+                    }
+                    ambiguous = false;
+                } else if (constraints_comparable &&
+                           constraint_relation < 0) {
+                    /* The selected declaration has the stronger member
+                     * constraint, so keep it for this equal conversion. */
+                } else if (best_is_template && !candidate_is_template) {
                     best = candidate;
                     if (argument_count > 0) {
                         memcpy(best_ranks, candidate_ranks,
@@ -24875,12 +24897,31 @@ static TypeMethod* sema_select_cxx_member_method(
                     }
                 }
                 if (same_sequence &&
-                    viable_candidates[other].method->function_decl
-                            ->func_is_template_instance == false &&
-                    viable_candidates[index].method->function_decl
-                            ->func_is_template_instance) {
-                    dominated = true;
-                    break;
+                    viable_candidates[other].method->function_decl &&
+                    viable_candidates[index].method->function_decl) {
+                    Decl* other_decl = viable_candidates[other]
+                        .method->function_decl;
+                    Decl* candidate_decl = viable_candidates[index]
+                        .method->function_decl;
+                    bool constraints_comparable = false;
+                    int constraint_relation =
+                        rcc_parser_cxx_member_constraint_relation(
+                            other_decl, candidate_decl,
+                            &constraints_comparable);
+                    if (constraints_comparable &&
+                        constraint_relation > 0) {
+                        dominated = true;
+                        break;
+                    }
+                    if (constraints_comparable &&
+                        constraint_relation < 0) {
+                        continue;
+                    }
+                    if (!other_decl->func_is_template_instance &&
+                        candidate_decl->func_is_template_instance) {
+                        dominated = true;
+                        break;
+                    }
                 }
             }
         }

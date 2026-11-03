@@ -513,6 +513,7 @@ struct CxxMethod {
     /* Constraint declared on a non-template member of a class template.
      * Class-template substitution resolves it before overload selection. */
     Expr* constraint;
+    CxxTemplate* constraint_context;
 };
 
 /* C++ virtual dispatch uses the source name, parameter types, and cv
@@ -536,6 +537,8 @@ bool rcc_parser_cxx_resolve_dependent_static_integer_members(
 bool rcc_parser_cxx_template_constraint_satisfied(
     CxxTemplate* tmpl, Type** arguments, const int64_t* values,
     const bool* value_present, SourceLoc loc);
+int rcc_parser_cxx_member_constraint_relation(
+    const Decl* left, const Decl* right, bool* comparable);
 bool rcc_parser_cxx_template_template_argument_matches(
     const TemplateParam* parameter, const CxxTemplate* actual);
 Type* rcc_cxx_template_substitute_type(

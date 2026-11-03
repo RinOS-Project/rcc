@@ -15935,6 +15935,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
     method->constructor_info = NULL;
     method->vtable_index = -1;
     method->constraint = NULL;
+    method->constraint_context = NULL;
 
     return method;
 }

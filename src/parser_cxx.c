@@ -13109,6 +13109,9 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_constructor = is_constructor;
         method->is_destructor = is_destructor;
         method->constraint = method_constraint;
+        method->constraint_context = active_template &&
+                active_template->kind == TMPL_CLASS
+            ? active_template : NULL;
         if ((is_const || is_volatile ||
              ref_qualifier != CXX_REF_QUAL_NONE) && is_friend) {
             rcc_error(loc,
@@ -23237,6 +23240,8 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->constraint = cxx_template_clone_expr_with_values(
         tmpl, method->constraint, arguments, argument_count,
         value_args, value_present);
+    copy->decl->func_cxx_constraint = method->constraint;
+    copy->decl->func_cxx_constraint_context = method->constraint_context;
     copy->decl->func_cxx_constraint_unsatisfied = false;
     if (method->constraint && tmpl && tmpl->kind == TMPL_CLASS) {
         CxxTemplate constraint_template = *tmpl;
@@ -40116,6 +40121,29 @@ static int cxx_template_constraint_relation(
         &right_forms.dnf, &left_forms.cnf);
     if (left_subsumes_right == right_subsumes_left) return 0;
     return left_subsumes_right ? 1 : -1;
+}
+
+int rcc_parser_cxx_member_constraint_relation(
+    const Decl* left, const Decl* right, bool* comparable) {
+    CxxTemplate left_constraint;
+    CxxTemplate right_constraint;
+    if (comparable) *comparable = false;
+    if (!left || !right || !left->func_method_owner ||
+        left->func_method_owner != right->func_method_owner ||
+        left->func_cxx_constraint_context !=
+            right->func_cxx_constraint_context) {
+        return 0;
+    }
+    memset(&left_constraint, 0, sizeof(left_constraint));
+    memset(&right_constraint, 0, sizeof(right_constraint));
+    left_constraint.constraint = left->func_cxx_constraint;
+    left_constraint.constraint_context =
+        left->func_cxx_constraint_context;
+    right_constraint.constraint = right->func_cxx_constraint;
+    right_constraint.constraint_context =
+        right->func_cxx_constraint_context;
+    return cxx_template_constraint_relation(
+        &left_constraint, &right_constraint, comparable);
 }
 
 /* Function-template constraints are ordered only after the function

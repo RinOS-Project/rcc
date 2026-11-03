@@ -1616,6 +1616,8 @@ struct Decl {
             bool func_is_cxx_constructor;
             bool func_is_cxx_destructor;
             bool func_cxx_constraint_unsatisfied;
+            Expr* func_cxx_constraint;
+            struct CxxTemplate* func_cxx_constraint_context;
             bool func_is_constexpr;
             bool func_is_consteval;
             bool func_is_noreturn;

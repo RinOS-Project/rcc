@@ -13572,3 +13572,13 @@ remains a separate open item.
       overloads and constructors on i686/AMD64, including AMD64 host execution,
       in `test-cxx-constraints`; verify `std::atomic<T>` default-construction
       constraints and the surrounding atomic suite in `test-atomic-builtins`.
+
+## RCC continuation (2026-11-03, class-template member constraint ordering)
+
+- [x] Apply normalized constraint subsumption when class-template non-template
+      member candidates have indistinguishable conversion sequences, for both
+      static and non-static calls, including constrained-vs-unconstrained
+      overloads. Verify concept conjunctions, nested requirements, and size
+      constraints against GCC with host execution in
+      `test-cxx-constraints`; `test-cxx-named-concepts` and
+      `test-atomic-builtins` also pass.
