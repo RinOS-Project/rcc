@@ -9937,8 +9937,11 @@ remains a separate open item.
       locations and evaluates emitted expressions over signed-safe boundary
       operands in legacy and verified-backend objects. Focused and full
       native-Windows debug-info test gates pass.
-- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
-      multi-piece locations remain open.
+- [x] Nonconstant i686 64-bit division/remainder locations are covered for
+      signed and unsigned variable operands, including frame-backed, global,
+      volatile, and atomic storage forms. `test-debug-info-inline-expression`
+      evaluates the emitted legacy and verified-backend DWARF expressions.
+- [ ] Broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit constant bitwise DWARF)
 
@@ -9948,8 +9951,11 @@ remains a separate open item.
       masks, and eight signed boundary patterns in legacy and verified-backend
       objects. The focused inline-expression and full native-Windows
       `test-debug-info` gates pass.
-- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
-      multi-piece locations remain open.
+- [x] Nonconstant i686 64-bit division/remainder locations are covered for
+      signed and unsigned variable operands, including frame-backed, global,
+      volatile, and atomic storage forms. `test-debug-info-inline-expression`
+      evaluates the emitted legacy and verified-backend DWARF expressions.
+- [ ] Broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit constant inline DWARF)
 
@@ -9960,8 +9966,11 @@ remains a separate open item.
       subtraction in legacy and verified-backend objects. The focused
       `test-debug-info-inline-expression` and full native-Windows
       `test-debug-info` gates pass.
-- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
-      multi-piece locations remain open.
+- [x] Nonconstant i686 64-bit division/remainder locations are covered for
+      signed and unsigned variable operands, including frame-backed, global,
+      volatile, and atomic storage forms. `test-debug-info-inline-expression`
+      evaluates the emitted legacy and verified-backend DWARF expressions.
+- [ ] Broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit unary inline DWARF)
 
@@ -9971,8 +9980,11 @@ remains a separate open item.
       patterns; exclude `LLONG_MIN` from negation inputs because its signed
       negation is undefined. Focused inline-expression and full native-Windows
       `test-debug-info` gates pass for legacy and verified-backend output.
-- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
-      multi-piece locations remain open.
+- [x] Nonconstant i686 64-bit division/remainder locations are covered for
+      signed and unsigned variable operands, including frame-backed, global,
+      volatile, and atomic storage forms. `test-debug-info-inline-expression`
+      evaluates the emitted legacy and verified-backend DWARF expressions.
+- [ ] Broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit constant multiplication DWARF)
 
@@ -9982,8 +9994,11 @@ remains a separate open item.
       and evaluate eight signed inputs whose products remain representable.
       Focused inline-expression and full native-Windows `test-debug-info`
       gates pass for legacy and verified-backend objects.
-- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
-      multi-piece locations remain open.
+- [x] Nonconstant i686 64-bit division/remainder locations are covered for
+      signed and unsigned variable operands, including frame-backed, global,
+      volatile, and atomic storage forms. `test-debug-info-inline-expression`
+      evaluates the emitted legacy and verified-backend DWARF expressions.
+- [ ] Broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-22, i686 unsigned 64-bit constant shift DWARF)
 
@@ -9993,8 +10008,11 @@ remains a separate open item.
       upper-word `>> 33` path against eight boundary bit patterns in legacy
       and verified-backend DWARF. Focused inline-expression and full
       native-Windows `test-debug-info` gates pass.
-- [ ] Nonconstant i686 64-bit division/remainder and broader
-      optimized multi-piece locations remain open.
+- [x] Nonconstant i686 64-bit division/remainder locations are covered for
+      signed and unsigned variable operands, including frame-backed, global,
+      volatile, and atomic storage forms. `test-debug-info-inline-expression`
+      evaluates the emitted legacy and verified-backend DWARF expressions.
+- [ ] Broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit constant shift DWARF)
 
@@ -10004,8 +10022,11 @@ remains a separate open item.
       negative/positive `>> 33` values, including exact `DW_OP_shra` sign
       propagation, in legacy and verified-backend DWARF. Focused and full
       native-Windows `test-debug-info` gates pass.
-- [ ] Nonconstant i686 64-bit division/remainder and broader
-      optimized multi-piece locations remain open.
+- [x] Nonconstant i686 64-bit division/remainder locations are covered for
+      signed and unsigned variable operands, including frame-backed, global,
+      volatile, and atomic storage forms. `test-debug-info-inline-expression`
+      evaluates the emitted legacy and verified-backend DWARF expressions.
+- [ ] Broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-22, i686 64-bit variable shift DWARF)
 
@@ -10019,8 +10040,8 @@ remains a separate open item.
       overflow are excluded. Focused inline-expression and full
       native-Windows `test-debug-info` gates pass for legacy and verified
       backends.
-- [ ] Other count types/locations, nonconstant i686 64-bit division/remainder,
-      and broader optimized multi-piece locations remain open.
+- [ ] Other count types/locations and broader optimized multi-piece locations
+      remain open.
 
 ## RCC continuation (2026-10-22, i686 64-bit wide shift-count DWARF)
 
