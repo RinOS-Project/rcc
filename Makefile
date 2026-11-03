@@ -1067,6 +1067,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-empty-base \
 	test-cxx-no-unique-address \
 	test-cxx-multiple-inheritance-virtual \
+	test-cxx-primary-vtable-base-layout \
 	test-cxx-secondary-virtual-override \
 	test-cxx-virtual-base \
 	test-cxx-shared-virtual-base \

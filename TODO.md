@@ -13901,3 +13901,10 @@ remains a separate open item.
       source types, execute the viable converted assignment, and verify the
       deleted exact-match diagnostic plus absent objects on i686/AMD64 in
       `test-atomic-private-access`.
+
+## RCC continuation (2026-11-03, primary vtable layout regression gate)
+
+- [x] Add `test-cxx-primary-vtable-base-layout` to `CXX_REGRESSION_TARGETS` so
+      both `test-cxx` and production `test-ci` execute the primary polymorphic
+      base placement regression. Verify aggregate target membership and run the
+      focused regression on native Windows.
