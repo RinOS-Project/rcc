@@ -776,6 +776,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-structural-computed-pointer-nttp
 .PHONY: test-verified-volatile
 .PHONY: test-verified-cxx-temporary-cleanup
+.PHONY: test-verified-cxx-inherited-assignment
 .PHONY: test-verified-cxx-automatic-array-cleanup
 .PHONY: test-verified-cxx-virtual-base-value
 .PHONY: test-verified-cxx-static-local-scalar
@@ -25711,6 +25712,46 @@ test-verified-backend: test-verified-cxx-static-local-aggregate
 	$(TEST_OUT)/verified-backend/verify-x64 --tls-object \
 		$(TEST_OUT)/verified-backend/tls-cxx-x64.ro x64
 	@echo "Verified backend production object and fallback tests completed"
+
+test-verified-backend: test-verified-cxx-inherited-assignment
+
+test-verified-cxx-inherited-assignment: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-inherited-assignment)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+		tests/cxx_verified_inherited_assignment.cpp
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x86.ro \
+		tests/cxx_verified_inherited_assignment.cpp \
+		>$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x86.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x64.ro \
+		tests/cxx_verified_inherited_assignment.cpp \
+		>$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x64.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x64.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -O2 -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x86-o2.ro \
+		tests/cxx_verified_inherited_assignment.cpp \
+		>$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x86-o2.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x64-o2.ro \
+		tests/cxx_verified_inherited_assignment.cpp \
+		>$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-inherited-assignment/inherited-x64-o2.log,0)
+	@echo "Verified inherited defaulted assignment lowering completed"
 
 test-verified-switch-nested: $(RCC_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-switch-nested)

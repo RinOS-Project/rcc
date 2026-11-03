@@ -13820,6 +13820,11 @@ remains a separate open item.
       type, rejection of equal-rank ambiguous candidates, and non-const versus
       const lvalue-reference ranking. GCC C++20, RCC i686/AMD64 generation, and
       normal/`-O2` x64 execution pass in `test-atomic-private-access`.
+- [x] Lower a defaulted inherited copy assignment through transitive
+      nonvirtual bases in the verified typed-SSA backend. The focused fixture
+      emits one function with zero fallback for i686/AMD64 at `-O0` and `-O2`
+      in `test-verified-cxx-inherited-assignment`, included by
+      `test-verified-backend` and production `test-ci`.
 - [ ] Lower large fixed-bound arrays without per-element AST/code expansion.
 - [ ] Complete remaining inherited assignment overload viability and related
       type-trait coverage.
