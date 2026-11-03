@@ -6874,7 +6874,7 @@ static void verify_cxx_inline_mutated_local_location(
                                    ? architecture == ARCH_X86 ? 11u : 12u
                                    : 6u
                : signed_wide ? 4u : 3u)
-        : 4u;
+        : 5u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -7067,7 +7067,9 @@ static void verify_cxx_inline_mutated_local_location(
                     assert(actual == expected);
                 }
             } else {
-                static const int64_t expected_values[] = {9, 16, 17, 34};
+                static const int64_t expected_values[] = {
+                    9, 16, 13, 14, 28
+                };
                 assert(evaluate_inline_mutated_local_expression(
                            locations->data, expression_end,
                            expression_start, 9) == expected_values[entry]);

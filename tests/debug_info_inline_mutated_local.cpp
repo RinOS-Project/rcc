@@ -2,6 +2,7 @@ static inline int debug_inline_mutated_local(int initial_value)
 {
     int evolving = initial_value;
     evolving += 7;
+    evolving = evolving - 3;
     ++evolving;
     evolving *= 2;
     return evolving + 5;

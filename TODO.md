@@ -3102,6 +3102,12 @@
       ranges in i686/x64 verified C++20 objects. Both targets emit sixteen
       functions with zero fallback; focused `test-debug-info-inline-expression`
       and full `test-debug-info` pass.
+  - [x] Preserve mutable inline-local locations across simple reassignment
+      (`local = local - constant`) as well as compound assignment and increment.
+      Verify the initial value and all four post-statement intervals are
+      contiguous and evaluate correctly in i686/AMD64 verified C++20
+      `-g -O1` objects; `test-debug-info-inline-expression` passes with zero
+      fallback on both targets.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
