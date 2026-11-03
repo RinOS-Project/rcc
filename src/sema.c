@@ -7404,7 +7404,9 @@ static bool sema_constexpr_scalar_convert(
             : (input->type && input->type->is_unsigned
                 ? (double)sema_constexpr_integer_bits(input)
                 : (double)sema_constexpr_integer_signed(input));
-        if (!isfinite(numeric)) return false;
+        if (!isfinite(numeric) &&
+            !(input->is_floating &&
+              !isfinite(input->floating_value))) return false;
         output->type = type;
         output->is_floating = true;
         output->floating_value = type->kind == TYPE_FLOAT
@@ -7416,10 +7418,13 @@ static bool sema_constexpr_scalar_convert(
         output->is_member_pointer = false;
         output->member_pointer_field = NULL;
         output->member_pointer_method = NULL;
-        if (!isfinite(output->floating_value) ||
-            (type->kind == TYPE_FLOAT &&
-             (output->floating_value > FLT_MAX ||
-              output->floating_value < -FLT_MAX))) return false;
+        if (!isfinite(output->floating_value)) {
+            return input->is_floating &&
+                   !isfinite(input->floating_value);
+        }
+        if (type->kind == TYPE_FLOAT &&
+            (output->floating_value > FLT_MAX ||
+             output->floating_value < -FLT_MAX)) return false;
         return true;
     }
     if (input->is_floating) {
@@ -7625,7 +7630,7 @@ static bool sema_constexpr_load_scalar_bytes(
         memcpy(&floating, storage, sizeof(floating));
         value->floating_value = floating;
         value->is_floating = true;
-        return isfinite(value->floating_value);
+        return true;
     }
     if (type->kind == TYPE_DOUBLE) {
         if (sizeof(value->floating_value) != (size_t)type->size) {
@@ -7634,7 +7639,7 @@ static bool sema_constexpr_load_scalar_bytes(
         memcpy(&value->floating_value, storage,
                sizeof(value->floating_value));
         value->is_floating = true;
-        return isfinite(value->floating_value);
+        return true;
     }
     if (type->kind == TYPE_PTR) {
         SemaConstexprPointerSlot* slot =
@@ -12635,7 +12640,7 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                 ? expression->type : type_double;
             value->floating_value = expression->float_val;
             value->is_floating = true;
-            return isfinite(value->floating_value);
+            return true;
         case EXPR_IDENT:
             binding_index = sema_constexpr_binding_index(
                 expression, bindings, binding_count);
@@ -13764,8 +13769,7 @@ bool rcc_sema_eval_constexpr_floating_constant(Expr* expression,
         !evaluated.is_floating || evaluated.is_pointer ||
         !evaluated.type ||
         (evaluated.type->kind != TYPE_FLOAT &&
-         evaluated.type->kind != TYPE_DOUBLE) ||
-        !isfinite(evaluated.floating_value)) {
+         evaluated.type->kind != TYPE_DOUBLE)) {
         return false;
     }
     *value = evaluated.floating_value;
@@ -36436,18 +36440,22 @@ static bool sema_cxx_list_narrowing_conversion(Type* destination,
     if (type_is_floating(source) && type_is_floating(target) &&
         sema_cxx_floating_rank(target) < sema_cxx_floating_rank(source)) {
         double value;
+        double converted;
         Type* constant_type = NULL;
         if (!rcc_sema_eval_constexpr_floating_constant(
                 initializer, &value, &constant_type)) {
             return true;
         }
         if (target->kind == TYPE_FLOAT) {
-            float converted = (float)value;
-            return isfinite(value) && !isfinite(converted);
+            converted = (double)(float)value;
+        } else {
+            /* RinOS long double is binary64, so conversion to double
+             * preserves every value represented by that source type. */
+            converted = value;
         }
-        /* RinOS long double is binary64, so conversion to double preserves
-         * every value represented by that source type. */
-        return false;
+        /* CWG 2864 permits a constant conversion when finite values do not
+         * overflow, and also when both the source and result are non-finite. */
+        return isfinite(value) ? !isfinite(converted) : isfinite(converted);
     }
     return false;
 }

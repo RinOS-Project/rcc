@@ -66,6 +66,8 @@ int main() {
     float exact_integer{16777216};
     double exact_wide_integer{9007199254740992ULL};
     double exact_ull_boundary{18446744073709549568ULL};
+    constexpr double exact_nonfinite_nan = __builtin_nan("");
+    float exact_nonfinite_nan_float{exact_nonfinite_nan};
     unsigned char exact_enum_byte{list_narrowing_byte_max};
     float exact_enum_float{list_narrowing_exact_float};
     float exact_unsigned_enum_float{
@@ -93,6 +95,7 @@ int main() {
     if (exact_integer != 16777216.0f) return 5;
     if (exact_wide_integer != 9007199254740992.0) return 6;
     if (exact_ull_boundary != 18446744073709549568.0) return 15;
+    if (!__builtin_isnan(exact_nonfinite_nan_float)) return 21;
     if (exact_enum_byte != 255u) return 10;
     if (exact_enum_float != 16777216.0f) return 11;
     if (exact_unsigned_enum_float != 4026531840.0f) return 12;

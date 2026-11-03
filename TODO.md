@@ -139,6 +139,11 @@
         in both C++20 and C++23, so those are checked against the adopted rule;
         RCC i686/AMD64 generation, AMD64 execution, and verified objects with
         zero fallback pass.
+  - [x] Apply CWG 2864's constant-conversion rule when both the source and
+        result are non-finite. GCC C++20 accepts the NaN case and rejects the
+        infinity case; the focused RCC regression accepts and executes both on
+        AMD64, emits i686/AMD64 legacy output, and reports zero verified-backend
+        fallback in `test-cxx-list-narrowing`.
 
 ## RCC continuation (2026-11-01, reference list initialization)
 

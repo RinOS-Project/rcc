@@ -691,7 +691,8 @@ endif
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer test-cxx-list-narrowing \
-	test-cxx-list-narrowing-bitfield-dr
+	test-cxx-list-narrowing-bitfield-dr \
+	test-cxx-list-narrowing-nonfinite-dr
 .PHONY: test-cxx-utf8-literals test-cxx-wide-literals
 .PHONY: test-c-wide-literals test-wide-literal-rin-format \
 	test-c-numeric-escape-ranges test-cxx-numeric-escape-ranges
@@ -3045,7 +3046,8 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
 
-test-cxx-list-narrowing: $(RCXX_TARGET) test-cxx-list-narrowing-bitfield-dr
+test-cxx-list-narrowing: $(RCXX_TARGET) test-cxx-list-narrowing-bitfield-dr \
+	test-cxx-list-narrowing-nonfinite-dr
 	$(call MKDIR_P,$(TEST_OUT)/cxx-list-narrowing)
 	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/cxx-list-narrowing/gcc-host \
@@ -3176,6 +3178,45 @@ test-cxx-list-narrowing: $(RCXX_TARGET) test-cxx-list-narrowing-bitfield-dr
 	$(GREP) -F -q "requires a fixed underlying type in C++17" \
 		$(TEST_OUT)/cxx-list-narrowing/fixed-enum-cxx14.log
 	@echo "C++ list-initialization narrowing tests completed"
+
+test-cxx-list-narrowing-nonfinite-dr: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-fsyntax-only tests/cxx_list_narrowing_nonfinite_dr.cpp, \
+		$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/gcc.log)
+	$(GREP) -F -q "narrowing conversion" \
+		$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/gcc.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x86.s \
+		tests/cxx_list_narrowing_nonfinite_dr.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x86.o \
+		$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x64.s \
+		tests/cxx_list_narrowing_nonfinite_dr.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x64.o \
+		$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x64.o
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x64-host \
+		tests/cxx_list_narrowing_run_test.c \
+		$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x64.o
+	$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/x64-host
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/verified-x86.ro \
+		tests/cxx_list_narrowing_nonfinite_dr.cpp \
+		>$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/verified-x86.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/verified-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/verified-x64.ro \
+		tests/cxx_list_narrowing_nonfinite_dr.cpp \
+		>$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/verified-x64.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-list-narrowing-nonfinite-dr/verified-x64.log,0)
+	@echo "CWG 2864 non-finite list-narrowing tests completed"
 
 test-cxx-list-narrowing-bitfield-dr: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-list-narrowing-bitfield-dr)
