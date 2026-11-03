@@ -100,7 +100,12 @@ static inline int debug_inline_mutated_conditional_local(
 {
     int conditional_evolving = delta_value ? initial_value : delta_value;
     conditional_evolving += delta_value * 3;
-    return conditional_evolving + 2;
+    int conditional_update_evolving = initial_value;
+    conditional_update_evolving = delta_value
+        ? conditional_update_evolving + 5
+        : initial_value - 2;
+    conditional_update_evolving += delta_value * 3;
+    return conditional_evolving + conditional_update_evolving + 2;
 }
 
 extern "C" void debug_inline_mutated_conditional_local_observe(int* value);
