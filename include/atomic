@@ -1957,6 +1957,11 @@ inline void atomic_flag_notify_all(atomic_flag* object) noexcept {
 }
 #endif
 
+#if __cplusplus >= 202002L
+using atomic_signed_lock_free = atomic<signed int>;
+using atomic_unsigned_lock_free = atomic<unsigned int>;
+#endif
+
 }
 
 #define ATOMIC_FLAG_INIT {}
@@ -2014,6 +2019,9 @@ inline void atomic_flag_notify_all(atomic_flag* object) noexcept {
 #endif
 #ifndef __cpp_lib_atomic_float
 #define __cpp_lib_atomic_float 201711L
+#endif
+#ifndef __cpp_lib_atomic_lock_free_type_aliases
+#define __cpp_lib_atomic_lock_free_type_aliases 201907L
 #endif
 #endif
 

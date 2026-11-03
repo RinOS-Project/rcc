@@ -1,5 +1,15 @@
 #include <atomic>
 
+template<class Left, class Right>
+struct atomic_feature_is_same {
+    static constexpr bool value = false;
+};
+
+template<class Type>
+struct atomic_feature_is_same<Type, Type> {
+    static constexpr bool value = true;
+};
+
 #if __cplusplus >= 202002L
 #if !defined(__cpp_lib_atomic_is_always_lock_free) || \
     __cpp_lib_atomic_is_always_lock_free != 201603L
@@ -22,6 +32,16 @@
 #if !defined(__cpp_lib_atomic_float) || __cpp_lib_atomic_float != 201711L
 #error "C++20 floating atomics feature macro mismatch"
 #endif
+#if !defined(__cpp_lib_atomic_lock_free_type_aliases) || \
+    __cpp_lib_atomic_lock_free_type_aliases != 201907L
+#error "C++20 lock-free atomic alias feature macro mismatch"
+#endif
+static_assert(atomic_feature_is_same<std::atomic_signed_lock_free,
+                                     std::atomic<signed int>>::value);
+static_assert(atomic_feature_is_same<std::atomic_unsigned_lock_free,
+                                     std::atomic<unsigned int>>::value);
+static_assert(std::atomic<signed int>::is_always_lock_free);
+static_assert(std::atomic<unsigned int>::is_always_lock_free);
 #else
 #if !defined(__cpp_lib_atomic_is_always_lock_free) || \
     __cpp_lib_atomic_is_always_lock_free != 201603L
@@ -29,7 +49,8 @@
 #endif
 #if defined(__cpp_lib_atomic_flag_test) || defined(__cpp_lib_atomic_ref) || \
     defined(__cpp_lib_atomic_value_initialization) || \
-    defined(__cpp_lib_atomic_wait) || defined(__cpp_lib_atomic_float)
+    defined(__cpp_lib_atomic_wait) || defined(__cpp_lib_atomic_float) || \
+    defined(__cpp_lib_atomic_lock_free_type_aliases)
 #error "C++20 atomic feature macro advertised in an earlier language mode"
 #endif
 #endif
@@ -37,6 +58,12 @@
 int atomic_feature_macro_probe() {
     std::atomic<unsigned> value(1u);
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
+#if __cplusplus >= 202002L
+    std::atomic_signed_lock_free signed_value(1);
+    std::atomic_unsigned_lock_free unsigned_value(1u);
+    signed_value.fetch_add(1);
+    unsigned_value.fetch_add(1u);
+#endif
     std::atomic_store(&value, 2u);
     if (std::atomic_load(&value) != 2u || value.fetch_add(1u) != 2u ||
         std::atomic_fetch_add(&value, 1u) != 3u ||

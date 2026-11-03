@@ -13678,6 +13678,15 @@ remains a separate open item.
       and C++20 on i686 and AMD64; `test-atomic-builtins` passes, including its
       runtime checks and linked RIN validation.
 
+## RCC continuation (2026-11-03, C++20 lock-free atomic aliases)
+
+- [x] Add `atomic_signed_lock_free` and `atomic_unsigned_lock_free` as aliases
+      of the always-lock-free signed and unsigned `int` atomic types, and define
+      `__cpp_lib_atomic_lock_free_type_aliases` in C++20 mode. Verify exact type
+      identity, lock-free properties, macro value and C++17 absence against
+      GCC; both target architectures and the full `test-atomic-builtins` gate
+      pass.
+
 ## RCC continuation (2026-11-03, function-pointer `static_cast` type-ids)
 
 - [x] Parse grouped abstract function-pointer declarators in named-cast target
