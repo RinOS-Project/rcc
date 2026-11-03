@@ -279,28 +279,20 @@ public:
     atomic_flag(const atomic_flag&) = delete;
     atomic_flag& operator=(const atomic_flag&) = delete;
 
-    bool test_and_set(memory_order order) noexcept {
+    bool test_and_set(memory_order order = memory_order_seq_cst) noexcept {
         return __atomic_test_and_set(&value_, order);
     }
-    bool test_and_set(memory_order order) volatile noexcept {
+    bool test_and_set(
+        memory_order order = memory_order_seq_cst) volatile noexcept {
         return __atomic_test_and_set(&value_, order);
-    }
-    bool test_and_set() noexcept {
-        return test_and_set(memory_order_seq_cst);
-    }
-    bool test_and_set() volatile noexcept {
-        return __atomic_test_and_set(&value_, memory_order_seq_cst);
     }
 
-    void clear(memory_order order) noexcept {
+    void clear(memory_order order = memory_order_seq_cst) noexcept {
         __atomic_clear(&value_, order);
     }
-    void clear(memory_order order) volatile noexcept {
+    void clear(
+        memory_order order = memory_order_seq_cst) volatile noexcept {
         __atomic_clear(&value_, order);
-    }
-    void clear() noexcept { clear(memory_order_seq_cst); }
-    void clear() volatile noexcept {
-        __atomic_clear(&value_, memory_order_seq_cst);
     }
 
 #if __cplusplus >= 202002L

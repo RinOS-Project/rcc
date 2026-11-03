@@ -13691,6 +13691,8 @@ remains a separate open item.
 
 - [x] Expose `atomic_flag::test` and its free wrappers only in C++20, and match
       GCC's single `test(memory_order = memory_order_seq_cst)` member signature.
+      Match `test_and_set` and `clear` with one defaulted-memory-order overload
+      each, removing duplicate no-argument overloads.
       Verify C++17 member/free API rejection with GCC and RCC, C++20 API
       availability with GCC and RCC on i686/AMD64, and the full
       `test-atomic-builtins` gate.
