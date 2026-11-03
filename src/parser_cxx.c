@@ -30863,7 +30863,8 @@ static bool cxx_function_template_class_nontype_argument_value(
     expression = type->cxx_template_value_args
         && argument_index < type->cxx_template_arg_count
         ? type->cxx_template_value_args[argument_index] : NULL;
-    if (expression && expr_eval_integer_constant(expression, value_out)) {
+    if (expression &&
+        cxx_template_non_type_constant_value(expression, value_out)) {
         return true;
     }
     /* A dependent class-template-id can retain a default expression in its
@@ -32257,6 +32258,7 @@ static bool deduce_function_template_type_with_pack(
                             ? pattern->cxx_template_value_args[index] : NULL;
                         Expr* actual_value = actual->cxx_template_value_args
                             ? actual->cxx_template_value_args[index] : NULL;
+                        CxxClass* actual_class = actual->cxx_class;
                         int64_t pattern_integer;
                         int64_t actual_integer;
                         bool actual_value_known = false;
@@ -37379,6 +37381,11 @@ bool rcc_parser_cxx_eval_template_integer_expression(
     const bool* value_present, int64_t* result) {
     return eval_template_integer_expression(
         expression, tmpl, values, value_present, result);
+}
+
+bool rcc_parser_cxx_template_non_type_constant_value(
+    const Expr* expression, int64_t* value_out) {
+    return cxx_template_non_type_constant_value(expression, value_out);
 }
 
 static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
@@ -45505,8 +45512,8 @@ static bool cxx_parse_explicit_function_template_argument_list(
                 argument->value_expression = parse_assignment_expression();
                 rcc_parser_set_cxx_template_default_mode(false);
                 argument->value_valid = argument->value_expression &&
-                    expr_eval_integer_constant(argument->value_expression,
-                                               &argument->value);
+                    cxx_template_non_type_constant_value(
+                        argument->value_expression, &argument->value);
                 if (!argument->value_valid) {
                     rcc_error(argument->value_expression
                                   ? argument->value_expression->loc : loc,

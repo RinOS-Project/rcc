@@ -647,6 +647,15 @@ endif
 .PHONY: test-cxx-prvalue-scalar-conversion-cleanup
 .PHONY: test-cxx-overload-ambiguous-diagnostics
 .PHONY: test-cxx-nullptr-bool-conversion
+.PHONY: test-cxx-function-template-structural-nontype test-cxx-function-template-structural-nontype-posix
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS = \
+	_Z43function_template_structural_value_explicitIXtl32FunctionTemplateStructuralTargetLi37EEEEiv \
+	_Z42function_template_structural_value_deducedIXtl32FunctionTemplateStructuralTargetLi41EEEEi34FunctionTemplateStructuralValueTagIXT_EE \
+	_Z47function_template_structural_reference_explicitIXtl35FunctionTemplateStructuralReferenceadL_Z39function_template_structural_target_oneEEEEiv \
+	_Z47function_template_structural_reference_explicitIXtl35FunctionTemplateStructuralReferenceadL_Z39function_template_structural_target_twoEEEEiv \
+	_Z46function_template_structural_reference_deducedIXtl35FunctionTemplateStructuralReferenceadL_Z39function_template_structural_target_oneEEEEi38FunctionTemplateStructuralReferenceTagIXT_EE \
+	_Z46function_template_structural_reference_deducedIXtl35FunctionTemplateStructuralReferenceadL_Z39function_template_structural_target_twoEEEEi38FunctionTemplateStructuralReferenceTagIXT_EE
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-reference-list-initialization
 .PHONY: test-cxx-initializer-list
@@ -1113,6 +1122,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-raw-strings \
 	test-cxx-alternative-tokens \
 	test-cxx-variable-templates \
+	test-cxx-function-template-structural-nontype \
 	test-cxx-function-template-overloads \
 	test-cxx-function-template-dependent-compound-type \
 	test-cxx-function-template-nontype-pack-expression \
@@ -5833,6 +5843,21 @@ test-cxx-array-function-bool-reference-invalid: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_array_function_to_mutable_bool_reference_invalid.cpp,$(TEST_OUT)/cxx-array-function-bool-reference/gcc.log)
 	$(call CHECK_COUNT,cannot bind non-const lvalue reference of type,$(TEST_OUT)/cxx-array-function-bool-reference/gcc.log,6)
 
+test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-nontype)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-host \
+		tests/cxx_function_template_structural_nontype.cpp
+	$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-host
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s \
+		tests/cxx_function_template_structural_nontype.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,7)
+
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
@@ -7604,6 +7629,21 @@ test-cxx-adl-function-template-specialization: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-adl-function-template-specialization/gcc-host.exe tests/cxx_adl_function_template_specialization.cpp
 	$(TEST_OUT)/cxx-adl-function-template-specialization/gcc-host.exe
 
+test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-nontype)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-host.exe \
+		tests/cxx_function_template_structural_nontype.cpp
+	$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-host.exe
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s \
+		tests/cxx_function_template_structural_nontype.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,7)
+
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
@@ -9288,6 +9328,7 @@ test-cxx-dependent-nested-class-template-owner-chain: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc-host.exe
 else
 test-cxx-variable-templates: test-cxx-variable-templates-posix
+test-cxx-function-template-structural-nontype: test-cxx-function-template-structural-nontype-posix
 test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix
 test-cxx-function-template-references: test-cxx-function-template-references-posix
 test-cxx-static-reference-temporaries: test-cxx-static-reference-temporaries-posix

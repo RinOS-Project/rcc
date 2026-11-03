@@ -14062,3 +14062,17 @@ remains a separate open item.
       distinct caller frame slots for sixteen input pairs. Verified i686/AMD64
       C++20 `-g -O1` objects pass `test-debug-info-inline-expression` with ten
       functions emitted per architecture and zero fallback.
+
+## RCC continuation (2026-11-04, structural class function-template NTTPs)
+
+- [x] Preserve packed structural-class value bits while substituting a nested
+      class-template argument, accept the supported structural class subset as
+      explicit and deduced function-template non-type arguments, and retain
+      reference-member object identity. `make -j1
+      test-cxx-function-template-structural-nontype` passes strict GCC C++20 and
+      host execution, RCC i686/AMD64 generation and AMD64 execution, exact GCC
+      Itanium symbol checks for six explicit/deduced cases, and verified
+      backend emission of seven functions with zero fallback at both targets
+      at `-O0` and `-O2`.
+- [ ] Full structural non-type argument equivalence, additional member layouts,
+      structural packs, and unsupported C++20 forms remain open.

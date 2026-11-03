@@ -4295,6 +4295,14 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         }
         if (parameter->kind == TPARAM_NONTYPE && value_present &&
             value_present[index]) {
+            Type* value_type = cxx_mangle_template_value_type(
+                tmpl, parameter, type_args, tmpl->param_count, index);
+            if (cxx_structural_class_value_supported_subset(value_type)) {
+                cxx_mangle_template_class_value_argument(
+                    buf, &pos, value_type, value_args[index],
+                    &template_argument_context);
+                continue;
+            }
             buf[pos++] = 'L';
             cxx_mangle_type_append_context(
                 buf, &pos,
@@ -10089,13 +10097,27 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 substituted_expression = template_clone_expr(
                     tmpl, value_expression, args, arg_count, value_args,
                     value_present);
-                value_resolved = substituted_expression &&
+                bool members_resolved = substituted_expression &&
                     rcc_parser_cxx_resolve_dependent_static_integer_members(
                         &substituted_expression, tmpl, args, value_args,
-                        value_present, 0u) &&
-                    rcc_parser_cxx_eval_template_integer_expression(
-                        substituted_expression, tmpl, value_args,
-                        value_present, &nested_values[nested_count]);
+                        value_present, 0u);
+                value_resolved = members_resolved;
+                if (value_resolved &&
+                    substituted_expression->kind == EXPR_INT_LIT &&
+                    cxx_structural_class_value_supported_subset(
+                        substituted_expression->type)) {
+                    /* Structural class NTTP identifiers are cloned to an
+                     * integer literal holding their packed value. Preserve
+                     * those bits directly; integer constant evaluation of a
+                     * class-typed literal applies scalar conversion rules. */
+                    nested_values[nested_count] =
+                        substituted_expression->int_val;
+                } else if (value_resolved) {
+                    value_resolved =
+                        rcc_parser_cxx_template_non_type_constant_value(
+                            substituted_expression,
+                            &nested_values[nested_count]);
+                }
                 if (!value_resolved && tmpl &&
                     tmpl->kind == TMPL_FUNCTION) {
                     /* A class-template non-type argument in a function
@@ -14231,10 +14253,13 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             if (!value_present || !value_present[index] || !value_args ||
                 !value_type ||
                 (!type_is_integer(value_type) &&
-                 value_type->kind != TYPE_ENUM)) {
+                 value_type->kind != TYPE_ENUM &&
+                 ((value_type->kind != TYPE_STRUCT &&
+                   value_type->kind != TYPE_UNION) ||
+                  !cxx_structural_class_value_supported_subset(value_type)))) {
                 rcc_error(template_loc,
                           "function template non-type argument %d requires "
-                          "an integer constant",
+                          "an integer or supported structural class constant",
                           index + 1);
                 return NULL;
             }
