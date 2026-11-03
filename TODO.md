@@ -13732,3 +13732,12 @@ remains a separate open item.
       for pre-C++20 availability and C++20 copy-initialization. The full
       test-atomic-builtins gate passes with i686/AMD64 generation, runtime
       checks, linking, and RIN validation.
+
+## RCC continuation (2026-11-03, atomic pointer arithmetic constraints)
+
+- [x] Keep std::atomic<void*> valid for load/store while rejecting pointer
+      fetch_add/sub when the pointee is void or a function, for both atomic<T*>
+      and atomic_ref<T*>. GCC and RCC C++20 negative probes cover all four forms;
+      C++17/C++20 opaque-pointer load/store probes pass on both RCC targets.
+      The full test-atomic-builtins gate passes, including runtime, linking,
+      and RIN validation.

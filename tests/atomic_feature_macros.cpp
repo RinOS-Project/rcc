@@ -67,6 +67,7 @@ static_assert(requires(std::atomic_flag& flag) {
 
 int atomic_feature_macro_probe() {
     std::atomic<unsigned> value(1u);
+    std::atomic<void*> opaque_pointer(nullptr);
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
 #if __cplusplus >= 202002L
     if (flag.test() || std::atomic_flag_test(&flag)) return 3;
@@ -79,6 +80,9 @@ int atomic_feature_macro_probe() {
     unsigned_value.fetch_add(1u);
 #endif
     std::atomic_store(&value, 2u);
+    if (opaque_pointer.load() != nullptr) return 5;
+    opaque_pointer.store(&value);
+    if (opaque_pointer.load() != &value) return 6;
     if (std::atomic_load(&value) != 2u || value.fetch_add(1u) != 2u ||
         std::atomic_fetch_add(&value, 1u) != 3u ||
         std::atomic_load(&value) != 4u)
