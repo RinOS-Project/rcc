@@ -4554,6 +4554,38 @@ else
 endif
 	@echo "C++ secondary virtual-base vptr test completed"
 
+test-cxx-primary-vtable-base-layout: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-primary-vtable-base-layout)
+ifeq ($(OS),Windows_NT)
+	$(call CXX_WINDOWS_MAIN,cxx-primary-vtable-base-layout,test,cxx_primary_vtable_base_layout.cpp)
+else
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-primary-vtable-base-layout/test-x86.s \
+		tests/cxx_primary_vtable_base_layout.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-primary-vtable-base-layout/test-x86.o \
+		$(TEST_OUT)/cxx-primary-vtable-base-layout/test-x86.s
+	gcc -m32 -c -o $(TEST_OUT)/cxx-primary-vtable-base-layout/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-primary-vtable-base-layout/test-x86 \
+		$(TEST_OUT)/cxx-primary-vtable-base-layout/start-x86.o \
+		$(TEST_OUT)/cxx-primary-vtable-base-layout/test-x86.o
+	$(TEST_OUT)/cxx-primary-vtable-base-layout/test-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-primary-vtable-base-layout/test-x64.s \
+		tests/cxx_primary_vtable_base_layout.cpp
+	gcc -c -o $(TEST_OUT)/cxx-primary-vtable-base-layout/test-x64.o \
+		$(TEST_OUT)/cxx-primary-vtable-base-layout/test-x64.s
+	gcc -c -o $(TEST_OUT)/cxx-primary-vtable-base-layout/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-primary-vtable-base-layout/test-x64 \
+		$(TEST_OUT)/cxx-primary-vtable-base-layout/start-x64.o \
+		$(TEST_OUT)/cxx-primary-vtable-base-layout/test-x64.o
+	$(TEST_OUT)/cxx-primary-vtable-base-layout/test-x64
+endif
+	@echo "C++ primary vtable base layout test completed"
+
 test-cxx-secondary-virtual-override: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-secondary-virtual-override)
 ifeq ($(OS),Windows_NT)

@@ -5875,7 +5875,10 @@ void cxx_class_compute_layout(CxxClass* cls) {
     }
     cls->base_offsets = base_offsets;
 
-    /* Base class subobjects.  Keep the offset separately so inherited fields
+    /* A primary polymorphic base occupies offset zero even when it appears
+     * after a non-polymorphic base in the base-specifier list.  Reserve it
+     * before laying out the other non-virtual bases, which retain their
+     * declaration order.  Keep the offsets separately so inherited fields
      * can be appended after the derived fields; this preserves C++ name
      * hiding when a derived class declares a member with the same name. */
     for (int i = 0; i < cls->base_count; i++) {
@@ -5883,15 +5886,24 @@ void cxx_class_compute_layout(CxxClass* cls) {
         if (base && base->type && base->type->cxx_nontrivial) {
             nontrivial = true;
         }
-        if (base && !cls->bases[i].is_virtual) {
-            if (base == primary_vtable_base) {
-                base_offsets[i] = 0;
-                if (offset < base->nonvirtual_size) {
-                    offset = base->nonvirtual_size;
-                }
-                if (base->align > max_align) max_align = base->align;
-                continue;
+        if (!base) {
+            base_offsets[i] = -1;
+            layout_complete = false;
+        } else if (cls->bases[i].is_virtual) {
+            base_offsets[i] = -1;
+        } else if (base == primary_vtable_base) {
+            base_offsets[i] = 0;
+            if (offset < base->nonvirtual_size) {
+                offset = base->nonvirtual_size;
             }
+            if (base->align > max_align) max_align = base->align;
+        }
+    }
+
+    for (int i = 0; i < cls->base_count; i++) {
+        CxxClass* base = cls->bases[i].base;
+        if (base && !cls->bases[i].is_virtual &&
+            base != primary_vtable_base) {
             if (!has_virtual && offset == 0 &&
                 cxx_can_use_empty_base_optimization(base) &&
                 !cxx_has_same_type_member(cls, base)) {
@@ -5905,11 +5917,6 @@ void cxx_class_compute_layout(CxxClass* cls) {
             /* Base subobject */
             offset += base->nonvirtual_size;
             if (align > max_align) max_align = align;
-        } else if (!base) {
-            base_offsets[i] = -1;
-            layout_complete = false;
-        } else {
-            base_offsets[i] = -1;
         }
     }
 

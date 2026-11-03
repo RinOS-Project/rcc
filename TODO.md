@@ -787,6 +787,10 @@
   - [x] primary vptr、class vtable、local/global vptr初期化、virtual
         callの間接分岐を実装し、overrideを含むi686/AMD64実行を検証
   - [ ] 標準C++の全class layout、特殊メンバー、virtual ABI互換性
+    - [x] 後方にあるprimary non-virtual polymorphic baseをoffset zeroへ配置してから
+          他のbaseを並べる。GCC class dumpと照合し、reference-return virtual call、
+          secondary virtual call、i686 PE object生成を
+          `test-cxx-primary-vtable-base-layout`で確認
     - [x] Resolve non-dependent qualified class-scope alias type-ids in
           ordinary declarations, including namespace-qualified and inherited
           aliases, concrete class-template and alias-template owners, optional
