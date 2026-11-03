@@ -13792,10 +13792,14 @@ remains a separate open item.
       increasing subscript order, selecting each element's copy or move
       operator exactly once. GCC C++20, RCC i686/AMD64, and normal/`-O2` x64
       link/run checks pass in `test-atomic-private-access`.
+- [x] Synthesize bit-field assignments through their member lvalues so the
+      generated store preserves adjacent packed fields. Verify copy and move
+      assignment beside a nontrivial class member, GCC C++20, RCC i686/AMD64,
+      and normal/`-O2` x64 execution in `test-atomic-private-access`.
 - [ ] Lower large fixed-bound arrays without per-element AST/code expansion;
-      add bit-field and reference-member handling. Complete inherited
-      assignment overload viability and virtual-base cases reached through
-      inherited `using` declarations.
+      verify reference-member defaulted assignment deletion and diagnostics.
+      Complete inherited assignment overload viability and virtual-base cases
+      reached through inherited `using` declarations.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 

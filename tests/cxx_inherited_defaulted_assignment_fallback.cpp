@@ -189,6 +189,36 @@ struct DefaultedArrayMemberAssignment {
         DefaultedArrayMemberAssignment&&) = default;
 };
 
+static int bitfield_payload_copy_assignment_calls;
+static int bitfield_payload_move_assignment_calls;
+
+struct TrackedBitfieldAssignmentPayload {
+    int value;
+    TrackedBitfieldAssignmentPayload& operator=(
+        const TrackedBitfieldAssignmentPayload& source) {
+        value = source.value;
+        ++bitfield_payload_copy_assignment_calls;
+        return *this;
+    }
+    TrackedBitfieldAssignmentPayload& operator=(
+        TrackedBitfieldAssignmentPayload&& source) {
+        value = source.value;
+        ++bitfield_payload_move_assignment_calls;
+        return *this;
+    }
+};
+
+struct DefaultedBitfieldAssignment {
+    unsigned int low : 3;
+    unsigned int middle : 5;
+    unsigned int high : 4;
+    TrackedBitfieldAssignmentPayload payload;
+    DefaultedBitfieldAssignment& operator=(
+        const DefaultedBitfieldAssignment&) = default;
+    DefaultedBitfieldAssignment& operator=(
+        DefaultedBitfieldAssignment&&) = default;
+};
+
 #if defined(__RCC__)
 static_assert(__is_assignable(
     InheritedFallbackDerived&, InheritedFallbackBase&&));
@@ -222,6 +252,12 @@ static_assert(__is_assignable(
 static_assert(__is_assignable(
     DefaultedArrayMemberAssignment&,
     DefaultedArrayMemberAssignment&&));
+static_assert(__is_assignable(
+    DefaultedBitfieldAssignment&,
+    const DefaultedBitfieldAssignment&));
+static_assert(__is_assignable(
+    DefaultedBitfieldAssignment&,
+    DefaultedBitfieldAssignment&&));
 #else
 static_assert(std::is_assignable_v<
     InheritedFallbackDerived&, InheritedFallbackBase&&>);
@@ -255,6 +291,12 @@ static_assert(std::is_assignable_v<
 static_assert(std::is_assignable_v<
     DefaultedArrayMemberAssignment&,
     DefaultedArrayMemberAssignment&&>);
+static_assert(std::is_assignable_v<
+    DefaultedBitfieldAssignment&,
+    const DefaultedBitfieldAssignment&>);
+static_assert(std::is_assignable_v<
+    DefaultedBitfieldAssignment&,
+    DefaultedBitfieldAssignment&&>);
 #endif
 
 int main() {
@@ -424,12 +466,51 @@ int main() {
     array_element_assignment_order = 0;
     array_move_destination = static_cast<
         DefaultedArrayMemberAssignment&&>(array_move_source);
-    return array_move_destination.values[0][0].value == 5 &&
-           array_move_destination.values[0][1].value == 6 &&
-           array_move_destination.values[1][0].value == 7 &&
-           array_move_destination.values[1][1].value == 8 &&
-           array_move_destination.tail == 191 &&
-           array_element_copy_assignment_calls == 0 &&
-           array_element_move_assignment_calls == 4 &&
-           array_element_assignment_order == 5678 ? 0 : 12;
+    if (array_move_destination.values[0][0].value != 5 ||
+        array_move_destination.values[0][1].value != 6 ||
+        array_move_destination.values[1][0].value != 7 ||
+        array_move_destination.values[1][1].value != 8 ||
+        array_move_destination.tail != 191 ||
+        array_element_copy_assignment_calls != 0 ||
+        array_element_move_assignment_calls != 4 ||
+        array_element_assignment_order != 5678) return 12;
+
+    DefaultedBitfieldAssignment bitfield_copy_destination;
+    DefaultedBitfieldAssignment bitfield_copy_source;
+    bitfield_copy_destination.low = 1;
+    bitfield_copy_destination.middle = 2;
+    bitfield_copy_destination.high = 3;
+    bitfield_copy_destination.payload.value = 193;
+    bitfield_copy_source.low = 5;
+    bitfield_copy_source.middle = 17;
+    bitfield_copy_source.high = 9;
+    bitfield_copy_source.payload.value = 197;
+    bitfield_payload_copy_assignment_calls = 0;
+    bitfield_copy_destination = bitfield_copy_source;
+    if (bitfield_copy_destination.low != 5 ||
+        bitfield_copy_destination.middle != 17 ||
+        bitfield_copy_destination.high != 9 ||
+        bitfield_copy_destination.payload.value != 197 ||
+        bitfield_payload_copy_assignment_calls != 1) return 13;
+
+    DefaultedBitfieldAssignment bitfield_move_destination;
+    DefaultedBitfieldAssignment bitfield_move_source;
+    bitfield_move_destination.low = 2;
+    bitfield_move_destination.middle = 4;
+    bitfield_move_destination.high = 6;
+    bitfield_move_destination.payload.value = 199;
+    bitfield_move_source.low = 7;
+    bitfield_move_source.middle = 23;
+    bitfield_move_source.high = 11;
+    bitfield_move_source.payload.value = 211;
+    bitfield_payload_copy_assignment_calls = 0;
+    bitfield_payload_move_assignment_calls = 0;
+    bitfield_move_destination = static_cast<
+        DefaultedBitfieldAssignment&&>(bitfield_move_source);
+    return bitfield_move_destination.low == 7 &&
+           bitfield_move_destination.middle == 23 &&
+           bitfield_move_destination.high == 11 &&
+           bitfield_move_destination.payload.value == 211 &&
+           bitfield_payload_copy_assignment_calls == 0 &&
+           bitfield_payload_move_assignment_calls == 1 ? 0 : 14;
 }

@@ -26488,7 +26488,8 @@ static bool sema_cxx_is_stable_assignment_object(Expr* expression) {
     Expr* object = sema_cxx_strip_assignment_reference_casts(expression);
     if (!object) return false;
     if (object->kind == EXPR_IDENT) return is_lvalue(object);
-    return (object->kind == EXPR_DEREF || object->kind == EXPR_INDEX) &&
+    return (object->kind == EXPR_DEREF || object->kind == EXPR_INDEX ||
+            object->kind == EXPR_MEMBER) &&
            object->cxx_synthesized_assignment_subobject &&
            is_lvalue(object);
 }
@@ -26725,22 +26726,31 @@ static Expr* sema_cxx_defaulted_assignment_subobjects(
         Expr* source_field;
         Expr* assignment;
         if (member->is_static) continue;
-        if (!member->type || !member->name || member->is_bitfield ||
-            member->type->is_reference) {
+        if (!member->type || !member->name || member->type->is_reference) {
             return NULL;
         }
         field = sema_cxx_direct_assignment_field(owner_type, owner, member);
-        if (!field || field->is_bitfield || field->offset < 0 || !field->type ||
+        if (!field || field->offset < 0 || !field->type ||
             field->type->is_reference) {
             return NULL;
         }
         source_field_type = sema_cxx_assignment_source_field_type(
             field->type, source_parameter_type->base);
-        destination_field = sema_cxx_object_base(
-            destination, owner_type, field->type, field->offset);
-        source_field = sema_cxx_object_base(
-            source_lvalue, source_parameter_type->base, source_field_type,
-            field->offset);
+        if (field->is_bitfield) {
+            destination_field = expr_member(
+                destination, field->name, loc);
+            destination_field->member_field = field;
+            destination_field->type = field->type;
+            source_field = expr_member(source_lvalue, field->name, loc);
+            source_field->member_field = field;
+            source_field->type = source_field_type;
+        } else {
+            destination_field = sema_cxx_object_base(
+                destination, owner_type, field->type, field->offset);
+            source_field = sema_cxx_object_base(
+                source_lvalue, source_parameter_type->base,
+                source_field_type, field->offset);
+        }
         if (!destination_field || !source_field) return NULL;
         destination_field->cxx_synthesized_assignment_subobject = true;
         sema_cxx_strip_assignment_reference_casts(source_field)
