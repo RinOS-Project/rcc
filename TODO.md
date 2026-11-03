@@ -13796,8 +13796,11 @@ remains a separate open item.
       generated store preserves adjacent packed fields. Verify copy and move
       assignment beside a nontrivial class member, GCC C++20, RCC i686/AMD64,
       and normal/`-O2` x64 execution in `test-atomic-private-access`.
-- [ ] Lower large fixed-bound arrays without per-element AST/code expansion;
-      verify reference-member defaulted assignment deletion and diagnostics.
+- [x] Verify a defaulted copy assignment with a reference member is deleted,
+      copy/move assignability traits are false, and direct assignment reports
+      the deleted operator. GCC and RCC i686/AMD64 negative diagnostics pass in
+      `test-atomic-private-access`.
+- [ ] Lower large fixed-bound arrays without per-element AST/code expansion.
       Complete inherited assignment overload viability and virtual-base cases
       reached through inherited `using` declarations.
 

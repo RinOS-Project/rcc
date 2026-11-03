@@ -43,6 +43,19 @@ struct AtomicDefaultedDeletedMoveAssignment {
     AtomicNoMoveAssignmentSubobject value;
 };
 
+struct AtomicReferenceMemberDefaultedAssignment {
+    int& value;
+    AtomicReferenceMemberDefaultedAssignment& operator=(
+        const AtomicReferenceMemberDefaultedAssignment&) = default;
+};
+
+static_assert(
+    !ATOMIC_IS_COPY_ASSIGNABLE(AtomicReferenceMemberDefaultedAssignment),
+    "a defaulted copy assignment with a reference member is deleted");
+static_assert(
+    !ATOMIC_IS_MOVE_ASSIGNABLE(AtomicReferenceMemberDefaultedAssignment),
+    "a deleted reference-member copy assignment cannot accept an rvalue");
+
 static_assert(
     ATOMIC_IS_TRIVIALLY_COPYABLE(AtomicDefaultedDeletedMoveAssignment),
     "a defaulted deleted move assignment preserves trivial copyability");

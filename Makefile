@@ -19610,6 +19610,27 @@ test-atomic-private-access: $(RCXX_TARGET)
 		$(TEST_OUT)/atomic-private-access/invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/invalid-x86.ro)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-fsyntax-only tests/invalid_cxx_defaulted_reference_assignment.cpp, \
+		$(TEST_OUT)/atomic-private-access/gcc-reference-assignment.log)
+	$(GREP) -F -q "use of deleted function 'ReferenceMemberDefaultedAssignment& ReferenceMemberDefaultedAssignment::operator=" \
+		$(TEST_OUT)/atomic-private-access/gcc-reference-assignment.log
+	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/reference-assignment-x86.ro)
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/reference-assignment-x86.ro \
+		tests/invalid_cxx_defaulted_reference_assignment.cpp, \
+		$(TEST_OUT)/atomic-private-access/reference-assignment-x86.log)
+	$(GREP) -F -q "use of deleted member function 'operator='" \
+		$(TEST_OUT)/atomic-private-access/reference-assignment-x86.log
+	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/reference-assignment-x64.ro)
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/reference-assignment-x64.ro \
+		tests/invalid_cxx_defaulted_reference_assignment.cpp, \
+		$(TEST_OUT)/atomic-private-access/reference-assignment-x64.log)
+	$(GREP) -F -q "use of deleted member function 'operator='" \
+		$(TEST_OUT)/atomic-private-access/reference-assignment-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/reference-assignment-x86.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/reference-assignment-x64.ro)
 	@echo "C++ atomic special-member access constraints passed"
 
 .PHONY: test-atomic-wait test-clear-padding test-cxx-atomic-aggregate-concurrency
