@@ -1840,6 +1840,19 @@ constexpr int pack_order_trailing_concept_selection(T)
 static_assert(pack_order_trailing_concept_selection(1) == 2);
 
 template<typename T>
+struct PackOrderTrailingReturnBox {
+    T value;
+};
+
+template<typename T>
+constexpr auto pack_order_trailing_return(T value)
+    -> PackOrderTrailingReturnBox<T> {
+    return {value};
+}
+
+static_assert(pack_order_trailing_return(7).value == 7);
+
+template<typename T>
 constexpr int pack_order_overloaded_constexpr_template_default_value(
     T value) {
     return 3 * value + 4;
