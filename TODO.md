@@ -352,7 +352,7 @@
   i686 code was also linked and executed under WSL and returned zero. The
   installed GCC does not accept `_BitInt`; Clang 18 compiled and executed the
   conversion fixture successfully as an independent oracle.
-- [ ] Audit remaining C23 bit-precise integer rules and contexts, especially
+- [x] Audit remaining C23 bit-precise integer rules and contexts, especially
   promotions, conversions, invalid expressions, and overflow contexts.
   - [x] Preserve the declared `_BitInt` type for narrow bit-precise bit-fields
     through unary `+`, unary `-`, `~`, and shifts, following C23 6.3.1.1. The
@@ -371,6 +371,13 @@
     `_BitInt(64)` cases select `unsigned long long` or `long long` as required.
     Verify result types at compile time and values at runtime through the
     i686/AMD64 RIN/RLL/DRV and `rinvalidate` regression gate.
+  - [x] Re-audit the conversion, promotion, bit-field, constant-expression,
+    overflow, shift, and width-boundary implementation paths against their
+    dedicated fixtures. RinOS's `BITINT_MAXWIDTH=64` meets C23's minimum of
+    `ULLONG_WIDTH=64`. Native Windows reruns of `test-c23-bitint` and
+    `test-c23-bitint-promotions` pass, including AMD64 execution, i686/AMD64
+    verified output with zero fallback, RIN/RLL/DRV validation, and invalid
+    ICE diagnostics. Widths above 64 remain a separate extension.
 
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 
