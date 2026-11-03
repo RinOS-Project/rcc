@@ -18,8 +18,24 @@ struct EmptyMarkerPrimary : EmptyMarker {
     virtual int value() { return 59; }
 };
 
+struct EmptyCarrierA : EmptyMarker {
+    int first;
+};
+
+struct EmptyCarrierB : EmptyMarker {
+    int second;
+};
+
 struct DuplicateEmptyBase : EmptyMarker, EmptyMarkerPrimary {
     long long payload;
+};
+
+struct EmptyBasePaths : EmptyMarker, EmptyCarrierA, EmptyCarrierB {
+    long long tail;
+};
+
+struct EmptyBasePathOrder : EmptyCarrierA, EmptyMarker, EmptyCarrierB {
+    long long tail;
 };
 
 struct ReferenceDerived : EmptyPrefix, DataPrefix, ReferenceBase, SideBase {
@@ -51,5 +67,21 @@ int main() {
     if (static_cast<void*>(primary) !=
         static_cast<void*>(&duplicate_empty)) return 6;
     if (sizeof(void*) == 8 && sizeof(DuplicateEmptyBase) != 16) return 7;
+
+    EmptyBasePaths paths{};
+    paths.first = 61;
+    paths.second = 62;
+    paths.tail = 63;
+    if (paths.first != 61 || paths.second != 62 || paths.tail != 63) return 8;
+    EmptyBasePathOrder ordered_paths{};
+    ordered_paths.first = 71;
+    ordered_paths.second = 72;
+    ordered_paths.tail = 73;
+    if (ordered_paths.first != 71 || ordered_paths.second != 72 ||
+        ordered_paths.tail != 73) return 9;
+    if (sizeof(void*) == 8 &&
+        (sizeof(EmptyBasePaths) != 24 || sizeof(EmptyBasePathOrder) != 24)) {
+        return 10;
+    }
     return 0;
 }
