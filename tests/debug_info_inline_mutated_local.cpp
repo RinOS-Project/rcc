@@ -78,7 +78,7 @@ extern "C" long long debug_inline_mutated_signed_wide_local_entry(
 static inline int debug_inline_mutated_dynamic_local(
     int initial_value, int delta_value)
 {
-    int dynamic_evolving = initial_value;
+    int dynamic_evolving = (initial_value * 2, initial_value);
     dynamic_evolving += delta_value * 3;
     return dynamic_evolving + 2;
 }

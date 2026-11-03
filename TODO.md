@@ -13979,3 +13979,13 @@ remains a separate open item.
       offsets and evaluate `initial + delta * 3` for sixteen input pairs in
       verified i686/AMD64 C++20 `-g -O1` objects. The focused
       `test-debug-info-inline-expression` gate passes with zero fallback.
+
+## RCC continuation (2026-11-03, comma-valued inline-local initializer DWARF)
+
+- [x] Retain the initial location for a mutable inline local initialized by a
+      comma expression when its integer right operand is frame-backed and
+      frame-pure. The emitted DWARF describes only the already-evaluated value
+      operand, without replaying the comma's left operand. The dynamic
+      two-frame `initial + delta * 3` regression passes for sixteen input pairs
+      in verified i686/AMD64 C++20 `-g -O1` objects through
+      `test-debug-info-inline-expression`, with zero fallback.

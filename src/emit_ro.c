@@ -15998,6 +15998,14 @@ static bool debug_inline_parameter_initial_value_is_frame_pure(
                     mod, expression->binary_lhs, depth + 1u) &&
                 debug_inline_parameter_initial_value_is_frame_pure(
                     mod, expression->binary_rhs, depth + 1u);
+        case EXPR_COMMA:
+            return expression->binary_rhs &&
+                debug_inline_integer_expression_type(
+                    expression->binary_rhs->type) &&
+                debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    expression->type, expression->binary_rhs->type, 0u) &&
+                debug_inline_parameter_initial_value_is_frame_pure(
+                    mod, expression->binary_rhs, depth + 1u);
         case EXPR_CAST:
             return expression->cast_expr &&
                 debug_inline_parameter_initial_value_is_frame_pure(
