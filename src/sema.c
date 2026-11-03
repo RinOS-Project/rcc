@@ -14325,13 +14325,22 @@ static int cxx_conversion_rank_detail_at_context(
             !(target_base->kind == TYPE_PTR &&
               target_base->cxx_is_member_pointer) &&
             (target->is_rvalue_reference || target_base->is_const)) {
-            int standard_rank = cxx_conversion_rank_detail_at_context(
-                argument, target_base, NULL, access_context,
-                function_friend_access);
-            if (standard_rank >= 0 && standard_rank < 3 &&
-                !(target->is_rvalue_reference && is_lvalue(argument) &&
-                  standard_rank == 0)) {
-                return standard_rank;
+            bool lvalue_derived_to_base_rvalue_binding =
+                target->is_rvalue_reference && is_lvalue(argument) &&
+                source->kind == TYPE_STRUCT &&
+                target_base->kind == TYPE_STRUCT && source->cxx_class &&
+                target_base->cxx_class &&
+                sema_cxx_class_derives_from(source->cxx_class,
+                                            target_base->cxx_class, 0u);
+            if (!lvalue_derived_to_base_rvalue_binding) {
+                int standard_rank = cxx_conversion_rank_detail_at_context(
+                    argument, target_base, NULL, access_context,
+                    function_friend_access);
+                if (standard_rank >= 0 && standard_rank < 3 &&
+                    !(target->is_rvalue_reference && is_lvalue(argument) &&
+                      standard_rank == 0)) {
+                    return standard_rank;
+                }
             }
         }
         if (rcc_parser_is_cxx_mode() &&

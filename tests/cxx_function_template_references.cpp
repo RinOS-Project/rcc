@@ -45,6 +45,21 @@ int select_const_rvalue_reference_overload(const int&&) {
     return 5;
 }
 
+struct ReferenceBindingBase {
+    int value;
+};
+
+struct ReferenceBindingDerived : ReferenceBindingBase {};
+
+int select_base_rvalue_reference_overload(const ReferenceBindingBase&) {
+    return 6;
+}
+
+int select_base_rvalue_reference_overload(
+    const ReferenceBindingBase&&) {
+    return 7;
+}
+
 int comma_calls;
 
 int mark_comma() {
@@ -583,6 +598,16 @@ int main() {
     if (select_const_rvalue_reference_overload(
             static_cast<const int&&>(overload_const_lvalue)) != 5)
         return 36;
+    ReferenceBindingDerived derived_reference_value{{53}};
+    if (select_base_rvalue_reference_overload(derived_reference_value) != 6)
+        return 37;
+    if (select_base_rvalue_reference_overload(ReferenceBindingDerived{{54}})
+            != 7)
+        return 38;
+    if (select_base_rvalue_reference_overload(
+            static_cast<ReferenceBindingDerived&&>(derived_reference_value))
+            != 7)
+        return 39;
     if (read_const_reference(constant) != 7) return 1;
     if (update_lvalue(mutable_value) != 7) return 2;
     if (mutable_value != 7) return 3;

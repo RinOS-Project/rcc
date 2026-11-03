@@ -1107,6 +1107,12 @@
       Windows `test-cxx` gate pass. Broader call/return ABI interactions still
       need systematic coverage; a direct thread-local class-prvalue reference
       has dedicated per-thread host coverage below.
+  - [x] Do not admit an lvalue derived object for `const Base&&` by
+        materializing a sliced base temporary during overload viability. Keep
+        direct `const Base&` binding for derived lvalues, and prefer
+        `const Base&&` for derived prvalues/xvalues. GCC C++20, RCC i686/AMD64
+        generation, and AMD64 execution pass in
+        `test-cxx-function-template-references`.
   - [x] Reject binding non-const lvalue references to bit-fields, including
         the selected `int&` overload, while materializing value copies for
         const lvalue references to integral and scoped-enum bit-fields. Cover
