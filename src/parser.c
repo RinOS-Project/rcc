@@ -4024,7 +4024,6 @@ static Expr* parse_unary(void) {
                 cast_type = type_int;
             }
             if (check(TOK_LPAREN) &&
-                parser_parenthesized_declarator_starts_member_pointer() &&
                 parser_parenthesized_pointer_is_function()) {
                 cast_type = parse_declarator(cast_type, NULL, NULL);
             }

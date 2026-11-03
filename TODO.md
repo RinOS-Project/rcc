@@ -13668,3 +13668,12 @@ remains a separate open item.
       their values against GCC in `atomic_lock_free.cpp`; the complete
       `test-atomic-builtins` gate passes on i686/AMD64 at `-O0`/`-O2`, including
       host runtime checks and linked RIN validation.
+
+## RCC continuation (2026-11-03, function-pointer `static_cast` type-ids)
+
+- [x] Parse grouped abstract function-pointer declarators in named-cast target
+      types through the shared declarator parser. Verify
+      `static_cast<int (*)(int)>(nullptr)` in the atomic C++20 fixture against
+      GCC and generate i686/AMD64 objects at `-O0`/`-O2`; the full
+      `test-atomic-builtins` gate, including runtime checks and linked RIN
+      validation, passes.

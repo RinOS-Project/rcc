@@ -929,6 +929,9 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     float floating_expected = 9.0f;
     unsigned expected = 9u;
     unsigned api_expected = 3u;
+    int (*function_pointer)(int) = static_cast<int (*)(int)>(
+        nullptr);
+    if (function_pointer != nullptr) return 154u;
     volatile CxxVolatileTemplateClass<unsigned> volatile_template_value =
         { 17u };
     std::atomic_init(&compatibility_init, 2u);
