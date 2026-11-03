@@ -13582,3 +13582,12 @@ remains a separate open item.
       constraints against GCC with host execution in
       `test-cxx-constraints`; `test-cxx-named-concepts` and
       `test-atomic-builtins` also pass.
+
+## RCC continuation (2026-11-03, C++20 binary64 `long double` atomics)
+
+- [x] Parse `long double` return types in the dedicated C++ function parser,
+      then expose the C++20 floating `fetch_add`/`fetch_sub` operations for
+      `std::atomic<long double>` and `std::atomic_ref<long double>` using the
+      existing compare-exchange loops. GCC C++20 availability assertions,
+      i686/AMD64 generation, and AMD64 `-O0`/`-O2` generated execution pass in
+      `test-atomic-builtins`; the checks use RinOS's binary64 `long double` ABI.

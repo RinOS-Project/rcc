@@ -240,6 +240,32 @@ inline double __rcc_atomic_supported_fetch_sub(
     volatile double* object, double operand, memory_order order) noexcept {
     return __rcc_atomic_ops<double>::fetch_sub_impl(object, operand, order);
 }
+inline long double __rcc_atomic_supported_fetch_add(
+    volatile long double* object, long double operand,
+    memory_order order) noexcept {
+    long double expected;
+    __atomic_load(object, &expected, memory_order_relaxed);
+    for (;;) {
+        long double desired = expected + operand;
+        if (__atomic_compare_exchange(
+                object, &expected, &desired, true, order,
+                memory_order_relaxed))
+            return expected;
+    }
+}
+inline long double __rcc_atomic_supported_fetch_sub(
+    volatile long double* object, long double operand,
+    memory_order order) noexcept {
+    long double expected;
+    __atomic_load(object, &expected, memory_order_relaxed);
+    for (;;) {
+        long double desired = expected - operand;
+        if (__atomic_compare_exchange(
+                object, &expected, &desired, true, order,
+                memory_order_relaxed))
+            return expected;
+    }
+}
 
 class atomic_flag {
 public:
@@ -1049,6 +1075,32 @@ inline double __rcc_atomic_ref_fetch_sub(
     __atomic_load(object, &expected, memory_order_relaxed);
     for (;;) {
         double desired = expected - operand;
+        if (__atomic_compare_exchange(
+                object, &expected, &desired, true, order,
+                memory_order_relaxed))
+            return expected;
+    }
+}
+
+inline long double __rcc_atomic_ref_fetch_add(
+    long double* object, long double operand, memory_order order) noexcept {
+    long double expected;
+    __atomic_load(object, &expected, memory_order_relaxed);
+    for (;;) {
+        long double desired = expected + operand;
+        if (__atomic_compare_exchange(
+                object, &expected, &desired, true, order,
+                memory_order_relaxed))
+            return expected;
+    }
+}
+
+inline long double __rcc_atomic_ref_fetch_sub(
+    long double* object, long double operand, memory_order order) noexcept {
+    long double expected;
+    __atomic_load(object, &expected, memory_order_relaxed);
+    for (;;) {
+        long double desired = expected - operand;
         if (__atomic_compare_exchange(
                 object, &expected, &desired, true, order,
                 memory_order_relaxed))

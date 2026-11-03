@@ -329,10 +329,12 @@ struct AtomicRefNonTrivial {
 
 static_assert(AtomicRefHasFetchAdd<unsigned>);
 static_assert(AtomicRefHasFetchAdd<float>);
+static_assert(AtomicRefHasFetchAdd<long double>);
 static_assert(!AtomicRefHasFetchAdd<AtomicRefAggregate>);
 static_assert(!AtomicRefHasFetchAdd<AtomicRefOverloadedArithmetic>);
 static_assert(AtomicRefHasFetchSub<unsigned>);
 static_assert(AtomicRefHasFetchSub<float>);
+static_assert(AtomicRefHasFetchSub<long double>);
 static_assert(!AtomicRefHasFetchSub<AtomicRefAggregate>);
 static_assert(AtomicRefHasFetchAnd<unsigned>);
 static_assert(!AtomicRefHasFetchAnd<float>);
@@ -346,10 +348,12 @@ static_assert(!AtomicRefHasFetchXor<float>);
 static_assert(!AtomicRefHasFetchXor<AtomicRefAggregate>);
 static_assert(AtomicRefHasAddAssign<unsigned>);
 static_assert(AtomicRefHasAddAssign<float>);
+static_assert(AtomicRefHasAddAssign<long double>);
 static_assert(!AtomicRefHasAddAssign<AtomicRefAggregate>);
 static_assert(!AtomicRefHasAddAssign<AtomicRefOverloadedArithmetic>);
 static_assert(AtomicRefHasSubAssign<unsigned>);
 static_assert(AtomicRefHasSubAssign<float>);
+static_assert(AtomicRefHasSubAssign<long double>);
 static_assert(!AtomicRefHasSubAssign<AtomicRefAggregate>);
 static_assert(AtomicRefHasAndAssign<unsigned>);
 static_assert(!AtomicRefHasAndAssign<float>);
@@ -366,11 +370,13 @@ static_assert(!AtomicHasFetchAnd<AtomicRefAggregate>);
 static_assert(!AtomicHasFetchAnd<AtomicRefOverloadedBitwise>);
 static_assert(AtomicHasFetchAdd<int>);
 static_assert(AtomicHasFetchAdd<float>);
+static_assert(AtomicHasFetchAdd<long double>);
 static_assert(!AtomicHasFetchAdd<bool>);
 static_assert(!AtomicHasFetchAdd<AtomicRefAggregate>);
 static_assert(!AtomicHasFetchAdd<AtomicRefOverloadedArithmetic>);
 static_assert(AtomicHasFetchSub<int>);
 static_assert(AtomicHasFetchSub<float>);
+static_assert(AtomicHasFetchSub<long double>);
 static_assert(!AtomicHasFetchSub<AtomicRefAggregate>);
 static_assert(AtomicHasFetchOr<unsigned>);
 static_assert(!AtomicHasFetchOr<float>);
@@ -383,10 +389,12 @@ static_assert(!AtomicHasAndAssign<float>);
 static_assert(!AtomicHasAndAssign<AtomicRefOverloadedBitwise>);
 static_assert(AtomicHasAddAssign<int>);
 static_assert(AtomicHasAddAssign<float>);
+static_assert(AtomicHasAddAssign<long double>);
 static_assert(!AtomicHasAddAssign<AtomicRefAggregate>);
 static_assert(!AtomicHasAddAssign<AtomicRefOverloadedArithmetic>);
 static_assert(AtomicHasSubAssign<int>);
 static_assert(AtomicHasSubAssign<float>);
+static_assert(AtomicHasSubAssign<long double>);
 static_assert(!AtomicHasSubAssign<AtomicRefAggregate>);
 static_assert(AtomicHasOrAssign<unsigned>);
 static_assert(!AtomicHasOrAssign<float>);
@@ -519,6 +527,19 @@ static unsigned test_atomic_ref() {
         (floating_reference += 0.5f) != 2.0f ||
         (floating_reference -= 0.25f) != 1.75f)
         return 128u;
+
+#ifndef RCC_STDLIB_REFERENCE
+    static_assert(sizeof(long double) == 8u,
+                  "RinOS long double uses the binary64 ABI");
+#endif
+    long double extended_storage = 1.25L;
+    std::atomic_ref<long double> extended_reference{extended_storage};
+    if (extended_reference.fetch_add(0.75L) != 1.25L ||
+        extended_reference.fetch_sub(0.5L) != 2.0L ||
+        extended_reference.load() != 1.5L ||
+        (extended_reference += 0.5L) != 2.0L ||
+        (extended_reference -= 0.25L) != 1.75L)
+        return 164u;
 
     int values[5];
     int* pointer = values;
@@ -915,6 +936,16 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             return 45u;
         if ((floating_wide = 6.25) != 6.25 || floating_wide.load() != 6.25)
             return 46u;
+    }
+    {
+        std::atomic<long double> floating_extended(1.25L);
+        if (floating_extended.fetch_add(0.75L) != 1.25L ||
+            floating_extended.load() != 2.0L ||
+            floating_extended.fetch_sub(0.5L) != 2.0L ||
+            floating_extended.load() != 1.5L ||
+            (floating_extended += 0.5L) != 2.0L ||
+            (floating_extended -= 0.25L) != 1.75L)
+            return 165u;
     }
     {
         volatile std::atomic<unsigned> volatile_value(2u);

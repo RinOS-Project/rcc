@@ -49919,6 +49919,12 @@ static Type* parse_cxx_type_spec(void) {
         t = type_void;
     } else if (match(TOK_BOOL)) {
         t = type_bool;
+    } else if (long_count != 0 && match(TOK_DOUBLE)) {
+        if (long_count > 1 || is_unsigned || saw_sign || is_short) {
+            rcc_error(previous()->loc,
+                      "invalid qualifiers on long double type");
+        }
+        t = type_long_double;
     } else if (match(TOK_WCHAR_T)) {
         if (is_unsigned || saw_sign || long_count != 0 || is_short) {
             rcc_error(previous()->loc,
