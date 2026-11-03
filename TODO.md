@@ -13714,3 +13714,13 @@ remains a separate open item.
       GCC and generate i686/AMD64 objects at `-O0`/`-O2`; the full
       `test-atomic-builtins` gate, including runtime checks and linked RIN
       validation, passes.
+
+## RCC continuation (2026-11-03, atomic member default memory-order APIs)
+
+- [x] Match GCC defaulted memory_order member declarations for integral
+      atomic fetch arithmetic/bitwise operations, pointer fetch arithmetic,
+      and atomic_ref<T> store/load/exchange, single-order compare-exchange,
+      and fetch operations. Remove duplicate no-order overloads while
+      retaining two-order compare-exchange. test-atomic-builtins passes with
+      C++17/C++20 header probes, both target architectures, runtime checks,
+      linking, and RIN validation.
