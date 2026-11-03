@@ -13827,8 +13827,10 @@ remains a separate open item.
       `test-verified-backend` and production `test-ci`.
 - [x] Keep a user-declared deleted inherited move assignment in overload
       resolution so an rvalue is not incorrectly assigned through the copy
-      overload; retain lvalue copy assignment. GCC C++20, RCC i686/AMD64, and
-      normal/`-O2` x64 runtime pass in `test-atomic-private-access`.
+      overload; retain lvalue copy assignment. GCC C++20 confirms direct
+      assignment diagnoses the deleted function; RCC i686/AMD64 both reject it
+      without producing an object. Trait, lvalue runtime, and normal/`-O2` x64
+      checks pass in `test-atomic-private-access`.
 - [ ] Lower large fixed-bound arrays without per-element AST/code expansion.
 - [ ] Complete remaining inherited assignment overload viability and related
       type-trait coverage.
