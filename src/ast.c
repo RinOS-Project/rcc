@@ -2289,6 +2289,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_cxx_method = false;
     d->func_is_cxx_constructor = false;
     d->func_is_cxx_destructor = false;
+    d->func_cxx_constraint_unsatisfied = false;
     d->func_is_constexpr = false;
     d->func_is_consteval = false;
     d->func_is_noreturn = false;

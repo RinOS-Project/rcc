@@ -1,4 +1,14 @@
 #include <atomic>
+#if defined(RCC_STDLIB_REFERENCE)
+#include <type_traits>
+#define RCC_ATOMIC_DEFAULT_CONSTRUCTIBLE(T) \
+    std::is_default_constructible_v<T>
+#define RCC_ATOMIC_CONSTRUCTIBLE(T, ...) \
+    std::is_constructible_v<T, __VA_ARGS__>
+#else
+#define RCC_ATOMIC_DEFAULT_CONSTRUCTIBLE(T) __is_constructible(T)
+#define RCC_ATOMIC_CONSTRUCTIBLE(T, ...) __is_constructible(T, __VA_ARGS__)
+#endif
 
 static_assert(__atomic_always_lock_free(sizeof(unsigned), nullptr),
               "four-byte atomics are always lock-free");
@@ -96,6 +106,26 @@ struct AtomicDefaultMemberAggregate {
     unsigned first = 3u;
     unsigned second = 5u;
 };
+
+struct AtomicNoDefaultValue {
+    constexpr explicit AtomicNoDefaultValue(unsigned initial)
+        : value(initial) {}
+    AtomicNoDefaultValue() = delete;
+    AtomicNoDefaultValue(const AtomicNoDefaultValue&) = default;
+    AtomicNoDefaultValue(AtomicNoDefaultValue&&) = default;
+    AtomicNoDefaultValue& operator=(const AtomicNoDefaultValue&) = default;
+    AtomicNoDefaultValue& operator=(AtomicNoDefaultValue&&) = default;
+    unsigned value;
+};
+
+using AtomicNoDefault = std::atomic<AtomicNoDefaultValue>;
+static_assert(!RCC_ATOMIC_DEFAULT_CONSTRUCTIBLE(AtomicNoDefaultValue),
+              "the value type has no default constructor");
+static_assert(!RCC_ATOMIC_DEFAULT_CONSTRUCTIBLE(AtomicNoDefault),
+              "atomic<T> has no default constructor when T is not default constructible");
+static_assert(RCC_ATOMIC_CONSTRUCTIBLE(
+                  AtomicNoDefault, AtomicNoDefaultValue),
+              "atomic<T> remains constructible from a T value");
 
 struct AtomicZeroDefaultAggregate {
     unsigned zero;

@@ -532,7 +532,12 @@ protected:
 template<class T>
 class atomic : public __rcc_atomic_base<T> {
 public:
+#if __cplusplus >= 202002L
+    constexpr atomic() noexcept requires (__is_constructible(T))
+        : __rcc_atomic_base<T>() {}
+#else
     constexpr atomic() noexcept : __rcc_atomic_base<T>() {}
+#endif
     constexpr atomic(T desired) noexcept : __rcc_atomic_base<T>(desired) {}
     atomic(const atomic&) = delete;
     atomic& operator=(const atomic&) = delete;

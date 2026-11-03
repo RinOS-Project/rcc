@@ -4025,7 +4025,8 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                                                   SourceLoc loc,
                                                   Type* owner_type);
 static bool cxx_parser_expression_is_lvalue(Expr* expression);
-static Expr* parse_cxx_trailing_requires_clause(SourceLoc loc);
+static Expr* parse_cxx_trailing_requires_clause(
+    SourceLoc loc, bool allow_class_template_member);
 static Expr* parse_cxx_requires_clause_expression(void);
 static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl,
                                         int parameter_index,
@@ -12977,14 +12978,20 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             } else break;
         }
 
-        Expr* trailing_constraint = parse_cxx_trailing_requires_clause(loc);
+        Expr* trailing_constraint = parse_cxx_trailing_requires_clause(
+            loc, true);
+        Expr* method_constraint = NULL;
         if (trailing_constraint) {
-            if (active_template->constraint) {
-                active_template->constraint = expr_binary(
-                    EXPR_AND, active_template->constraint,
-                    trailing_constraint, trailing_constraint->loc);
+            if (active_template->kind == TMPL_FUNCTION) {
+                if (active_template->constraint) {
+                    active_template->constraint = expr_binary(
+                        EXPR_AND, active_template->constraint,
+                        trailing_constraint, trailing_constraint->loc);
+                } else {
+                    active_template->constraint = trailing_constraint;
+                }
             } else {
-                active_template->constraint = trailing_constraint;
+                method_constraint = trailing_constraint;
             }
         }
 
@@ -13101,6 +13108,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->decl->func_is_deleted = is_deleted;
         method->is_constructor = is_constructor;
         method->is_destructor = is_destructor;
+        method->constraint = method_constraint;
         if ((is_const || is_volatile ||
              ref_qualifier != CXX_REF_QUAL_NONE) && is_friend) {
             rcc_error(loc,
@@ -15680,7 +15688,8 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         is_decltype_auto_return = false;
     }
     {
-        Expr* trailing_constraint = parse_cxx_trailing_requires_clause(loc);
+        Expr* trailing_constraint = parse_cxx_trailing_requires_clause(
+            loc, false);
         if (trailing_constraint) {
             if (active_template->constraint) {
                 active_template->constraint = expr_binary(
@@ -18486,7 +18495,8 @@ Expr* rcc_parse_cxx_concept_expression(void) {
 /* Parse a trailing function requires-clause and attach it to the active
  * function template.  Keeping this separate from the body parser makes the
  * same constrained-template path serve abbreviated and explicit templates. */
-static Expr* parse_cxx_trailing_requires_clause(SourceLoc loc) {
+static Expr* parse_cxx_trailing_requires_clause(
+    SourceLoc loc, bool allow_class_template_member) {
     Expr* constraint;
 
     if (!match(TOK_REQUIRES)) return NULL;
@@ -18499,9 +18509,12 @@ static Expr* parse_cxx_trailing_requires_clause(SourceLoc loc) {
                   "trailing requires-clause requires a constraint expression");
         return NULL;
     }
-    if (!active_template || active_template->kind != TMPL_FUNCTION) {
+    if (!active_template ||
+        (active_template->kind != TMPL_FUNCTION &&
+         !(allow_class_template_member &&
+           active_template->kind == TMPL_CLASS))) {
         rcc_error(loc,
-                  "trailing requires-clause requires a function template");
+                  "trailing requires-clause requires a function template or a member of a class template");
         return NULL;
     }
     return constraint;
@@ -23221,6 +23234,32 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
         tmpl, method->decl->func_noexcept_expr, arguments, argument_count,
         value_args, value_present);
     copy->vtable_index = method->vtable_index;
+    copy->constraint = cxx_template_clone_expr_with_values(
+        tmpl, method->constraint, arguments, argument_count,
+        value_args, value_present);
+    copy->decl->func_cxx_constraint_unsatisfied = false;
+    if (method->constraint && tmpl && tmpl->kind == TMPL_CLASS) {
+        CxxTemplate constraint_template = *tmpl;
+        bool unsupported = false;
+        constraint_template.constraint = method->constraint;
+        constraint_template.constraint_context = tmpl;
+        if (cxx_template_constraint_satisfied(
+                &constraint_template, arguments, value_args, value_present,
+                method->decl->loc, false, &unsupported)) {
+            copy->constraint = NULL;
+        } else if (unsupported && copy->constraint &&
+                   cxx_expression_is_dependent(copy->constraint, tmpl)) {
+            /* An enclosing template still owns part of this constraint.
+             * Keep it dependent for the later substitution level. */
+        } else {
+            if (unsupported) {
+                rcc_error(method->decl->loc,
+                          "member function constraint could not be evaluated after class template substitution");
+            }
+            copy->decl->func_cxx_constraint_unsatisfied = true;
+            copy->constraint = NULL;
+        }
+    }
     defer_body = defer_class_template_body && tmpl &&
         tmpl->kind == TMPL_CLASS && method->decl->func_body &&
         !method->member_template && !method->is_constructor &&

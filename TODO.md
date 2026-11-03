@@ -13562,3 +13562,13 @@ remains a separate open item.
       This avoids Git Bash expanding `$text` before PowerShell receives the
       command. `test-cxx-template-local-classes` and the full Windows
       `make test-cxx` aggregate pass.
+
+## RCC continuation (2026-11-03, class-template member constraints)
+
+- [x] Parse C++20 trailing requires-clauses on non-template members of class
+      templates, retain and substitute each member constraint, and remove
+      unsatisfied members from function, static, constructor, delegating, and
+      initializer-list candidate selection. Exercise satisfied/unsatisfied
+      overloads and constructors on i686/AMD64, including AMD64 host execution,
+      in `test-cxx-constraints`; verify `std::atomic<T>` default-construction
+      constraints and the surrounding atomic suite in `test-atomic-builtins`.

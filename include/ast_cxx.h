@@ -510,6 +510,9 @@ struct CxxMethod {
     CxxTemplate* member_template;
     CxxConstructorInfo* constructor_info;
     int vtable_index;        /* -1 if not virtual */
+    /* Constraint declared on a non-template member of a class template.
+     * Class-template substitution resolves it before overload selection. */
+    Expr* constraint;
 };
 
 /* C++ virtual dispatch uses the source name, parameter types, and cv

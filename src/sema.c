@@ -13823,7 +13823,10 @@ static Symbol* sema_cxx_operator_function(const char* name,
     for (Decl* candidate = functions ? functions->decl : NULL;
          candidate; candidate = candidate->func_overload_next) {
         int parameter_count = 0;
-        if (!candidate->type || candidate->type->kind != TYPE_FUNC) continue;
+        if (candidate->func_cxx_constraint_unsatisfied ||
+            !candidate->type || candidate->type->kind != TYPE_FUNC) {
+            continue;
+        }
         for (TypeParam* parameter = candidate->type->params; parameter;
              parameter = parameter->next) {
             if (parameter_count == INT_MAX) break;
@@ -14824,6 +14827,7 @@ static int sema_cxx_function_pointer_overload_rank(
         int rank;
         if (candidate->kind != DECL_FUNC || !candidate->type ||
             candidate->type->kind != TYPE_FUNC || candidate->func_this_param ||
+            candidate->func_cxx_constraint_unsatisfied ||
             candidate->func_is_template_instance) {
             continue;
         }
@@ -18310,6 +18314,8 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
         int rank_count = 0;
         bool viable = true;
         if (candidate == current || !candidate->method ||
+            (candidate->method->decl &&
+             candidate->method->decl->func_cxx_constraint_unsatisfied) ||
             candidate->method->owner != cls ||
             candidate->access != ACCESS_PUBLIC || candidate->is_deleted ||
             candidate->is_defaulted || candidate->parameter_count < argument_count ||
@@ -18534,6 +18540,10 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
         int rank_count = 0;
         bool viable = true;
         if (!candidate->method || candidate->method->member_template) {
+            continue;
+        }
+        if (candidate->method->decl &&
+            candidate->method->decl->func_cxx_constraint_unsatisfied) {
             continue;
         }
         if (initializer_list_phase &&
@@ -19235,6 +19245,8 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
         TypeMethod** candidate_methods;
         bool viable = true;
         if (!candidate->method ||
+            (candidate->method->decl &&
+             candidate->method->decl->func_cxx_constraint_unsatisfied) ||
             (!include_inaccessible_or_deleted &&
              (candidate->access != ACCESS_PUBLIC || candidate->is_deleted)) ||
             (!allow_explicit && candidate->method->is_explicit) ||
@@ -23238,7 +23250,10 @@ static bool sema_cxx_braced_constructor_is_viable(
         int rank_count = 0;
         bool viable = true;
 
-        if (!constructor->method || constructor->access != ACCESS_PUBLIC ||
+        if (!constructor->method ||
+            (constructor->method->decl &&
+             constructor->method->decl->func_cxx_constraint_unsatisfied) ||
+            constructor->access != ACCESS_PUBLIC ||
             constructor->is_deleted || constructor->is_defaulted ||
             constructor->parameter_count < argument_count ||
             (constructor->parameter_count != argument_count &&
@@ -23537,6 +23552,8 @@ static bool sema_cxx_has_viable_initializer_list_constructor(
         TypeParam* parameter;
         int rank;
         if (!constructor->method || constructor->method->member_template ||
+            (constructor->method->decl &&
+             constructor->method->decl->func_cxx_constraint_unsatisfied) ||
             !sema_cxx_is_initializer_list_constructor(constructor) ||
             constructor->parameter_count < 1 ||
             (constructor->parameter_count > 1 &&
@@ -23597,6 +23614,8 @@ static bool sema_cxx_class_has_default_constructor(Type* object_type) {
             !constructor->method->is_constructor ||
             constructor->method->owner != cls ||
             constructor->method->member_template ||
+            (constructor->method->decl &&
+             constructor->method->decl->func_cxx_constraint_unsatisfied) ||
             constructor->is_inherited) {
             continue;
         }
@@ -23747,6 +23766,7 @@ static Decl* sema_select_cxx_overload_candidates(
         : NULL;
     for (candidate = candidate_root; candidate;
          candidate = candidate->func_overload_next) {
+        if (candidate->func_cxx_constraint_unsatisfied) continue;
         if (extra_candidate && candidate->func_is_template_instance &&
             candidate != extra_candidate) {
             continue;
@@ -23762,6 +23782,7 @@ static Decl* sema_select_cxx_overload_candidates(
         bool already_present = false;
         for (candidate = candidate_root; candidate;
              candidate = candidate->func_overload_next) {
+            if (candidate->func_cxx_constraint_unsatisfied) continue;
             if (candidate == extra_candidate) {
                 already_present = true;
                 break;
@@ -23782,6 +23803,7 @@ static Decl* sema_select_cxx_overload_candidates(
         : NULL;
     for (candidate = candidate_root; candidate;
          candidate = candidate->func_overload_next) {
+        if (candidate->func_cxx_constraint_unsatisfied) continue;
         if (extra_candidate && candidate->func_is_template_instance &&
             candidate != extra_candidate) {
             continue;
@@ -23820,7 +23842,8 @@ static Decl* sema_select_cxx_overload_candidates(
         bool viable = true;
 
         if (candidate->kind != DECL_FUNC || !candidate->type ||
-            candidate->type->kind != TYPE_FUNC) {
+            candidate->type->kind != TYPE_FUNC ||
+            candidate->func_cxx_constraint_unsatisfied) {
             continue;
         }
         parameter = candidate->type->params;
@@ -24570,7 +24593,11 @@ static bool sema_cxx_method_is_overload_candidate(
     CxxClass* owner = sema_cxx_declaring_method_owner(method);
     bool has_using;
 
-    if (!aggregate || !cls || !name || !method || !owner) return false;
+    if (!aggregate || !cls || !name || !method || !owner ||
+        (method->function_decl &&
+         method->function_decl->func_cxx_constraint_unsatisfied)) {
+        return false;
+    }
     if (sema_cxx_method_is_ignored_defaulted_deleted_move_assignment(
             aggregate, method)) {
         return false;
@@ -25026,6 +25053,7 @@ static bool sema_cxx_operator_has_exact_nonmember_candidate(
     }
     for (Decl* candidate = functions->decl; candidate;
          candidate = candidate->func_overload_next) {
+        if (candidate->func_cxx_constraint_unsatisfied) continue;
         TypeParam* parameter = candidate->type &&
                 candidate->type->kind == TYPE_FUNC
             ? candidate->type->params : NULL;
@@ -25056,6 +25084,7 @@ static bool sema_cxx_operator_has_viable_nonmember_candidate(
     }
     for (Decl* candidate = functions->decl; candidate;
          candidate = candidate->func_overload_next) {
+        if (candidate->func_cxx_constraint_unsatisfied) continue;
         TypeParam* parameter = candidate->type &&
                 candidate->type->kind == TYPE_FUNC
             ? candidate->type->params : NULL;
@@ -25100,7 +25129,8 @@ static Decl* sema_cxx_operator_best_nonmember_candidate(
         bool viable = true;
 
         if (candidate->kind != DECL_FUNC || !candidate->type ||
-            candidate->type->kind != TYPE_FUNC) {
+            candidate->type->kind != TYPE_FUNC ||
+            candidate->func_cxx_constraint_unsatisfied) {
             continue;
         }
         parameter = candidate->type->params;
