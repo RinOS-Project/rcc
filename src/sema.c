@@ -26457,7 +26457,7 @@ static bool sema_cxx_find_nonvirtual_base_adjustment(
     unsigned depth, SemaBaseAdjustmentSearch* result) {
     if (!current || depth > 64u) return false;
     if (current == target) {
-        ++result->count;
+        if (result->count < 2) ++result->count;
         result->adjustment = adjustment;
         return true;
     }
@@ -26473,6 +26473,7 @@ static bool sema_cxx_find_nonvirtual_base_adjustment(
             return false;
         }
         offset = current->base_offsets[index];
+        if (adjustment > INT_MAX - offset) return false;
         if (!sema_cxx_find_nonvirtual_base_adjustment(
                 direct_base, target, adjustment + offset,
                 depth + 1u, result)) {
@@ -26486,22 +26487,38 @@ static bool sema_cxx_selected_using_base_adjustment(
     Type* aggregate, CxxClass* base, int* adjustment_out) {
     CxxClass* derived = aggregate ? aggregate->cxx_class : NULL;
     SemaBaseAdjustmentSearch search = {0, 0};
+    int selected_adjustment = 0;
+    int candidate_count = 0;
     if (!derived || !base || !adjustment_out) return false;
     for (int virtual_index = 0;
          virtual_index < derived->virtual_base_count;
          ++virtual_index) {
         CxxVirtualBaseInfo* virtual_base =
             &derived->virtual_bases[virtual_index];
-        if (virtual_base->base == base && virtual_base->offset >= 0) {
-            *adjustment_out = virtual_base->offset;
-            return true;
+        SemaBaseAdjustmentSearch nested = {0, 0};
+        if (!virtual_base->base || virtual_base->offset < 0) continue;
+        if (virtual_base->base == base) {
+            ++candidate_count;
+            selected_adjustment = virtual_base->offset;
+        } else if (sema_cxx_find_nonvirtual_base_adjustment(
+                       virtual_base->base, base, 0, 0u, &nested) &&
+                   nested.count == 1 &&
+                   virtual_base->offset <= INT_MAX - nested.adjustment) {
+            ++candidate_count;
+            selected_adjustment =
+                virtual_base->offset + nested.adjustment;
         }
     }
     if (!sema_cxx_find_nonvirtual_base_adjustment(
-            derived, base, 0, 0u, &search) || search.count != 1) {
+            derived, base, 0, 0u, &search)) {
         return false;
     }
-    *adjustment_out = search.adjustment;
+    if (search.count > 0) {
+        candidate_count += search.count;
+        selected_adjustment = search.adjustment;
+    }
+    if (candidate_count != 1) return false;
+    *adjustment_out = selected_adjustment;
     return true;
 }
 
@@ -26561,18 +26578,30 @@ static Expr* sema_cxx_object_virtual_base(
     Type* reference_type;
     Expr* base_object;
     int virtual_index = -1;
+    int nested_adjustment = 0;
+    int candidate_count = 0;
     if (!object || !object_type || !base_type || !base_type->cxx_class ||
         !cls || !cls->virtual_bases ||
         cls->virtual_base_pointer_offset < 0) {
         return NULL;
     }
     for (int index = 0; index < cls->virtual_base_count; ++index) {
-        if (cls->virtual_bases[index].base == base_type->cxx_class) {
+        CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
+        SemaBaseAdjustmentSearch nested = {0, 0};
+        if (!virtual_base->base || virtual_base->offset < 0) continue;
+        if (virtual_base->base == base_type->cxx_class) {
             virtual_index = index;
-            break;
+            nested_adjustment = 0;
+            ++candidate_count;
+        } else if (sema_cxx_find_nonvirtual_base_adjustment(
+                       virtual_base->base, base_type->cxx_class, 0, 0u,
+                       &nested) && nested.count == 1) {
+            virtual_index = index;
+            nested_adjustment = nested.adjustment;
+            ++candidate_count;
         }
     }
-    if (virtual_index < 0) return NULL;
+    if (virtual_index < 0 || candidate_count != 1) return NULL;
     reference_type = sema_cxx_type_trait_reference_type(
         base_type, object_type->is_const || base_type->is_const,
         object_type->is_volatile || base_type->is_volatile, false);
@@ -26581,7 +26610,7 @@ static Expr* sema_cxx_object_virtual_base(
     base_object->cxx_cast_kind = CXX_CAST_STATIC;
     base_object->cxx_virtual_base_adjustment = true;
     base_object->cxx_virtual_base_index = virtual_index;
-    base_object->cxx_virtual_base_nested_adjustment = 0;
+    base_object->cxx_virtual_base_nested_adjustment = nested_adjustment;
     base_object->cxx_virtual_base_source_class = cls;
     base_object->cxx_virtual_base_pointer_offset =
         cls->virtual_base_pointer_offset;
@@ -27041,7 +27070,6 @@ static bool sema_cxx_expand_defaulted_assignment(
     int special_member_kind;
     int expected_adjustment = -1;
     bool inherited_using_base;
-    bool inherited_virtual_base = false;
     Expr* base_lhs;
     Expr* replacement;
     bool is_trivial;
@@ -27085,14 +27113,6 @@ static bool sema_cxx_expand_defaulted_assignment(
             expected_adjustment != method->this_adjustment) {
             return false;
         }
-        for (int index = 0; complete_type->cxx_class->virtual_bases &&
-             index < complete_type->cxx_class->virtual_base_count; ++index) {
-            if (complete_type->cxx_class->virtual_bases[index].base ==
-                base_type->cxx_class) {
-                inherited_virtual_base = true;
-                break;
-            }
-        }
     } else if (method->cxx_access_owner ||
                method->this_adjustment != 0) {
         return false;
@@ -27101,16 +27121,17 @@ static bool sema_cxx_expand_defaulted_assignment(
         base_type, parameter_type, 0u);
     if (!inherited_using_base) {
         base_lhs = original_lhs;
-    } else if (inherited_virtual_base) {
-        /* A using-inherited operator may be invoked on a base subobject of a
-         * more-derived complete object. Resolve its virtual base through the
-         * vbtable attached to that object instead of reusing the declaring
-         * class's complete-object byte offset. */
+    } else {
+        /* The declaring method owner may be a nonvirtual base inside a
+         * virtual base. Resolve the complete path through the object's
+         * vbtable when such a route is present. */
         base_lhs = sema_cxx_object_virtual_base(
             original_lhs, complete_type, base_type);
-    } else {
-        base_lhs = sema_cxx_object_base(
-            original_lhs, complete_type, base_type, expected_adjustment);
+        if (!base_lhs) {
+            base_lhs = sema_cxx_object_base(
+                original_lhs, complete_type, base_type,
+                expected_adjustment);
+        }
     }
     if (!base_lhs) return false;
     base_lhs->cxx_synthesized_assignment_subobject = true;

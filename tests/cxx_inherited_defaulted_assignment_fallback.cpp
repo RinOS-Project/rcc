@@ -221,6 +221,27 @@ struct ExtendedVirtualUsingAssignment :
 #pragma GCC diagnostic pop
 #endif
 
+struct NestedVirtualUsingOwner : VirtualUsingAssignmentBase {
+    using VirtualUsingAssignmentBase::operator=;
+    int nested_marker;
+};
+
+#if !defined(__RCC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wvirtual-move-assign"
+#endif
+struct VirtualNestedUsingLayer : virtual NestedVirtualUsingOwner {
+    using NestedVirtualUsingOwner::operator=;
+    int layer_marker;
+};
+struct ExtendedVirtualNestedUsingAssignment : VirtualNestedUsingLayer {
+    using VirtualNestedUsingLayer::operator=;
+    long long padding[8];
+};
+#if !defined(__RCC__)
+#pragma GCC diagnostic pop
+#endif
+
 static int array_element_copy_assignment_calls;
 static int array_element_move_assignment_calls;
 static int array_element_assignment_order;
@@ -321,6 +342,12 @@ static_assert(__is_assignable(
     ExtendedVirtualUsingAssignment&,
     VirtualUsingAssignmentBase&&));
 static_assert(__is_assignable(
+    ExtendedVirtualNestedUsingAssignment&,
+    const VirtualUsingAssignmentBase&));
+static_assert(__is_assignable(
+    ExtendedVirtualNestedUsingAssignment&,
+    VirtualUsingAssignmentBase&&));
+static_assert(__is_assignable(
     ExtendedVirtualDefaultedAssignment&,
     const ExtendedVirtualDefaultedAssignment&));
 static_assert(__is_assignable(
@@ -373,6 +400,12 @@ static_assert(std::is_assignable_v<
     const VirtualUsingAssignmentBase&>);
 static_assert(std::is_assignable_v<
     ExtendedVirtualUsingAssignment&,
+    VirtualUsingAssignmentBase&&>);
+static_assert(std::is_assignable_v<
+    ExtendedVirtualNestedUsingAssignment&,
+    const VirtualUsingAssignmentBase&>);
+static_assert(std::is_assignable_v<
+    ExtendedVirtualNestedUsingAssignment&,
     VirtualUsingAssignmentBase&&>);
 static_assert(std::is_assignable_v<
     ExtendedVirtualDefaultedAssignment&,
@@ -594,6 +627,40 @@ int main() {
         indirect_using_destination.marker != 311 ||
         indirect_using_destination.padding[0] != 313 ||
         virtual_using_member_move_assignment_calls != 1) return 20;
+
+    ExtendedVirtualNestedUsingAssignment nested_virtual_destination;
+    VirtualUsingAssignmentBase nested_virtual_copy_source;
+    static_cast<VirtualUsingAssignmentBase&>(
+        nested_virtual_destination).member.value = 347;
+    static_cast<NestedVirtualUsingOwner&>(
+        nested_virtual_destination).nested_marker = 349;
+    nested_virtual_destination.layer_marker = 353;
+    nested_virtual_destination.padding[0] = 359;
+    nested_virtual_copy_source.member.value = 367;
+    virtual_using_member_copy_assignment_calls = 0;
+    nested_virtual_destination = nested_virtual_copy_source;
+    if (static_cast<VirtualUsingAssignmentBase&>(
+            nested_virtual_destination).member.value != 367 ||
+        static_cast<NestedVirtualUsingOwner&>(
+            nested_virtual_destination).nested_marker != 349 ||
+        nested_virtual_destination.layer_marker != 353 ||
+        nested_virtual_destination.padding[0] != 359 ||
+        virtual_using_member_copy_assignment_calls != 1) return 22;
+
+    VirtualUsingAssignmentBase nested_virtual_move_source;
+    static_cast<VirtualUsingAssignmentBase&>(
+        nested_virtual_destination).member.value = 373;
+    nested_virtual_move_source.member.value = 379;
+    virtual_using_member_move_assignment_calls = 0;
+    nested_virtual_destination = static_cast<
+        VirtualUsingAssignmentBase&&>(nested_virtual_move_source);
+    if (static_cast<VirtualUsingAssignmentBase&>(
+            nested_virtual_destination).member.value != 379 ||
+        static_cast<NestedVirtualUsingOwner&>(
+            nested_virtual_destination).nested_marker != 349 ||
+        nested_virtual_destination.layer_marker != 353 ||
+        nested_virtual_destination.padding[0] != 359 ||
+        virtual_using_member_move_assignment_calls != 1) return 23;
 
     ExtendedVirtualDefaultedAssignment extended_copy_destination;
     ExtendedVirtualDefaultedAssignment extended_copy_source;
