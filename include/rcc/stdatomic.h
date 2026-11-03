@@ -91,30 +91,89 @@ typedef _Atomic unsigned int atomic_flag;
      sizeof(*(object)) == 4u || sizeof(*(object)) == 8u)
 #define atomic_init(object, desired) (*(object) = (desired))
 
-#define atomic_thread_fence(order) __atomic_thread_fence(order)
-#define atomic_signal_fence(order) __atomic_signal_fence(order)
+#if defined(__clang__)
+/* Clang's C23 frontend requires its C11 atomic builtins for _Atomic
+ * operands.  The generic __atomic builtins used by GCC/RinCompiler reject
+ * pointers to these qualified types. */
+#define __RCC_ATOMIC_THREAD_FENCE(order) __c11_atomic_thread_fence(order)
+#define __RCC_ATOMIC_SIGNAL_FENCE(order) __c11_atomic_signal_fence(order)
+#define __RCC_ATOMIC_STORE(object, desired, order) \
+    __c11_atomic_store((object), (desired), (order))
+#define __RCC_ATOMIC_LOAD(object, order) \
+    __c11_atomic_load((object), (order))
+#define __RCC_ATOMIC_EXCHANGE(object, desired, order) \
+    __c11_atomic_exchange((object), (desired), (order))
+#define __RCC_ATOMIC_COMPARE_EXCHANGE_STRONG( \
+        object, expected, desired, success, failure) \
+    __c11_atomic_compare_exchange_strong((object), (expected), (desired), \
+                                         (success), (failure))
+#define __RCC_ATOMIC_COMPARE_EXCHANGE_WEAK( \
+        object, expected, desired, success, failure) \
+    __c11_atomic_compare_exchange_weak((object), (expected), (desired), \
+                                       (success), (failure))
+#define __RCC_ATOMIC_FETCH_ADD(object, operand, order) \
+    __c11_atomic_fetch_add((object), (operand), (order))
+#define __RCC_ATOMIC_FETCH_SUB(object, operand, order) \
+    __c11_atomic_fetch_sub((object), (operand), (order))
+#define __RCC_ATOMIC_FETCH_AND(object, operand, order) \
+    __c11_atomic_fetch_and((object), (operand), (order))
+#define __RCC_ATOMIC_FETCH_OR(object, operand, order) \
+    __c11_atomic_fetch_or((object), (operand), (order))
+#define __RCC_ATOMIC_FETCH_XOR(object, operand, order) \
+    __c11_atomic_fetch_xor((object), (operand), (order))
+#else
+#define __RCC_ATOMIC_THREAD_FENCE(order) __atomic_thread_fence(order)
+#define __RCC_ATOMIC_SIGNAL_FENCE(order) __atomic_signal_fence(order)
+#define __RCC_ATOMIC_STORE(object, desired, order) \
+    __atomic_store_n((object), (desired), (order))
+#define __RCC_ATOMIC_LOAD(object, order) \
+    __atomic_load_n((object), (order))
+#define __RCC_ATOMIC_EXCHANGE(object, desired, order) \
+    __atomic_exchange_n((object), (desired), (order))
+#define __RCC_ATOMIC_COMPARE_EXCHANGE_STRONG( \
+        object, expected, desired, success, failure) \
+    __atomic_compare_exchange_n((object), (expected), (desired), 0, \
+                                (success), (failure))
+#define __RCC_ATOMIC_COMPARE_EXCHANGE_WEAK( \
+        object, expected, desired, success, failure) \
+    __atomic_compare_exchange_n((object), (expected), (desired), 1, \
+                                (success), (failure))
+#define __RCC_ATOMIC_FETCH_ADD(object, operand, order) \
+    __atomic_fetch_add((object), (operand), (order))
+#define __RCC_ATOMIC_FETCH_SUB(object, operand, order) \
+    __atomic_fetch_sub((object), (operand), (order))
+#define __RCC_ATOMIC_FETCH_AND(object, operand, order) \
+    __atomic_fetch_and((object), (operand), (order))
+#define __RCC_ATOMIC_FETCH_OR(object, operand, order) \
+    __atomic_fetch_or((object), (operand), (order))
+#define __RCC_ATOMIC_FETCH_XOR(object, operand, order) \
+    __atomic_fetch_xor((object), (operand), (order))
+#endif
+
+#define atomic_thread_fence(order) __RCC_ATOMIC_THREAD_FENCE(order)
+#define atomic_signal_fence(order) __RCC_ATOMIC_SIGNAL_FENCE(order)
 
 #define atomic_store_explicit(object, desired, order) \
-    __atomic_store_n((object), (desired), (order))
+    __RCC_ATOMIC_STORE((object), (desired), (order))
 #define atomic_store(object, desired) \
     atomic_store_explicit((object), (desired), memory_order_seq_cst)
 #define atomic_load_explicit(object, order) \
-    __atomic_load_n((object), (order))
+    __RCC_ATOMIC_LOAD((object), (order))
 #define atomic_load(object) \
     atomic_load_explicit((object), memory_order_seq_cst)
 #define atomic_exchange_explicit(object, desired, order) \
-    __atomic_exchange_n((object), (desired), (order))
+    __RCC_ATOMIC_EXCHANGE((object), (desired), (order))
 #define atomic_exchange(object, desired) \
     atomic_exchange_explicit((object), (desired), memory_order_seq_cst)
 
 #define atomic_compare_exchange_strong_explicit( \
         object, expected, desired, success, failure) \
-    __atomic_compare_exchange_n((object), (expected), (desired), 0, \
-                                (success), (failure))
+    __RCC_ATOMIC_COMPARE_EXCHANGE_STRONG( \
+        (object), (expected), (desired), (success), (failure))
 #define atomic_compare_exchange_weak_explicit( \
         object, expected, desired, success, failure) \
-    __atomic_compare_exchange_n((object), (expected), (desired), 1, \
-                                (success), (failure))
+    __RCC_ATOMIC_COMPARE_EXCHANGE_WEAK( \
+        (object), (expected), (desired), (success), (failure))
 #define atomic_compare_exchange_strong(object, expected, desired) \
     atomic_compare_exchange_strong_explicit( \
         (object), (expected), (desired), memory_order_seq_cst, \
@@ -125,32 +184,32 @@ typedef _Atomic unsigned int atomic_flag;
         memory_order_seq_cst)
 
 #define atomic_fetch_add_explicit(object, operand, order) \
-    __atomic_fetch_add((object), (operand), (order))
+    __RCC_ATOMIC_FETCH_ADD((object), (operand), (order))
 #define atomic_fetch_add(object, operand) \
     atomic_fetch_add_explicit((object), (operand), memory_order_seq_cst)
 #define atomic_fetch_sub_explicit(object, operand, order) \
-    __atomic_fetch_sub((object), (operand), (order))
+    __RCC_ATOMIC_FETCH_SUB((object), (operand), (order))
 #define atomic_fetch_sub(object, operand) \
     atomic_fetch_sub_explicit((object), (operand), memory_order_seq_cst)
 #define atomic_fetch_and_explicit(object, operand, order) \
-    __atomic_fetch_and((object), (operand), (order))
+    __RCC_ATOMIC_FETCH_AND((object), (operand), (order))
 #define atomic_fetch_and(object, operand) \
     atomic_fetch_and_explicit((object), (operand), memory_order_seq_cst)
 #define atomic_fetch_or_explicit(object, operand, order) \
-    __atomic_fetch_or((object), (operand), (order))
+    __RCC_ATOMIC_FETCH_OR((object), (operand), (order))
 #define atomic_fetch_or(object, operand) \
     atomic_fetch_or_explicit((object), (operand), memory_order_seq_cst)
 #define atomic_fetch_xor_explicit(object, operand, order) \
-    __atomic_fetch_xor((object), (operand), (order))
+    __RCC_ATOMIC_FETCH_XOR((object), (operand), (order))
 #define atomic_fetch_xor(object, operand) \
     atomic_fetch_xor_explicit((object), (operand), memory_order_seq_cst)
 
 #define atomic_flag_test_and_set_explicit(object, order) \
-    (__atomic_exchange_n((object), 1u, (order)) != 0u)
+    (__RCC_ATOMIC_EXCHANGE((object), 1u, (order)) != 0u)
 #define atomic_flag_test_and_set(object) \
     atomic_flag_test_and_set_explicit((object), memory_order_seq_cst)
 #define atomic_flag_clear_explicit(object, order) \
-    __atomic_store_n((object), 0u, (order))
+    __RCC_ATOMIC_STORE((object), 0u, (order))
 #define atomic_flag_clear(object) \
     atomic_flag_clear_explicit((object), memory_order_seq_cst)
 
