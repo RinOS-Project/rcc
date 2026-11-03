@@ -13247,6 +13247,12 @@ remains a separate open item.
       viability, selected scalar/aggregate list handling, and C++17 fixed-
       underlying enum direct-list initialization are covered by the 2026-11-01
       continuations above.
+  - [x] Preserve constant-expression narrowing decisions through conditional
+        expressions: evaluate only the selected arm, allow a non-constant call
+        in an unselected arm, and check integer-to-integer and
+        floating-to-floating conversions against the conditional expression's
+        value. GCC C++20, RCC i686/AMD64 generation, and AMD64 runtime agree in
+        `test-cxx-list-narrowing`.
   - [x] Rank two `std::initializer_list` overloads by the worst element
         conversion sequence, rather than comparing each element independently.
         GCC chooses `initializer_list<int>` over `initializer_list<short>` for

@@ -30,6 +30,13 @@ float list_narrowing_take_float(float value) {
     return value;
 }
 
+int list_narrowing_unselected_call_count;
+
+int list_narrowing_unselected_call() {
+    ++list_narrowing_unselected_call_count;
+    return 128;
+}
+
 int list_narrowing_pick(int) {
     return 1;
 }
@@ -51,6 +58,11 @@ int main() {
     float rounded_fraction{1.1};
     float positive_constant_underflow{1e-50};
     float negative_constant_underflow{-1e-50};
+    signed char selected_constant_signed{true ? 127 : 128};
+    unsigned char selected_constant_unsigned{true ? 0 : -1};
+    signed char unselected_runtime_branch{
+        false ? list_narrowing_unselected_call() : 127};
+    float selected_constant_float{true ? 1.0 : 1.0e100};
     float exact_integer{16777216};
     double exact_wide_integer{9007199254740992ULL};
     double exact_ull_boundary{18446744073709549568ULL};
@@ -73,6 +85,11 @@ int main() {
     if (rounded_fraction != 1.1f) return 4;
     if (positive_constant_underflow != 0.0f ||
         negative_constant_underflow != 0.0f) return 17;
+    if (selected_constant_signed != 127 ||
+        selected_constant_unsigned != 0 ||
+        unselected_runtime_branch != 127 ||
+        selected_constant_float != 1.0f ||
+        list_narrowing_unselected_call_count != 0) return 18;
     if (exact_integer != 16777216.0f) return 5;
     if (exact_wide_integer != 9007199254740992.0) return 6;
     if (exact_ull_boundary != 18446744073709549568.0) return 15;
