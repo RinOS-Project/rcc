@@ -26522,6 +26522,43 @@ static Type* sema_cxx_assignment_source_field_type(
     return qualified;
 }
 
+/* Form a reference to a virtual base using the object's vbtable metadata.
+ * Its byte offset belongs to the most-derived object and cannot be computed
+ * from the static size of the owner subobject. */
+static Expr* sema_cxx_object_virtual_base(
+    Expr* object, Type* object_type, Type* base_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    Type* reference_type;
+    Expr* base_object;
+    int virtual_index = -1;
+    if (!object || !object_type || !base_type || !base_type->cxx_class ||
+        !cls || !cls->virtual_bases ||
+        cls->virtual_base_pointer_offset < 0) {
+        return NULL;
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        if (cls->virtual_bases[index].base == base_type->cxx_class) {
+            virtual_index = index;
+            break;
+        }
+    }
+    if (virtual_index < 0) return NULL;
+    reference_type = sema_cxx_type_trait_reference_type(
+        base_type, object_type->is_const || base_type->is_const,
+        object_type->is_volatile || base_type->is_volatile, false);
+    if (!reference_type) return NULL;
+    base_object = expr_cast(reference_type, object, object->loc);
+    base_object->cxx_cast_kind = CXX_CAST_STATIC;
+    base_object->cxx_virtual_base_adjustment = true;
+    base_object->cxx_virtual_base_index = virtual_index;
+    base_object->cxx_virtual_base_nested_adjustment = 0;
+    base_object->cxx_virtual_base_source_class = cls;
+    base_object->cxx_virtual_base_pointer_offset =
+        cls->virtual_base_pointer_offset;
+    base_object->cxx_synthesized_assignment_subobject = true;
+    return base_object;
+}
+
 static Expr* sema_cxx_defaulted_assignment_subobjects(
     Type* owner_type, Type* source_parameter_type,
     Expr* original_destination,
@@ -26538,13 +26575,12 @@ static Expr* sema_cxx_defaulted_assignment_subobjects(
     if (!owner || !source_parameter_type || !original_destination ||
         source_parameter_type->kind != TYPE_PTR ||
         !source_parameter_type->is_reference || !source_parameter_type->base ||
-        owner_type->kind != TYPE_STRUCT || owner->virtual_base_count != 0 ||
+        owner_type->kind != TYPE_STRUCT ||
         !destination || !source_object ||
         !sema_cxx_is_stable_assignment_object(original_destination) ||
+        !sema_cxx_is_stable_assignment_object(destination) ||
         !is_lvalue(destination) ||
         !sema_cxx_is_stable_assignment_object(source_object) ||
-        (destination->kind != EXPR_IDENT &&
-         destination->kind != EXPR_DEREF) ||
         (source_object->kind != EXPR_IDENT &&
          source_object->kind != EXPR_DEREF)) {
         return NULL;
@@ -26582,18 +26618,27 @@ static Expr* sema_cxx_defaulted_assignment_subobjects(
         Expr* source_base;
         Expr* assignment;
         int offset;
-        if (!base_type || owner->bases[index].is_virtual ||
-            !owner->base_offsets || owner->base_offsets[index] < 0) {
-            return NULL;
-        }
-        offset = owner->base_offsets[index];
+        bool is_virtual = owner->bases[index].is_virtual;
+        if (!base_type) return NULL;
         source_base_type = sema_cxx_assignment_source_field_type(
             base_type, source_parameter_type->base);
-        destination_base = sema_cxx_object_base(
-            destination, owner_type, base_type, offset);
-        source_base = sema_cxx_object_base(
-            source_lvalue, source_parameter_type->base, source_base_type,
-            offset);
+        if (is_virtual) {
+            destination_base = sema_cxx_object_virtual_base(
+                destination, owner_type, base_type);
+            source_base = sema_cxx_object_virtual_base(
+                source_lvalue, source_parameter_type->base,
+                source_base_type);
+        } else {
+            if (!owner->base_offsets || owner->base_offsets[index] < 0) {
+                return NULL;
+            }
+            offset = owner->base_offsets[index];
+            destination_base = sema_cxx_object_base(
+                destination, owner_type, base_type, offset);
+            source_base = sema_cxx_object_base(
+                source_lvalue, source_parameter_type->base,
+                source_base_type, offset);
+        }
         if (!destination_base || !source_base) return NULL;
         if (source_parameter_type->is_rvalue_reference) {
             Type* source_base_rvalue = sema_cxx_type_trait_reference_type(

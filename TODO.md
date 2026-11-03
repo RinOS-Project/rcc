@@ -13781,8 +13781,15 @@ remains a separate open item.
       base/class-member operands, preserving fallback from a deleted defaulted
       base move to copy assignment. GCC/RCC i686/AMD64 and normal/`-O2` x64
       link/run checks pass; the fixture verifies one user-defined move call.
-- [ ] Extend defaulted assignment synthesis to virtual bases, arrays,
-      bit-fields, and reference members.
+- [x] Extend defaulted copy/move assignment synthesis to direct virtual bases
+      using the object's vbtable adjustment. Verify direct virtual-base
+      assignment and a class with a virtual base assigned as a base subobject;
+      copy and move each invoke the user-defined virtual-base assignment once.
+      GCC C++20, RCC i686/AMD64, and normal/`-O2` x64 link/run checks pass in
+      `test-atomic-private-access`.
+- [ ] Extend defaulted assignment synthesis to array members, bit-fields, and
+      reference members. Complete inherited assignment overload viability and
+      virtual-base cases reached through inherited `using` declarations.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 
