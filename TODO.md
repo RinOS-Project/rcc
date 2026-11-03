@@ -998,6 +998,9 @@
         copy constructor、call引数以外のfull-expression cleanupと未検証の例外経路が残る。
         標準conversion subsequenceと
         pointer-to-memberを含む全rank/partial orderingも未完了
+    - [x] virtual baseをvirtual intermediateとnon-virtual bridge越しに継承する3階層で、
+          most-derived initializerだけがvirtual baseを構築し、construction event順と全member値が
+          GCC C++20、i686 PE生成、AMD64実行で一致することを`test-cxx-virtual-base-constructor-order`で確認
   - [x] Namespace extension compatibility: verify reopened named and
         translation-unit anonymous namespaces, lookup through the transitive
         inline-namespace set for both namespace definitions and qualified
