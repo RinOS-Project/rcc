@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <cstring>
 #include <time.h>
 
 struct HostWaitState {
@@ -190,6 +191,84 @@ static bool run_unchanged_value_recheck(void) {
     return reparked && stayed_waiting && completed_count(&completed) == 1u;
 }
 
+struct PaddedAtomicWaitValue {
+    unsigned char tag;
+    unsigned payload;
+};
+
+static_assert(sizeof(PaddedAtomicWaitValue) == 8u,
+              "aggregate atomic wait fixture must contain padding");
+
+static PaddedAtomicWaitValue make_padded_wait_value(
+    unsigned char padding, unsigned char tag, unsigned payload) {
+    PaddedAtomicWaitValue value;
+    std::memset(&value, padding, sizeof(value));
+    value.tag = tag;
+    value.payload = payload;
+    return value;
+}
+
+template<class Atomic>
+struct AggregateWaitTask {
+    Atomic* object;
+    typename Atomic::value_type old_value;
+    volatile unsigned* completed;
+};
+
+template<class Atomic>
+static void* wait_for_aggregate_change(void* context) {
+    AggregateWaitTask<Atomic>* task =
+        static_cast<AggregateWaitTask<Atomic>*>(context);
+    task->object->wait(task->old_value, std::memory_order_acquire);
+    __atomic_add_fetch(task->completed, 1u, __ATOMIC_RELEASE);
+    return nullptr;
+}
+
+template<class Atomic>
+static bool run_aggregate_padding_wait(
+    Atomic* object, PaddedAtomicWaitValue next_value) {
+    volatile unsigned completed = 0u;
+    PaddedAtomicWaitValue old_value = make_padded_wait_value(
+        0x5au, 0x35u, 0x4678a9bcu);
+    AggregateWaitTask<Atomic> task = {object, old_value, &completed};
+    pthread_t thread;
+    const unsigned initial_calls = host_wait_call_count();
+    if (pthread_create(&thread, nullptr,
+                       wait_for_aggregate_change<Atomic>, &task) != 0) {
+        return false;
+    }
+    if (!wait_for_host_wait_count(initial_calls + 1u)) {
+        object->store(next_value, std::memory_order_release);
+        object->notify_all();
+        pthread_join(thread, nullptr);
+        return false;
+    }
+
+    object->notify_one();
+    const bool reparked = wait_for_host_wait_count(initial_calls + 2u);
+    const bool stayed_waiting = completed_count(&completed) == 0u;
+    object->store(next_value, std::memory_order_release);
+    object->notify_all();
+    pthread_join(thread, nullptr);
+    const PaddedAtomicWaitValue result = object->load(std::memory_order_acquire);
+    return reparked && stayed_waiting && completed_count(&completed) == 1u &&
+        result.tag == next_value.tag && result.payload == next_value.payload;
+}
+
+static bool run_aggregate_padding_waits(void) {
+    const PaddedAtomicWaitValue initial = make_padded_wait_value(
+        0xa5u, 0x35u, 0x4678a9bcu);
+    const PaddedAtomicWaitValue next = make_padded_wait_value(
+        0x3cu, 0x36u, 0x4678a9bdu);
+    std::atomic<PaddedAtomicWaitValue> value(initial);
+    if (!run_aggregate_padding_wait(&value, next)) return false;
+
+    alignas(std::atomic_ref<PaddedAtomicWaitValue>::required_alignment)
+        PaddedAtomicWaitValue storage = initial;
+    std::atomic_ref<PaddedAtomicWaitValue> reference(storage);
+    return run_aggregate_padding_wait(&reference, next);
+}
+
 int main() {
     if (!run_notify_one_and_all()) {
         puts("atomic wait wrapper test: notify_one/notify_all failed");
@@ -197,6 +276,10 @@ int main() {
     }
     if (!run_unchanged_value_recheck()) {
         puts("atomic wait wrapper test: unchanged value escaped wait");
+        return 1;
+    }
+    if (!run_aggregate_padding_waits()) {
+        puts("atomic wait wrapper test: padded aggregate wait failed");
         return 1;
     }
     puts("atomic wait wrapper runtime checks passed");

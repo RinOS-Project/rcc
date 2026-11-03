@@ -12740,6 +12740,13 @@ remains a separate open item.
       `test-ir` also passes.
 - [ ] Complete the standard-conforming `std::atomic<T>` operation surface and
       concurrency/memory-order coverage for trivially-copyable aggregate types.
+  - [x] Exercise C++20 `wait`/`notify_one`/`notify_all` for a trivially-copyable
+        aggregate with padding through both `std::atomic<T>` and
+        `std::atomic_ref<T>`. Different padding bytes must still compare equal,
+        an unchanged-value notification must repark, and a changed payload must
+        release the waiter. `test-atomic-wait` passes the host concurrency
+        runtime, GCC C++20 value-representation oracle, and i686/AMD64 generated
+        value-representation checks.
 
 ## RCC continuation (2026-10-31, verified scalar virtual-base construction)
 
