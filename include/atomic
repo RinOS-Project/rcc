@@ -303,17 +303,13 @@ public:
         __atomic_clear(&value_, memory_order_seq_cst);
     }
 
-    bool test(memory_order order) const noexcept {
-        return __atomic_load_n(&value_, order) != 0u;
-    }
-    bool test(memory_order order) const volatile noexcept {
-        return __atomic_load_n(&value_, order) != 0u;
-    }
-    bool test() const noexcept { return test(memory_order_seq_cst); }
-    bool test() const volatile noexcept {
-        return __atomic_load_n(&value_, memory_order_seq_cst) != 0u;
-    }
 #if __cplusplus >= 202002L
+    bool test(memory_order order = memory_order_seq_cst) const noexcept {
+        return __atomic_load_n(&value_, order) != 0u;
+    }
+    bool test(memory_order order = memory_order_seq_cst) const volatile noexcept {
+        return __atomic_load_n(&value_, order) != 0u;
+    }
     void wait(bool old,
               memory_order order = memory_order_seq_cst) const noexcept {
         for (;;) {
@@ -1886,6 +1882,7 @@ inline bool atomic_flag_test_and_set(atomic_flag* object) noexcept {
 inline bool atomic_flag_test_and_set(volatile atomic_flag* object) noexcept {
     return object->test_and_set();
 }
+#if __cplusplus >= 202002L
 inline bool atomic_flag_test(const atomic_flag* object) noexcept {
     return object->test();
 }
@@ -1900,6 +1897,7 @@ inline bool atomic_flag_test_explicit(
     const volatile atomic_flag* object, memory_order order) noexcept {
     return object->test(order);
 }
+#endif
 inline bool atomic_flag_test_and_set_explicit(
     atomic_flag* object, memory_order order) noexcept {
     return object->test_and_set(order);

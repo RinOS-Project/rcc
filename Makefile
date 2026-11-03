@@ -19212,9 +19212,29 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wai
 		-fsyntax-only tests/atomic_feature_macros.cpp
 	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
 		-fsyntax-only tests/atomic_feature_macros.cpp
+	$(call EXPECT_FAILURE,$(CXX) -std=c++17 \
+		-DRCC_TEST_ATOMIC_FLAG_MEMBER -fsyntax-only \
+		tests/atomic_flag_cxx17_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/gcc-cxx17-member.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++17 \
+		-DRCC_TEST_ATOMIC_FLAG_FREE -fsyntax-only \
+		tests/atomic_flag_cxx17_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/gcc-cxx17-free.log)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/atomic-feature-macros/cxx17-x86.ro \
 		tests/atomic_feature_macros.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++17 -DRCC_TEST_ATOMIC_FLAG_MEMBER -c \
+		-o $(TEST_OUT)/atomic-feature-macros/invalid-member-cxx17-x86.ro \
+		tests/atomic_flag_cxx17_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/invalid-member-cxx17-x86.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-feature-macros/invalid-member-cxx17-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++17 -DRCC_TEST_ATOMIC_FLAG_FREE -c \
+		-o $(TEST_OUT)/atomic-feature-macros/invalid-free-cxx17-x86.ro \
+		tests/atomic_flag_cxx17_api.cpp,\
+		$(TEST_OUT)/atomic-feature-macros/invalid-free-cxx17-x86.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-feature-macros/invalid-free-cxx17-x86.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
 		-o $(TEST_OUT)/atomic-feature-macros/cxx17-x64.ro \
 		tests/atomic_feature_macros.cpp

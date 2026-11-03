@@ -13687,6 +13687,14 @@ remains a separate open item.
       GCC; both target architectures and the full `test-atomic-builtins` gate
       pass.
 
+## RCC continuation (2026-11-03, C++20 `atomic_flag::test` API)
+
+- [x] Expose `atomic_flag::test` and its free wrappers only in C++20, and match
+      GCC's single `test(memory_order = memory_order_seq_cst)` member signature.
+      Verify C++17 member/free API rejection with GCC and RCC, C++20 API
+      availability with GCC and RCC on i686/AMD64, and the full
+      `test-atomic-builtins` gate.
+
 ## RCC continuation (2026-11-03, function-pointer `static_cast` type-ids)
 
 - [x] Parse grouped abstract function-pointer declarators in named-cast target

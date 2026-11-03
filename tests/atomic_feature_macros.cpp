@@ -42,6 +42,16 @@ static_assert(atomic_feature_is_same<std::atomic_unsigned_lock_free,
                                      std::atomic<unsigned int>>::value);
 static_assert(std::atomic<signed int>::is_always_lock_free);
 static_assert(std::atomic<unsigned int>::is_always_lock_free);
+static_assert(requires(std::atomic_flag& flag) { flag.test(); });
+static_assert(requires(std::atomic_flag& flag) {
+    flag.test(std::memory_order_relaxed);
+});
+static_assert(requires(std::atomic_flag& flag) {
+    std::atomic_flag_test(&flag);
+});
+static_assert(requires(std::atomic_flag& flag) {
+    std::atomic_flag_test_explicit(&flag, std::memory_order_relaxed);
+});
 #else
 #if !defined(__cpp_lib_atomic_is_always_lock_free) || \
     __cpp_lib_atomic_is_always_lock_free != 201603L
@@ -59,6 +69,10 @@ int atomic_feature_macro_probe() {
     std::atomic<unsigned> value(1u);
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
 #if __cplusplus >= 202002L
+    if (flag.test() || std::atomic_flag_test(&flag)) return 3;
+    if (flag.test(std::memory_order_relaxed) ||
+        std::atomic_flag_test_explicit(&flag, std::memory_order_relaxed))
+        return 4;
     std::atomic_signed_lock_free signed_value(1);
     std::atomic_unsigned_lock_free unsigned_value(1u);
     signed_value.fetch_add(1);
