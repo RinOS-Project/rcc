@@ -1119,8 +1119,9 @@
       has dedicated per-thread host coverage below.
   - [x] Preserve mutable and const rvalue-reference identity when called
         `&&`/`const &&`-qualified non-template member functions return member
-        fields. Verify mutation/address identity and reject calling the
-        rvalue-qualified method on an lvalue. GCC C++20 and
+        fields inherited from a nonzero-offset base. Verify this adjustment,
+        mutation/address identity, and rejection of the rvalue-qualified method
+        on an lvalue. GCC C++20 and
         `test-cxx-function-template-references` pass i686/AMD64 generation and
         AMD64 generated-code execution.
   - [x] Do not admit an lvalue derived object for `const Base&&` by
