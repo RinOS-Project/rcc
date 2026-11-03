@@ -31731,8 +31731,10 @@ static bool deduce_function_template_type_with_pack(
                 if (pattern->is_const || pattern->is_volatile) {
                     Type* unqualified = ast_arena_alloc(sizeof(*unqualified));
                     *unqualified = *actual;
-                    unqualified->is_const = false;
-                    unqualified->is_volatile = false;
+                    unqualified->is_const = actual->is_const &&
+                        !pattern->is_const;
+                    unqualified->is_volatile = actual->is_volatile &&
+                        !pattern->is_volatile;
                     actual = unqualified;
                 }
                 if (!arguments[index]) {

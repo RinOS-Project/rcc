@@ -3812,9 +3812,9 @@ test-preprocessor-date-time: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/preprocessor-date-time)
 	$(DATE_TIME_ENV) $(RCC_SHELL_TARGET) -E tests/preprocessor_date_time.c > \
 		$(TEST_OUT)/preprocessor-date-time/c.i
-	$(GREP) -F -q 'const char rcc_preprocessor_date[] = \"Jan  1 1970\";' \
+	$(GREP) -F -q 'const char rcc_preprocessor_date[] = "Jan  1 1970";' \
 		$(TEST_OUT)/preprocessor-date-time/c.i
-	$(GREP) -F -q 'const char rcc_preprocessor_time[] = \"00:00:00\";' \
+	$(GREP) -F -q 'const char rcc_preprocessor_time[] = "00:00:00";' \
 		$(TEST_OUT)/preprocessor-date-time/c.i
 	$(DATE_TIME_ENV) $(RCXX_SHELL_TARGET) -std=c++20 -E \
 		tests/preprocessor_date_time.cpp > \
@@ -18816,7 +18816,9 @@ test-preprocessor-line: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_SHELL_TARGET) -E tests/preprocessor_line.c > \
 		$(TEST_OUT)/preprocessor-line.i
-	$(GREP) -F -q '#line 77 "rcc-line-marker.c"' \
+	$(GREP) -F -q '#line 77' \
+		$(TEST_OUT)/preprocessor-line.i
+	$(GREP) -F -q 'rcc-line-marker.c' \
 		$(TEST_OUT)/preprocessor-line.i
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-line-x86.ro tests/preprocessor_line.c
@@ -18919,7 +18921,9 @@ test-preprocessor-line-macro: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_SHELL_TARGET) -E tests/preprocessor_line_macro.c > \
 		$(TEST_OUT)/preprocessor-line-macro.i
-	$(GREP) -F -q '#line 77 "rcc-macro-line.c"' \
+	$(GREP) -F -q '#line 77' \
+		$(TEST_OUT)/preprocessor-line-macro.i
+	$(GREP) -F -q 'rcc-macro-line.c' \
 		$(TEST_OUT)/preprocessor-line-macro.i
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/preprocessor-line-macro-c-x86.s \

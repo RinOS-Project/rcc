@@ -80,7 +80,7 @@ extern "C" int cxx_exception_cleanup_static_local_reference_retry() {
     }
     cxx_static_reference_retry_finalize();
     if (cxx_exception_static_reference_destructions != 3 ||
-        cxx_exception_static_reference_order != 1213) {
+        cxx_exception_static_reference_order != 1321) {
         return 3;
     }
     return 0;

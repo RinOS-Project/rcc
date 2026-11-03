@@ -13881,6 +13881,11 @@ remains a separate open item.
         pass with zero fallback.
 - [ ] Complete remaining inherited assignment overload viability and related
       type-trait coverage.
+  - [x] Preserve argument cv qualifiers not supplied by a `const T&` pattern
+        during function-template deduction, including `const volatile int&`.
+        Verify ordinary, constrained, and inherited `operator=` viability with
+        GCC C++20 and RCC i686/AMD64 `__is_assignable` checks in
+        `test-atomic-private-access`.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 
@@ -13908,3 +13913,26 @@ remains a separate open item.
       both `test-cxx` and production `test-ci` execute the primary polymorphic
       base placement regression. Verify aggregate target membership and run the
       focused regression on native Windows.
+
+## RCC continuation (2026-11-03, deterministic preprocessor test quoting)
+
+- [x] Use literal quotes in the fixed-string `__DATE__`/`__TIME__` expectations;
+      the previous backslash-quote patterns failed under the native Windows
+      `rcc_grep.ps1` path. `test-preprocessor-date-time` passes for C/C++ on
+      both target architectures, including the invalid `SOURCE_DATE_EPOCH` case.
+
+## RCC continuation (2026-11-03, native Windows `#line` regression)
+
+- [x] Split the expected `#line 77 "rcc-line-marker.c"` and
+      `#line 77 "rcc-macro-line.c"` text into fixed-string checks for line
+      number and filename; native Windows command parsing corrupted the
+      combined quoted patterns. `test-preprocessor-line` and
+      `test-preprocessor-line-macro` pass for C/C++ on both architectures,
+      including invalid line-number diagnostics.
+
+## RCC continuation (2026-11-03, static reference lifetime test oracle)
+
+- [x] Match the static aggregate reference-temporary destruction expectation
+      to the GCC C++20 lifetime order: destroy the aggregate first, then its
+      reference-bound temporaries in reverse order. `test-cxx-exception-cleanup`
+      and the complete native Windows `test-cxx` aggregate pass.

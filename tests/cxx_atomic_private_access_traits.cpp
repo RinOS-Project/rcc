@@ -4,6 +4,7 @@
 #define ATOMIC_IS_MOVE_CONSTRUCTIBLE(T) __is_constructible(T, T&&)
 #define ATOMIC_IS_COPY_ASSIGNABLE(T) __is_assignable(T&, const T&)
 #define ATOMIC_IS_MOVE_ASSIGNABLE(T) __is_assignable(T&, T&&)
+#define ATOMIC_IS_ASSIGNABLE(T, U) __is_assignable(T, U)
 #else
 #include <atomic>
 #include <type_traits>
@@ -12,6 +13,7 @@
 #define ATOMIC_IS_MOVE_CONSTRUCTIBLE(T) std::is_move_constructible_v<T>
 #define ATOMIC_IS_COPY_ASSIGNABLE(T) std::is_copy_assignable_v<T>
 #define ATOMIC_IS_MOVE_ASSIGNABLE(T) std::is_move_assignable_v<T>
+#define ATOMIC_IS_ASSIGNABLE(T, U) std::is_assignable_v<T, U>
 #endif
 
 struct AtomicPrivateCopyConstructorValue {
@@ -237,6 +239,42 @@ static_assert(ATOMIC_IS_COPY_CONSTRUCTIBLE(AtomicPrivateCopyBaseOwner),
 static_assert(ATOMIC_IS_COPY_ASSIGNABLE(AtomicPrivateCopyBaseOwner),
               "the friend derived type can copy-assign its private base");
 
+template<class T>
+concept AtomicFourByteAssignmentParameter = sizeof(T) == sizeof(int);
+
+struct AtomicPlainTemplateAssignment {
+    template<class T>
+    AtomicPlainTemplateAssignment& operator=(const T&);
+};
+
+struct AtomicConstrainedTemplateAssignment {
+    template<AtomicFourByteAssignmentParameter T>
+    AtomicConstrainedTemplateAssignment& operator=(const T&);
+};
+
+struct AtomicInheritedConstrainedTemplateAssignment :
+    AtomicConstrainedTemplateAssignment {
+    using AtomicConstrainedTemplateAssignment::operator=;
+};
+
+static_assert(ATOMIC_IS_ASSIGNABLE(
+                  AtomicPlainTemplateAssignment&, const volatile int&),
+              "template deduction preserves volatile through const T&");
+static_assert(ATOMIC_IS_ASSIGNABLE(
+                  AtomicConstrainedTemplateAssignment&, const volatile int&),
+              "constraints accept the deduced volatile int type");
+static_assert(ATOMIC_IS_ASSIGNABLE(
+                  AtomicInheritedConstrainedTemplateAssignment&,
+                  const volatile int&),
+              "using-declaration retains constrained cv-qualified assignment");
+static_assert(ATOMIC_IS_ASSIGNABLE(
+                  AtomicInheritedConstrainedTemplateAssignment&,
+                  volatile int&),
+              "inherited constrained assignment accepts volatile lvalues");
+static_assert(!ATOMIC_IS_ASSIGNABLE(
+                  AtomicInheritedConstrainedTemplateAssignment&, double),
+              "an unsatisfied inherited assignment constraint is rejected");
+
 #ifndef __RCC__
 static_assert(sizeof(std::atomic<AtomicFriendSubobjectOwner>) > 0,
               "std::atomic accepts an Owner that is a friend");
@@ -248,6 +286,7 @@ static_assert(sizeof(std::atomic<AtomicPrivateCopyBaseOwner>) > 0,
 #undef ASSERT_ATOMIC_ASSIGNMENT_ACCESS_TRAITS
 #undef ASSERT_ATOMIC_MOVE_CONSTRUCTOR_ACCESS_TRAITS
 #undef ASSERT_ATOMIC_MOVE_ASSIGNMENT_ACCESS_TRAITS
+#undef ATOMIC_IS_ASSIGNABLE
 #undef ATOMIC_IS_TRIVIALLY_COPYABLE
 #undef ATOMIC_IS_COPY_CONSTRUCTIBLE
 #undef ATOMIC_IS_MOVE_CONSTRUCTIBLE
