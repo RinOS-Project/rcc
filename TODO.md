@@ -794,8 +794,10 @@
     - [x] 異なる型のempty baseをpolymorphic classでもobject offset zeroへ配置する。
           primary vptr/base pointerとの同一アドレス、class size、reference-return virtual call、
           secondary virtual callをGCC class dumpと`test-cxx-primary-vtable-base-layout`で照合
-    - [ ] 同一型のempty baseがprimary base経由でも現れる場合に、各subobjectのdistinct addressと
-          GCC互換base data sizeを保つ配置を実装・検証
+    - [x] 同一型のempty baseがprimary base経由でも現れる場合、offset zeroで重ねずに別アドレスへ
+          配置し、base subobjectのdata sizeをGCCに合わせる。`test-cxx-primary-vtable-base-layout`で確認
+    - [ ] 複数のnon-primary base経路で同一型empty baseが現れる場合のdistinct addressと
+          GCC互換base data sizeを実装・検証
     - [x] Resolve non-dependent qualified class-scope alias type-ids in
           ordinary declarations, including namespace-qualified and inherited
           aliases, concrete class-template and alias-template owners, optional

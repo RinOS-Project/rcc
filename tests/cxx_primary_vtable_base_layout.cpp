@@ -12,6 +12,16 @@ struct SideBase {
     virtual int side_value() = 0;
 };
 
+struct EmptyMarker {};
+
+struct EmptyMarkerPrimary : EmptyMarker {
+    virtual int value() { return 59; }
+};
+
+struct DuplicateEmptyBase : EmptyMarker, EmptyMarkerPrimary {
+    long long payload;
+};
+
 struct ReferenceDerived : EmptyPrefix, DataPrefix, ReferenceBase, SideBase {
     int payload;
 
@@ -35,5 +45,11 @@ int main() {
     result = 47;
     if (object.payload != 47 || object.marker != 41) return 2;
     if (side_base->side_value() != 48) return 3;
+
+    DuplicateEmptyBase duplicate_empty{};
+    EmptyMarkerPrimary* primary = &duplicate_empty;
+    if (static_cast<void*>(primary) !=
+        static_cast<void*>(&duplicate_empty)) return 6;
+    if (sizeof(void*) == 8 && sizeof(DuplicateEmptyBase) != 16) return 7;
     return 0;
 }

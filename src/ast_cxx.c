@@ -5726,6 +5726,36 @@ static bool cxx_has_same_type_member(const CxxClass* cls,
     return false;
 }
 
+static bool cxx_has_same_type_other_nonprimary_base(
+    const CxxClass* cls, CxxClass* base, int excluded_base_index,
+    CxxClass* primary_vtable_base) {
+    if (!cls || !base) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* other_base;
+        if (index == excluded_base_index) continue;
+        other_base = cls->bases[index].base;
+        if (!other_base || other_base == primary_vtable_base) continue;
+        if (cxx_class_is_same_or_derived_from(other_base, base)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Empty base objects occupy a unique address but contribute no bytes to the
+ * next non-virtual subobject when that address is already distinct. */
+static int cxx_nonvirtual_base_storage_size(
+    const CxxClass* cls, CxxClass* base, int base_index,
+    CxxClass* primary_vtable_base) {
+    if (cxx_can_use_empty_base_optimization(base) &&
+        !cxx_has_same_type_member(cls, base) &&
+        !cxx_has_same_type_other_nonprimary_base(
+            cls, base, base_index, primary_vtable_base)) {
+        return 0;
+    }
+    return base ? base->nonvirtual_size : 0;
+}
+
 /* Keep the first no_unique_address implementation deliberately narrow.  An
  * empty, trivial class has no storage that construction or destruction could
  * observe, so its data member can share the current offset. */
@@ -5907,6 +5937,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
             if ((has_virtual || offset == 0) &&
                 cxx_can_use_empty_base_optimization(base) &&
                 !cxx_has_same_type_member(cls, base) &&
+                (has_virtual ||
+                 !cxx_has_same_type_other_nonprimary_base(
+                     cls, base, i, primary_vtable_base)) &&
                 !(primary_vtable_base &&
                   cxx_class_is_same_or_derived_from(primary_vtable_base,
                                                     base))) {
@@ -5918,7 +5951,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             offset = (offset + align - 1) & ~(align - 1);
             base_offsets[i] = offset;
             /* Base subobject */
-            offset += base->nonvirtual_size;
+            offset += cxx_nonvirtual_base_storage_size(
+                cls, base, i, primary_vtable_base);
             if (align > max_align) max_align = align;
         }
     }
