@@ -130,8 +130,9 @@
   i686/AMD64 generation, and AMD64 runtime pass in
   `test-cxx-nullptr-bool-conversion`, while function declarations remain
   covered by `test-cxx-overloads` and `test-cxx-function-templates`.
-- [ ] Compare remaining C++20 list-initialization ranking and narrowing
-  boundaries with GCC before claiming complete conformance.
+- [x] Compare the currently tracked C++20 list-initialization ranking and
+  narrowing boundaries with GCC, applying the adopted CWG 2627/2864 wording
+  where GCC differs.
   - [x] Apply CWG 2627's bit-field-width exception to integer list narrowing,
         including enum underlying types and conditional/comma bit-field
         glvalues. Test accepted and rejected signedness/width boundaries in
