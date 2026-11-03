@@ -6965,6 +6965,11 @@ static void verify_cxx_inline_mutated_local_location(
             break;
         }
     }
+    if (function_origin == UINT32_MAX || local_origin == UINT32_MAX) {
+        fprintf(stderr,
+                "missing inline-local DIE for %s::%s (function=%u, local=%u)\n",
+                function_name, local_name, function_origin, local_origin);
+    }
     assert(function_origin != UINT32_MAX && local_origin != UINT32_MAX);
     for (uint64_t die = 11u;
          die + 1u + 4u + address_size + 16u <= info->size; ++die) {
