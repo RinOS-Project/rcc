@@ -242,6 +242,65 @@ struct ExtendedVirtualNestedUsingAssignment : VirtualNestedUsingLayer {
 #pragma GCC diagnostic pop
 #endif
 
+struct IntegerInheritedAssignmentBase {
+    int value;
+    int calls;
+    IntegerInheritedAssignmentBase& operator=(int source) {
+        value = source;
+        ++calls;
+        return *this;
+    }
+};
+
+struct FloatingInheritedAssignmentBase {
+    double value;
+    int calls;
+    FloatingInheritedAssignmentBase& operator=(double source) {
+        value = source;
+        ++calls;
+        return *this;
+    }
+};
+
+struct MultipleInheritedAssignmentOverloads : IntegerInheritedAssignmentBase,
+    FloatingInheritedAssignmentBase {
+    using IntegerInheritedAssignmentBase::operator=;
+    using FloatingInheritedAssignmentBase::operator=;
+    int marker;
+};
+
+struct AmbiguousIntegerAssignmentBaseA {
+    AmbiguousIntegerAssignmentBaseA& operator=(int);
+};
+
+struct AmbiguousIntegerAssignmentBaseB {
+    AmbiguousIntegerAssignmentBaseB& operator=(int);
+};
+
+struct AmbiguousMultipleInheritedAssignmentOverloads :
+    AmbiguousIntegerAssignmentBaseA, AmbiguousIntegerAssignmentBaseB {
+    using AmbiguousIntegerAssignmentBaseA::operator=;
+    using AmbiguousIntegerAssignmentBaseB::operator=;
+};
+
+struct CvInheritedAssignmentBase {
+    int nonconst_calls;
+    int const_calls;
+    CvInheritedAssignmentBase& operator=(CvInheritedAssignmentBase&) {
+        ++nonconst_calls;
+        return *this;
+    }
+    CvInheritedAssignmentBase& operator=(
+        const CvInheritedAssignmentBase&) {
+        ++const_calls;
+        return *this;
+    }
+};
+
+struct CvInheritedAssignmentDerived : CvInheritedAssignmentBase {
+    using CvInheritedAssignmentBase::operator=;
+};
+
 static int array_element_copy_assignment_calls;
 static int array_element_move_assignment_calls;
 static int array_element_assignment_order;
@@ -347,6 +406,14 @@ static_assert(__is_assignable(
 static_assert(__is_assignable(
     ExtendedVirtualNestedUsingAssignment&,
     VirtualUsingAssignmentBase&&));
+static_assert(__is_assignable(MultipleInheritedAssignmentOverloads&, int));
+static_assert(__is_assignable(MultipleInheritedAssignmentOverloads&, double));
+static_assert(!__is_assignable(
+    AmbiguousMultipleInheritedAssignmentOverloads&, int));
+static_assert(__is_assignable(CvInheritedAssignmentDerived&,
+                              CvInheritedAssignmentBase&));
+static_assert(__is_assignable(CvInheritedAssignmentDerived&,
+                              const CvInheritedAssignmentBase&));
 static_assert(__is_assignable(
     ExtendedVirtualDefaultedAssignment&,
     const ExtendedVirtualDefaultedAssignment&));
@@ -407,6 +474,16 @@ static_assert(std::is_assignable_v<
 static_assert(std::is_assignable_v<
     ExtendedVirtualNestedUsingAssignment&,
     VirtualUsingAssignmentBase&&>);
+static_assert(std::is_assignable_v<
+    MultipleInheritedAssignmentOverloads&, int>);
+static_assert(std::is_assignable_v<
+    MultipleInheritedAssignmentOverloads&, double>);
+static_assert(!std::is_assignable_v<
+    AmbiguousMultipleInheritedAssignmentOverloads&, int>);
+static_assert(std::is_assignable_v<CvInheritedAssignmentDerived&,
+                                   CvInheritedAssignmentBase&>);
+static_assert(std::is_assignable_v<CvInheritedAssignmentDerived&,
+                                   const CvInheritedAssignmentBase&>);
 static_assert(std::is_assignable_v<
     ExtendedVirtualDefaultedAssignment&,
     const ExtendedVirtualDefaultedAssignment&>);
@@ -772,10 +849,45 @@ int main() {
     bitfield_payload_move_assignment_calls = 0;
     bitfield_move_destination = static_cast<
         DefaultedBitfieldAssignment&&>(bitfield_move_source);
-    return bitfield_move_destination.low == 7 &&
-           bitfield_move_destination.middle == 23 &&
-           bitfield_move_destination.high == 11 &&
-           bitfield_move_destination.payload.value == 211 &&
-           bitfield_payload_copy_assignment_calls == 0 &&
-           bitfield_payload_move_assignment_calls == 1 ? 0 : 14;
+    if (bitfield_move_destination.low != 7 ||
+        bitfield_move_destination.middle != 23 ||
+        bitfield_move_destination.high != 11 ||
+        bitfield_move_destination.payload.value != 211 ||
+        bitfield_payload_copy_assignment_calls != 0 ||
+        bitfield_payload_move_assignment_calls != 1) return 14;
+
+    MultipleInheritedAssignmentOverloads multiple_overload_destination;
+    multiple_overload_destination.marker = 223;
+    multiple_overload_destination = 227;
+    if (static_cast<IntegerInheritedAssignmentBase&>(
+            multiple_overload_destination).value != 227 ||
+        static_cast<IntegerInheritedAssignmentBase&>(
+            multiple_overload_destination).calls != 1 ||
+        static_cast<FloatingInheritedAssignmentBase&>(
+            multiple_overload_destination).calls != 0 ||
+        multiple_overload_destination.marker != 223) return 24;
+    multiple_overload_destination = 229.5;
+    if (static_cast<IntegerInheritedAssignmentBase&>(
+            multiple_overload_destination).value != 227 ||
+        static_cast<IntegerInheritedAssignmentBase&>(
+            multiple_overload_destination).calls != 1 ||
+        static_cast<FloatingInheritedAssignmentBase&>(
+            multiple_overload_destination).value != 229.5 ||
+        static_cast<FloatingInheritedAssignmentBase&>(
+            multiple_overload_destination).calls != 1 ||
+        multiple_overload_destination.marker != 223) return 25;
+
+    CvInheritedAssignmentDerived cv_overload_destination{};
+    CvInheritedAssignmentBase nonconst_cv_source{};
+    const CvInheritedAssignmentBase const_cv_source{};
+    cv_overload_destination = nonconst_cv_source;
+    if (static_cast<CvInheritedAssignmentBase&>(
+            cv_overload_destination).nonconst_calls != 1 ||
+        static_cast<CvInheritedAssignmentBase&>(
+            cv_overload_destination).const_calls != 0) return 26;
+    cv_overload_destination = const_cv_source;
+    return static_cast<CvInheritedAssignmentBase&>(
+               cv_overload_destination).nonconst_calls == 1 &&
+           static_cast<CvInheritedAssignmentBase&>(
+               cv_overload_destination).const_calls == 1 ? 0 : 27;
 }

@@ -13815,8 +13815,14 @@ remains a separate open item.
       verified-backend x64 compilation pass in `test-atomic-private-access`;
       runtime checks preserve neighboring fields and invoke the selected
       user-defined member assignment once.
+- [x] Resolve inherited assignment overloads introduced by `using` declarations
+      from distinct bases as one overload set. Verify selection by parameter
+      type, rejection of equal-rank ambiguous candidates, and non-const versus
+      const lvalue-reference ranking. GCC C++20, RCC i686/AMD64 generation, and
+      normal/`-O2` x64 execution pass in `test-atomic-private-access`.
 - [ ] Lower large fixed-bound arrays without per-element AST/code expansion.
-      Broader inherited assignment overload viability remains open.
+- [ ] Complete remaining inherited assignment overload viability and related
+      type-trait coverage.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 
