@@ -1694,6 +1694,13 @@ static CxxNamespace* sema_cxx_adl_associated_namespace(Type* type) {
     if (type->cxx_class && type->cxx_class->ns) {
         return type->cxx_class->ns;
     }
+    if (type->cxx_template) {
+        if (type->cxx_template->ns) return type->cxx_template->ns;
+        if (type->cxx_template->enclosing_class &&
+            type->cxx_template->enclosing_class->ns) {
+            return type->cxx_template->enclosing_class->ns;
+        }
+    }
     if (!type->cxx_namespace || !*type->cxx_namespace) return root;
     return cxx_namespace_find(root, type->cxx_namespace);
 }

@@ -1,5 +1,13 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-11-03, C++20 template-template argument ADL)
+
+- [x] Include the namespace of a class template used as a template-template
+  argument in ADL's associated namespaces. Add a strict GCC C++20 runtime case
+  where the only matching function is in the template argument's namespace;
+  `test-cxx-adl-function-template-candidates` passes with i686/AMD64 legacy
+  generation, AMD64 execution, and verified backend output with zero fallback.
+
 ## RCC continuation (2026-11-03, C++20 atomic free-function constraints)
 
 - [x] Constrain `atomic_fetch_add`/`sub` to non-`bool` arithmetic types and

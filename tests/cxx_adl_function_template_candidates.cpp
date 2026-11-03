@@ -60,6 +60,28 @@ struct outer {
 
 }
 
+namespace template_template_argument_adl {
+
+template<typename T>
+struct box {};
+
+}
+
+namespace template_template_argument_holder {
+
+template<template<typename> class Template>
+struct holder {};
+
+}
+
+namespace template_template_argument_adl {
+
+int identify(template_template_argument_holder::holder<box>) {
+    return 80;
+}
+
+}
+
 struct member_pointer_owner {
     member_pointer_associated_type::value member;
 };
@@ -73,6 +95,8 @@ int main() {
     hidden_friend_template::token friend_value;
     enclosing_hidden_friend::outer::token nested_value;
     enclosing_template_hidden_friend::outer<int> specialized_value;
+    template_template_argument_holder::holder<
+        template_template_argument_adl::box> template_template_value;
     auto member_pointer = &member_pointer_owner::member;
     return score(namespace_value, 1) == 11 &&
                    score(friend_value, 2) == 32 &&
@@ -80,6 +104,7 @@ int main() {
                    score(nested_value) == 41 &&
                    template_score(nested_value, 3L) == 53 &&
                    template_score(specialized_value, 4L) == 64 &&
+                   identify(template_template_value) == 80 &&
                    member_pointer_score(member_pointer) == 70
         ? 0 : 1;
 }
