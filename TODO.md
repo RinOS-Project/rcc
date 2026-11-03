@@ -13806,9 +13806,16 @@ remains a separate open item.
       subobject; verify each user-defined member assignment runs once and
       neighboring members stay unchanged. GCC C++20, RCC i686/AMD64, and
       normal/`-O2` x64 execution pass in `test-atomic-private-access`.
+- [x] Carry inherited copy/move assignment overloads through transitive
+      `using` declarations to a unique method owner in a nonvirtual or indirect
+      virtual base. Resolve nonvirtual subobject offsets across the base graph
+      and use the most-derived object's vbtable for an indirect virtual base.
+      GCC C++20, RCC i686/AMD64, and normal/`-O2` x64 execution pass in
+      `test-atomic-private-access`; runtime checks preserve neighboring fields
+      and invoke the selected user-defined member assignment once.
 - [ ] Lower large fixed-bound arrays without per-element AST/code expansion.
-      Complete broader inherited assignment overload viability and indirect
-      virtual-base routes through inherited `using` declarations.
+      Broader inherited assignment overload viability and method owners nested
+      below a virtual-base route remain open.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 

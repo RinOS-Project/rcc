@@ -26447,33 +26447,62 @@ static bool sema_cxx_using_base_operator_access(
     return false;
 }
 
+typedef struct {
+    int count;
+    int adjustment;
+} SemaBaseAdjustmentSearch;
+
+static bool sema_cxx_find_nonvirtual_base_adjustment(
+    CxxClass* current, CxxClass* target, int adjustment,
+    unsigned depth, SemaBaseAdjustmentSearch* result) {
+    if (!current || depth > 64u) return false;
+    if (current == target) {
+        ++result->count;
+        result->adjustment = adjustment;
+        return true;
+    }
+    for (int index = 0; index < current->base_count; ++index) {
+        int offset;
+        CxxClass* direct_base = current->bases[index].base;
+        if (current->bases[index].is_virtual ||
+            !sema_cxx_class_contains_base(
+                direct_base, target, depth + 1u)) {
+            continue;
+        }
+        if (!current->base_offsets || current->base_offsets[index] < 0) {
+            return false;
+        }
+        offset = current->base_offsets[index];
+        if (!sema_cxx_find_nonvirtual_base_adjustment(
+                direct_base, target, adjustment + offset,
+                depth + 1u, result)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool sema_cxx_selected_using_base_adjustment(
     Type* aggregate, CxxClass* base, int* adjustment_out) {
     CxxClass* derived = aggregate ? aggregate->cxx_class : NULL;
+    SemaBaseAdjustmentSearch search = {0, 0};
     if (!derived || !base || !adjustment_out) return false;
-    for (int index = 0; index < derived->base_count; ++index) {
-        if (derived->bases[index].base != base) continue;
-        if (derived->bases[index].is_virtual) {
-            for (int virtual_index = 0;
-                 virtual_index < derived->virtual_base_count;
-                 ++virtual_index) {
-                CxxVirtualBaseInfo* virtual_base =
-                    &derived->virtual_bases[virtual_index];
-                if (virtual_base->base == base &&
-                    virtual_base->offset >= 0) {
-                    *adjustment_out = virtual_base->offset;
-                    return true;
-                }
-            }
-            return false;
+    for (int virtual_index = 0;
+         virtual_index < derived->virtual_base_count;
+         ++virtual_index) {
+        CxxVirtualBaseInfo* virtual_base =
+            &derived->virtual_bases[virtual_index];
+        if (virtual_base->base == base && virtual_base->offset >= 0) {
+            *adjustment_out = virtual_base->offset;
+            return true;
         }
-        if (!derived->base_offsets || derived->base_offsets[index] < 0) {
-            return false;
-        }
-        *adjustment_out = derived->base_offsets[index];
-        return true;
     }
-    return false;
+    if (!sema_cxx_find_nonvirtual_base_adjustment(
+            derived, base, 0, 0u, &search) || search.count != 1) {
+        return false;
+    }
+    *adjustment_out = search.adjustment;
+    return true;
 }
 
 static Expr* sema_cxx_strip_assignment_reference_casts(Expr* expression) {
@@ -26784,25 +26813,19 @@ static Expr* sema_cxx_defaulted_assignment_subobjects(
     return sequence;
 }
 
-static void sema_cxx_materialize_using_base_assignment_methods(
-    Type* aggregate, const char* name) {
-    CxxClass* derived = aggregate ? aggregate->cxx_class : NULL;
-    CxxClass* base;
-    unsigned char access = ACCESS_PUBLIC;
+static void sema_cxx_materialize_using_base_assignment_methods_from(
+    Type* aggregate, CxxClass* owner, const char* name,
+    unsigned char access, unsigned depth) {
     int this_adjustment = 0;
     TypeMethod** tail;
-    if (!derived || !name || strcmp(name, "operator=") != 0 ||
-        !(base = sema_cxx_using_base_member_owner(aggregate, name)) ||
-        !base->type ||
-        !sema_cxx_using_base_operator_access(
-            derived, base, name, &access) ||
+    if (!aggregate || !owner || !owner->type || !name || depth > 64u ||
         !sema_cxx_selected_using_base_adjustment(
-            aggregate, base, &this_adjustment)) {
+            aggregate, owner, &this_adjustment)) {
         return;
     }
     tail = &aggregate->methods;
     while (*tail) tail = &(*tail)->next;
-    for (struct CxxMember* member = base->members;
+    for (struct CxxMember* member = owner->members;
          member; member = member->next) {
         CxxMethod* source_method = member->method;
         DeclList* parameters;
@@ -26828,28 +26851,51 @@ static void sema_cxx_materialize_using_base_assignment_methods(
             ? parameters->decl->type : NULL;
         if (is_defaulted && !is_deleted && parameter_type &&
             sema_cxx_assignment_special_member_kind(
-                base->type, parameter_type) != 0) {
+                owner->type, parameter_type) != 0) {
             is_deleted =
                 !sema_cxx_type_trait_assignment_subobjects_are_assignable(
-                    base->type, parameter_type, 0u);
+                    owner->type, parameter_type, 0u);
             if (!is_deleted && !is_noexcept) {
                 is_noexcept =
                     sema_cxx_type_trait_assignment_subobjects_are_nothrow(
-                        base->type, parameter_type, 0u);
+                        owner->type, parameter_type, 0u);
             }
         }
         lowered = sema_cxx_type_trait_assignment_method(
-            base->type, source_method->decl, NULL, (AccessSpec)access,
+            owner->type, source_method->decl, NULL, (AccessSpec)access,
             is_deleted, is_defaulted, is_noexcept,
             source_method->ref_qualifier, source_method->decl->loc);
         if (!lowered) continue;
         lowered->source_decl = source_method->decl;
-        lowered->cxx_access_owner = derived;
-        lowered->this_owner = base->type;
+        lowered->cxx_access_owner = aggregate->cxx_class;
+        lowered->this_owner = owner->type;
         lowered->this_adjustment = this_adjustment;
         *tail = lowered;
         tail = &lowered->next;
     }
+    {
+        CxxClass* inherited_base =
+            sema_cxx_using_base_member_owner(owner->type, name);
+        if (inherited_base && inherited_base != owner) {
+            sema_cxx_materialize_using_base_assignment_methods_from(
+                aggregate, inherited_base, name, access, depth + 1u);
+        }
+    }
+}
+
+static void sema_cxx_materialize_using_base_assignment_methods(
+    Type* aggregate, const char* name) {
+    CxxClass* derived = aggregate ? aggregate->cxx_class : NULL;
+    CxxClass* base;
+    unsigned char access = ACCESS_PUBLIC;
+    if (!derived || !name || strcmp(name, "operator=") != 0 ||
+        !(base = sema_cxx_using_base_member_owner(aggregate, name)) ||
+        !sema_cxx_using_base_operator_access(
+            derived, base, name, &access)) {
+        return;
+    }
+    sema_cxx_materialize_using_base_assignment_methods_from(
+        aggregate, base, name, access, 0u);
 }
 
 static bool sema_rewrite_cxx_assignment_operator(Expr* expression,

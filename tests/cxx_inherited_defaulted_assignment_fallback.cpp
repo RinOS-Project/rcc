@@ -53,6 +53,18 @@ struct InheritedNontrivialFallbackDerived : InheritedFallbackPrefix,
     using InheritedNontrivialFallbackBase::operator=;
 };
 
+struct InheritedNontrivialFallbackIntermediate :
+    InheritedNontrivialFallbackBase {
+    using InheritedNontrivialFallbackBase::operator=;
+    int marker;
+};
+
+struct InheritedNontrivialFallbackIndirect : InheritedFallbackPrefix,
+    InheritedNontrivialFallbackIntermediate {
+    using InheritedNontrivialFallbackIntermediate::operator=;
+    int tail;
+};
+
 struct DirectNontrivialDefaultedAssignment {
     InheritedNontrivialFallbackSubobject value;
     DirectNontrivialDefaultedAssignment& operator=(
@@ -202,6 +214,7 @@ struct VirtualUsingDefaultedAssignment :
 #endif
 struct ExtendedVirtualUsingAssignment :
     VirtualUsingDefaultedAssignment {
+    using VirtualUsingDefaultedAssignment::operator=;
     long long padding[8];
 };
 #if !defined(__RCC__)
@@ -278,6 +291,9 @@ static_assert(__is_assignable(
     InheritedNontrivialFallbackDerived&,
     InheritedNontrivialFallbackBase&&));
 static_assert(__is_assignable(
+    InheritedNontrivialFallbackIndirect&,
+    InheritedNontrivialFallbackBase&&));
+static_assert(__is_assignable(
     DirectNontrivialDefaultedAssignment&,
     DirectNontrivialDefaultedAssignment&&));
 static_assert(__is_assignable(
@@ -297,6 +313,12 @@ static_assert(__is_assignable(
     const VirtualUsingAssignmentBase&));
 static_assert(__is_assignable(
     VirtualUsingDefaultedAssignment&,
+    VirtualUsingAssignmentBase&&));
+static_assert(__is_assignable(
+    ExtendedVirtualUsingAssignment&,
+    const VirtualUsingAssignmentBase&));
+static_assert(__is_assignable(
+    ExtendedVirtualUsingAssignment&,
     VirtualUsingAssignmentBase&&));
 static_assert(__is_assignable(
     ExtendedVirtualDefaultedAssignment&,
@@ -323,6 +345,9 @@ static_assert(std::is_assignable_v<
     InheritedNontrivialFallbackDerived&,
     InheritedNontrivialFallbackBase&&>);
 static_assert(std::is_assignable_v<
+    InheritedNontrivialFallbackIndirect&,
+    InheritedNontrivialFallbackBase&&>);
+static_assert(std::is_assignable_v<
     DirectNontrivialDefaultedAssignment&,
     DirectNontrivialDefaultedAssignment&&>);
 static_assert(std::is_assignable_v<
@@ -342,6 +367,12 @@ static_assert(std::is_assignable_v<
     const VirtualUsingAssignmentBase&>);
 static_assert(std::is_assignable_v<
     VirtualUsingDefaultedAssignment&,
+    VirtualUsingAssignmentBase&&>);
+static_assert(std::is_assignable_v<
+    ExtendedVirtualUsingAssignment&,
+    const VirtualUsingAssignmentBase&>);
+static_assert(std::is_assignable_v<
+    ExtendedVirtualUsingAssignment&,
     VirtualUsingAssignmentBase&&>);
 static_assert(std::is_assignable_v<
     ExtendedVirtualDefaultedAssignment&,
@@ -393,6 +424,22 @@ int main() {
     if (nontrivial_destination.prefix != 13 ||
         nontrivial_destination.value.value != 23 ||
         inherited_fallback_copy_calls != 1) return 3;
+
+    InheritedNontrivialFallbackIndirect indirect_nontrivial_destination;
+    InheritedNontrivialFallbackBase indirect_nontrivial_source;
+    indirect_nontrivial_destination.prefix = 5;
+    indirect_nontrivial_destination.marker = 7;
+    indirect_nontrivial_destination.tail = 11;
+    indirect_nontrivial_destination.value.value = 13;
+    indirect_nontrivial_source.value.value = 17;
+    inherited_fallback_copy_calls = 0;
+    indirect_nontrivial_destination = static_cast<
+        InheritedNontrivialFallbackBase&&>(indirect_nontrivial_source);
+    if (indirect_nontrivial_destination.prefix != 5 ||
+        indirect_nontrivial_destination.value.value != 17 ||
+        indirect_nontrivial_destination.marker != 7 ||
+        indirect_nontrivial_destination.tail != 11 ||
+        inherited_fallback_copy_calls != 1) return 21;
 
     DirectNontrivialDefaultedAssignment direct_destination;
     DirectNontrivialDefaultedAssignment direct_source;
@@ -519,6 +566,34 @@ int main() {
         extended_using_destination.marker != 277 ||
         extended_using_destination.padding[0] != 281 ||
         virtual_using_member_move_assignment_calls != 1) return 18;
+
+    ExtendedVirtualUsingAssignment indirect_using_destination;
+    VirtualUsingAssignmentBase indirect_using_copy_source;
+    static_cast<VirtualUsingAssignmentBase&>(
+        indirect_using_destination).member.value = 307;
+    indirect_using_destination.marker = 311;
+    indirect_using_destination.padding[0] = 313;
+    indirect_using_copy_source.member.value = 317;
+    virtual_using_member_copy_assignment_calls = 0;
+    indirect_using_destination = indirect_using_copy_source;
+    if (static_cast<VirtualUsingAssignmentBase&>(
+            indirect_using_destination).member.value != 317 ||
+        indirect_using_destination.marker != 311 ||
+        indirect_using_destination.padding[0] != 313 ||
+        virtual_using_member_copy_assignment_calls != 1) return 19;
+
+    VirtualUsingAssignmentBase indirect_using_move_source;
+    static_cast<VirtualUsingAssignmentBase&>(
+        indirect_using_destination).member.value = 331;
+    indirect_using_move_source.member.value = 337;
+    virtual_using_member_move_assignment_calls = 0;
+    indirect_using_destination = static_cast<
+        VirtualUsingAssignmentBase&&>(indirect_using_move_source);
+    if (static_cast<VirtualUsingAssignmentBase&>(
+            indirect_using_destination).member.value != 337 ||
+        indirect_using_destination.marker != 311 ||
+        indirect_using_destination.padding[0] != 313 ||
+        virtual_using_member_move_assignment_calls != 1) return 20;
 
     ExtendedVirtualDefaultedAssignment extended_copy_destination;
     ExtendedVirtualDefaultedAssignment extended_copy_source;
