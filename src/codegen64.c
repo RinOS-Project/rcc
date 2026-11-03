@@ -10136,6 +10136,28 @@ static void gen64_complex_compare(Module* mod, Expr* expression) {
     else emit64_and_reg_reg(mod, RAX, RCX);
 }
 
+static void gen64_defaulted_array_copy(Module* mod, Expr* expr) {
+    int byte_count = expr->binary_lhs->type->size;
+    int loop_label = new_label64();
+    int done_label = new_label64();
+    gen64_lvalue(mod, expr->binary_lhs);
+    emit64_mov_reg_reg(mod, R11, RAX);
+    gen64_lvalue(mod, expr->binary_rhs);
+    emit64_mov_reg_reg(mod, R10, RAX);
+    emit64_mov_reg_imm64(mod, R8, (uint64_t)byte_count);
+    emit64_label(mod, loop_label);
+    emit64_test_reg_reg(mod, R8, R8);
+    emit64_jcc_label(mod, CC64_E, done_label);
+    emit64_load_typed(mod, RAX, R10, 0, type_uchar);
+    emit64_store_typed(mod, R11, 0, RAX, type_uchar);
+    emit64_add_reg_imm(mod, R10, 1);
+    emit64_add_reg_imm(mod, R11, 1);
+    emit64_sub_reg_imm(mod, R8, 1);
+    emit64_jmp_label(mod, loop_label);
+    emit64_label(mod, done_label);
+    emit64_mov_reg_reg(mod, RAX, R11);
+}
+
 static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -11092,6 +11114,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 ? expr->binary_lhs->type : NULL;
             if (lhs_type && lhs_type->is_reference) {
                 lhs_type = lhs_type->base;
+            }
+            if (expr->cxx_synthesized_defaulted_array_copy) {
+                gen64_defaulted_array_copy(mod, expr);
+                break;
             }
             if (gen64_cxx_move_assignment(mod, expr)) break;
             if (expr->binary_lhs &&

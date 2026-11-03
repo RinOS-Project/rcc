@@ -143,6 +143,7 @@ else
 EXPECT_FAILURE = $(subst /,\,$(subst ./,,$(1))) >$(subst /,\,$(2)) 2>&1 & if not errorlevel 1 exit /b 1
 endif
 CHECK_NONEMPTY = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)') -or (Get-Item -LiteralPath '$(1)').Length -eq 0) { exit 1 }"
+CHECK_FILE_SIZE_LE = $(POWERSHELL) -NoProfile -Command "if ((Get-Item -LiteralPath '$(1)').Length -gt $(2)) { exit 1 }"
 CHECK_EXISTS = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)')) { exit 1 }"
 COPY_FILE = $(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
 ASSERT_ABSENT = $(POWERSHELL) -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
@@ -166,6 +167,7 @@ else
 MKDIR_P = mkdir -p "$(1)"
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
 CHECK_NONEMPTY = test -s "$(1)"
+CHECK_FILE_SIZE_LE = test "$$(wc -c < '$(1)')" -le $(2)
 VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
 HOST_LINK_NO_PIE = -no-pie
 VERIFIED_BACKEND_X86_RUNTIME_DEPS = \
@@ -777,6 +779,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-verified-volatile
 .PHONY: test-verified-cxx-temporary-cleanup
 .PHONY: test-verified-cxx-inherited-assignment
+.PHONY: test-verified-cxx-defaulted-large-array-assignment
 .PHONY: test-verified-cxx-automatic-array-cleanup
 .PHONY: test-verified-cxx-virtual-base-value
 .PHONY: test-verified-cxx-static-local-scalar
@@ -25735,6 +25738,66 @@ test-verified-backend: test-verified-cxx-static-local-aggregate
 	@echo "Verified backend production object and fallback tests completed"
 
 test-verified-backend: test-verified-cxx-inherited-assignment
+
+test-verified-backend: test-verified-cxx-defaulted-large-array-assignment
+
+test-verified-cxx-defaulted-large-array-assignment: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_defaulted_large_array_assignment.cpp
+	$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/gcc-host$(EXE_SUFFIX)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x86.ro \
+		tests/cxx_defaulted_large_array_assignment.cpp
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x86.ro,32768)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64.s \
+		tests/cxx_defaulted_large_array_assignment.cpp
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64.s,98304)
+	$(CC) -o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64$(EXE_SUFFIX) \
+		$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64.s
+	$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64$(EXE_SUFFIX)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2.s \
+		tests/cxx_defaulted_large_array_assignment.cpp
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2.s,98304)
+	$(CC) -o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2$(EXE_SUFFIX) \
+		$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2.s
+	$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/legacy-x64-o2$(EXE_SUFFIX)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.ro \
+		tests/cxx_defaulted_large_array_assignment.cpp \
+		>$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.log
+	$(call CHECK_COUNT,Verified backend: 2 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.log,0)
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86.ro,32768)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.ro \
+		tests/cxx_defaulted_large_array_assignment.cpp \
+		>$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.log
+	$(call CHECK_COUNT,Verified backend: 2 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.log,0)
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64.ro,32768)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -O2 -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.ro \
+		tests/cxx_defaulted_large_array_assignment.cpp \
+		>$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.log
+	$(call CHECK_COUNT,Verified backend: 2 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.log,0)
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x86-o2.ro,32768)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.ro \
+		tests/cxx_defaulted_large_array_assignment.cpp \
+		>$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.log
+	$(call CHECK_COUNT,Verified backend: 2 function(s) emitted,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.log,0)
+	$(call CHECK_FILE_SIZE_LE,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment/verified-x64-o2.ro,32768)
+	@echo "Large scalar defaulted-array assignment passes legacy and verified backends"
 
 test-verified-cxx-inherited-assignment: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-inherited-assignment)

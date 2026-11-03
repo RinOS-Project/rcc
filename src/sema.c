@@ -26618,9 +26618,24 @@ static Expr* sema_cxx_object_virtual_base(
     return base_object;
 }
 
+static bool sema_cxx_defaulted_array_plain_scalar(Type* type,
+                                                  unsigned depth,
+                                                  bool destination) {
+    if (!type || depth > 64u || type->is_volatile || type->is_atomic) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && type->array_len >= 0 &&
+            sema_cxx_defaulted_array_plain_scalar(
+                type->base, depth + 1u, destination);
+    }
+    return (!destination || !type->is_const) && type_is_scalar(type);
+}
+
 /* Build the elementwise assignment for a fixed array member. Arrays are not
- * assignment expressions in C++, so expand each dimension in subscript order
- * and let the ordinary assignment resolver select class element operators. */
+ * assignment expressions in C++, so resolve class element operators in
+ * subscript order. Large arrays of nonvolatile plain scalars use a compact
+ * synthesized copy node; nontrivial element assignments remain explicit. */
 static Expr* sema_cxx_defaulted_array_assignment(
     Expr* destination, Expr* source, Type* destination_type,
     Type* source_object_type, bool is_move, SourceLoc loc, unsigned depth) {
@@ -26637,6 +26652,21 @@ static Expr* sema_cxx_defaulted_array_assignment(
             return NULL;
         }
         if (destination_type->array_len == 0) return expr_int(0, loc);
+        if (destination_type->size >= 64 &&
+            source->type->size == destination_type->size &&
+            destination && destination->type &&
+            !destination->type->is_volatile &&
+            !source->type->is_volatile &&
+            sema_cxx_defaulted_array_plain_scalar(
+                destination_type, 0u, true) &&
+            sema_cxx_defaulted_array_plain_scalar(source->type, 0u, false)) {
+            Expr* copy = expr_binary(
+                EXPR_ASSIGN, destination, source, loc);
+            if (!copy) return NULL;
+            copy->type = destination_type;
+            copy->cxx_synthesized_defaulted_array_copy = true;
+            return copy;
+        }
         for (int64_t index = 0; index < destination_type->array_len; ++index) {
             Type* source_element_type =
                 sema_cxx_assignment_source_field_type(
@@ -30941,6 +30971,26 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_ASSIGN: {
+            if (expr->cxx_synthesized_defaulted_array_copy) {
+                /* This internal assignment node is created only after the
+                 * enclosing defaulted operator and both array operands have
+                 * already passed their semantic checks.  Built-in C++ array
+                 * assignment is intentionally not a source-level operation,
+                 * so do not send this synthesized node through the ordinary
+                 * modifiable-lvalue and assignment-conversion rules. */
+                if (!expr->binary_lhs || !expr->binary_rhs ||
+                    !expr->binary_lhs->type ||
+                    expr->binary_lhs->type->kind != TYPE_ARRAY ||
+                    !expr->binary_rhs->type ||
+                    !type_is_compatible(expr->binary_lhs->type,
+                                        expr->binary_rhs->type)) {
+                    rcc_error(expr->loc,
+                              "synthesized defaulted array assignment has incompatible operands");
+                }
+                expr->type = expr->binary_lhs
+                    ? expr->binary_lhs->type : type_int;
+                break;
+            }
             Type* lt = sema_expr_reuse_preanalyzed(
                 expr->binary_lhs, preanalyzed_binary_lhs,
                 preanalyzed_binary_lhs_type);

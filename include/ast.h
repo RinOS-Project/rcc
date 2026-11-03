@@ -786,6 +786,9 @@ struct Expr {
     bool cxx_conditional_xvalue;
     /* A defaulted assignment expanded to generated operations. */
     bool cxx_synthesized_defaulted_assignment;
+    /* A large defaulted array assignment of plain scalars is lowered as a
+     * runtime byte-copy loop instead of one synthesized assignment per item. */
+    bool cxx_synthesized_defaulted_array_copy;
     /* A stable lvalue subobject synthesized from a named assignment operand. */
     bool cxx_synthesized_assignment_subobject;
     /* A non-reference data member selected through a C++ dot-expression on

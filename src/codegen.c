@@ -16630,6 +16630,31 @@ static void gen_floating_compound_assignment(Module* mod, Expr* expr,
     emit_store_floating_raw(mod, type, ECX, 0);
 }
 
+static void gen_cxx_defaulted_array_copy32(Module* mod, Expr* expr) {
+    int byte_count = expr->binary_lhs->type->size;
+    int loop_label = new_label();
+    int done_label = new_label();
+    emit_push_reg(mod, ESI);
+    gen_lvalue(mod, expr->binary_lhs);
+    emit_push_reg(mod, EAX);
+    gen_lvalue(mod, expr->binary_rhs);
+    emit_mov_reg_reg(mod, EDX, EAX);
+    emit_pop_reg(mod, ECX);
+    emit_mov_reg_imm(mod, ESI, (uint32_t)byte_count);
+    emit_label(mod, loop_label);
+    emit_test_reg_reg(mod, ESI, ESI);
+    emit_jcc_label(mod, CC_E, done_label);
+    emit_load_typed32(mod, EAX, EDX, 0, type_uchar);
+    emit_mov_mem_reg8(mod, ECX, 0, EAX);
+    emit_add_reg_imm(mod, EDX, 1);
+    emit_add_reg_imm(mod, ECX, 1);
+    emit_sub_reg_imm(mod, ESI, 1);
+    emit_jmp_label(mod, loop_label);
+    emit_label(mod, done_label);
+    emit_mov_reg_reg(mod, EAX, ECX);
+    emit_pop_reg(mod, ESI);
+}
+
 static void gen_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -17667,6 +17692,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 ? expr->binary_lhs->type : NULL;
             if (lhs_type && lhs_type->is_reference) {
                 lhs_type = lhs_type->base;
+            }
+            if (expr->cxx_synthesized_defaulted_array_copy) {
+                gen_cxx_defaulted_array_copy32(mod, expr);
+                break;
             }
             if (gen_cxx_move_assignment(mod, expr)) break;
             if (expr->binary_lhs &&

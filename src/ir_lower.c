@@ -8747,6 +8747,132 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (expression->cxx_synthesized_defaulted_array_copy) {
+        Type* rhs_type = expression->binary_rhs
+            ? expression->binary_rhs->type : NULL;
+        RccIrType index_type;
+        RccIrInstruction* allocation;
+        RccIrLowerValue destination;
+        RccIrLowerValue source;
+        RccIrLowerValue index_address;
+        RccIrLowerValue index_value;
+        RccIrLowerValue one;
+        RccIrLowerValue next_index;
+        RccIrBlock* condition_block;
+        RccIrBlock* body_block;
+        RccIrBlock* exit_block;
+        RccIrValue operands[2];
+        RccIrInstruction* compare;
+        if (!lhs_type || lhs_type->kind != TYPE_ARRAY ||
+            lhs_type->size < 64 || lhs_type->is_volatile ||
+            lhs_type->is_atomic || !rhs_type ||
+            rhs_type->kind != TYPE_ARRAY ||
+            rhs_type->size != lhs_type->size ||
+            rhs_type->is_volatile || rhs_type->is_atomic ||
+            !lower_type(type_long, &index_type) ||
+            index_type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        destination = lower_lvalue_address(
+            context, expression->binary_lhs);
+        source = lower_lvalue_address(
+            context, expression->binary_rhs);
+        if (!destination.valid || !source.valid ||
+            destination.volatile_access || source.volatile_access) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return lower_invalid_value();
+        rcc_ir_set_immediate(allocation, index_type.bit_width / 8u);
+        allocation->alignment = index_type.bit_width / 8u;
+        index_address = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+        index_value = lower_integer_constant(
+            context, index_type, true, 0u);
+        if (!index_value.valid ||
+            !lower_store_address(context, index_address, index_value)) {
+            return lower_invalid_value();
+        }
+        condition_block = rcc_ir_block_add(
+            context->function, "defaulted.array.copy.cond");
+        body_block = rcc_ir_block_add(
+            context->function, "defaulted.array.copy.body");
+        exit_block = rcc_ir_block_add(
+            context->function, "defaulted.array.copy.end");
+        if (!condition_block || !body_block || !exit_block ||
+            !lower_branch(context, condition_block->id)) {
+            return lower_invalid_value();
+        }
+        context->current = condition_block;
+        context->terminated = false;
+        index_value = lower_load_address(
+            context, index_address, type_long);
+        {
+            RccIrLowerValue limit = lower_integer_constant(
+                context, index_type, true, (uint64_t)lhs_type->size);
+            if (!index_value.valid || !limit.valid) {
+                return lower_invalid_value();
+            }
+            operands[0] = index_value.value;
+            operands[1] = limit.value;
+        }
+        compare = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            operands, 2u, NULL, 0u);
+        if (!compare) return lower_invalid_value();
+        rcc_ir_set_predicate(compare, RCC_IR_ICMP_ULT);
+        index_value = lower_value(
+            compare->result, rcc_ir_type_integer(1u), true);
+        if (!lower_conditional_branch(
+                context, index_value, body_block->id, exit_block->id)) {
+            return lower_invalid_value();
+        }
+        context->current = body_block;
+        context->terminated = false;
+        index_value = lower_load_address(
+            context, index_address, type_long);
+        if (!index_value.valid) return lower_invalid_value();
+        {
+            RccIrLowerValue source_byte = lower_dynamic_byte_offset_address(
+                context, source, index_value);
+            RccIrLowerValue destination_byte =
+                lower_dynamic_byte_offset_address(
+                    context, destination, index_value);
+            RccIrLowerValue byte_value;
+            if (!source_byte.valid || !destination_byte.valid) {
+                return lower_invalid_value();
+            }
+            byte_value = lower_load_address(
+                context, source_byte, type_uchar);
+            if (!byte_value.valid || !lower_store_address(
+                    context, destination_byte, byte_value)) {
+                return lower_invalid_value();
+            }
+        }
+        one = lower_integer_constant(context, index_type, true, 1u);
+        if (!one.valid) return lower_invalid_value();
+        operands[0] = index_value.value;
+        operands[1] = one.value;
+        {
+            RccIrInstruction* add = lower_append(
+                context, RCC_IR_ADD, index_type, operands, 2u,
+                NULL, 0u);
+            if (!add) return lower_invalid_value();
+            next_index = lower_value(add->result, index_type, true);
+        }
+        if (!lower_store_address(
+                context, index_address, next_index) ||
+            !lower_branch(context, condition_block->id)) {
+            return lower_invalid_value();
+        }
+        context->current = exit_block;
+        context->terminated = false;
+        return destination;
+    }
     if (lhs_type && lower_abi_is_aggregate(lhs_type)) {
         RccIrLowerValue destination;
         Type* rhs_type = expression->binary_rhs
