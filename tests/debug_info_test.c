@@ -2634,6 +2634,9 @@ static void verify_optimized_verified_debug_object(
     verify_multiple_return_frame_fde(
         frame, "tests/verified_backend_debug.c::verified_debug_multi_return",
         architecture, 3u);
+    verify_multiple_return_frame_fde(
+        frame, "verified_debug_overaligned_multi_return", architecture,
+        3u);
     verify_saved_callee_register_rules(
         frame, "verified_debug_preserved_registers", architecture);
     assert(find_variable_location(info, strings, locations, "value",
@@ -9378,6 +9381,9 @@ static void verify_verified_debug_object(const char* path,
     verify_multiple_return_frame_fde(
         frame, "tests/verified_backend_debug.c::verified_debug_multi_return",
         architecture, 3u);
+    verify_multiple_return_frame_fde(
+        frame, "verified_debug_overaligned_multi_return", architecture,
+        3u);
     assert(find_function_die(info, strings, "verified_debug_static",
                              architecture == ARCH_X64 ? 8u : 4u) !=
            UINT64_MAX);

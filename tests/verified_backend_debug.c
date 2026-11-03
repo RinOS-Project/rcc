@@ -90,6 +90,15 @@ int verified_debug_overaligned_local(void)
     return aligned.value;
 }
 
+int verified_debug_overaligned_multi_return(int selector)
+{
+    volatile struct VerifiedDebugAligned32 aligned;
+    aligned.value = selector + 37;
+    if (selector == 0) return aligned.value;
+    if (selector < 0) return aligned.value + 1;
+    return aligned.value + 2;
+}
+
 int verified_debug_optimized_const_local(int value)
 {
     enum VerifiedDebugOptimizedEnum { VERIFIED_DEBUG_OPTIMIZED_ENUM = -19 };

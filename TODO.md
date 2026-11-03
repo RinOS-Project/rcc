@@ -2723,6 +2723,9 @@
   - [x] i686/AMD64 over-aligned frameの`mov sp,[fp+spill]; pop fp; ret`
         epilogueも各`ret` PCとして記録し、3つの明示returnと到達不能な
         fallthrough epilogueのCFA復帰を両archの`test-debug-info`で検証
+  - [x] verified backendのover-aligned localと複数returnを持つ関数でも、
+        i686/AMD64の`-O0`/`-O2` FDEに各returnのCFA復帰が3つ記録されることを
+        `test-debug-info`で検証
   - [x] 静的参照一時オブジェクトのvtable設定中にEBP/RBPを一時scratchへ
         流用せず、保存したcaller-saved registerをbaseに使うようcodegenを変更。
         実行時virtual dispatchをi686/AMD64で検証し、frame pointerを維持する。
