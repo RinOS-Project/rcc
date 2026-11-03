@@ -16292,21 +16292,51 @@ static bool debug_emit_inline_mutated_parameter_location(
         }
         if (have_initial_expression && initial_expression_size != 0u &&
             initial_start >= call->code_start &&
-            initial_start < entries[0].start &&
+            initial_start < call->code_end &&
             initial_expression_size <= UINT16_MAX &&
             list_size <= UINT32_MAX -
                 ((uint64_t)address_size * 2u + 2u +
                  initial_expression_size)) {
-            memmove(entries + 1u, entries,
-                    entry_count * sizeof(*entries));
-            entries[0].start = initial_start;
-            entries[0].end = entries[1].start;
-            entries[0].expression_size = initial_expression_size;
-            memcpy(entries[0].expression, initial_expression,
-                   initial_expression_size);
-            list_size += (uint64_t)address_size * 2u + 2u +
-                initial_expression_size;
-            ++entry_count;
+            size_t insert_index = entry_count;
+            size_t previous_index = SIZE_MAX;
+            uint32_t initial_end = call->code_end;
+            bool shares_transition = false;
+            for (size_t index = 0u; index < entry_count; ++index) {
+                if (entries[index].start == initial_start) {
+                    shares_transition = true;
+                    break;
+                }
+                if (entries[index].start < initial_start &&
+                    initial_start < entries[index].end) {
+                    insert_index = index + 1u;
+                    previous_index = index;
+                    initial_end = entries[index].end;
+                    break;
+                }
+                if (entries[index].start > initial_start) {
+                    insert_index = index;
+                    initial_end = entries[index].start;
+                    if (index != 0u) previous_index = index - 1u;
+                    break;
+                }
+            }
+            if (!shares_transition && initial_start < initial_end) {
+                if (previous_index != SIZE_MAX) {
+                    entries[previous_index].end = initial_start;
+                }
+                memmove(entries + insert_index + 1u,
+                        entries + insert_index,
+                        (entry_count - insert_index) * sizeof(*entries));
+                entries[insert_index].start = initial_start;
+                entries[insert_index].end = initial_end;
+                entries[insert_index].expression_size =
+                    initial_expression_size;
+                memcpy(entries[insert_index].expression,
+                       initial_expression, initial_expression_size);
+                list_size += (uint64_t)address_size * 2u + 2u +
+                    initial_expression_size;
+                ++entry_count;
+            }
         }
     }
     list_size += (uint64_t)address_size * 2u;

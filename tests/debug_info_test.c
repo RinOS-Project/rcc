@@ -6908,7 +6908,9 @@ static void verify_cxx_inline_mutated_local_location(
     int64_t second_source_frame_offset = INT64_MIN;
     bool found_call = false;
     size_t bitwise_start = signed_wide ? 4u : 3u;
-    size_t entry_count = conditional_update ? 3u : second_source_name ? 2u : wide
+    size_t entry_count = conditional_update
+        ? conditional_initializer ? 2u : 3u
+        : second_source_name ? 2u : wide
         ? (bitwise_wide
                ? signed_wide ? shifted_wide ? 11u : 7u
                              : shifted_wide
@@ -7002,7 +7004,9 @@ static void verify_cxx_inline_mutated_local_location(
     {
         uint64_t cursor = location_list;
         uint64_t previous_end = 0u;
+        bool conditional_states_seen[3] = {false, false, false};
         for (size_t entry = 0u; entry < entry_count; ++entry) {
+            int conditional_state = -1;
             const ObjReloc* start_relocation =
                 find_debug_section_relocation(locations, cursor);
             const ObjReloc* end_relocation = find_debug_section_relocation(
@@ -7150,20 +7154,48 @@ static void verify_cxx_inline_mutated_local_location(
                             ? initial_state + 5 : initial - 2;
                         int64_t second_update = first_update + delta * 3;
                         int64_t value;
-                        if (entry == 0u) {
+                        if (conditional_update) {
+                            int64_t actual =
+                                evaluate_inline_mutated_local_expression(
+                                    locations->data, expression_end,
+                                    expression_start, source_frame_offset,
+                                    second_source_frame_offset,
+                                    initial, delta);
+                            if (conditional_state < 0) {
+                                if (actual == initial_state) {
+                                    conditional_state = 0;
+                                } else if (actual == first_update) {
+                                    conditional_state = 1;
+                                } else if (actual == second_update) {
+                                    conditional_state = 2;
+                                }
+                                assert(conditional_state >= 0);
+                            }
+                            value = conditional_state == 0
+                                ? initial_state
+                                : conditional_state == 1
+                                      ? first_update : second_update;
+                            assert(actual == value);
+                        } else if (entry == 0u) {
                             value = initial_state;
-                        } else if (conditional_update) {
-                            value = entry == 1u
-                                ? first_update : second_update;
                         } else {
                             value = initial_state + delta * 3;
                         }
-                        assert(evaluate_inline_mutated_local_expression(
-                                   locations->data, expression_end,
-                                   expression_start, source_frame_offset,
-                                   second_source_frame_offset,
-                                   initial, delta) == value);
+                        if (!conditional_update) {
+                            assert(evaluate_inline_mutated_local_expression(
+                                       locations->data, expression_end,
+                                       expression_start,
+                                       source_frame_offset,
+                                       second_source_frame_offset,
+                                       initial, delta) == value);
+                        }
                     }
+                }
+                if (conditional_update) {
+                    assert(conditional_state >= 0 &&
+                           conditional_state < 3 &&
+                           !conditional_states_seen[conditional_state]);
+                    conditional_states_seen[conditional_state] = true;
                 }
             } else {
                 static const int64_t expected_values[] = {
@@ -7175,6 +7207,15 @@ static void verify_cxx_inline_mutated_local_location(
                        expected_values[entry]);
             }
             cursor = expression_end;
+        }
+        if (conditional_update) {
+            assert(conditional_states_seen[0] &&
+                   conditional_states_seen[2]);
+            if (conditional_initializer) {
+                assert(!conditional_states_seen[1]);
+            } else {
+                assert(conditional_states_seen[1]);
+            }
         }
         assert(previous_end == call_end);
         assert(cursor + address_size * 2u <= locations->size);
@@ -19837,13 +19878,13 @@ int main(int argc, char** argv)
             argv[2], ARCH_X86, "debug_inline_mutated_conditional_local",
             "conditional_update_evolving",
             "debug_inline_mutated_conditional_local_entry",
-            "stable_initial", "stable_delta", false, true, false, false,
+            "stable_initial", "stable_delta", true, true, false, false,
             0u, false, false);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_conditional_local",
             "conditional_update_evolving",
             "debug_inline_mutated_conditional_local_entry",
-            "stable_initial", "stable_delta", false, true, false, false,
+            "stable_initial", "stable_delta", true, true, false, false,
             0u, false, false);
         return 0;
     }
