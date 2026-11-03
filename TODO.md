@@ -4505,9 +4505,17 @@ remains a separate open item.
   `mingw32-make SHELL=cmd.exe test-cxx-function-template-overloads`; i686 and
   AMD64 generation, AMD64 host execution, GCC execution, and existing
   ambiguity/no-output diagnostics all pass (exit 0).
-- [ ] Extend beyond these static-member expression compositions to dependent
-  calls and other member forms, non-type/template-template packs, constraints,
-  and full C++20 partial ordering.
+- [x] Order the bounded dependent `static constexpr` member-call NTTP patterns
+  against fixed integral patterns. Existing overload regressions cover zero-,
+  one-, and multiple-argument calls; non-type/template arguments; overloaded,
+  defaulted, and member-template calls; and both fixed-pattern selection and
+  dependent-pattern fallback. The GCC-oracled
+  `make -j4 test-cxx-function-template-overloads` gate passes for i686 and
+  AMD64 generation and AMD64 execution.
+- [ ] Extend beyond the tested static-member expression/call forms to other
+  dependent calls and member expressions, structural NTTP equivalence,
+  non-type/template-template packs, constraints, and full C++20 partial
+  ordering.
 
 ## RCC continuation (2026-10-12, C/C++ UTF-8 literal character types)
 
