@@ -8678,9 +8678,17 @@ remains a separate open item.
 - [x] Verify a constexpr-backed arithmetic expression and a constexpr
       function result as `DW_AT_const_value` on inlined C++ formal parameters
       for i686/AMD64. Native-Windows `make SHELL=cmd.exe test-debug-info` passes.
-- [ ] Dynamic integer expressions beyond the verified frame-backed mutable
-      inline-local case, general mutable-parameter locations, and optimized
-      register/piece tracking remain open.
+- [x] Extend optimized inline DWARF to the bounded dynamic integer expressions
+      backed by addressable frame slots, mutable inline parameters and locals,
+      pointer/reference indirections, and tested conditional/update ranges.
+      The POSIX `make -j4 test-debug-info-inline-expression` run passes with
+      legacy and verified C objects, C++20 legacy expression objects, and
+      verified C++20 mutable-parameter/local objects on i686 and AMD64; all
+      verified fallback-count checks are zero.
+- [ ] General optimized register/piece tracking and dynamic expressions or
+      location ranges outside these explicitly bounded frame-backed forms
+      remain open. See the current DWARF continuation in section 4 for the
+      detailed residual scope.
 
 ## RCC continuation (2026-10-20, member-pointer qualification subsequence)
 
