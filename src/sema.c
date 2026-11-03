@@ -26484,6 +26484,15 @@ static Expr* sema_cxx_strip_assignment_reference_casts(Expr* expression) {
     return expression;
 }
 
+static bool sema_cxx_is_stable_assignment_object(Expr* expression) {
+    Expr* object = sema_cxx_strip_assignment_reference_casts(expression);
+    if (!object) return false;
+    if (object->kind == EXPR_IDENT) return is_lvalue(object);
+    return object->kind == EXPR_DEREF &&
+           object->cxx_synthesized_assignment_subobject &&
+           is_lvalue(object);
+}
+
 static TypeField* sema_cxx_direct_assignment_field(
     Type* owner_type, CxxClass* owner, TypeParam* member) {
     if (!owner_type || !owner || !member || !member->name) return NULL;
@@ -26525,15 +26534,15 @@ static Expr* sema_cxx_defaulted_copy_assignment_fields(
     if (!owner || !source_parameter_type || !original_destination ||
         source_parameter_type->kind != TYPE_PTR ||
         !source_parameter_type->is_reference || !source_parameter_type->base ||
-        owner_type->kind != TYPE_STRUCT || owner->base_count != 0 ||
-        owner->virtual_base_count != 0 || !destination || !source_object ||
-        !is_lvalue(original_destination) ||
-        sema_cxx_strip_assignment_reference_casts(original_destination)->kind !=
-            EXPR_IDENT ||
-        !is_lvalue(destination) || !is_lvalue(source_object) ||
+        owner_type->kind != TYPE_STRUCT || owner->virtual_base_count != 0 ||
+        !destination || !source_object ||
+        !sema_cxx_is_stable_assignment_object(original_destination) ||
+        !is_lvalue(destination) ||
+        !sema_cxx_is_stable_assignment_object(source_object) ||
         (destination->kind != EXPR_IDENT &&
          destination->kind != EXPR_DEREF) ||
-        source_object->kind != EXPR_IDENT) {
+        (source_object->kind != EXPR_IDENT &&
+         source_object->kind != EXPR_DEREF)) {
         return NULL;
     }
     /* Keep the original expression's reference cast for address generation:
@@ -26551,6 +26560,36 @@ static Expr* sema_cxx_defaulted_copy_assignment_fields(
      * derived-to-base adjustment carried by the source conversion. */
     source_lvalue = expr_cast(source_parameter_type, source, loc);
     source_lvalue->cxx_cast_kind = CXX_CAST_STATIC;
+    if (owner->base_count > 0 && !owner->bases) return NULL;
+    for (int index = 0; index < owner->base_count; ++index) {
+        CxxClass* base_class = owner->bases[index].base;
+        Type* base_type = base_class ? base_class->type : NULL;
+        Type* source_base_type;
+        Expr* destination_base;
+        Expr* source_base;
+        Expr* assignment;
+        int offset;
+        if (!base_type || owner->bases[index].is_virtual ||
+            !owner->base_offsets || owner->base_offsets[index] < 0) {
+            return NULL;
+        }
+        offset = owner->base_offsets[index];
+        source_base_type = sema_cxx_assignment_source_field_type(
+            base_type, source_parameter_type->base);
+        destination_base = sema_cxx_object_base(
+            destination, owner_type, base_type, offset);
+        source_base = sema_cxx_object_base(
+            source_lvalue, source_parameter_type->base, source_base_type,
+            offset);
+        if (!destination_base || !source_base) return NULL;
+        destination_base->cxx_synthesized_assignment_subobject = true;
+        source_base->cxx_synthesized_assignment_subobject = true;
+        assignment = expr_binary(EXPR_ASSIGN, destination_base,
+                                 source_base, loc);
+        sequence = sequence
+            ? expr_binary(EXPR_COMMA, sequence, assignment, loc)
+            : assignment;
+    }
     for (TypeParam* member = owner->fields; member; member = member->next) {
         TypeField* field;
         Type* source_field_type;
@@ -26576,6 +26615,8 @@ static Expr* sema_cxx_defaulted_copy_assignment_fields(
             source_lvalue, source_parameter_type->base, source_field_type,
             field->offset);
         if (!destination_field || !source_field) return NULL;
+        destination_field->cxx_synthesized_assignment_subobject = true;
+        source_field->cxx_synthesized_assignment_subobject = true;
         assignment = expr_binary(EXPR_ASSIGN, destination_field,
                                  source_field, loc);
         sequence = sequence
@@ -26847,6 +26888,7 @@ static bool sema_cxx_expand_defaulted_copy_assignment(
               original_lhs, complete_type, base_type, expected_adjustment)
         : original_lhs;
     if (!base_lhs) return false;
+    base_lhs->cxx_synthesized_assignment_subobject = true;
     if (is_trivial) {
         replacement = expr_binary(
             EXPR_ASSIGN, base_lhs, original_rhs, expression->loc);

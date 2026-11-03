@@ -784,9 +784,10 @@ struct Expr {
      * operands have the same category and the same cv-qualified type. */
     bool cxx_conditional_lvalue;
     bool cxx_conditional_xvalue;
-    /* A defaulted assignment expanded to generated operations.
-     * This bypasses a second pass through overloaded operator= lookup. */
+    /* A defaulted assignment expanded to generated operations. */
     bool cxx_synthesized_defaulted_assignment;
+    /* A stable lvalue subobject synthesized from a named assignment operand. */
+    bool cxx_synthesized_assignment_subobject;
     /* A non-reference data member selected through a C++ dot-expression on
      * an xvalue object is itself an xvalue. */
     bool cxx_member_xvalue;

@@ -61,6 +61,20 @@ struct DirectNontrivialDefaultedAssignment {
         DirectNontrivialDefaultedAssignment&&) = default;
 };
 
+struct DefaultedNontrivialBaseAssignment {
+    InheritedNontrivialFallbackSubobject value;
+    DefaultedNontrivialBaseAssignment& operator=(
+        const DefaultedNontrivialBaseAssignment&) = default;
+};
+
+struct DerivedDefaultedNontrivialAssignment :
+    DefaultedNontrivialBaseAssignment {
+    int prefix;
+    int tail;
+    DerivedDefaultedNontrivialAssignment& operator=(
+        const DerivedDefaultedNontrivialAssignment&) = default;
+};
+
 #if defined(__RCC__)
 static_assert(__is_assignable(
     InheritedFallbackDerived&, InheritedFallbackBase&&));
@@ -70,6 +84,9 @@ static_assert(__is_assignable(
 static_assert(__is_assignable(
     DirectNontrivialDefaultedAssignment&,
     DirectNontrivialDefaultedAssignment&&));
+static_assert(__is_assignable(
+    DerivedDefaultedNontrivialAssignment&,
+    DerivedDefaultedNontrivialAssignment&&));
 #else
 static_assert(std::is_assignable_v<
     InheritedFallbackDerived&, InheritedFallbackBase&&>);
@@ -79,6 +96,9 @@ static_assert(std::is_assignable_v<
 static_assert(std::is_assignable_v<
     DirectNontrivialDefaultedAssignment&,
     DirectNontrivialDefaultedAssignment&&>);
+static_assert(std::is_assignable_v<
+    DerivedDefaultedNontrivialAssignment&,
+    DerivedDefaultedNontrivialAssignment&&>);
 #endif
 
 int main() {
@@ -119,6 +139,22 @@ int main() {
     inherited_fallback_copy_calls = 0;
     direct_destination = static_cast<
         DirectNontrivialDefaultedAssignment&&>(direct_source);
-    return direct_destination.value.value == 41 &&
-           inherited_fallback_copy_calls == 1 ? 0 : 4;
+    if (direct_destination.value.value != 41 ||
+        inherited_fallback_copy_calls != 1) return 4;
+
+    DerivedDefaultedNontrivialAssignment derived_destination;
+    DerivedDefaultedNontrivialAssignment derived_source;
+    derived_destination.prefix = 43;
+    derived_destination.value.value = 47;
+    derived_destination.tail = 53;
+    derived_source.prefix = 59;
+    derived_source.value.value = 61;
+    derived_source.tail = 67;
+    inherited_fallback_copy_calls = 0;
+    derived_destination = static_cast<
+        DerivedDefaultedNontrivialAssignment&&>(derived_source);
+    return derived_destination.prefix == 59 &&
+           derived_destination.value.value == 61 &&
+           derived_destination.tail == 67 &&
+           inherited_fallback_copy_calls == 1 ? 0 : 5;
 }

@@ -13769,12 +13769,18 @@ remains a separate open item.
 
 - [x] Expand selected bodyless defaulted copy assignments instead of emitting
       unresolved calls: use built-in copying for trivial classes, and emit
-      declaration-order assignments for direct nontrivial data members when
-      the class has no direct/virtual bases, arrays, bit-fields, or reference
-      members. Cover direct assignment and inherited `using Base::operator=`
-      fallback, including a derived-to-base source with a nonzero base offset.
+      declaration-order assignments for direct nonvirtual bases and direct
+      nontrivial data members when there are no virtual bases, arrays,
+      bit-fields, or reference members. Cover direct assignment, inherited
+      `using Base::operator=` fallback, and derived-to-base sources with a
+      nonzero base offset.
       GCC and RCC i686/AMD64 checks pass; normal and `-O2` x64 assembly links
-      and runs, including a user-defined member copy counter.
+      and runs, including direct-base recursion and a user-defined member copy
+      counter.
+- [ ] Synthesize bodyless defaulted move-assignment operations with the
+      correct xvalue category for base and member subobjects.
+- [ ] Extend defaulted copy-assignment synthesis to virtual bases, arrays,
+      bit-fields, and reference members.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 
