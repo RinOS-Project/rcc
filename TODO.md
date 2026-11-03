@@ -13875,3 +13875,15 @@ remains a separate open item.
       overload fixture uses distinct result types to prove that an inherited
       rvalue assignment selects the move overload. GCC C++20 and RCC i686/AMD64
       compilation pass in `test-atomic-private-access`.
+
+## RCC continuation (2026-11-03, inherited deleted assignment candidate sets)
+
+- [x] Materialize assignment overloads from every base selected by separate
+      `using Base::operator=` declarations, including nested using-declarations.
+      Previously a deleted exact-match operator from one base could be omitted
+      when another base supplied a conversion-match operator, causing both a
+      direct assignment and `__is_assignable` to be accepted incorrectly.
+      Compare GCC C++20, check `__is_assignable` for rejected and viable
+      source types, execute the viable converted assignment, and verify the
+      deleted exact-match diagnostic plus absent objects on i686/AMD64 in
+      `test-atomic-private-access`.

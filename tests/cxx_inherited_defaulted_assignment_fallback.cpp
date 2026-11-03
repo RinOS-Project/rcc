@@ -269,6 +269,33 @@ struct MultipleInheritedAssignmentOverloads : IntegerInheritedAssignmentBase,
     int marker;
 };
 
+struct DeletedExactInheritedAssignmentBase {
+    int value;
+    DeletedExactInheritedAssignmentBase& operator=(int) = delete;
+};
+
+struct ConvertedInheritedAssignmentBase {
+    int value;
+    int calls;
+    ConvertedInheritedAssignmentBase& operator=(long source) {
+        value = static_cast<int>(source);
+        ++calls;
+        return *this;
+    }
+};
+
+struct MultipleInheritedDeletedExactAssignment :
+    DeletedExactInheritedAssignmentBase,
+    ConvertedInheritedAssignmentBase {
+    using DeletedExactInheritedAssignmentBase::operator=;
+    using ConvertedInheritedAssignmentBase::operator=;
+};
+
+struct NestedMultipleInheritedDeletedExactAssignment :
+    MultipleInheritedDeletedExactAssignment {
+    using MultipleInheritedDeletedExactAssignment::operator=;
+};
+
 struct AmbiguousIntegerAssignmentBaseA {
     AmbiguousIntegerAssignmentBaseA& operator=(int);
 };
@@ -425,6 +452,14 @@ static_assert(__is_assignable(
 static_assert(__is_assignable(MultipleInheritedAssignmentOverloads&, int));
 static_assert(__is_assignable(MultipleInheritedAssignmentOverloads&, double));
 static_assert(!__is_assignable(
+    MultipleInheritedDeletedExactAssignment&, int));
+static_assert(__is_assignable(
+    MultipleInheritedDeletedExactAssignment&, long));
+static_assert(!__is_assignable(
+    NestedMultipleInheritedDeletedExactAssignment&, int));
+static_assert(__is_assignable(
+    NestedMultipleInheritedDeletedExactAssignment&, long));
+static_assert(!__is_assignable(
     AmbiguousMultipleInheritedAssignmentOverloads&, int));
 static_assert(__is_assignable(CvInheritedAssignmentDerived&,
                               CvInheritedAssignmentBase&));
@@ -500,6 +535,14 @@ static_assert(std::is_assignable_v<
     MultipleInheritedAssignmentOverloads&, int>);
 static_assert(std::is_assignable_v<
     MultipleInheritedAssignmentOverloads&, double>);
+static_assert(!std::is_assignable_v<
+    MultipleInheritedDeletedExactAssignment&, int>);
+static_assert(std::is_assignable_v<
+    MultipleInheritedDeletedExactAssignment&, long>);
+static_assert(!std::is_assignable_v<
+    NestedMultipleInheritedDeletedExactAssignment&, int>);
+static_assert(std::is_assignable_v<
+    NestedMultipleInheritedDeletedExactAssignment&, long>);
 static_assert(!std::is_assignable_v<
     AmbiguousMultipleInheritedAssignmentOverloads&, int>);
 static_assert(std::is_assignable_v<CvInheritedAssignmentDerived&,
@@ -904,6 +947,23 @@ int main() {
         static_cast<FloatingInheritedAssignmentBase&>(
             multiple_overload_destination).calls != 1 ||
         multiple_overload_destination.marker != 223) return 25;
+
+    MultipleInheritedDeletedExactAssignment deleted_exact_destination{};
+    deleted_exact_destination = 233L;
+    if (static_cast<DeletedExactInheritedAssignmentBase&>(
+            deleted_exact_destination).value != 0 ||
+        static_cast<ConvertedInheritedAssignmentBase&>(
+            deleted_exact_destination).value != 233 ||
+        static_cast<ConvertedInheritedAssignmentBase&>(
+            deleted_exact_destination).calls != 1) return 29;
+    NestedMultipleInheritedDeletedExactAssignment nested_deleted_exact{};
+    nested_deleted_exact = 239L;
+    if (static_cast<DeletedExactInheritedAssignmentBase&>(
+            nested_deleted_exact).value != 0 ||
+        static_cast<ConvertedInheritedAssignmentBase&>(
+            nested_deleted_exact).value != 239 ||
+        static_cast<ConvertedInheritedAssignmentBase&>(
+            nested_deleted_exact).calls != 1) return 30;
 
     CvInheritedAssignmentDerived cv_overload_destination{};
     CvInheritedAssignmentBase nonconst_cv_source{};

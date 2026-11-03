@@ -19697,6 +19697,27 @@ test-atomic-private-access: $(RCXX_TARGET)
 		$(TEST_OUT)/atomic-private-access/inherited-deleted-move-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/inherited-deleted-move-x86.ro)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/inherited-deleted-move-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-fsyntax-only tests/invalid_cxx_inherited_deleted_exact_assignment.cpp, \
+		$(TEST_OUT)/atomic-private-access/gcc-inherited-deleted-exact.log)
+	$(GREP) -F -q "use of deleted function 'InheritedDeletedExactBase& InheritedDeletedExactBase::operator=(int)'" \
+		$(TEST_OUT)/atomic-private-access/gcc-inherited-deleted-exact.log
+	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x86.ro)
+	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x86.ro \
+		tests/invalid_cxx_inherited_deleted_exact_assignment.cpp, \
+		$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x86.log)
+	$(GREP) -F -q "use of deleted member function 'operator='" \
+		$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x86.log
+	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x64.ro)
+	$(call EXPECT_FAILURE,./rcc++.exe --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x64.ro \
+		tests/invalid_cxx_inherited_deleted_exact_assignment.cpp, \
+		$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x64.log)
+	$(GREP) -F -q "use of deleted member function 'operator='" \
+		$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x86.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x64.ro)
 	@echo "C++ atomic special-member access constraints passed"
 
 .PHONY: test-atomic-wait test-clear-padding test-cxx-atomic-aggregate-concurrency

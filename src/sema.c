@@ -24397,11 +24397,43 @@ static void sema_cxx_lookup_static_member_in_bases(
     }
 }
 
-/* Resolve the single direct base selected by `using Base::member`.  Class
- * template instantiation substitutes the dependent base spelling before
- * semantic lookup, so this path intentionally accepts only a unique direct
- * base and leaves unresolved or multiply-selected declarations on the normal
- * ambiguity path. */
+/* Resolve one direct base selected by a using-declaration. Class-template
+ * instantiation substitutes the dependent base spelling before semantic
+ * lookup. */
+static CxxClass* sema_cxx_using_base_member_direct_base(
+    CxxClass* cls, int using_index) {
+    const char* base_name;
+    const char* declared_base_tail;
+    CxxClass* match = NULL;
+    if (!cls || using_index < 0 ||
+        using_index >= cls->using_base_member_count) {
+        return NULL;
+    }
+    base_name = cls->using_base_members[using_index].base_name;
+    declared_base_tail = sema_cxx_unqualified_name(base_name);
+    if (!base_name || !declared_base_tail) return NULL;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        const char* base_tail = sema_cxx_unqualified_name(
+            base ? base->name : NULL);
+        bool matches = base &&
+            ((base->name && strcmp(base->name, base_name) == 0) ||
+             (cls->bases[base_index].base_name &&
+              strcmp(cls->bases[base_index].base_name, base_name) == 0));
+        if (!matches && base_tail &&
+            strcmp(base_tail, declared_base_tail) == 0) {
+            matches = true;
+        }
+        if (!matches) continue;
+        if (match && match != base) return NULL;
+        match = base;
+    }
+    return match;
+}
+
+/* Resolve the unique direct base selected by all matching using-declarations.
+ * Multiple distinct bases form one overload set and therefore have no single
+ * owner; assignment materialization handles those declarations individually. */
 static CxxClass* sema_cxx_using_base_member_owner(Type* aggregate,
                                                   const char* name) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
@@ -24414,29 +24446,11 @@ static CxxClass* sema_cxx_using_base_member_owner(Type* aggregate,
         const char* declared_member =
             cls->using_base_members[using_index].member_name;
         const char* declared_tail = sema_cxx_unqualified_name(declared_member);
-        const char* base_name = cls->using_base_members[using_index].base_name;
-        CxxClass* match = NULL;
+        CxxClass* match;
         if (!declared_tail || strcmp(declared_tail, member_tail) != 0) {
             continue;
         }
-        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
-            CxxClass* base = cls->bases[base_index].base;
-            const char* base_tail = sema_cxx_unqualified_name(
-                base ? base->name : NULL);
-            const char* declared_base_tail =
-                sema_cxx_unqualified_name(base_name);
-            bool matches = base && base_name &&
-                ((base->name && strcmp(base->name, base_name) == 0) ||
-                 (cls->bases[base_index].base_name &&
-                  strcmp(cls->bases[base_index].base_name, base_name) == 0));
-            if (!matches && base_tail && declared_base_tail &&
-                strcmp(base_tail, declared_base_tail) == 0) {
-                matches = true;
-            }
-            if (!matches) continue;
-            if (match && match != base) return NULL;
-            match = base;
-        }
+        match = sema_cxx_using_base_member_direct_base(cls, using_index);
         if (!match) return NULL;
         if (found && selected != match) return NULL;
         selected = match;
@@ -26424,33 +26438,6 @@ static bool sema_union_defaulted_copy_assignment_is_unambiguous(
         candidate->cxx_access == ACCESS_PUBLIC;
 }
 
-static bool sema_cxx_using_base_operator_access(
-    CxxClass* derived, CxxClass* base, const char* name,
-    unsigned char* access_out) {
-    const char* name_tail = sema_cxx_unqualified_name(name);
-    const char* base_tail = base
-        ? sema_cxx_unqualified_name(base->name) : NULL;
-    if (!derived || !base || !name_tail || !base_tail) return false;
-    for (int index = 0; index < derived->using_base_member_count; ++index) {
-        const char* member = derived->using_base_members[index].member_name;
-        const char* member_tail = sema_cxx_unqualified_name(member);
-        const char* declared_base =
-            derived->using_base_members[index].base_name;
-        const char* declared_base_tail =
-            sema_cxx_unqualified_name(declared_base);
-        if (!member_tail || !declared_base_tail ||
-            strcmp(member_tail, name_tail) != 0 ||
-            strcmp(declared_base_tail, base_tail) != 0) {
-            continue;
-        }
-        if (access_out) {
-            *access_out = derived->using_base_members[index].access;
-        }
-        return true;
-    }
-    return false;
-}
-
 typedef struct {
     int count;
     int adjustment;
@@ -27005,11 +26992,22 @@ static void sema_cxx_materialize_using_base_assignment_methods_from(
         tail = &lowered->next;
     }
     {
-        CxxClass* inherited_base =
-            sema_cxx_using_base_member_owner(owner->type, name);
-        if (inherited_base && inherited_base != owner) {
-            sema_cxx_materialize_using_base_assignment_methods_from(
-                aggregate, inherited_base, name, access, depth + 1u);
+        const char* name_tail = sema_cxx_unqualified_name(name);
+        for (int using_index = 0;
+             using_index < owner->using_base_member_count; ++using_index) {
+            const char* member_tail = sema_cxx_unqualified_name(
+                owner->using_base_members[using_index].member_name);
+            CxxClass* inherited_base;
+            if (!member_tail || !name_tail ||
+                strcmp(member_tail, name_tail) != 0) {
+                continue;
+            }
+            inherited_base = sema_cxx_using_base_member_direct_base(
+                owner, using_index);
+            if (inherited_base && inherited_base != owner) {
+                sema_cxx_materialize_using_base_assignment_methods_from(
+                    aggregate, inherited_base, name, access, depth + 1u);
+            }
         }
     }
 }
@@ -27017,16 +27015,21 @@ static void sema_cxx_materialize_using_base_assignment_methods_from(
 static void sema_cxx_materialize_using_base_assignment_methods(
     Type* aggregate, const char* name) {
     CxxClass* derived = aggregate ? aggregate->cxx_class : NULL;
-    CxxClass* base;
-    unsigned char access = ACCESS_PUBLIC;
-    if (!derived || !name || strcmp(name, "operator=") != 0 ||
-        !(base = sema_cxx_using_base_member_owner(aggregate, name)) ||
-        !sema_cxx_using_base_operator_access(
-            derived, base, name, &access)) {
-        return;
+    const char* name_tail = sema_cxx_unqualified_name(name);
+    if (!derived || !name_tail || strcmp(name_tail, "operator=") != 0) return;
+    for (int using_index = 0;
+         using_index < derived->using_base_member_count; ++using_index) {
+        const char* member_tail = sema_cxx_unqualified_name(
+            derived->using_base_members[using_index].member_name);
+        CxxClass* base;
+        if (!member_tail || strcmp(member_tail, name_tail) != 0) continue;
+        base = sema_cxx_using_base_member_direct_base(derived, using_index);
+        if (!base || base == derived) continue;
+        sema_cxx_materialize_using_base_assignment_methods_from(
+            aggregate, base, name,
+            (unsigned char)derived->using_base_members[using_index].access,
+            0u);
     }
-    sema_cxx_materialize_using_base_assignment_methods_from(
-        aggregate, base, name, access, 0u);
 }
 
 static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
