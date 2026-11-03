@@ -13697,6 +13697,15 @@ remains a separate open item.
       availability with GCC and RCC on i686/AMD64, and the full
       `test-atomic-builtins` gate.
 
+## RCC continuation (2026-11-03, `std::atomic` default memory-order APIs)
+
+- [x] Match GCC's defaulted `memory_order` member signatures in the shared
+      `std::atomic<T>` base for `store`, `load`, `exchange`, and weak/strong
+      compare-exchange single-order forms. Remove duplicate no-order overloads
+      while retaining two-order compare-exchange forms. GCC C++17/20 and RCC
+      i686/AMD64 probes pass; the full `test-atomic-builtins` gate passes with
+      runtime checks and linked RIN validation.
+
 ## RCC continuation (2026-11-03, function-pointer `static_cast` type-ids)
 
 - [x] Parse grouped abstract function-pointer declarators in named-cast target

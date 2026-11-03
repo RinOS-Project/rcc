@@ -348,28 +348,20 @@ public:
         return __atomic_is_lock_free(sizeof(T), &value_);
     }
 
-    void store(T desired, memory_order order) noexcept {
+    void store(T desired,
+               memory_order order = memory_order_seq_cst) noexcept {
         this->store_impl(&value_, desired, order);
     }
-    void store(T desired, memory_order order) volatile noexcept {
+    void store(T desired,
+               memory_order order = memory_order_seq_cst) volatile noexcept {
         this->store_impl(&value_, desired, order);
-    }
-    void store(T desired) noexcept {
-        store(desired, memory_order_seq_cst);
-    }
-    void store(T desired) volatile noexcept {
-        this->store_impl(&value_, desired, memory_order_seq_cst);
     }
 
-    T load(memory_order order) const noexcept {
+    T load(memory_order order = memory_order_seq_cst) const noexcept {
         return this->load_impl(&value_, order);
     }
-    T load(memory_order order) const volatile noexcept {
+    T load(memory_order order = memory_order_seq_cst) const volatile noexcept {
         return this->load_impl(&value_, order);
-    }
-    T load() const noexcept { return load(memory_order_seq_cst); }
-    T load() const volatile noexcept {
-        return this->load_impl(&value_, memory_order_seq_cst);
     }
 
     operator T() const noexcept {
@@ -379,18 +371,13 @@ public:
         return this->load_impl(&value_, memory_order_seq_cst);
     }
 
-    T exchange(T desired, memory_order order) noexcept {
+    T exchange(T desired,
+               memory_order order = memory_order_seq_cst) noexcept {
         return this->exchange_impl(&value_, desired, order);
     }
-    T exchange(T desired, memory_order order) volatile noexcept {
+    T exchange(T desired,
+               memory_order order = memory_order_seq_cst) volatile noexcept {
         return this->exchange_impl(&value_, desired, order);
-    }
-    T exchange(T desired) noexcept {
-        return exchange(desired, memory_order_seq_cst);
-    }
-    T exchange(T desired) volatile noexcept {
-        return this->exchange_impl(&value_, desired,
-                                   memory_order_seq_cst);
     }
 
 #if __cplusplus >= 202002L
@@ -427,24 +414,15 @@ public:
             &value_, &expected, desired, true, success, failure);
     }
 
-    bool compare_exchange_weak(T& expected, T desired) noexcept {
-        return compare_exchange_weak(
-            expected, desired, memory_order_seq_cst,
-            memory_order_seq_cst);
-    }
-    bool compare_exchange_weak(T& expected, T desired) volatile noexcept {
-        return this->compare_exchange_impl(
-            &value_, &expected, desired, true, memory_order_seq_cst,
-            memory_order_seq_cst);
-    }
-
     bool compare_exchange_weak(T& expected, T desired,
-                               memory_order order) noexcept {
+                               memory_order order =
+                                   memory_order_seq_cst) noexcept {
         return compare_exchange_weak(
             expected, desired, order, default_failure_order(order));
     }
     bool compare_exchange_weak(T& expected, T desired,
-                               memory_order order) volatile noexcept {
+                               memory_order order =
+                                   memory_order_seq_cst) volatile noexcept {
         return this->compare_exchange_impl(
             &value_, &expected, desired, true, order,
             default_failure_order(order));
@@ -463,24 +441,15 @@ public:
             &value_, &expected, desired, false, success, failure);
     }
 
-    bool compare_exchange_strong(T& expected, T desired) noexcept {
-        return compare_exchange_strong(
-            expected, desired, memory_order_seq_cst,
-            memory_order_seq_cst);
-    }
-    bool compare_exchange_strong(T& expected, T desired) volatile noexcept {
-        return this->compare_exchange_impl(
-            &value_, &expected, desired, false, memory_order_seq_cst,
-            memory_order_seq_cst);
-    }
-
     bool compare_exchange_strong(T& expected, T desired,
-                                 memory_order order) noexcept {
+                                 memory_order order =
+                                     memory_order_seq_cst) noexcept {
         return compare_exchange_strong(
             expected, desired, order, default_failure_order(order));
     }
     bool compare_exchange_strong(T& expected, T desired,
-                                 memory_order order) volatile noexcept {
+                                 memory_order order =
+                                     memory_order_seq_cst) volatile noexcept {
         return this->compare_exchange_impl(
             &value_, &expected, desired, false, order,
             default_failure_order(order));
