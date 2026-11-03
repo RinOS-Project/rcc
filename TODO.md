@@ -144,6 +144,10 @@
         infinity case; the focused RCC regression accepts and executes both on
         AMD64, emits i686/AMD64 legacy output, and reports zero verified-backend
         fallback in `test-cxx-list-narrowing`.
+  - [x] Diagnose pointer-to-member-to-`bool` list narrowing, including a
+        constant address of a data member. GCC and RCC each report the added
+        diagnostic on both targets; the list-narrowing gate checks 26 matched
+        diagnostics and absent invalid objects.
 
 ## RCC continuation (2026-11-01, reference list initialization)
 

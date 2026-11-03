@@ -27,6 +27,10 @@ struct FloatingConversion {
     constexpr operator double() const { return 2.5; }
 };
 
+struct MemberPointerOwner {
+    int member;
+};
+
 enum ListNarrowingEnumValues {
     list_narrowing_negative = -1,
     list_narrowing_inexact_float = 16777217
@@ -58,6 +62,7 @@ int main() {
     unsigned char negative_unsigned{-1};
     bool from_pointer{&source};
     bool from_array{source_array};
+    bool from_member_pointer{&MemberPointerOwner::member};
     short constant_user_conversion{OutOfRangeIntegerConversion{}};
     short runtime_user_conversion{RuntimeIntegerConversion{}};
     int floating_user_conversion{FloatingConversion{}};
@@ -73,7 +78,8 @@ int main() {
            sizeof(constructor_from_float) + out_of_range +
            array_out_of_range[0] + (int)inexact_integer +
            (int)runtime_narrow + (int)floating_overflow +
-           nonzero_integer + from_pointer + from_array + enum_negative +
+           nonzero_integer + from_pointer + from_array +
+           from_member_pointer + enum_negative +
            signed_overflow + signed_underflow + negative_unsigned +
            (int)enum_inexact_float + (int)unsigned_enum_inexact_float +
            (int)inexact_ull_max + signed_bitfield_out_of_range +
