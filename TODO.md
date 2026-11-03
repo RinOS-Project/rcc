@@ -1136,18 +1136,7 @@
         unsupported constexpr evaluation required for complete standard
         conformance
 - [ ] C++20 modules、coroutines
-- [ ] Complete ordinary non-template rvalue-reference binding and value-category
-      semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
-      function returns now have regressions that compile for both targets and
-      execute on the x64 host. Source-level reference collapsing and the public
-      conversion-function cases returning class `T&`, `T&&`, or class prvalues
-      are covered by `test-cxx-function-template-references` on both targets
-      and the x64 host. Equal-rank non-template overloads now prefer `const T&&`
-      over `const T&` for prvalues/xvalues and retain `const T&` for lvalues;
-      GCC C++20, both target codegens, x64 execution, and the complete native
-      Windows `test-cxx` gate pass. Broader call/return ABI interactions still
-      need systematic coverage; a direct thread-local class-prvalue reference
-      has dedicated per-thread host coverage below.
+- [ ] **RCC-CXX-REFERENCE-BINDING-ABI-COVERAGE-01 / P2 / M** — 未完了の意味解析・temporary lifetime・target ABI受入はリポジトリrootの`TODO.md`を正本とする。
   - [x] Preserve mutable and const rvalue-reference identity when called
         `&&`/`const &&`-qualified non-template member functions return member
         fields inherited from a nonzero-offset base. Verify this adjustment,
