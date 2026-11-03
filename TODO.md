@@ -13765,6 +13765,17 @@ remains a separate open item.
       both link and run with a nonzero base offset, confirming the adjacent
       base remains unchanged.
 
+## RCC continuation (2026-11-03, defaulted copy assignment expansion)
+
+- [x] Expand selected bodyless defaulted copy assignments instead of emitting
+      unresolved calls: use built-in copying for trivial classes, and emit
+      declaration-order assignments for direct nontrivial data members when
+      the class has no direct/virtual bases, arrays, bit-fields, or reference
+      members. Cover direct assignment and inherited `using Base::operator=`
+      fallback, including a derived-to-base source with a nonzero base offset.
+      GCC and RCC i686/AMD64 checks pass; normal and `-O2` x64 assembly links
+      and runs, including a user-defined member copy counter.
+
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 
 - [x] Parse `using Base::operator=` as an overloaded operator-function-id,

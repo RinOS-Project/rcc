@@ -2492,7 +2492,8 @@ static bool is_lvalue(Expr* e) {
          e->cxx_cast_kind == CXX_CAST_STATIC ||
          e->cxx_cast_kind == CXX_CAST_CONST ||
          e->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
-        return is_lvalue(e->cast_expr);
+        /* Binding an lvalue reference to an xvalue still yields an lvalue. */
+        return true;
     }
     switch (e->kind) {
         case EXPR_IDENT:
@@ -16911,6 +16912,7 @@ static Expr* sema_cxx_object_member(Expr* object, TypeField* field) {
 static Expr* sema_cxx_object_base(Expr* object, Type* object_type,
                                   Type* base_type, int offset) {
     SourceLoc loc;
+    Type* byte_type;
     Type* byte_pointer_type;
     Type* base_pointer_type;
     Expr* address;
@@ -16920,7 +16922,14 @@ static Expr* sema_cxx_object_base(Expr* object, Type* object_type,
     Expr* base_object;
     if (!object || !object_type || !base_type || offset < 0) return NULL;
     loc = object->loc;
-    byte_pointer_type = type_ptr(type_char);
+    byte_type = type_char;
+    if (object_type->is_const || object_type->is_volatile) {
+        byte_type = ast_arena_alloc(sizeof(*byte_type));
+        *byte_type = *type_char;
+        byte_type->is_const = object_type->is_const;
+        byte_type->is_volatile = object_type->is_volatile;
+    }
+    byte_pointer_type = type_ptr(byte_type);
     base_pointer_type = type_ptr(base_type);
     address = expr_unary(EXPR_ADDR, object, loc);
     address->type = type_ptr(object_type);
@@ -26467,6 +26476,115 @@ static bool sema_cxx_selected_using_base_adjustment(
     return false;
 }
 
+static Expr* sema_cxx_strip_assignment_reference_casts(Expr* expression) {
+    while (expression && expression->kind == EXPR_CAST &&
+           expression->cast_expr) {
+        expression = expression->cast_expr;
+    }
+    return expression;
+}
+
+static TypeField* sema_cxx_direct_assignment_field(
+    Type* owner_type, CxxClass* owner, TypeParam* member) {
+    if (!owner_type || !owner || !member || !member->name) return NULL;
+    for (TypeField* field = owner_type->fields; field; field = field->next) {
+        if (field->name &&
+            strcmp(field->name, member->name) == 0 &&
+            field->cxx_declaring_class == owner) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
+static Type* sema_cxx_assignment_source_field_type(
+    Type* field_type, Type* source_parameter_type) {
+    Type* qualified;
+    if (!field_type || !source_parameter_type || field_type->is_reference ||
+        (!source_parameter_type->is_const && !source_parameter_type->is_volatile)) {
+        return field_type;
+    }
+    qualified = ast_arena_alloc(sizeof(*qualified));
+    *qualified = *field_type;
+    qualified->is_const = qualified->is_const ||
+                          source_parameter_type->is_const;
+    qualified->is_volatile =
+        qualified->is_volatile || source_parameter_type->is_volatile;
+    return qualified;
+}
+
+static Expr* sema_cxx_defaulted_copy_assignment_fields(
+    Type* owner_type, Type* source_parameter_type,
+    Expr* original_destination,
+    Expr* destination, Expr* source, SourceLoc loc) {
+    CxxClass* owner = owner_type ? owner_type->cxx_class : NULL;
+    Type* source_object_type;
+    Expr* source_object = sema_cxx_strip_assignment_reference_casts(source);
+    Expr* source_lvalue;
+    Expr* sequence = NULL;
+    if (!owner || !source_parameter_type || !original_destination ||
+        source_parameter_type->kind != TYPE_PTR ||
+        !source_parameter_type->is_reference || !source_parameter_type->base ||
+        owner_type->kind != TYPE_STRUCT || owner->base_count != 0 ||
+        owner->virtual_base_count != 0 || !destination || !source_object ||
+        !is_lvalue(original_destination) ||
+        sema_cxx_strip_assignment_reference_casts(original_destination)->kind !=
+            EXPR_IDENT ||
+        !is_lvalue(destination) || !is_lvalue(source_object) ||
+        (destination->kind != EXPR_IDENT &&
+         destination->kind != EXPR_DEREF) ||
+        source_object->kind != EXPR_IDENT) {
+        return NULL;
+    }
+    /* Keep the original expression's reference cast for address generation:
+     * it carries a derived-to-base adjustment that would be lost by using
+     * the stripped identifier as the source object. */
+    source_object_type = sema_cxx_object_type(source->type);
+    if (!source_object_type ||
+        !type_is_compatible(source_object_type, owner_type) ||
+        !type_is_compatible(source_parameter_type->base, owner_type)) {
+        return NULL;
+    }
+    /* Defaulted copy assignment reads through its const lvalue-reference
+     * parameter even when the caller supplied an xvalue.  Materialize that
+     * reference cast before taking member addresses, preserving any
+     * derived-to-base adjustment carried by the source conversion. */
+    source_lvalue = expr_cast(source_parameter_type, source, loc);
+    source_lvalue->cxx_cast_kind = CXX_CAST_STATIC;
+    for (TypeParam* member = owner->fields; member; member = member->next) {
+        TypeField* field;
+        Type* source_field_type;
+        Expr* destination_field;
+        Expr* source_field;
+        Expr* assignment;
+        if (member->is_static) continue;
+        if (!member->type || !member->name || member->is_bitfield ||
+            member->type->kind == TYPE_ARRAY ||
+            member->type->is_reference) {
+            return NULL;
+        }
+        field = sema_cxx_direct_assignment_field(owner_type, owner, member);
+        if (!field || field->is_bitfield || field->offset < 0 || !field->type ||
+            field->type->kind == TYPE_ARRAY || field->type->is_reference) {
+            return NULL;
+        }
+        source_field_type = sema_cxx_assignment_source_field_type(
+            field->type, source_parameter_type->base);
+        destination_field = sema_cxx_object_base(
+            destination, owner_type, field->type, field->offset);
+        source_field = sema_cxx_object_base(
+            source_lvalue, source_parameter_type->base, source_field_type,
+            field->offset);
+        if (!destination_field || !source_field) return NULL;
+        assignment = expr_binary(EXPR_ASSIGN, destination_field,
+                                 source_field, loc);
+        sequence = sequence
+            ? expr_binary(EXPR_COMMA, sequence, assignment, loc)
+            : assignment;
+    }
+    return sequence;
+}
+
 static void sema_cxx_materialize_using_base_assignment_methods(
     Type* aggregate, const char* name) {
     CxxClass* derived = aggregate ? aggregate->cxx_class : NULL;
@@ -26665,11 +26783,10 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
 }
 
 /* A defaulted assignment function has no emitted body in this frontend.
- * When an inherited using-declaration selects a trivial base copy assignment,
- * lower the call to the equivalent built-in assignment on that base subobject.
- * The operation is limited to glvalue sources so the call's temporary cleanup
- * behavior is never discarded. */
-static bool sema_cxx_expand_trivial_inherited_copy_assignment(
+ * Expand a trivial copy to a built-in assignment, or use ordered member
+ * assignments for the supported direct-member form. Keep glvalue sources so
+ * temporary cleanup and repeated operand evaluation do not change. */
+static bool sema_cxx_expand_defaulted_copy_assignment(
     Expr* expression, Expr* original_lhs, Expr* original_rhs) {
     TypeMethod* method;
     Type* complete_type;
@@ -26677,13 +26794,15 @@ static bool sema_cxx_expand_trivial_inherited_copy_assignment(
     Type* parameter_type;
     Type* return_type;
     int expected_adjustment = -1;
+    bool inherited_using_base;
     Expr* base_lhs;
     Expr* replacement;
+    bool is_trivial;
     if (!expression || expression->kind != EXPR_CALL ||
         !(method = expression->cxx_selected_method) ||
         !method->is_defaulted ||
         method->is_deleted || !method->this_owner ||
-        !method->cxx_access_owner || !original_lhs || !original_rhs ||
+        !original_lhs || !original_rhs ||
         (!is_lvalue(original_rhs) && !is_xvalue(original_rhs))) {
         return false;
     }
@@ -26697,27 +26816,49 @@ static bool sema_cxx_expand_trivial_inherited_copy_assignment(
             method->function_decl->func_params->decl
         ? method->function_decl->func_params->decl->type : NULL;
     if (!complete_type || !complete_type->cxx_class ||
-        method->cxx_access_owner != complete_type->cxx_class ||
-        !base_type->cxx_class || base_type == complete_type ||
+        !base_type->cxx_class ||
         !parameter_type ||
         sema_cxx_assignment_special_member_kind(
             base_type, parameter_type) != 1 ||
         !return_type || return_type->kind != TYPE_PTR ||
         !return_type->is_reference || return_type->is_rvalue_reference ||
         !type_is_compatible(return_type->base, base_type) ||
-        !sema_cxx_selected_using_base_adjustment(
-            complete_type, base_type->cxx_class, &expected_adjustment) ||
-        expected_adjustment != method->this_adjustment ||
-        !sema_cxx_type_trait_assignment_subobjects_are_trivial(
+        !sema_cxx_type_trait_assignment_subobjects_are_assignable(
             base_type, parameter_type, 0u)) {
         return false;
     }
-    base_lhs = sema_cxx_object_base(
-        original_lhs, complete_type, base_type, expected_adjustment);
+    inherited_using_base = base_type != complete_type;
+    if (inherited_using_base) {
+        if (method->cxx_access_owner != complete_type->cxx_class ||
+            !sema_cxx_selected_using_base_adjustment(
+                complete_type, base_type->cxx_class,
+                &expected_adjustment) ||
+            expected_adjustment != method->this_adjustment) {
+            return false;
+        }
+    } else if (method->cxx_access_owner ||
+               method->this_adjustment != 0) {
+        return false;
+    }
+    is_trivial = sema_cxx_type_trait_assignment_subobjects_are_trivial(
+        base_type, parameter_type, 0u);
+    base_lhs = inherited_using_base
+        ? sema_cxx_object_base(
+              original_lhs, complete_type, base_type, expected_adjustment)
+        : original_lhs;
     if (!base_lhs) return false;
-    replacement = expr_binary(
-        EXPR_ASSIGN, base_lhs, original_rhs, expression->loc);
-    replacement->cxx_synthesized_trivial_assignment = true;
+    if (is_trivial) {
+        replacement = expr_binary(
+            EXPR_ASSIGN, base_lhs, original_rhs, expression->loc);
+    } else {
+        Expr* member_assignments = sema_cxx_defaulted_copy_assignment_fields(
+            base_type, parameter_type, original_lhs, base_lhs, original_rhs,
+            expression->loc);
+        if (!member_assignments) return false;
+        replacement = expr_binary(
+            EXPR_COMMA, member_assignments, base_lhs, expression->loc);
+    }
+    replacement->cxx_synthesized_defaulted_assignment = true;
     *expression = *replacement;
     return true;
 }
@@ -28823,7 +28964,7 @@ static Type* sema_expr(Expr* expr) {
     if (rcc_parser_is_cxx_mode() &&
         expr->kind >= EXPR_ASSIGN && expr->kind <= EXPR_RSHIFT_ASSIGN &&
         expr->binary_lhs && expr->binary_rhs &&
-        !expr->cxx_synthesized_trivial_assignment) {
+        !expr->cxx_synthesized_defaulted_assignment) {
         Type* left_type = sema_expr(expr->binary_lhs);
         Expr* original_lhs = expr->binary_lhs;
         Expr* original_rhs = expr->binary_rhs;
@@ -28832,7 +28973,7 @@ static Type* sema_expr(Expr* expr) {
         left_type = sema_cxx_object_type(left_type);
         if (sema_rewrite_cxx_assignment_operator(expr, left_type)) {
             Type* call_type = sema_expr(expr);
-            if (sema_cxx_expand_trivial_inherited_copy_assignment(
+            if (sema_cxx_expand_defaulted_copy_assignment(
                     expr, original_lhs, original_rhs)) {
                 return sema_expr(expr);
             }
