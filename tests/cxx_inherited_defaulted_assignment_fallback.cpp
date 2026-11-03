@@ -65,6 +65,8 @@ struct DefaultedNontrivialBaseAssignment {
     InheritedNontrivialFallbackSubobject value;
     DefaultedNontrivialBaseAssignment& operator=(
         const DefaultedNontrivialBaseAssignment&) = default;
+    DefaultedNontrivialBaseAssignment& operator=(
+        DefaultedNontrivialBaseAssignment&&) = default;
 };
 
 struct DerivedDefaultedNontrivialAssignment :
@@ -73,6 +75,34 @@ struct DerivedDefaultedNontrivialAssignment :
     int tail;
     DerivedDefaultedNontrivialAssignment& operator=(
         const DerivedDefaultedNontrivialAssignment&) = default;
+    DerivedDefaultedNontrivialAssignment& operator=(
+        DerivedDefaultedNontrivialAssignment&&) = default;
+};
+
+static int defaulted_move_assignment_calls;
+
+struct MoveTrackedAssignmentSubobject {
+    int value;
+    MoveTrackedAssignmentSubobject& operator=(
+        const MoveTrackedAssignmentSubobject& source) {
+        value = source.value;
+        ++inherited_fallback_copy_calls;
+        return *this;
+    }
+    MoveTrackedAssignmentSubobject& operator=(
+        MoveTrackedAssignmentSubobject&& source) {
+        value = source.value;
+        ++defaulted_move_assignment_calls;
+        return *this;
+    }
+};
+
+struct DirectDefaultedMoveAssignment {
+    MoveTrackedAssignmentSubobject value;
+    DirectDefaultedMoveAssignment& operator=(
+        const DirectDefaultedMoveAssignment&) = default;
+    DirectDefaultedMoveAssignment& operator=(
+        DirectDefaultedMoveAssignment&&) = default;
 };
 
 #if defined(__RCC__)
@@ -87,6 +117,9 @@ static_assert(__is_assignable(
 static_assert(__is_assignable(
     DerivedDefaultedNontrivialAssignment&,
     DerivedDefaultedNontrivialAssignment&&));
+static_assert(__is_assignable(
+    DirectDefaultedMoveAssignment&,
+    DirectDefaultedMoveAssignment&&));
 #else
 static_assert(std::is_assignable_v<
     InheritedFallbackDerived&, InheritedFallbackBase&&>);
@@ -99,6 +132,9 @@ static_assert(std::is_assignable_v<
 static_assert(std::is_assignable_v<
     DerivedDefaultedNontrivialAssignment&,
     DerivedDefaultedNontrivialAssignment&&>);
+static_assert(std::is_assignable_v<
+    DirectDefaultedMoveAssignment&,
+    DirectDefaultedMoveAssignment&&>);
 #endif
 
 int main() {
@@ -153,8 +189,20 @@ int main() {
     inherited_fallback_copy_calls = 0;
     derived_destination = static_cast<
         DerivedDefaultedNontrivialAssignment&&>(derived_source);
-    return derived_destination.prefix == 59 &&
-           derived_destination.value.value == 61 &&
-           derived_destination.tail == 67 &&
-           inherited_fallback_copy_calls == 1 ? 0 : 5;
+    if (derived_destination.prefix != 59 ||
+        derived_destination.value.value != 61 ||
+        derived_destination.tail != 67 ||
+        inherited_fallback_copy_calls != 1) return 5;
+
+    DirectDefaultedMoveAssignment move_destination;
+    DirectDefaultedMoveAssignment move_source;
+    move_destination.value.value = 71;
+    move_source.value.value = 73;
+    inherited_fallback_copy_calls = 0;
+    defaulted_move_assignment_calls = 0;
+    move_destination = static_cast<
+        DirectDefaultedMoveAssignment&&>(move_source);
+    return move_destination.value.value == 73 &&
+           inherited_fallback_copy_calls == 0 &&
+           defaulted_move_assignment_calls == 1 ? 0 : 6;
 }

@@ -13777,9 +13777,11 @@ remains a separate open item.
       GCC and RCC i686/AMD64 checks pass; normal and `-O2` x64 assembly links
       and runs, including direct-base recursion and a user-defined member copy
       counter.
-- [ ] Synthesize bodyless defaulted move-assignment operations with the
-      correct xvalue category for base and member subobjects.
-- [ ] Extend defaulted copy-assignment synthesis to virtual bases, arrays,
+- [x] Synthesize selected bodyless defaulted move assignments with xvalue
+      base/class-member operands, preserving fallback from a deleted defaulted
+      base move to copy assignment. GCC/RCC i686/AMD64 and normal/`-O2` x64
+      link/run checks pass; the fixture verifies one user-defined move call.
+- [ ] Extend defaulted assignment synthesis to virtual bases, arrays,
       bit-fields, and reference members.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
