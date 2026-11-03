@@ -74,3 +74,23 @@ extern "C" long long debug_inline_mutated_signed_wide_local_entry(
     debug_inline_mutated_signed_wide_local_observe(&stable_signed_wide_input);
     return debug_inline_mutated_signed_wide_local(stable_signed_wide_input);
 }
+
+static inline int debug_inline_mutated_dynamic_local(
+    int initial_value, int delta_value)
+{
+    int dynamic_evolving = initial_value;
+    dynamic_evolving += delta_value * 3;
+    return dynamic_evolving + 2;
+}
+
+extern "C" void debug_inline_mutated_dynamic_local_observe(int* value);
+
+extern "C" int debug_inline_mutated_dynamic_local_entry(
+    int initial_input, int delta_input)
+{
+    int stable_initial = initial_input;
+    int stable_delta = delta_input;
+    debug_inline_mutated_dynamic_local_observe(&stable_initial);
+    debug_inline_mutated_dynamic_local_observe(&stable_delta);
+    return debug_inline_mutated_dynamic_local(stable_initial, stable_delta);
+}

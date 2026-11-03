@@ -6758,7 +6758,9 @@ static void verify_cxx_inline_mutated_parameter_location(
 }
 
 static int64_t evaluate_inline_mutated_local_expression(
-    const uint8_t* data, uint64_t size, uint64_t start, int64_t source_value) {
+    const uint8_t* data, uint64_t size, uint64_t start,
+    int64_t source_frame_offset, int64_t second_source_frame_offset,
+    int64_t source_value, int64_t second_source_value) {
     int64_t stack[32];
     size_t stack_count = 0u;
     uint64_t cursor = start;
@@ -6768,17 +6770,26 @@ static int64_t evaluate_inline_mutated_local_expression(
             assert(stack_count < sizeof(stack) / sizeof(stack[0]));
             stack[stack_count++] = (int64_t)(opcode - 0x30u);
         } else if (opcode >= 0x70u && opcode <= 0x8fu) {
-            int64_t ignored_offset;
-            assert(try_read_sleb(data, size, &cursor, &ignored_offset));
+            int64_t frame_offset;
+            assert(try_read_sleb(data, size, &cursor, &frame_offset));
             assert(stack_count < sizeof(stack) / sizeof(stack[0]));
-            stack[stack_count++] = 0;
+            stack[stack_count++] = frame_offset;
         } else if (opcode == 0x06u || opcode == 0x94u) {
             if (opcode == 0x94u) {
                 assert(cursor < size);
                 ++cursor;
             }
             assert(stack_count > 0u);
-            stack[stack_count - 1u] = source_value;
+            if (second_source_frame_offset != INT64_MIN) {
+                int64_t frame_offset = stack[stack_count - 1u];
+                assert(frame_offset == source_frame_offset ||
+                       frame_offset == second_source_frame_offset);
+                stack[stack_count - 1u] =
+                    frame_offset == source_frame_offset
+                        ? source_value : second_source_value;
+            } else {
+                stack[stack_count - 1u] = source_value;
+            }
         } else if (opcode == 0x10u) {
             uint64_t value;
             assert(try_read_uleb(data, size, &cursor, &value));
@@ -6842,7 +6853,8 @@ static uint64_t arithmetic_shift_right_u64(uint64_t value,
 static void verify_cxx_inline_mutated_local_location(
     const char* path, uint16_t architecture, const char* function_name,
     const char* local_name, const char* entry_name,
-    const char* source_name, bool wide, bool signed_wide,
+    const char* source_name, const char* second_source_name,
+    bool wide, bool signed_wide,
     uint64_t wide_multiplier, bool bitwise_wide, bool shifted_wide) {
     static const uint64_t wide_inputs[] = {
         0u, 1u, UINT64_C(0xfffffffe), UINT64_C(0xffffffff),
@@ -6865,9 +6877,10 @@ static void verify_cxx_inline_mutated_local_location(
     uint64_t call_start = 0u;
     uint64_t call_end = 0u;
     int64_t source_frame_offset = 0;
+    int64_t second_source_frame_offset = INT64_MIN;
     bool found_call = false;
     size_t bitwise_start = signed_wide ? 4u : 3u;
-    size_t entry_count = wide
+    size_t entry_count = second_source_name ? 2u : wide
         ? (bitwise_wide
                ? signed_wide ? shifted_wide ? 11u : 7u
                              : shifted_wide
@@ -6880,7 +6893,7 @@ static void verify_cxx_inline_mutated_local_location(
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
     assert(info != NULL && strings != NULL && locations != NULL);
-    if (wide) {
+    if (wide || second_source_name) {
         bool source_has_location;
         bool source_is_location_list;
         assert(source_name != NULL && find_variable_location(
@@ -6889,6 +6902,19 @@ static void verify_cxx_inline_mutated_local_location(
             &source_frame_offset));
         assert(source_has_location && source_frame_offset < 0);
         (void)source_is_location_list;
+        if (second_source_name) {
+            bool second_source_has_location;
+            bool second_source_is_location_list;
+            assert(find_variable_location(
+                info, strings, locations, second_source_name, architecture,
+                &second_source_has_location,
+                &second_source_is_location_list,
+                &second_source_frame_offset));
+            assert(second_source_has_location &&
+                   second_source_frame_offset < 0 &&
+                   second_source_frame_offset != source_frame_offset);
+            (void)second_source_is_location_list;
+        }
     }
     for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
         uint32_t name_offset;
@@ -6952,6 +6978,13 @@ static void verify_cxx_inline_mutated_local_location(
             uint16_t expression_size;
             uint64_t expression_start;
             uint64_t expression_end;
+            if (!start_relocation || !end_relocation) {
+                fprintf(stderr,
+                        "missing inline-local range relocation: %s::%s "
+                        "entry %zu at .debug_loc+0x%llx\n",
+                        function_name, local_name, entry,
+                        (unsigned long long)cursor);
+            }
             assert(start_relocation != NULL && end_relocation != NULL);
             assert(start_relocation->symbol_name != NULL &&
                    strcmp(start_relocation->symbol_name, entry_name) == 0);
@@ -7066,13 +7099,34 @@ static void verify_cxx_inline_mutated_local_location(
                     }
                     assert(actual == expected);
                 }
+            } else if (second_source_name) {
+                static const int64_t initial_values[] = {-9, 0, 5, 17};
+                static const int64_t delta_values[] = {-4, 0, 5, 13};
+                for (size_t initial_index = 0u;
+                     initial_index < sizeof(initial_values) /
+                         sizeof(initial_values[0]); ++initial_index) {
+                    for (size_t delta_index = 0u;
+                         delta_index < sizeof(delta_values) /
+                             sizeof(delta_values[0]); ++delta_index) {
+                        int64_t initial = initial_values[initial_index];
+                        int64_t delta = delta_values[delta_index];
+                        int64_t value = entry == 0u
+                            ? initial : initial + delta * 3;
+                        assert(evaluate_inline_mutated_local_expression(
+                                   locations->data, expression_end,
+                                   expression_start, source_frame_offset,
+                                   second_source_frame_offset,
+                                   initial, delta) == value);
+                    }
+                }
             } else {
                 static const int64_t expected_values[] = {
                     9, 16, 13, 14, 28
                 };
                 assert(evaluate_inline_mutated_local_expression(
                            locations->data, expression_end,
-                           expression_start, 9) == expected_values[entry]);
+                           expression_start, 0, INT64_MIN, 9, 0) ==
+                       expected_values[entry]);
             }
             cursor = expression_end;
         }
@@ -19679,32 +19733,44 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--verify-inline-mutated-local") == 0) {
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_local", "evolving",
-            "debug_inline_mutated_local_entry", NULL, false, false, 0u,
+            "debug_inline_mutated_local_entry", NULL, NULL, false, false, 0u,
             false, false);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_local", "evolving",
-            "debug_inline_mutated_local_entry", NULL, false, false, 0u,
+            "debug_inline_mutated_local_entry", NULL, NULL, false, false, 0u,
             false, false);
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_wide_local",
             "wide_evolving", "debug_inline_mutated_wide_local_entry",
-            "stable_wide_input", true, false, UINT64_C(0x100000001),
+            "stable_wide_input", NULL, true, false,
+            UINT64_C(0x100000001),
             true, true);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_wide_local",
             "wide_evolving", "debug_inline_mutated_wide_local_entry",
-            "stable_wide_input", true, false, UINT64_C(0x100000001),
+            "stable_wide_input", NULL, true, false,
+            UINT64_C(0x100000001),
             true, true);
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", true, true, 2u, true, true);
+            "stable_signed_wide_input", NULL, true, true, 2u, true, true);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", true, true, 2u, true, true);
+            "stable_signed_wide_input", NULL, true, true, 2u, true, true);
+        verify_cxx_inline_mutated_local_location(
+            argv[2], ARCH_X86, "debug_inline_mutated_dynamic_local",
+            "dynamic_evolving", "debug_inline_mutated_dynamic_local_entry",
+            "stable_initial", "stable_delta", false, false, 0u,
+            false, false);
+        verify_cxx_inline_mutated_local_location(
+            argv[3], ARCH_X64, "debug_inline_mutated_dynamic_local",
+            "dynamic_evolving", "debug_inline_mutated_dynamic_local_entry",
+            "stable_initial", "stable_delta", false, false, 0u,
+            false, false);
         return 0;
     }
     if (argc == 6 &&

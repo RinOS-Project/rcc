@@ -3077,6 +3077,11 @@
       count, and right-hand frame slots and evaluate each word for the same
       shift-count boundaries in legacy and verified `-g -O1` objects through
       `test-debug-info-inline-expression`.
+  - [x] Preserve a mutable inline-local location when a compound update reads
+        a second runtime value from a distinct caller frame slot. Evaluate
+        `initial + delta * 3` across both source locations in verified i686 and
+        AMD64 C++20 `-g -O1` objects; the focused
+        `test-debug-info-inline-expression` gate passes with zero fallback.
   - [ ] Other unsigned operands wider than the target address width (notably
         i686 `unsigned long long`) in computed expressions beyond the bounded
         pairwise add/subtract/multiply/bitwise operations above, arbitrary
@@ -8646,8 +8651,9 @@ remains a separate open item.
 - [x] Verify a constexpr-backed arithmetic expression and a constexpr
       function result as `DW_AT_const_value` on inlined C++ formal parameters
       for i686/AMD64. Native-Windows `make SHELL=cmd.exe test-debug-info` passes.
-- [ ] Dynamic integer expressions, general mutable-parameter locations, and
-      optimized register/piece tracking remain open.
+- [ ] Dynamic integer expressions beyond the verified frame-backed mutable
+      inline-local case, general mutable-parameter locations, and optimized
+      register/piece tracking remain open.
 
 ## RCC continuation (2026-10-20, member-pointer qualification subsequence)
 
@@ -13965,3 +13971,11 @@ remains a separate open item.
       to the GCC C++20 lifetime order: destroy the aggregate first, then its
       reference-bound temporaries in reverse order. `test-cxx-exception-cleanup`
       and the complete native Windows `test-cxx` aggregate pass.
+
+## RCC continuation (2026-11-03, dynamic frame-backed mutable-local DWARF)
+
+- [x] Preserve a mutable inline local after a compound assignment whose right
+      side reads a second addressable caller frame slot. Verify both frame
+      offsets and evaluate `initial + delta * 3` for sixteen input pairs in
+      verified i686/AMD64 C++20 `-g -O1` objects. The focused
+      `test-debug-info-inline-expression` gate passes with zero fallback.
