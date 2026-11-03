@@ -20,7 +20,6 @@ typedef struct {
 } Parser;
 
 extern Parser parser;
-extern void rcc_sema_queue_completed_class_template_method(Decl*);
 extern void rcc_parser_set_cxx_template_default_mode(bool enabled);
 extern bool rcc_parser_type_lookup_is_ambiguous(const char* name);
 extern bool rcc_parser_cxx_split_template_close(void);
@@ -23484,7 +23483,7 @@ static bool cxx_complete_class_template_method_body(
     instance->func_body = completed_method->decl->func_body;
     instance->func_is_defined = completed_method->decl->func_is_defined;
     if (queue_for_sema) {
-        rcc_sema_queue_completed_class_template_method(instance);
+        rcc_sema_queue_completed_function_template_body(instance);
     }
     instance->func_template_body_deferred = false;
     instance->func_class_template_body_source_method = NULL;

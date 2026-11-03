@@ -1593,8 +1593,8 @@ struct Decl {
             /* A non-template member body from a class-template
              * specialization is substituted only when that member is used. */
             struct CxxMethod* func_class_template_body_source_method;
-            bool func_class_template_body_queued_for_sema;
-            bool func_class_template_body_sema_analyzed;
+            bool func_template_body_queued_for_sema;
+            bool func_template_body_sema_analyzed;
             struct CxxTemplate* func_template_owner;
             Type** func_template_args;
             int func_template_arg_count;

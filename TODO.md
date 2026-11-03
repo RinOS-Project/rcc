@@ -13636,3 +13636,13 @@ remains a separate open item.
       `atomic_flag_wait` wrappers. Compile-time positive/negative availability
       concepts in `atomic_lock_free.cpp` agree with GCC; `test-atomic-wait` and
       `test-atomic-builtins` pass, including i686/AMD64 and `-O0`/`-O2` builds.
+
+## RCC continuation (2026-11-03, C++20 nonvolatile atomic free functions)
+
+- [x] Match GCC's separate nonvolatile and volatile overloads for the C++20
+      `atomic_fetch_add/sub`, `atomic_fetch_and/or/xor`, their explicit-order
+      forms, and pointer arithmetic forms. Complete deferred member-template
+      bodies before code generation and queue them for semantic analysis so
+      `requires` probes followed by runtime calls retain fully typed bodies.
+      GCC C++20 reference syntax and `test-atomic-builtins` pass; both target
+      architectures compile at `-O0` and `-O2`, with RIN validation accepted.

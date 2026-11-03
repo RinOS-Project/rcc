@@ -105,19 +105,19 @@ static bool cxx_type_trait_nothrow_evaluation_unknown = false;
 static CxxNamespace* current_cxx_namespace = NULL;
 static AST* current_ast = NULL;
 static TypeMethod* sema_cxx_member_overload_list(Type* type);
-static DeclList* completed_class_template_method_bodies;
-static DeclList* completed_class_template_method_bodies_tail;
+static DeclList* completed_function_template_bodies;
+static DeclList* completed_function_template_bodies_tail;
 
-void rcc_sema_queue_completed_class_template_method(Decl* declaration) {
+void rcc_sema_queue_completed_function_template_body(Decl* declaration) {
     DeclList* item;
     Symbol* symbol;
     if (!declaration || declaration->kind != DECL_FUNC ||
         !declaration->func_body ||
-        declaration->func_class_template_body_queued_for_sema ||
-        declaration->func_class_template_body_sema_analyzed) {
+        declaration->func_template_body_queued_for_sema ||
+        declaration->func_template_body_sema_analyzed) {
         return;
     }
-    for (item = completed_class_template_method_bodies; item;
+    for (item = completed_function_template_bodies; item;
          item = item->next) {
         if (item->decl == declaration) return;
     }
@@ -138,21 +138,21 @@ void rcc_sema_queue_completed_class_template_method(Decl* declaration) {
             declaration->func_template_body_deferred = false;
             declaration->func_class_template_body_source_method = NULL;
             declaration = registered;
-            if (declaration->func_class_template_body_queued_for_sema ||
-                declaration->func_class_template_body_sema_analyzed) {
+            if (declaration->func_template_body_queued_for_sema ||
+                declaration->func_template_body_sema_analyzed) {
                 return;
             }
             break;
         }
     }
-    declaration->func_class_template_body_queued_for_sema = true;
+    declaration->func_template_body_queued_for_sema = true;
     item = decllist_new(declaration);
-    if (completed_class_template_method_bodies_tail) {
-        completed_class_template_method_bodies_tail->next = item;
+    if (completed_function_template_bodies_tail) {
+        completed_function_template_bodies_tail->next = item;
     } else {
-        completed_class_template_method_bodies = item;
+        completed_function_template_bodies = item;
     }
-    completed_class_template_method_bodies_tail = item;
+    completed_function_template_bodies_tail = item;
 }
 
 typedef struct SemaCxxConversionGuard {
@@ -15299,6 +15299,31 @@ static int cxx_conversion_vector_relation(
                 } else if (sema_cxx_class_derives_from(
                                right_class_target->cxx_class,
                                left_class_target->cxx_class, 0)) {
+                    right_better = true;
+                }
+            }
+        }
+        if (left[index] == right[index] && left[index] < 3 &&
+            index >= argument_offset && argument && argument->expr &&
+            argument->expr->type && left_targets && right_targets &&
+            left_targets[index] && right_targets[index] &&
+            !left_targets[index]->is_reference &&
+            !right_targets[index]->is_reference) {
+            Type* source_type = argument->expr->type;
+            bool left_subset = true;
+            bool right_subset = true;
+            if (source_type->kind == TYPE_PTR && source_type->is_reference) {
+                source_type = source_type->base;
+            }
+            if (source_type && source_type->kind == TYPE_PTR &&
+                left_targets[index]->kind == TYPE_PTR &&
+                right_targets[index]->kind == TYPE_PTR &&
+                sema_cxx_qualification_targets_related(
+                    left_targets[index], right_targets[index], true,
+                    &left_subset, &right_subset, 0u)) {
+                if (left_subset && !right_subset) {
+                    left_better = true;
+                } else if (right_subset && !left_subset) {
                     right_better = true;
                 }
             }
@@ -38099,7 +38124,7 @@ static void sema_decl(Decl* decl) {
                 }
             }
             if (declaration_already_registered &&
-                decl->func_class_template_body_queued_for_sema) {
+                decl->func_template_body_queued_for_sema) {
                 goto analyze_function_body;
             }
             sema_validate_global_allocation_operator(decl);
@@ -38457,20 +38482,20 @@ bool rcc_sema(AST* ast) {
         processed_ast_tail = processed_ast_tail->next;
     }
 
-    /* Class-template member bodies are substituted when a call selects the
-     * member. Analyze those completed bodies as ordinary functions, including
-     * any further deferred members selected by their statements. */
-    while (completed_class_template_method_bodies) {
-        DeclList* item = completed_class_template_method_bodies;
+    /* Deferred template bodies are completed when a call selects the
+     * specialization. Analyze each completed body after the ordinary AST
+     * pass, including any further deferred members selected by its statements. */
+    while (completed_function_template_bodies) {
+        DeclList* item = completed_function_template_bodies;
         Decl* declaration = item->decl;
         bool already_in_translation_unit = false;
-        completed_class_template_method_bodies = item->next;
-        if (!completed_class_template_method_bodies) {
-            completed_class_template_method_bodies_tail = NULL;
+        completed_function_template_bodies = item->next;
+        if (!completed_function_template_bodies) {
+            completed_function_template_bodies_tail = NULL;
         }
         sema_decl(declaration);
-        declaration->func_class_template_body_queued_for_sema = false;
-        declaration->func_class_template_body_sema_analyzed = true;
+        declaration->func_template_body_queued_for_sema = false;
+        declaration->func_template_body_sema_analyzed = true;
         for (DeclList* existing = ast->decls; existing;
              existing = existing->next) {
             if (existing->decl == declaration) {
@@ -38483,12 +38508,11 @@ bool rcc_sema(AST* ast) {
         }
         sema_validate_stored_generic_lambda_decl(declaration);
 
-        /* Completing a deferred method can instantiate member-function
+        /* Completing a deferred function can instantiate member-function
          * templates. Those declarations are appended to the translation unit
          * after its ordinary semantic pass, so analyze each appended node
          * before code generation. Walk dynamically because sema_decl may
-         * append further specializations. Deferred class-template methods
-         * already have their own queue entries and are handled there. */
+         * append further specializations. */
         for (DeclList* added = processed_ast_tail
                  ? processed_ast_tail->next : ast->decls;
              added; added = added->next) {
@@ -38496,7 +38520,7 @@ bool rcc_sema(AST* ast) {
             if (!added->decl || added->decl == declaration ||
                 added->decl->kind != DECL_FUNC ||
                 !added->decl->func_is_template_instance ||
-                added->decl->func_class_template_body_queued_for_sema) {
+                added->decl->func_template_body_queued_for_sema) {
                 continue;
             }
             sema_decl(added->decl);

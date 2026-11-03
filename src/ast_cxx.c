@@ -4,6 +4,7 @@
  */
 
 #include "ast_cxx.h"
+#include "rcc.h"
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -15018,7 +15019,9 @@ bool rcc_cxx_complete_function_template_body(Decl* instance) {
     tmpl->pending_pack_count = saved_pending_pack_count;
     tmpl->pending_pack_offsets = saved_pending_pack_offsets;
     tmpl->pending_pack_counts = saved_pending_pack_counts;
+    instance->func_is_defined = instance->func_body != NULL;
     instance->func_template_body_deferred = false;
+    rcc_sema_queue_completed_function_template_body(instance);
     return true;
 }
 
