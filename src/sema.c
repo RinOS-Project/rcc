@@ -26488,7 +26488,7 @@ static bool sema_cxx_is_stable_assignment_object(Expr* expression) {
     Expr* object = sema_cxx_strip_assignment_reference_casts(expression);
     if (!object) return false;
     if (object->kind == EXPR_IDENT) return is_lvalue(object);
-    return object->kind == EXPR_DEREF &&
+    return (object->kind == EXPR_DEREF || object->kind == EXPR_INDEX) &&
            object->cxx_synthesized_assignment_subobject &&
            is_lvalue(object);
 }
@@ -26559,6 +26559,69 @@ static Expr* sema_cxx_object_virtual_base(
     return base_object;
 }
 
+/* Build the elementwise assignment for a fixed array member. Arrays are not
+ * assignment expressions in C++, so expand each dimension in subscript order
+ * and let the ordinary assignment resolver select class element operators. */
+static Expr* sema_cxx_defaulted_array_assignment(
+    Expr* destination, Expr* source, Type* destination_type,
+    Type* source_object_type, bool is_move, SourceLoc loc, unsigned depth) {
+    Expr* sequence = NULL;
+    if (!destination || !source || !destination_type ||
+        !source_object_type || depth > 64u) {
+        return NULL;
+    }
+    if (destination_type->kind == TYPE_ARRAY) {
+        if (!destination_type->base || destination_type->array_len < 0 ||
+            !source->type || source->type->kind != TYPE_ARRAY ||
+            !source->type->base ||
+            source->type->array_len != destination_type->array_len) {
+            return NULL;
+        }
+        if (destination_type->array_len == 0) return expr_int(0, loc);
+        for (int64_t index = 0; index < destination_type->array_len; ++index) {
+            Type* source_element_type =
+                sema_cxx_assignment_source_field_type(
+                    destination_type->base, source_object_type);
+            Expr* destination_element = expr_index(
+                destination, expr_int(index, loc), loc);
+            Expr* source_element = expr_index(
+                source, expr_int(index, loc), loc);
+            Expr* element_assignment;
+            if (!source_element_type) return NULL;
+            destination_element->type = destination_type->base;
+            destination_element->cxx_synthesized_assignment_subobject = true;
+            source_element->type = source_element_type;
+            source_element->cxx_synthesized_assignment_subobject = true;
+            element_assignment = sema_cxx_defaulted_array_assignment(
+                destination_element, source_element,
+                destination_type->base, source_object_type,
+                is_move, loc, depth + 1u);
+            if (!element_assignment) return NULL;
+            sequence = sequence
+                ? expr_binary(EXPR_COMMA, sequence, element_assignment, loc)
+                : element_assignment;
+        }
+        return sequence;
+    }
+    if (!destination_type->size || !source->type ||
+        !type_is_compatible(destination_type, source->type)) {
+        return NULL;
+    }
+    if (is_move && (destination_type->kind == TYPE_STRUCT ||
+                    destination_type->kind == TYPE_UNION)) {
+        Type* source_rvalue = sema_cxx_type_trait_reference_type(
+            source->type, source->type->is_const,
+            source->type->is_volatile, true);
+        if (!source_rvalue) return NULL;
+        source = expr_cast(source_rvalue, source, loc);
+        source->cxx_cast_kind = CXX_CAST_STATIC;
+    }
+    destination->cxx_synthesized_assignment_subobject = true;
+    sema_cxx_strip_assignment_reference_casts(source)
+        ->cxx_synthesized_assignment_subobject = true;
+    return expr_binary(EXPR_ASSIGN, destination, source, loc);
+}
+
 static Expr* sema_cxx_defaulted_assignment_subobjects(
     Type* owner_type, Type* source_parameter_type,
     Expr* original_destination,
@@ -26580,9 +26643,7 @@ static Expr* sema_cxx_defaulted_assignment_subobjects(
         !sema_cxx_is_stable_assignment_object(original_destination) ||
         !sema_cxx_is_stable_assignment_object(destination) ||
         !is_lvalue(destination) ||
-        !sema_cxx_is_stable_assignment_object(source_object) ||
-        (source_object->kind != EXPR_IDENT &&
-         source_object->kind != EXPR_DEREF)) {
+        !sema_cxx_is_stable_assignment_object(source_object)) {
         return NULL;
     }
     /* Keep the original expression's reference cast for address generation:
@@ -26665,13 +26726,12 @@ static Expr* sema_cxx_defaulted_assignment_subobjects(
         Expr* assignment;
         if (member->is_static) continue;
         if (!member->type || !member->name || member->is_bitfield ||
-            member->type->kind == TYPE_ARRAY ||
             member->type->is_reference) {
             return NULL;
         }
         field = sema_cxx_direct_assignment_field(owner_type, owner, member);
         if (!field || field->is_bitfield || field->offset < 0 || !field->type ||
-            field->type->kind == TYPE_ARRAY || field->type->is_reference) {
+            field->type->is_reference) {
             return NULL;
         }
         source_field_type = sema_cxx_assignment_source_field_type(
@@ -26682,21 +26742,31 @@ static Expr* sema_cxx_defaulted_assignment_subobjects(
             source_lvalue, source_parameter_type->base, source_field_type,
             field->offset);
         if (!destination_field || !source_field) return NULL;
-        if (source_parameter_type->is_rvalue_reference &&
-            (source_field_type->kind == TYPE_STRUCT ||
-             source_field_type->kind == TYPE_UNION)) {
-            Type* source_field_rvalue = sema_cxx_type_trait_reference_type(
-                source_field_type, source_field_type->is_const,
-                source_field_type->is_volatile, true);
-            if (!source_field_rvalue) return NULL;
-            source_field = expr_cast(source_field_rvalue, source_field, loc);
-            source_field->cxx_cast_kind = CXX_CAST_STATIC;
-        }
         destination_field->cxx_synthesized_assignment_subobject = true;
         sema_cxx_strip_assignment_reference_casts(source_field)
             ->cxx_synthesized_assignment_subobject = true;
-        assignment = expr_binary(EXPR_ASSIGN, destination_field,
-                                 source_field, loc);
+        if (field->type->kind == TYPE_ARRAY) {
+            assignment = sema_cxx_defaulted_array_assignment(
+                destination_field, source_field, field->type,
+                source_parameter_type->base,
+                source_parameter_type->is_rvalue_reference, loc, 0u);
+            if (!assignment) return NULL;
+        } else {
+            if (source_parameter_type->is_rvalue_reference &&
+                (source_field_type->kind == TYPE_STRUCT ||
+                 source_field_type->kind == TYPE_UNION)) {
+                Type* source_field_rvalue =
+                    sema_cxx_type_trait_reference_type(
+                        source_field_type, source_field_type->is_const,
+                        source_field_type->is_volatile, true);
+                if (!source_field_rvalue) return NULL;
+                source_field = expr_cast(
+                    source_field_rvalue, source_field, loc);
+                source_field->cxx_cast_kind = CXX_CAST_STATIC;
+            }
+            assignment = expr_binary(EXPR_ASSIGN, destination_field,
+                                     source_field, loc);
+        }
         sequence = sequence
             ? expr_binary(EXPR_COMMA, sequence, assignment, loc)
             : assignment;

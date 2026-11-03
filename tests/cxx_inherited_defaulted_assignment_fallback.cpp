@@ -156,6 +156,39 @@ struct ExtendedVirtualDefaultedAssignment :
 #pragma GCC diagnostic pop
 #endif
 
+static int array_element_copy_assignment_calls;
+static int array_element_move_assignment_calls;
+static int array_element_assignment_order;
+
+struct TrackedArrayAssignmentElement {
+    int value;
+    TrackedArrayAssignmentElement& operator=(
+        const TrackedArrayAssignmentElement& source) {
+        value = source.value;
+        ++array_element_copy_assignment_calls;
+        array_element_assignment_order =
+            array_element_assignment_order * 10 + value;
+        return *this;
+    }
+    TrackedArrayAssignmentElement& operator=(
+        TrackedArrayAssignmentElement&& source) {
+        value = source.value;
+        ++array_element_move_assignment_calls;
+        array_element_assignment_order =
+            array_element_assignment_order * 10 + value;
+        return *this;
+    }
+};
+
+struct DefaultedArrayMemberAssignment {
+    TrackedArrayAssignmentElement values[2][2];
+    int tail;
+    DefaultedArrayMemberAssignment& operator=(
+        const DefaultedArrayMemberAssignment&) = default;
+    DefaultedArrayMemberAssignment& operator=(
+        DefaultedArrayMemberAssignment&&) = default;
+};
+
 #if defined(__RCC__)
 static_assert(__is_assignable(
     InheritedFallbackDerived&, InheritedFallbackBase&&));
@@ -183,6 +216,12 @@ static_assert(__is_assignable(
 static_assert(__is_assignable(
     ExtendedVirtualDefaultedAssignment&,
     ExtendedVirtualDefaultedAssignment&&));
+static_assert(__is_assignable(
+    DefaultedArrayMemberAssignment&,
+    const DefaultedArrayMemberAssignment&));
+static_assert(__is_assignable(
+    DefaultedArrayMemberAssignment&,
+    DefaultedArrayMemberAssignment&&));
 #else
 static_assert(std::is_assignable_v<
     InheritedFallbackDerived&, InheritedFallbackBase&&>);
@@ -210,6 +249,12 @@ static_assert(std::is_assignable_v<
 static_assert(std::is_assignable_v<
     ExtendedVirtualDefaultedAssignment&,
     ExtendedVirtualDefaultedAssignment&&>);
+static_assert(std::is_assignable_v<
+    DefaultedArrayMemberAssignment&,
+    const DefaultedArrayMemberAssignment&>);
+static_assert(std::is_assignable_v<
+    DefaultedArrayMemberAssignment&,
+    DefaultedArrayMemberAssignment&&>);
 #endif
 
 int main() {
@@ -341,9 +386,50 @@ int main() {
     virtual_base_move_assignment_calls = 0;
     extended_move_destination = static_cast<
         ExtendedVirtualDefaultedAssignment&&>(extended_move_source);
-    return static_cast<TrackedVirtualAssignmentBase&>(
-               extended_move_destination).value == 167 &&
-           extended_move_destination.tail == 173 &&
-           extended_move_destination.extra == 179 &&
-           virtual_base_move_assignment_calls == 1 ? 0 : 10;
+    if (static_cast<TrackedVirtualAssignmentBase&>(
+            extended_move_destination).value != 167 ||
+        extended_move_destination.tail != 173 ||
+        extended_move_destination.extra != 179 ||
+        virtual_base_move_assignment_calls != 1) return 10;
+
+    DefaultedArrayMemberAssignment array_copy_destination;
+    DefaultedArrayMemberAssignment array_copy_source;
+    array_copy_source.values[0][0].value = 1;
+    array_copy_source.values[0][1].value = 2;
+    array_copy_source.values[1][0].value = 3;
+    array_copy_source.values[1][1].value = 4;
+    array_copy_source.tail = 181;
+    array_element_copy_assignment_calls = 0;
+    array_element_move_assignment_calls = 0;
+    array_element_assignment_order = 0;
+    array_copy_destination = array_copy_source;
+    if (array_copy_destination.values[0][0].value != 1 ||
+        array_copy_destination.values[0][1].value != 2 ||
+        array_copy_destination.values[1][0].value != 3 ||
+        array_copy_destination.values[1][1].value != 4 ||
+        array_copy_destination.tail != 181 ||
+        array_element_copy_assignment_calls != 4 ||
+        array_element_move_assignment_calls != 0 ||
+        array_element_assignment_order != 1234) return 11;
+
+    DefaultedArrayMemberAssignment array_move_destination;
+    DefaultedArrayMemberAssignment array_move_source;
+    array_move_source.values[0][0].value = 5;
+    array_move_source.values[0][1].value = 6;
+    array_move_source.values[1][0].value = 7;
+    array_move_source.values[1][1].value = 8;
+    array_move_source.tail = 191;
+    array_element_copy_assignment_calls = 0;
+    array_element_move_assignment_calls = 0;
+    array_element_assignment_order = 0;
+    array_move_destination = static_cast<
+        DefaultedArrayMemberAssignment&&>(array_move_source);
+    return array_move_destination.values[0][0].value == 5 &&
+           array_move_destination.values[0][1].value == 6 &&
+           array_move_destination.values[1][0].value == 7 &&
+           array_move_destination.values[1][1].value == 8 &&
+           array_move_destination.tail == 191 &&
+           array_element_copy_assignment_calls == 0 &&
+           array_element_move_assignment_calls == 4 &&
+           array_element_assignment_order == 5678 ? 0 : 12;
 }

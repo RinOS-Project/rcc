@@ -13787,9 +13787,15 @@ remains a separate open item.
       copy and move each invoke the user-defined virtual-base assignment once.
       GCC C++20, RCC i686/AMD64, and normal/`-O2` x64 link/run checks pass in
       `test-atomic-private-access`.
-- [ ] Extend defaulted assignment synthesis to array members, bit-fields, and
-      reference members. Complete inherited assignment overload viability and
-      virtual-base cases reached through inherited `using` declarations.
+- [x] Extend defaulted copy/move assignment synthesis recursively through
+      fixed-bound array members. Verify a 2D class array is assigned in
+      increasing subscript order, selecting each element's copy or move
+      operator exactly once. GCC C++20, RCC i686/AMD64, and normal/`-O2` x64
+      link/run checks pass in `test-atomic-private-access`.
+- [ ] Lower large fixed-bound arrays without per-element AST/code expansion;
+      add bit-field and reference-member handling. Complete inherited
+      assignment overload viability and virtual-base cases reached through
+      inherited `using` declarations.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 
