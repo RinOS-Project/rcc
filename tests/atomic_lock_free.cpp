@@ -1,4 +1,27 @@
 #include <atomic>
+#if !defined(__cpp_lib_atomic_is_always_lock_free) || \
+    __cpp_lib_atomic_is_always_lock_free != 201603L
+#error "<atomic> must advertise is_always_lock_free"
+#endif
+#if !defined(__cpp_lib_atomic_flag_test) || \
+    __cpp_lib_atomic_flag_test != 201907L
+#error "<atomic> must advertise atomic_flag::test"
+#endif
+#if !defined(__cpp_lib_atomic_ref) || __cpp_lib_atomic_ref != 201806L
+#error "<atomic> must advertise atomic_ref"
+#endif
+#if !defined(__cpp_lib_atomic_value_initialization) || \
+    __cpp_lib_atomic_value_initialization != 201911L
+#error "<atomic> must advertise atomic value initialization"
+#endif
+#if __cplusplus >= 202002L
+#if !defined(__cpp_lib_atomic_wait) || __cpp_lib_atomic_wait != 201907L
+#error "<atomic> must advertise atomic wait/notify"
+#endif
+#if !defined(__cpp_lib_atomic_float) || __cpp_lib_atomic_float != 201711L
+#error "<atomic> must advertise floating-point atomics"
+#endif
+#endif
 #if defined(RCC_STDLIB_REFERENCE)
 #include <type_traits>
 #define RCC_ATOMIC_DEFAULT_CONSTRUCTIBLE(T) \

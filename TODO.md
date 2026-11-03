@@ -13658,3 +13658,13 @@ remains a separate open item.
       compare-exchange, and explicit strong compare-exchange forms. GCC
       reference syntax and `test-atomic-builtins` pass for i686/AMD64 at
       `-O0`/`-O2`, with atomic runtime checks and linked RIN validation.
+
+## RCC continuation (2026-11-03, `<atomic>` feature-test macros)
+
+- [x] Publish the feature-test macros for implemented atomic capabilities:
+      `__cpp_lib_atomic_is_always_lock_free`, `__cpp_lib_atomic_flag_test`,
+      `__cpp_lib_atomic_ref`, `__cpp_lib_atomic_value_initialization`, and the
+      C++20 `__cpp_lib_atomic_wait`/`__cpp_lib_atomic_float` macros. Confirm
+      their values against GCC in `atomic_lock_free.cpp`; the complete
+      `test-atomic-builtins` gate passes on i686/AMD64 at `-O0`/`-O2`, including
+      host runtime checks and linked RIN validation.
