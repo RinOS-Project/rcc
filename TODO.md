@@ -1117,6 +1117,12 @@
       Windows `test-cxx` gate pass. Broader call/return ABI interactions still
       need systematic coverage; a direct thread-local class-prvalue reference
       has dedicated per-thread host coverage below.
+  - [x] Preserve mutable and const rvalue-reference identity when called
+        `&&`/`const &&`-qualified non-template member functions return member
+        fields. Verify mutation/address identity and reject calling the
+        rvalue-qualified method on an lvalue. GCC C++20 and
+        `test-cxx-function-template-references` pass i686/AMD64 generation and
+        AMD64 generated-code execution.
   - [x] Do not admit an lvalue derived object for `const Base&&` by
         materializing a sliced base temporary during overload viability. Keep
         direct `const Base&` binding for derived lvalues, and prefer

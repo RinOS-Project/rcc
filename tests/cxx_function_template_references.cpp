@@ -225,6 +225,18 @@ struct ReferenceMemberValue {
     int value;
 };
 
+struct RvalueQualifiedMemberReferenceReturns {
+    int value;
+
+    int&& value_xvalue() && {
+        return static_cast<int&&>(value);
+    }
+
+    const int&& const_value_xvalue() const && {
+        return static_cast<const int&&>(value);
+    }
+};
+
 struct LifetimeExtendedTemporary {
     int* events;
     int value;
@@ -768,6 +780,21 @@ int main() {
             static_cast<ReferenceMemberValue&&>(member_value));
     member_auto_result += 2;
     if (member_value.value != 31) return 13;
+    RvalueQualifiedMemberReferenceReturns qualified_member_value{34};
+    int&& qualified_member_result =
+        static_cast<RvalueQualifiedMemberReferenceReturns&&>(
+            qualified_member_value).value_xvalue();
+    if (&qualified_member_result != &qualified_member_value.value) return 40;
+    qualified_member_result += 1;
+    if (qualified_member_value.value != 35) return 41;
+    const RvalueQualifiedMemberReferenceReturns const_qualified_member_value{
+        36};
+    const int&& const_qualified_member_result =
+        static_cast<const RvalueQualifiedMemberReferenceReturns&&>(
+            const_qualified_member_value).const_value_xvalue();
+    if (&const_qualified_member_result !=
+            &const_qualified_member_value.value ||
+        const_qualified_member_result != 36) return 42;
     int auto_lvalue_value = 32;
     auto&& deduced_lvalue_reference = auto_lvalue_value;
     deduced_lvalue_reference += 1;
