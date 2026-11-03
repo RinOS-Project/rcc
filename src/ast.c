@@ -1791,6 +1791,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_abi_function_type = NULL;
     e->call_member_pointer_application = NULL;
     e->call_method = NULL;
+    e->cxx_selected_method = NULL;
     e->cxx_call_is_noexcept = false;
     e->cxx_temporary_source = NULL;
     e->cxx_temporary_owner = NULL;

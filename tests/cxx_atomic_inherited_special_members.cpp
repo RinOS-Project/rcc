@@ -144,6 +144,28 @@ static_assert(std::is_same_v<
              std::declval<AtomicInheritedAssignmentBase&&>()),
     AtomicInheritedMoveAssignmentResult>);
 #endif
+
+struct AtomicInheritedDefaultedMoveFallback
+    : AtomicDefaultedDeletedMoveSpecialMemberBase {
+    using AtomicDefaultedDeletedMoveSpecialMemberBase::operator=;
+};
+
+#if defined(__RCC__)
+static_assert(__is_assignable(
+    AtomicInheritedDefaultedMoveFallback&,
+    AtomicDefaultedDeletedMoveSpecialMemberBase&&));
+#else
+static_assert(std::is_assignable_v<
+    AtomicInheritedDefaultedMoveFallback&,
+    AtomicDefaultedDeletedMoveSpecialMemberBase&&>);
+#endif
+
+void assign_inherited_defaulted_move_fallback(
+    AtomicInheritedDefaultedMoveFallback& destination,
+    AtomicDefaultedDeletedMoveSpecialMemberBase&& source) {
+    destination =
+        static_cast<AtomicDefaultedDeletedMoveSpecialMemberBase&&>(source);
+}
 #if !defined(__RCC__)
 static_assert(sizeof(std::atomic<AtomicDefaultedDeletedMoveSpecialMemberBase>) > 0);
 static_assert(sizeof(std::atomic<AtomicDefaultedDeletedMoveSpecialMemberDerived>) > 0);

@@ -19509,6 +19509,26 @@ test-atomic-private-access: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/atomic-private-access/inherited-special-members-x64.ro \
 		tests/cxx_atomic_inherited_special_members.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+		tests/cxx_inherited_defaulted_assignment_fallback.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x86.ro \
+		tests/cxx_inherited_defaulted_assignment_fallback.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64.ro \
+		tests/cxx_inherited_defaulted_assignment_fallback.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64.s \
+		tests/cxx_inherited_defaulted_assignment_fallback.cpp
+	$(CC) -o $(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64.exe \
+		$(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64.s
+	$(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64.exe
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64-o2.s \
+		tests/cxx_inherited_defaulted_assignment_fallback.cpp
+	$(CC) -o $(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64-o2.exe \
+		$(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64-o2.s
+	$(TEST_OUT)/atomic-private-access/inherited-assignment-fallback-x64-o2.exe
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/atomic-private-access/traits-x86.ro \
 		tests/cxx_atomic_private_access_traits.cpp

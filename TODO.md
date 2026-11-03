@@ -13754,6 +13754,17 @@ remains a separate open item.
       The full test-atomic-builtins gate passes, including runtime, linking,
       and RIN validation.
 
+## RCC continuation (2026-11-03, inherited defaulted assignment fallback)
+
+- [x] When `using Base::operator=` exposes a defaulted move assignment that is
+      deleted by a subobject, remove that move candidate and select the viable
+      defaulted copy assignment for an rvalue. Materialize the inherited
+      candidate with the selected base adjustment and expand a trivial copy to
+      a direct base-subobject copy so no undefined out-of-line call is emitted.
+      GCC and RCC i686/AMD64 checks pass; unoptimized and `-O2` x64 assembly
+      both link and run with a nonzero base offset, confirming the adjacent
+      base remains unchanged.
+
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 
 - [x] Parse `using Base::operator=` as an overloaded operator-function-id,

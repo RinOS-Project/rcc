@@ -13456,6 +13456,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->call_abi_function_type, args, arg_count,
                 value_args, value_present);
             copy->call_method = NULL;
+            copy->cxx_selected_method = NULL;
             copy->call_is_virtual = false;
             copy->call_virtual_index = -1;
             copy->call_virtual_object = NULL;

@@ -784,6 +784,9 @@ struct Expr {
      * operands have the same category and the same cv-qualified type. */
     bool cxx_conditional_lvalue;
     bool cxx_conditional_xvalue;
+    /* A trivial inherited defaulted assignment expanded to a direct copy.
+     * This bypasses a second pass through overloaded operator= lookup. */
+    bool cxx_synthesized_trivial_assignment;
     /* A non-reference data member selected through a C++ dot-expression on
      * an xvalue object is itself an xvalue. */
     bool cxx_member_xvalue;
@@ -1008,6 +1011,7 @@ struct Expr {
             Type* call_abi_function_type;
             Expr* call_member_pointer_application;
             TypeMethod* call_method; /* Validated inline C++ accessor. */
+            TypeMethod* cxx_selected_method; /* Selected C++ member function. */
             bool call_is_virtual;
             bool call_is_explicit_destructor;
             int call_virtual_index;

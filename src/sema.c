@@ -24620,12 +24620,12 @@ static bool sema_cxx_method_is_ignored_defaulted_deleted_move_assignment(
     parameters = method->function_decl->func_params;
     if (!parameters || parameters->next || !parameters->decl) return false;
     parameter_type = parameters->decl->type;
+    owner_type = method->this_owner ? method->this_owner : aggregate;
     if (sema_cxx_assignment_special_member_kind(
-            aggregate, parameter_type) != 2) {
+            owner_type, parameter_type) != 2) {
         return false;
     }
     if (method->is_deleted) return true;
-    owner_type = method->this_owner ? method->this_owner : aggregate;
     return !sema_cxx_type_trait_assignment_subobjects_are_assignable(
         owner_type, parameter_type, 0u);
 }
@@ -26411,6 +26411,130 @@ static bool sema_union_defaulted_copy_assignment_is_unambiguous(
         candidate->cxx_access == ACCESS_PUBLIC;
 }
 
+static bool sema_cxx_using_base_operator_access(
+    CxxClass* derived, CxxClass* base, const char* name,
+    unsigned char* access_out) {
+    const char* name_tail = sema_cxx_unqualified_name(name);
+    const char* base_tail = base
+        ? sema_cxx_unqualified_name(base->name) : NULL;
+    if (!derived || !base || !name_tail || !base_tail) return false;
+    for (int index = 0; index < derived->using_base_member_count; ++index) {
+        const char* member = derived->using_base_members[index].member_name;
+        const char* member_tail = sema_cxx_unqualified_name(member);
+        const char* declared_base =
+            derived->using_base_members[index].base_name;
+        const char* declared_base_tail =
+            sema_cxx_unqualified_name(declared_base);
+        if (!member_tail || !declared_base_tail ||
+            strcmp(member_tail, name_tail) != 0 ||
+            strcmp(declared_base_tail, base_tail) != 0) {
+            continue;
+        }
+        if (access_out) {
+            *access_out = derived->using_base_members[index].access;
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool sema_cxx_selected_using_base_adjustment(
+    Type* aggregate, CxxClass* base, int* adjustment_out) {
+    CxxClass* derived = aggregate ? aggregate->cxx_class : NULL;
+    if (!derived || !base || !adjustment_out) return false;
+    for (int index = 0; index < derived->base_count; ++index) {
+        if (derived->bases[index].base != base) continue;
+        if (derived->bases[index].is_virtual) {
+            for (int virtual_index = 0;
+                 virtual_index < derived->virtual_base_count;
+                 ++virtual_index) {
+                CxxVirtualBaseInfo* virtual_base =
+                    &derived->virtual_bases[virtual_index];
+                if (virtual_base->base == base &&
+                    virtual_base->offset >= 0) {
+                    *adjustment_out = virtual_base->offset;
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!derived->base_offsets || derived->base_offsets[index] < 0) {
+            return false;
+        }
+        *adjustment_out = derived->base_offsets[index];
+        return true;
+    }
+    return false;
+}
+
+static void sema_cxx_materialize_using_base_assignment_methods(
+    Type* aggregate, const char* name) {
+    CxxClass* derived = aggregate ? aggregate->cxx_class : NULL;
+    CxxClass* base;
+    unsigned char access = ACCESS_PUBLIC;
+    int this_adjustment = 0;
+    TypeMethod** tail;
+    if (!derived || !name || strcmp(name, "operator=") != 0 ||
+        !(base = sema_cxx_using_base_member_owner(aggregate, name)) ||
+        !base->type ||
+        !sema_cxx_using_base_operator_access(
+            derived, base, name, &access) ||
+        !sema_cxx_selected_using_base_adjustment(
+            aggregate, base, &this_adjustment)) {
+        return;
+    }
+    tail = &aggregate->methods;
+    while (*tail) tail = &(*tail)->next;
+    for (struct CxxMember* member = base->members;
+         member; member = member->next) {
+        CxxMethod* source_method = member->method;
+        DeclList* parameters;
+        Type* parameter_type;
+        bool is_deleted;
+        bool is_defaulted;
+        bool is_noexcept;
+        TypeMethod* lowered;
+        if (!source_method || source_method->is_static ||
+            source_method->member_template || !source_method->decl ||
+            !source_method->source_name ||
+            strcmp(source_method->source_name, name) != 0 ||
+            sema_cxx_type_trait_assignment_method_is_present(
+                aggregate->methods, source_method->decl)) {
+            continue;
+        }
+        is_deleted = source_method->is_deleted;
+        is_defaulted = source_method->is_defaulted;
+        is_noexcept = sema_cxx_type_trait_decl_is_nothrow(
+            source_method->decl, source_method->is_noexcept);
+        parameters = source_method->decl->func_params;
+        parameter_type = parameters && parameters->decl
+            ? parameters->decl->type : NULL;
+        if (is_defaulted && !is_deleted && parameter_type &&
+            sema_cxx_assignment_special_member_kind(
+                base->type, parameter_type) != 0) {
+            is_deleted =
+                !sema_cxx_type_trait_assignment_subobjects_are_assignable(
+                    base->type, parameter_type, 0u);
+            if (!is_deleted && !is_noexcept) {
+                is_noexcept =
+                    sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+                        base->type, parameter_type, 0u);
+            }
+        }
+        lowered = sema_cxx_type_trait_assignment_method(
+            base->type, source_method->decl, NULL, (AccessSpec)access,
+            is_deleted, is_defaulted, is_noexcept,
+            source_method->ref_qualifier, source_method->decl->loc);
+        if (!lowered) continue;
+        lowered->source_decl = source_method->decl;
+        lowered->cxx_access_owner = derived;
+        lowered->this_owner = base->type;
+        lowered->this_adjustment = this_adjustment;
+        *tail = lowered;
+        tail = &lowered->next;
+    }
+}
+
 static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
                                                  Type* left_type) {
     const char* name;
@@ -26518,6 +26642,9 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
             tail = &lowered->next;
         }
     }
+    if (expression->kind == EXPR_ASSIGN) {
+        sema_cxx_materialize_using_base_assignment_methods(aggregate, name);
+    }
     method = sema_find_function_method(aggregate, name);
     if (expression->kind == EXPR_ASSIGN &&
         sema_union_defaulted_copy_assignment_is_unambiguous(
@@ -26534,6 +26661,64 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
         return false;
     }
     *expression = *call;
+    return true;
+}
+
+/* A defaulted assignment function has no emitted body in this frontend.
+ * When an inherited using-declaration selects a trivial base copy assignment,
+ * lower the call to the equivalent built-in assignment on that base subobject.
+ * The operation is limited to glvalue sources so the call's temporary cleanup
+ * behavior is never discarded. */
+static bool sema_cxx_expand_trivial_inherited_copy_assignment(
+    Expr* expression, Expr* original_lhs, Expr* original_rhs) {
+    TypeMethod* method;
+    Type* complete_type;
+    Type* base_type;
+    Type* parameter_type;
+    Type* return_type;
+    int expected_adjustment = -1;
+    Expr* base_lhs;
+    Expr* replacement;
+    if (!expression || expression->kind != EXPR_CALL ||
+        !(method = expression->cxx_selected_method) ||
+        !method->is_defaulted ||
+        method->is_deleted || !method->this_owner ||
+        !method->cxx_access_owner || !original_lhs || !original_rhs ||
+        (!is_lvalue(original_rhs) && !is_xvalue(original_rhs))) {
+        return false;
+    }
+    complete_type = generic_selection_type(
+        sema_cxx_object_type(original_lhs->type));
+    base_type = method->this_owner;
+    return_type = method->return_type;
+    parameter_type = method->function_decl &&
+            method->function_decl->func_params &&
+            !method->function_decl->func_params->next &&
+            method->function_decl->func_params->decl
+        ? method->function_decl->func_params->decl->type : NULL;
+    if (!complete_type || !complete_type->cxx_class ||
+        method->cxx_access_owner != complete_type->cxx_class ||
+        !base_type->cxx_class || base_type == complete_type ||
+        !parameter_type ||
+        sema_cxx_assignment_special_member_kind(
+            base_type, parameter_type) != 1 ||
+        !return_type || return_type->kind != TYPE_PTR ||
+        !return_type->is_reference || return_type->is_rvalue_reference ||
+        !type_is_compatible(return_type->base, base_type) ||
+        !sema_cxx_selected_using_base_adjustment(
+            complete_type, base_type->cxx_class, &expected_adjustment) ||
+        expected_adjustment != method->this_adjustment ||
+        !sema_cxx_type_trait_assignment_subobjects_are_trivial(
+            base_type, parameter_type, 0u)) {
+        return false;
+    }
+    base_lhs = sema_cxx_object_base(
+        original_lhs, complete_type, base_type, expected_adjustment);
+    if (!base_lhs) return false;
+    replacement = expr_binary(
+        EXPR_ASSIGN, base_lhs, original_rhs, expression->loc);
+    replacement->cxx_synthesized_trivial_assignment = true;
+    *expression = *replacement;
     return true;
 }
 
@@ -28637,13 +28822,21 @@ static Type* sema_expr(Expr* expr) {
 
     if (rcc_parser_is_cxx_mode() &&
         expr->kind >= EXPR_ASSIGN && expr->kind <= EXPR_RSHIFT_ASSIGN &&
-        expr->binary_lhs && expr->binary_rhs) {
+        expr->binary_lhs && expr->binary_rhs &&
+        !expr->cxx_synthesized_trivial_assignment) {
         Type* left_type = sema_expr(expr->binary_lhs);
+        Expr* original_lhs = expr->binary_lhs;
+        Expr* original_rhs = expr->binary_rhs;
         preanalyzed_binary_lhs = expr->binary_lhs;
         preanalyzed_binary_lhs_type = left_type;
         left_type = sema_cxx_object_type(left_type);
         if (sema_rewrite_cxx_assignment_operator(expr, left_type)) {
-            return sema_expr(expr);
+            Type* call_type = sema_expr(expr);
+            if (sema_cxx_expand_trivial_inherited_copy_assignment(
+                    expr, original_lhs, original_rhs)) {
+                return sema_expr(expr);
+            }
+            return call_type;
         }
     }
 
@@ -31346,6 +31539,7 @@ static Type* sema_expr(Expr* expr) {
                 if (!arguments_analyzed && method &&
                     method->function_decl) {
                     Expr* function_expression;
+                    expr->cxx_selected_method = method;
                     arguments_analyzed = true;
                     if (member->cxx_member_qualified_type &&
                         method->function_decl->func_this_param) {
