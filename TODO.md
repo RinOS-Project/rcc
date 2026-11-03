@@ -602,7 +602,7 @@
         改行をcheckoutの改行形式に依存させない
 - [x] `_Static_assert`整数定数式と失敗diagnostic
   - [x] `_Alignof(type-name)`の定数式・static/runtime codegen
-- [ ] qualifierとeffective typeの完全なC17規則
+- [ ] **RCC-C17-EFFECTIVE-TYPE-ALIASING-01 / P2 / L** — 詳細な実装課題と受入はリポジトリrootの`TODO.md`を正本とする。
   - [x] 前置・後置cv指定、pointer level cv、modifiable lvalue検査
   - [x] `volatile` object/pointerの未使用readに対するDCE抑止
   - [x] C17/C++20 scalar `volatile` object/pointerのload/storeをtyped SSA→MIRで
