@@ -116,6 +116,34 @@ void assign_inherited_defaulted_move(
     destination = static_cast<AtomicDefaultedDeletedMoveSpecialMemberDerived&&>(
         source);
 }
+
+struct AtomicInheritedCopyAssignmentResult {};
+struct AtomicInheritedMoveAssignmentResult {};
+
+struct AtomicInheritedAssignmentBase {
+    AtomicInheritedCopyAssignmentResult operator=(
+        const AtomicInheritedAssignmentBase&);
+    AtomicInheritedMoveAssignmentResult operator=(
+        AtomicInheritedAssignmentBase&&);
+};
+
+struct AtomicInheritedAssignmentDerived : AtomicInheritedAssignmentBase {
+    using AtomicInheritedAssignmentBase::operator=;
+};
+
+AtomicInheritedMoveAssignmentResult inherited_assignment_prefers_rvalue(
+    AtomicInheritedAssignmentDerived& destination,
+    AtomicInheritedAssignmentBase&& source) {
+    return destination =
+        static_cast<AtomicInheritedAssignmentBase&&>(source);
+}
+
+#if !defined(__RCC__)
+static_assert(std::is_same_v<
+    decltype(std::declval<AtomicInheritedAssignmentDerived&>() =
+             std::declval<AtomicInheritedAssignmentBase&&>()),
+    AtomicInheritedMoveAssignmentResult>);
+#endif
 #if !defined(__RCC__)
 static_assert(sizeof(std::atomic<AtomicDefaultedDeletedMoveSpecialMemberBase>) > 0);
 static_assert(sizeof(std::atomic<AtomicDefaultedDeletedMoveSpecialMemberDerived>) > 0);

@@ -7463,6 +7463,57 @@ static const char* parse_operator_name(void) {
     }
 }
 
+static bool cxx_using_operator_name_starts(void) {
+    switch (peek()->type) {
+        case TOK_STRING_LIT:
+        case TOK_LPAREN:
+        case TOK_LBRACKET:
+        case TOK_NEW:
+        case TOK_DELETE:
+        case TOK_ASSIGN:
+        case TOK_PLUS_ASSIGN:
+        case TOK_MINUS_ASSIGN:
+        case TOK_STAR_ASSIGN:
+        case TOK_SLASH_ASSIGN:
+        case TOK_PERCENT_ASSIGN:
+        case TOK_AMP_ASSIGN:
+        case TOK_PIPE_ASSIGN:
+        case TOK_CARET_ASSIGN:
+        case TOK_LSHIFT_ASSIGN:
+        case TOK_RSHIFT_ASSIGN:
+        case TOK_PLUS:
+        case TOK_MINUS:
+        case TOK_STAR:
+        case TOK_SLASH:
+        case TOK_PERCENT:
+        case TOK_INC:
+        case TOK_DEC:
+        case TOK_EQ:
+        case TOK_NE:
+        case TOK_LT:
+        case TOK_LE:
+        case TOK_GT:
+        case TOK_GE:
+        case TOK_SPACESHIP:
+        case TOK_AMP:
+        case TOK_PIPE:
+        case TOK_CARET:
+        case TOK_TILDE:
+        case TOK_NOT:
+        case TOK_AND:
+        case TOK_OR:
+        case TOK_LSHIFT:
+        case TOK_RSHIFT:
+        case TOK_COMMA:
+        case TOK_ARROW:
+        case TOK_DOT_STAR:
+        case TOK_ARROW_STAR:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static Type* cxx_function_type_from_parameters(Type* return_type,
                                                DeclList* params) {
     TypeParam* type_params = NULL;
@@ -14016,11 +14067,11 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                         parse_cxx_using_operator_base_name();
                     expect(TOK_OPERATOR,
                            "operator in using-declaration");
-                    if (check(TOK_NEW) || check(TOK_DELETE)) {
+                    if (cxx_using_operator_name_starts()) {
                         const char* member_name = parse_operator_name();
                         if (!base_name || !member_name) {
                             rcc_error(using_loc,
-                                      "allocation-function using-declaration requires a base and operator name");
+                                      "operator using-declaration requires a base and operator name");
                         } else {
                             cxx_class_add_using_base_member(
                                 cls, base_name, member_name, NULL, NULL,

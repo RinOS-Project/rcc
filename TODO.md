@@ -13753,3 +13753,11 @@ remains a separate open item.
       C++17/C++20 opaque-pointer load/store probes pass on both RCC targets.
       The full test-atomic-builtins gate passes, including runtime, linking,
       and RIN validation.
+
+## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
+
+- [x] Parse `using Base::operator=` as an overloaded operator-function-id,
+      separate from a conversion-function using-declaration. A copy/move
+      overload fixture uses distinct result types to prove that an inherited
+      rvalue assignment selects the move overload. GCC C++20 and RCC i686/AMD64
+      compilation pass in `test-atomic-private-access`.
