@@ -19207,6 +19207,23 @@ test-cxx-trailing-return-noexcept: $(RCXX_TARGET)
 test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wait test-cxx-atomic-aggregate-concurrency test-atomic-private-access
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x64)
+	$(call MKDIR_P,$(TEST_OUT)/atomic-feature-macros)
+	$(CXX) -std=c++17 -pedantic-errors -Wall -Wextra -Werror \
+		-fsyntax-only tests/atomic_feature_macros.cpp
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-fsyntax-only tests/atomic_feature_macros.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/atomic-feature-macros/cxx17-x86.ro \
+		tests/atomic_feature_macros.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/atomic-feature-macros/cxx17-x64.ro \
+		tests/atomic_feature_macros.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-feature-macros/cxx20-x86.ro \
+		tests/atomic_feature_macros.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-feature-macros/cxx20-x64.ro \
+		tests/atomic_feature_macros.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/atomic.ro tests/atomic_builtin.c
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \

@@ -13669,6 +13669,15 @@ remains a separate open item.
       `test-atomic-builtins` gate passes on i686/AMD64 at `-O0`/`-O2`, including
       host runtime checks and linked RIN validation.
 
+## RCC continuation (2026-11-03, C++17 `<atomic>` compatibility)
+
+- [x] Advertise atomic feature-test macros only in language modes that provide
+      those features and make the `<atomic>` header parse in C++17 by retaining
+      C++20 constraints only in C++20 mode. Verify ordinary atomic operations
+      and macro values against GCC, then compile the probe with RCC for C++17
+      and C++20 on i686 and AMD64; `test-atomic-builtins` passes, including its
+      runtime checks and linked RIN validation.
+
 ## RCC continuation (2026-11-03, function-pointer `static_cast` type-ids)
 
 - [x] Parse grouped abstract function-pointer declarators in named-cast target
