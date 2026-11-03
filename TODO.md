@@ -1,5 +1,15 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-11-03, C++20 atomic free-function constraints)
+
+- [x] Constrain `atomic_fetch_add`/`sub` to non-`bool` arithmetic types and
+  `atomic_fetch_and`/`or`/`xor` to non-`bool` integral types, with separate
+  pointer-offset overloads. Add C++20 `requires` checks for supported scalar
+  and pointer calls and rejected aggregates/pointer-value operations; avoid
+  redundant non-volatile overloads. `test-atomic-builtins` passes GCC
+  comparison, i686/AMD64 `-O0`/`-O2` generation, runtime checks, and RIN
+  validation.
+
 ## RCC continuation (2026-11-03, dependent class-template virtual methods)
 
 - [x] Instantiate deferred virtual member bodies after resolving a concrete

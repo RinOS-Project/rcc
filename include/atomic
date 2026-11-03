@@ -1564,14 +1564,139 @@ bool atomic_compare_exchange_strong_explicit(
 }
 
 template<class T>
-T atomic_fetch_add(volatile atomic<T>* object, T operand) noexcept {
+struct __rcc_atomic_fetch_arithmetic_supported {};
+
+template<class T>
+struct __rcc_atomic_fetch_bitwise_supported {};
+
+#define __RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(T) \
+    template<> struct __rcc_atomic_fetch_arithmetic_supported<T> \
+        { using enabled = void; };
+#define __RCC_ATOMIC_DECLARE_FETCH_BITWISE(T) \
+    template<> struct __rcc_atomic_fetch_bitwise_supported<T> \
+        { using enabled = void; };
+
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(char)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(signed char)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(unsigned char)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(short)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(unsigned short)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(int)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(unsigned int)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(long)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(unsigned long)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(long long)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(unsigned long long)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(wchar_t)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(char16_t)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(char32_t)
+
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(char)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(signed char)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(unsigned char)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(short)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(unsigned short)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(int)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(unsigned int)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(long)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(unsigned long)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(long long)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(unsigned long long)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(wchar_t)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(char16_t)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(char32_t)
+
+#if defined(__cpp_char8_t)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(char8_t)
+__RCC_ATOMIC_DECLARE_FETCH_BITWISE(char8_t)
+#endif
+
+#if __cplusplus >= 202002L
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(float)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(double)
+__RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC(long double)
+#endif
+
+#undef __RCC_ATOMIC_DECLARE_FETCH_ARITHMETIC
+#undef __RCC_ATOMIC_DECLARE_FETCH_BITWISE
+
+template<class T>
+T atomic_fetch_add(volatile atomic<T>* object, T operand) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_arithmetic_supported<T>::enabled;
+    } {
     return object->fetch_add(operand);
 }
 template<class T>
 T atomic_fetch_add_explicit(volatile atomic<T>* object, T operand,
-                            memory_order order) noexcept {
+                            memory_order order) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_arithmetic_supported<T>::enabled;
+    } {
     return object->fetch_add(operand, order);
 }
+template<class T>
+T atomic_fetch_sub(volatile atomic<T>* object, T operand) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_arithmetic_supported<T>::enabled;
+    } {
+    return object->fetch_sub(operand);
+}
+template<class T>
+T atomic_fetch_sub_explicit(volatile atomic<T>* object, T operand,
+                            memory_order order) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_arithmetic_supported<T>::enabled;
+    } {
+    return object->fetch_sub(operand, order);
+}
+
+template<class T>
+T atomic_fetch_and(volatile atomic<T>* object, T operand) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_bitwise_supported<T>::enabled;
+    } {
+    return object->fetch_and(operand);
+}
+template<class T>
+T atomic_fetch_and_explicit(volatile atomic<T>* object, T operand,
+                            memory_order order) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_bitwise_supported<T>::enabled;
+    } {
+    return object->fetch_and(operand, order);
+}
+template<class T>
+T atomic_fetch_or(volatile atomic<T>* object, T operand) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_bitwise_supported<T>::enabled;
+    } {
+    return object->fetch_or(operand);
+}
+template<class T>
+T atomic_fetch_or_explicit(volatile atomic<T>* object, T operand,
+                           memory_order order) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_bitwise_supported<T>::enabled;
+    } {
+    return object->fetch_or(operand, order);
+}
+template<class T>
+T atomic_fetch_xor(volatile atomic<T>* object, T operand) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_bitwise_supported<T>::enabled;
+    } {
+    return object->fetch_xor(operand);
+}
+template<class T>
+T atomic_fetch_xor_explicit(volatile atomic<T>* object, T operand,
+                            memory_order order) noexcept
+    requires requires {
+        typename __rcc_atomic_fetch_bitwise_supported<T>::enabled;
+    } {
+    return object->fetch_xor(operand, order);
+}
+
 template<class T>
 T* atomic_fetch_add(volatile atomic<T*>* object,
                     ptrdiff_t operand) noexcept {
@@ -1583,16 +1708,6 @@ T* atomic_fetch_add_explicit(volatile atomic<T*>* object,
                              memory_order order) noexcept {
     return object->fetch_add(operand, order);
 }
-
-template<class T>
-T atomic_fetch_sub(volatile atomic<T>* object, T operand) noexcept {
-    return object->fetch_sub(operand);
-}
-template<class T>
-T atomic_fetch_sub_explicit(volatile atomic<T>* object, T operand,
-                            memory_order order) noexcept {
-    return object->fetch_sub(operand, order);
-}
 template<class T>
 T* atomic_fetch_sub(volatile atomic<T*>* object,
                     ptrdiff_t operand) noexcept {
@@ -1603,34 +1718,6 @@ T* atomic_fetch_sub_explicit(volatile atomic<T*>* object,
                              ptrdiff_t operand,
                              memory_order order) noexcept {
     return object->fetch_sub(operand, order);
-}
-
-template<class T>
-T atomic_fetch_and(volatile atomic<T>* object, T operand) noexcept {
-    return object->fetch_and(operand);
-}
-template<class T>
-T atomic_fetch_and_explicit(volatile atomic<T>* object, T operand,
-                            memory_order order) noexcept {
-    return object->fetch_and(operand, order);
-}
-template<class T>
-T atomic_fetch_or(volatile atomic<T>* object, T operand) noexcept {
-    return object->fetch_or(operand);
-}
-template<class T>
-T atomic_fetch_or_explicit(volatile atomic<T>* object, T operand,
-                           memory_order order) noexcept {
-    return object->fetch_or(operand, order);
-}
-template<class T>
-T atomic_fetch_xor(volatile atomic<T>* object, T operand) noexcept {
-    return object->fetch_xor(operand);
-}
-template<class T>
-T atomic_fetch_xor_explicit(volatile atomic<T>* object, T operand,
-                            memory_order order) noexcept {
-    return object->fetch_xor(operand, order);
 }
 
 inline bool atomic_flag_test_and_set(volatile atomic_flag* object) noexcept {

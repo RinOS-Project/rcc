@@ -136,6 +136,143 @@ concept AtomicFlagHasVolatileFreeNotify =
         std::atomic_flag_notify_all(value);
     };
 
+template<class T>
+concept AtomicFreeHasFetchAdd =
+    requires(volatile std::atomic<T>* value, T operand) {
+        std::atomic_fetch_add(value, operand);
+    };
+
+template<class T>
+concept AtomicFreeHasFetchSub =
+    requires(volatile std::atomic<T>* value, T operand) {
+        std::atomic_fetch_sub(value, operand);
+    };
+
+template<class T>
+concept AtomicFreeHasFetchAnd =
+    requires(volatile std::atomic<T>* value, T operand) {
+        std::atomic_fetch_and(value, operand);
+    };
+
+template<class T>
+concept AtomicFreeHasFetchOr =
+    requires(volatile std::atomic<T>* value, T operand) {
+        std::atomic_fetch_or(value, operand);
+    };
+
+template<class T>
+concept AtomicFreeHasFetchXor =
+    requires(volatile std::atomic<T>* value, T operand) {
+        std::atomic_fetch_xor(value, operand);
+    };
+
+template<class T>
+concept AtomicFreeNonvolatileHasFetchAdd =
+    requires(std::atomic<T>* value, T operand) {
+        std::atomic_fetch_add(value, operand);
+    };
+
+template<class T>
+concept AtomicFreeNonvolatileHasFetchAnd =
+    requires(std::atomic<T>* value, T operand) {
+        std::atomic_fetch_and(value, operand);
+    };
+
+template<class T>
+concept AtomicFreeHasExplicitArithmeticFetch =
+    requires(volatile std::atomic<T>* value, T operand) {
+        std::atomic_fetch_add_explicit(
+            value, operand, std::memory_order_relaxed);
+        std::atomic_fetch_sub_explicit(
+            value, operand, std::memory_order_relaxed);
+    };
+
+template<class T>
+concept AtomicFreeHasExplicitBitwiseFetch =
+    requires(volatile std::atomic<T>* value, T operand) {
+        std::atomic_fetch_and_explicit(
+            value, operand, std::memory_order_relaxed);
+        std::atomic_fetch_or_explicit(
+            value, operand, std::memory_order_relaxed);
+        std::atomic_fetch_xor_explicit(
+            value, operand, std::memory_order_relaxed);
+    };
+
+template<class T>
+concept AtomicFreeNonvolatileHasExplicitArithmeticFetch =
+    requires(std::atomic<T>* value, T operand) {
+        std::atomic_fetch_add_explicit(
+            value, operand, std::memory_order_relaxed);
+        std::atomic_fetch_sub_explicit(
+            value, operand, std::memory_order_relaxed);
+    };
+
+template<class T>
+concept AtomicFreeNonvolatileHasExplicitBitwiseFetch =
+    requires(std::atomic<T>* value, T operand) {
+        std::atomic_fetch_and_explicit(
+            value, operand, std::memory_order_relaxed);
+        std::atomic_fetch_or_explicit(
+            value, operand, std::memory_order_relaxed);
+        std::atomic_fetch_xor_explicit(
+            value, operand, std::memory_order_relaxed);
+    };
+
+template<class T>
+concept AtomicFreePointerHasFetchAdd =
+    requires(volatile std::atomic<T*>* value, ptrdiff_t offset) {
+        std::atomic_fetch_add(value, offset);
+    };
+
+template<class T>
+concept AtomicFreePointerHasFetchSub =
+    requires(volatile std::atomic<T*>* value, ptrdiff_t offset) {
+        std::atomic_fetch_sub(value, offset);
+    };
+
+template<class T>
+concept AtomicFreePointerHasExplicitFetch =
+    requires(volatile std::atomic<T*>* value, ptrdiff_t offset) {
+        std::atomic_fetch_add_explicit(
+            value, offset, std::memory_order_relaxed);
+        std::atomic_fetch_sub_explicit(
+            value, offset, std::memory_order_relaxed);
+    };
+
+static_assert(AtomicFreeHasFetchAdd<unsigned>);
+static_assert(AtomicFreeNonvolatileHasFetchAdd<unsigned>);
+static_assert(AtomicFreeHasFetchSub<unsigned>);
+static_assert(AtomicFreeHasFetchAnd<unsigned>);
+static_assert(AtomicFreeNonvolatileHasFetchAnd<unsigned>);
+static_assert(AtomicFreeHasFetchOr<unsigned>);
+static_assert(AtomicFreeHasFetchXor<unsigned>);
+static_assert(AtomicFreeHasExplicitArithmeticFetch<unsigned>);
+static_assert(AtomicFreeHasExplicitBitwiseFetch<unsigned>);
+static_assert(AtomicFreeNonvolatileHasExplicitArithmeticFetch<unsigned>);
+static_assert(AtomicFreeNonvolatileHasExplicitBitwiseFetch<unsigned>);
+static_assert(AtomicFreeHasFetchAdd<float>);
+static_assert(AtomicFreeHasFetchSub<float>);
+static_assert(AtomicFreeHasExplicitArithmeticFetch<float>);
+static_assert(AtomicFreePointerHasFetchAdd<unsigned>);
+static_assert(AtomicFreePointerHasFetchSub<unsigned>);
+static_assert(AtomicFreePointerHasExplicitFetch<unsigned>);
+static_assert(!AtomicFreeHasFetchAdd<AtomicRefAggregate>);
+static_assert(!AtomicFreeNonvolatileHasFetchAdd<AtomicRefAggregate>);
+static_assert(!AtomicFreeHasFetchSub<AtomicRefAggregate>);
+static_assert(!AtomicFreeHasFetchAnd<AtomicRefAggregate>);
+static_assert(!AtomicFreeNonvolatileHasFetchAnd<AtomicRefAggregate>);
+static_assert(!AtomicFreeHasFetchOr<AtomicRefAggregate>);
+static_assert(!AtomicFreeHasFetchXor<AtomicRefAggregate>);
+static_assert(!AtomicFreeHasFetchAdd<unsigned*>);
+static_assert(!AtomicFreeHasFetchSub<unsigned*>);
+static_assert(!AtomicFreeHasFetchAnd<unsigned*>);
+static_assert(!AtomicFreeHasFetchOr<unsigned*>);
+static_assert(!AtomicFreeHasFetchXor<unsigned*>);
+static_assert(!AtomicFreeHasExplicitArithmeticFetch<AtomicRefAggregate>);
+static_assert(!AtomicFreeHasExplicitBitwiseFetch<AtomicRefAggregate>);
+static_assert(!AtomicFreeHasExplicitBitwiseFetch<bool>);
+static_assert(!AtomicFreeHasExplicitBitwiseFetch<float>);
+
 static_assert(AtomicHasWait<std::atomic<unsigned>, unsigned>);
 static_assert(AtomicHasNotify<std::atomic<unsigned>>);
 static_assert(AtomicHasWait<std::atomic<AtomicRefThreeByte>,
