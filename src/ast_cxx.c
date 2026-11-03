@@ -5904,9 +5904,12 @@ void cxx_class_compute_layout(CxxClass* cls) {
         CxxClass* base = cls->bases[i].base;
         if (base && !cls->bases[i].is_virtual &&
             base != primary_vtable_base) {
-            if (!has_virtual && offset == 0 &&
+            if ((has_virtual || offset == 0) &&
                 cxx_can_use_empty_base_optimization(base) &&
-                !cxx_has_same_type_member(cls, base)) {
+                !cxx_has_same_type_member(cls, base) &&
+                !(primary_vtable_base &&
+                  cxx_class_is_same_or_derived_from(primary_vtable_base,
+                                                    base))) {
                 base_offsets[i] = 0;
                 continue;
             }
