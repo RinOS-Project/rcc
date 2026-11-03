@@ -13989,3 +13989,12 @@ remains a separate open item.
       two-frame `initial + delta * 3` regression passes for sixteen input pairs
       in verified i686/AMD64 C++20 `-g -O1` objects through
       `test-debug-info-inline-expression`, with zero fallback.
+
+## RCC continuation (2026-11-03, conditional-valued inline-local DWARF)
+
+- [x] Accept a frame-pure integer conditional expression as the complete
+      initial value expression for a mutable inline local. Preserve the first
+      location-list interval and evaluate both conditional paths against two
+      distinct caller frame slots for sixteen input pairs. Verified i686/AMD64
+      C++20 `-g -O1` objects pass `test-debug-info-inline-expression` with ten
+      functions emitted per architecture and zero fallback.

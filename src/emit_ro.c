@@ -12114,11 +12114,14 @@ static bool debug_inline_parameter_integer_expression(
          argument->expr->kind != EXPR_GT &&
          argument->expr->kind != EXPR_LE &&
          argument->expr->kind != EXPR_GE &&
+         argument->expr->kind != EXPR_AND &&
+         argument->expr->kind != EXPR_OR &&
          argument->expr->kind != EXPR_POS &&
          argument->expr->kind != EXPR_NEG &&
          argument->expr->kind != EXPR_NOT &&
          argument->expr->kind != EXPR_CAST &&
-         argument->expr->kind != EXPR_BITNOT) ||
+         argument->expr->kind != EXPR_BITNOT &&
+         argument->expr->kind != EXPR_COND) ||
         (!allow_mutated_value &&
          !debug_inline_parameter_body_is_read_only(callee))) {
         return false;

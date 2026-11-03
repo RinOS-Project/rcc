@@ -94,3 +94,23 @@ extern "C" int debug_inline_mutated_dynamic_local_entry(
     debug_inline_mutated_dynamic_local_observe(&stable_delta);
     return debug_inline_mutated_dynamic_local(stable_initial, stable_delta);
 }
+
+static inline int debug_inline_mutated_conditional_local(
+    int initial_value, int delta_value)
+{
+    int conditional_evolving = delta_value ? initial_value : delta_value;
+    conditional_evolving += delta_value * 3;
+    return conditional_evolving + 2;
+}
+
+extern "C" void debug_inline_mutated_conditional_local_observe(int* value);
+
+extern "C" int debug_inline_mutated_conditional_local_entry(
+    int initial_input, int delta_input)
+{
+    int stable_initial = initial_input;
+    int stable_delta = delta_input;
+    debug_inline_mutated_conditional_local_observe(&stable_initial);
+    debug_inline_mutated_conditional_local_observe(&stable_delta);
+    return debug_inline_mutated_conditional_local(stable_initial, stable_delta);
+}

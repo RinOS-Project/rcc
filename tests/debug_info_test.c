@@ -6800,6 +6800,33 @@ static int64_t evaluate_inline_mutated_local_expression(
             assert(try_read_sleb(data, size, &cursor, &value));
             assert(stack_count < sizeof(stack) / sizeof(stack[0]));
             stack[stack_count++] = value;
+        } else if (opcode == 0x28u || opcode == 0x2fu) {
+            uint16_t encoded_displacement;
+            int32_t displacement;
+            bool take_branch = opcode == 0x2fu;
+            assert(cursor + 2u <= size);
+            encoded_displacement = (uint16_t)data[cursor] |
+                (uint16_t)((uint16_t)data[cursor + 1u] << 8u);
+            displacement = encoded_displacement < 0x8000u
+                ? (int32_t)encoded_displacement
+                : (int32_t)encoded_displacement - 0x10000;
+            if (opcode == 0x28u) {
+                assert(stack_count > 0u);
+                take_branch = stack[--stack_count] != 0;
+            }
+            cursor += 2u;
+            if (take_branch) {
+                int64_t target = (int64_t)cursor + displacement;
+                assert(target >= 0 && (uint64_t)target <= size);
+                cursor = (uint64_t)target;
+            }
+        } else if (opcode == 0x29u || opcode == 0x2eu) {
+            int64_t right;
+            assert(stack_count >= 2u);
+            right = stack[--stack_count];
+            stack[stack_count - 1u] = opcode == 0x29u
+                ? stack[stack_count - 1u] == right
+                : stack[stack_count - 1u] != right;
         } else if (opcode == 0x23u) {
             uint64_t value;
             assert(try_read_uleb(data, size, &cursor, &value));
@@ -6854,6 +6881,7 @@ static void verify_cxx_inline_mutated_local_location(
     const char* path, uint16_t architecture, const char* function_name,
     const char* local_name, const char* entry_name,
     const char* source_name, const char* second_source_name,
+    bool conditional_initial,
     bool wide, bool signed_wide,
     uint64_t wide_multiplier, bool bitwise_wide, bool shifted_wide) {
     static const uint64_t wide_inputs[] = {
@@ -7110,8 +7138,12 @@ static void verify_cxx_inline_mutated_local_location(
                              sizeof(delta_values[0]); ++delta_index) {
                         int64_t initial = initial_values[initial_index];
                         int64_t delta = delta_values[delta_index];
+                        int64_t initial_state = initial;
+                        if (conditional_initial && delta == 0) {
+                            initial_state = delta;
+                        }
                         int64_t value = entry == 0u
-                            ? initial : initial + delta * 3;
+                            ? initial_state : initial_state + delta * 3;
                         assert(evaluate_inline_mutated_local_expression(
                                    locations->data, expression_end,
                                    expression_start, source_frame_offset,
@@ -19733,43 +19765,59 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--verify-inline-mutated-local") == 0) {
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_local", "evolving",
-            "debug_inline_mutated_local_entry", NULL, NULL, false, false, 0u,
+            "debug_inline_mutated_local_entry", NULL, NULL, false, false,
+            false, 0u,
             false, false);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_local", "evolving",
-            "debug_inline_mutated_local_entry", NULL, NULL, false, false, 0u,
+            "debug_inline_mutated_local_entry", NULL, NULL, false, false,
+            false, 0u,
             false, false);
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_wide_local",
             "wide_evolving", "debug_inline_mutated_wide_local_entry",
-            "stable_wide_input", NULL, true, false,
+            "stable_wide_input", NULL, false, true, false,
             UINT64_C(0x100000001),
             true, true);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_wide_local",
             "wide_evolving", "debug_inline_mutated_wide_local_entry",
-            "stable_wide_input", NULL, true, false,
+            "stable_wide_input", NULL, false, true, false,
             UINT64_C(0x100000001),
             true, true);
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", NULL, true, true, 2u, true, true);
+            "stable_signed_wide_input", NULL, false, true, true,
+            2u, true, true);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_signed_wide_local",
             "signed_wide_evolving",
             "debug_inline_mutated_signed_wide_local_entry",
-            "stable_signed_wide_input", NULL, true, true, 2u, true, true);
+            "stable_signed_wide_input", NULL, false, true, true,
+            2u, true, true);
         verify_cxx_inline_mutated_local_location(
             argv[2], ARCH_X86, "debug_inline_mutated_dynamic_local",
             "dynamic_evolving", "debug_inline_mutated_dynamic_local_entry",
-            "stable_initial", "stable_delta", false, false, 0u,
+            "stable_initial", "stable_delta", false, false, false, 0u,
             false, false);
         verify_cxx_inline_mutated_local_location(
             argv[3], ARCH_X64, "debug_inline_mutated_dynamic_local",
             "dynamic_evolving", "debug_inline_mutated_dynamic_local_entry",
-            "stable_initial", "stable_delta", false, false, 0u,
+            "stable_initial", "stable_delta", false, false, false, 0u,
+            false, false);
+        verify_cxx_inline_mutated_local_location(
+            argv[2], ARCH_X86, "debug_inline_mutated_conditional_local",
+            "conditional_evolving",
+            "debug_inline_mutated_conditional_local_entry",
+            "stable_initial", "stable_delta", true, false, false, 0u,
+            false, false);
+        verify_cxx_inline_mutated_local_location(
+            argv[3], ARCH_X64, "debug_inline_mutated_conditional_local",
+            "conditional_evolving",
+            "debug_inline_mutated_conditional_local_entry",
+            "stable_initial", "stable_delta", true, false, false, 0u,
             false, false);
         return 0;
     }
