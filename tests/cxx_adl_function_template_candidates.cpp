@@ -82,6 +82,20 @@ int identify(template_template_argument_holder::holder<box>) {
 
 }
 
+namespace member_template_argument_adl {
+
+struct owner {
+    template<typename T>
+    struct member {};
+
+    friend int identify_member_template(
+        template_template_argument_holder::holder<member>) {
+        return 81;
+    }
+};
+
+}
+
 struct member_pointer_owner {
     member_pointer_associated_type::value member;
 };
@@ -97,6 +111,8 @@ int main() {
     enclosing_template_hidden_friend::outer<int> specialized_value;
     template_template_argument_holder::holder<
         template_template_argument_adl::box> template_template_value;
+    template_template_argument_holder::holder<
+        member_template_argument_adl::owner::member> member_template_value;
     auto member_pointer = &member_pointer_owner::member;
     return score(namespace_value, 1) == 11 &&
                    score(friend_value, 2) == 32 &&
@@ -105,6 +121,7 @@ int main() {
                    template_score(nested_value, 3L) == 53 &&
                    template_score(specialized_value, 4L) == 64 &&
                    identify(template_template_value) == 80 &&
+                   identify_member_template(member_template_value) == 81 &&
                    member_pointer_score(member_pointer) == 70
         ? 0 : 1;
 }

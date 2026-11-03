@@ -3,10 +3,12 @@
 ## RCC continuation (2026-11-03, C++20 template-template argument ADL)
 
 - [x] Include the namespace of a class template used as a template-template
-  argument in ADL's associated namespaces. Add a strict GCC C++20 runtime case
-  where the only matching function is in the template argument's namespace;
-  `test-cxx-adl-function-template-candidates` passes with i686/AMD64 legacy
-  generation, AMD64 execution, and verified backend output with zero fallback.
+  argument in ADL's associated namespaces, and include the owning class when
+  the argument is a nested member class template. Add a namespace function
+  case and a hidden-friend case found through the member-template owner;
+  strict GCC C++20 and `test-cxx-adl-function-template-candidates` pass with
+  i686/AMD64 legacy generation, AMD64 execution, and verified output with zero
+  fallback.
 
 ## RCC continuation (2026-11-03, C++20 atomic free-function constraints)
 

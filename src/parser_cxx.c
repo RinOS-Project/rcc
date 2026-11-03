@@ -17875,7 +17875,32 @@ static CxxTemplate* find_alias_template(const char* qualified_name) {
 static CxxTemplate* find_template_template_argument(
     const char* qualified_name) {
     CxxTemplate* result = find_class_template(qualified_name);
-    return result ? result : find_alias_template(qualified_name);
+    CxxNestedClassTemplate* nested_template = NULL;
+    CxxClass* nested_owner = NULL;
+    if (result) return result;
+    result = find_alias_template(qualified_name);
+    if (result) return result;
+
+    if (qualified_name && strstr(qualified_name, "::")) {
+        nested_template = find_nested_class_template(qualified_name,
+                                                     &nested_owner);
+    } else if (qualified_name) {
+        for (CxxClass* scope = active_class; scope;
+             scope = scope->enclosing_class) {
+            nested_template = cxx_class_find_nested_template(
+                scope, qualified_name);
+            if (nested_template) {
+                nested_owner = scope;
+                break;
+            }
+        }
+    }
+    if (!nested_template || !nested_template->declaration ||
+        !cxx_nested_class_template_accessible(
+            nested_template, nested_owner, active_class)) {
+        return NULL;
+    }
+    return nested_template->declaration;
 }
 
 static CxxTemplate* find_variable_template(const char* qualified_name) {

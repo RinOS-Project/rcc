@@ -1578,6 +1578,13 @@ static void sema_cxx_adl_append_type(SemaCxxAdlTypes* types, Type* type) {
         types->capacity = capacity;
     }
     types->types[types->count++] = type;
+    if (type->cxx_template && type->cxx_template->enclosing_class &&
+        type->cxx_template->enclosing_class->type) {
+        /* A member template used as a template-template argument contributes
+         * the class that owns it to ADL's associated entities. */
+        sema_cxx_adl_append_type(
+            types, type->cxx_template->enclosing_class->type);
+    }
     if (type->kind != TYPE_ENUM && type->cxx_class &&
         type->cxx_class->enclosing_class &&
         type->cxx_class->enclosing_class->type) {
