@@ -14074,8 +14074,15 @@ remains a separate open item.
       Itanium symbol checks for six explicit/deduced cases, and verified
       backend emission of seven functions with zero fallback at both targets
       at `-O0` and `-O2`.
-- [ ] Full structural non-type argument equivalence, additional member layouts,
-      structural packs, and unsupported C++20 forms remain open.
+- [x] Pack differently sized public data members in declaration order and
+      preserve a public non-virtual base subobject before derived members.
+      Explicit and deduced function-template arguments read both direct and
+      inherited members. Verify GCC C++20 Itanium symbol parity and host
+      execution, plus i686/AMD64 assembly and verified-backend emission of all
+      11 functions at `-O0` and `-O2` with zero fallback through
+      `test-cxx-function-template-structural-nontype`.
+- [ ] Full structural non-type argument equivalence, remaining legal member
+      layouts, structural packs, and unsupported C++20 forms remain open.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)
 

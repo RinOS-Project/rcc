@@ -1440,6 +1440,19 @@ static bool cxx_mangle_structural_value_body(
     cxx_mangle_type_char(buf, pos, 't');
     cxx_mangle_type_char(buf, pos, 'l');
     cxx_mangle_type_append_context(buf, pos, value_type, context);
+    for (int index = 0;
+         index < value_type->cxx_class->base_count; ++index) {
+        CxxClass* base = value_type->cxx_class->bases[index].base;
+        if (!base || !base->type ||
+            value_type->cxx_class->bases[index].is_virtual ||
+            value_type->cxx_class->bases[index].access != ACCESS_PUBLIC ||
+            !cxx_mangle_structural_value_body(
+                buf, pos, base->type, packed_value, bit_offset, context,
+                pointer_token, recorded_values, recorded_count,
+                recorded_index)) {
+            return false;
+        }
+    }
     for (field = value_type->cxx_class->fields; field; field = field->next) {
         int64_t field_value;
         unsigned field_bits;
@@ -4690,11 +4703,28 @@ static bool cxx_structural_class_measure_fields(
     const CxxClass* cls;
     const TypeParam* field;
     if (!type || type->kind != TYPE_STRUCT || !(cls = type->cxx_class) ||
-        cls->base_count != 0 ||
         cls->has_nonpublic_field || cls->has_user_constructor ||
         cls->vtable_size != 0 || cls->is_abstract ||
         cxx_structural_class_has_destructor(cls)) {
         return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        unsigned base_bits = 0u;
+        unsigned base_leaves = 0u;
+        unsigned base_pointers = 0u;
+        if (!base || !base->type || cls->bases[index].is_virtual ||
+            cls->bases[index].access != ACCESS_PUBLIC ||
+            !cxx_structural_class_measure_fields(
+                base->type, &base_bits, &base_leaves, &base_pointers) ||
+            base_bits > UINT_MAX - *total_bits ||
+            base_leaves > UINT_MAX - *leaf_count ||
+            base_pointers > UINT_MAX - *pointer_count) {
+            return false;
+        }
+        *total_bits += base_bits;
+        *leaf_count += base_leaves;
+        *pointer_count += base_pointers;
     }
     for (field = cls->fields; field; field = field->next) {
         unsigned field_bits;
@@ -5017,6 +5047,16 @@ static bool cxx_structural_class_pack_fields(
     const Type* type, const int64_t* member_values, int member_count,
     int* value_index, uint64_t* packed_value, unsigned* bit_offset) {
     const TypeParam* field;
+    for (int index = 0; index < type->cxx_class->base_count; ++index) {
+        CxxClass* base = type->cxx_class->bases[index].base;
+        if (!base || !base->type || type->cxx_class->bases[index].is_virtual ||
+            type->cxx_class->bases[index].access != ACCESS_PUBLIC ||
+            !cxx_structural_class_pack_fields(
+                base->type, member_values, member_count, value_index,
+                packed_value, bit_offset)) {
+            return false;
+        }
+    }
     for (field = type->cxx_class->fields; field; field = field->next) {
         unsigned field_bits;
         uint64_t mask;
@@ -5173,6 +5213,39 @@ static bool cxx_structural_class_find_member_path(
     const int64_t* recorded_values, int recorded_count, int* value_index,
     int64_t* member_value, Type** member_type) {
     const TypeParam* field;
+    unsigned base_start_bit = bit_offset;
+    unsigned preceding_base_bits = 0u;
+    unsigned preceding_base_leaves = 0u;
+    int base_start_index = value_index ? *value_index : 0;
+    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
+        path_index < 0 || path_index >= member_name_count ||
+        !member_names[path_index]) {
+        return false;
+    }
+    for (int index = 0; index < type->cxx_class->base_count; ++index) {
+        CxxClass* base = type->cxx_class->bases[index].base;
+        unsigned bits = 0u;
+        unsigned leaves = 0u;
+        unsigned pointers = 0u;
+        if (!base || !base->type ||
+            !cxx_structural_class_measure_fields(
+                base->type, &bits, &leaves, &pointers) ||
+            bits > UINT_MAX - preceding_base_bits ||
+            leaves > UINT_MAX - preceding_base_leaves) {
+            return false;
+        }
+        preceding_base_bits += bits;
+        preceding_base_leaves += leaves;
+    }
+    if (preceding_base_bits > UINT_MAX - bit_offset ||
+        (recorded_values &&
+         (base_start_index < 0 ||
+          preceding_base_leaves >
+              (unsigned)(INT_MAX - base_start_index)))) {
+        return false;
+    }
+    bit_offset += preceding_base_bits;
+    if (recorded_values) *value_index += (int)preceding_base_leaves;
     for (field = type->cxx_class->fields; field; field = field->next) {
         unsigned field_bits;
         if (field->is_static) continue;
@@ -5331,6 +5404,37 @@ static bool cxx_structural_class_find_member_path(
         field_bits = cxx_structural_field_value_bits(field);
         if (field_bits > 64u - bit_offset) return false;
         bit_offset += field_bits;
+    }
+    preceding_base_bits = 0u;
+    preceding_base_leaves = 0u;
+    for (int index = 0; index < type->cxx_class->base_count; ++index) {
+        CxxClass* base = type->cxx_class->bases[index].base;
+        unsigned bits = 0u;
+        unsigned leaves = 0u;
+        unsigned pointers = 0u;
+        int nested_value_index;
+        if (!base || !base->type ||
+            !cxx_structural_class_measure_fields(
+                base->type, &bits, &leaves, &pointers)) {
+            return false;
+        }
+        if (recorded_values &&
+            preceding_base_leaves >
+                (unsigned)(INT_MAX - base_start_index)) {
+            return false;
+        }
+        nested_value_index = base_start_index +
+            (int)preceding_base_leaves;
+        if (cxx_structural_class_find_member_path(
+                base->type, packed_value, member_names, member_name_count,
+                path_index, array_element_index,
+                base_start_bit + preceding_base_bits, recorded_values,
+                recorded_count, &nested_value_index, member_value,
+                member_type)) {
+            return true;
+        }
+        preceding_base_bits += bits;
+        preceding_base_leaves += leaves;
     }
     return false;
 }

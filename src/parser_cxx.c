@@ -3608,6 +3608,39 @@ static bool cxx_structural_class_collect_member_values(
     int64_t* member_values, size_t member_capacity, int* member_count) {
     TypeParam* field;
     bool has_nonstatic_field = false;
+    for (int index = 0; index < type->cxx_class->base_count; ++index) {
+        CxxClass* base = type->cxx_class->bases[index].base;
+        Expr* base_initializer = NULL;
+        ExprList* base_members = NULL;
+        bool base_value_init = true;
+        if (!base || !base->type || type->cxx_class->bases[index].is_virtual ||
+            type->cxx_class->bases[index].access != ACCESS_PUBLIC) {
+            return false;
+        }
+        if (initializer) {
+            Type* initializer_type;
+            if (initializer->designator_kind != INIT_DESIGNATOR_NONE ||
+                !initializer->expr) {
+                return false;
+            }
+            base_initializer = initializer->expr;
+            initializer = initializer->next;
+            if (base_initializer->kind != EXPR_COMPOUND) return false;
+            initializer_type = base_initializer->compound_type
+                ? base_initializer->compound_type : base_initializer->type;
+            if (initializer_type &&
+                !type_is_compatible(base->type, initializer_type)) {
+                return false;
+            }
+            base_members = base_initializer->compound_init;
+            base_value_init = base_initializer->compound_value_init;
+        }
+        if (!cxx_structural_class_collect_member_values(
+                base->type, base_members, base_value_init, member_values,
+                member_capacity, member_count)) {
+            return false;
+        }
+    }
     for (field = type->cxx_class->fields; field; field = field->next) {
         if (!field->is_static) {
             has_nonstatic_field = true;
@@ -3946,6 +3979,14 @@ static bool cxx_structural_class_count_member_values(
     if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
         !member_count) {
         return false;
+    }
+    for (int index = 0; index < type->cxx_class->base_count; ++index) {
+        CxxClass* base = type->cxx_class->bases[index].base;
+        if (!base || !base->type ||
+            !cxx_structural_class_count_member_values(
+                base->type, member_count)) {
+            return false;
+        }
     }
     for (field = type->cxx_class->fields; field; field = field->next) {
         if (field->is_static) continue;

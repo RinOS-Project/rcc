@@ -2,6 +2,19 @@ struct FunctionTemplateStructuralTarget {
     int value;
 };
 
+struct FunctionTemplateStructuralPair {
+    unsigned short high;
+    unsigned char low;
+};
+
+struct FunctionTemplateStructuralBase {
+    unsigned short prefix;
+};
+
+struct FunctionTemplateStructuralDerived : FunctionTemplateStructuralBase {
+    unsigned char suffix;
+};
+
 inline constexpr FunctionTemplateStructuralTarget
     function_template_structural_target_one{37};
 inline constexpr FunctionTemplateStructuralTarget
@@ -16,6 +29,12 @@ struct FunctionTemplateStructuralValueTag {};
 
 template<FunctionTemplateStructuralReference Value>
 struct FunctionTemplateStructuralReferenceTag {};
+
+template<FunctionTemplateStructuralPair Value>
+struct FunctionTemplateStructuralPairTag {};
+
+template<FunctionTemplateStructuralDerived Value>
+struct FunctionTemplateStructuralDerivedTag {};
 
 template<FunctionTemplateStructuralTarget Value>
 constexpr int function_template_structural_value_explicit() {
@@ -39,6 +58,28 @@ constexpr int function_template_structural_reference_deduced(
     return Value.target.value;
 }
 
+template<FunctionTemplateStructuralPair Value>
+constexpr int function_template_structural_pair_explicit() {
+    return Value.high * 100 + Value.low;
+}
+
+template<FunctionTemplateStructuralPair Value>
+constexpr int function_template_structural_pair_deduced(
+    FunctionTemplateStructuralPairTag<Value>) {
+    return Value.high * 100 + Value.low;
+}
+
+template<FunctionTemplateStructuralDerived Value>
+constexpr int function_template_structural_derived_explicit() {
+    return Value.prefix * 100 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralDerived Value>
+constexpr int function_template_structural_derived_deduced(
+    FunctionTemplateStructuralDerivedTag<Value>) {
+    return Value.prefix * 100 + Value.suffix;
+}
+
 static_assert(function_template_structural_value_explicit<
                   FunctionTemplateStructuralTarget{37}>() == 37);
 static_assert(function_template_structural_value_deduced(
@@ -58,6 +99,16 @@ static_assert(function_template_structural_reference_deduced(
                   FunctionTemplateStructuralReferenceTag<
                       FunctionTemplateStructuralReference{
                           function_template_structural_target_two}>{}) == 41);
+static_assert(function_template_structural_pair_explicit<
+                  FunctionTemplateStructuralPair{12, 5}>() == 1205);
+static_assert(function_template_structural_pair_deduced(
+                  FunctionTemplateStructuralPairTag<
+                      FunctionTemplateStructuralPair{8, 3}>{}) == 803);
+static_assert(function_template_structural_derived_explicit<
+                  FunctionTemplateStructuralDerived{{23}, 7}>() == 2307);
+static_assert(function_template_structural_derived_deduced(
+                  FunctionTemplateStructuralDerivedTag<
+                      FunctionTemplateStructuralDerived{{9}, 4}>{}) == 904);
 
 int main() {
     if (function_template_structural_value_explicit<
@@ -78,7 +129,17 @@ int main() {
         function_template_structural_reference_deduced(
             FunctionTemplateStructuralReferenceTag<
                 FunctionTemplateStructuralReference{
-                    function_template_structural_target_two}>{}) != 41) {
+                    function_template_structural_target_two}>{}) != 41 ||
+        function_template_structural_pair_explicit<
+            FunctionTemplateStructuralPair{12, 5}>() != 1205 ||
+        function_template_structural_pair_deduced(
+            FunctionTemplateStructuralPairTag<
+                FunctionTemplateStructuralPair{8, 3}>{}) != 803 ||
+        function_template_structural_derived_explicit<
+            FunctionTemplateStructuralDerived{{23}, 7}>() != 2307 ||
+        function_template_structural_derived_deduced(
+            FunctionTemplateStructuralDerivedTag<
+                FunctionTemplateStructuralDerived{{9}, 4}>{}) != 904) {
         return 1;
     }
     return 0;
