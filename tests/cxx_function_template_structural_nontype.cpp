@@ -93,6 +93,11 @@ struct FunctionTemplateStructuralLongDoubleArray {
     int bias;
 };
 
+struct FunctionTemplateStructuralDefaultMember {
+    int value;
+    int bias = 6;
+};
+
 inline constexpr int function_template_structural_pointer_array_first = 13;
 inline constexpr int function_template_structural_pointer_array_second = 29;
 
@@ -212,6 +217,9 @@ struct FunctionTemplateStructuralLongDoubleMemberTag {};
 
 template<FunctionTemplateStructuralLongDoubleArray Value>
 struct FunctionTemplateStructuralLongDoubleArrayTag {};
+
+template<FunctionTemplateStructuralDefaultMember Value>
+struct FunctionTemplateStructuralDefaultMemberTag {};
 
 template<FunctionTemplateStructuralUnionContainer Value>
 struct FunctionTemplateStructuralUnionContainerTag {};
@@ -468,6 +476,17 @@ constexpr int function_template_structural_long_double_array_deduced(
     FunctionTemplateStructuralLongDoubleArrayTag<Value>) {
     return Value.values[0] == 2.5L && Value.values[1] == 1.25L
         ? Value.bias : 0;
+}
+
+template<FunctionTemplateStructuralDefaultMember Value>
+constexpr int function_template_structural_default_member_explicit() {
+    return Value.value * 10 + Value.bias;
+}
+
+template<FunctionTemplateStructuralDefaultMember Value>
+constexpr int function_template_structural_default_member_deduced(
+    FunctionTemplateStructuralDefaultMemberTag<Value>) {
+    return Value.value * 10 + Value.bias;
 }
 
 template<FunctionTemplateStructuralDirectPointerUnion Value>
@@ -795,6 +814,12 @@ static_assert(function_template_structural_long_double_array_deduced(
                   FunctionTemplateStructuralLongDoubleArrayTag<
                       FunctionTemplateStructuralLongDoubleArray{
                           {2.5L, 1.25L}, 5}>{}) == 5);
+static_assert(function_template_structural_default_member_explicit<
+                  FunctionTemplateStructuralDefaultMember{.value = 4}>() ==
+              46);
+static_assert(function_template_structural_default_member_deduced(
+                  FunctionTemplateStructuralDefaultMemberTag<
+                      FunctionTemplateStructuralDefaultMember{5}>{}) == 56);
 static_assert(function_template_structural_union_array_explicit<
                   FunctionTemplateStructuralArrayUnion{
                       .values = {4, 2}}>() == 42);
@@ -1096,6 +1121,11 @@ int main() {
             FunctionTemplateStructuralLongDoubleArrayTag<
                 FunctionTemplateStructuralLongDoubleArray{
                     {2.5L, 1.25L}, 5}>{}) != 5 ||
+        function_template_structural_default_member_explicit<
+            FunctionTemplateStructuralDefaultMember{.value = 4}>() != 46 ||
+        function_template_structural_default_member_deduced(
+            FunctionTemplateStructuralDefaultMemberTag<
+                FunctionTemplateStructuralDefaultMember{5}>{}) != 56 ||
         function_template_structural_union_array_explicit<
             FunctionTemplateStructuralArrayUnion{
                 .values = {4, 2}}>() != 42 ||

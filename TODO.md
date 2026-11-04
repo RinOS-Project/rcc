@@ -14255,6 +14255,12 @@ remains a separate open item.
         i686/AMD64 output, and all 60 verified-backend functions with zero
         fallback at `-O0`/`-O2` in
         `test-cxx-function-template-structural-nontype`.
+  - [x] Apply a structural class member's default member initializer when an
+        explicit designated or deduced positional NTTP aggregate omits that
+        member. Verify both resulting values, strict GCC C++20, exact GCC/RCC
+        Itanium symbols, host execution, i686/AMD64 output, and all 62
+        verified-backend functions with zero fallback at `-O0`/`-O2` in
+        `test-cxx-function-template-structural-nontype`.
   - [x] Preserve RinOS binary64 `long double` as a distinct active structural
         union value. Verify explicit/deduced member reads and exact Itanium
         floating-value symbols against GCC's `-mlong-double-64` ABI oracle.
