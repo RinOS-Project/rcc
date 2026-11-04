@@ -97,6 +97,16 @@ struct NestedStructuralUnionNestedUnionClassArrayKey {
     unsigned char suffix;
 };
 
+union NestedStructuralUnionArrayCell {
+    short code;
+    unsigned char marker;
+};
+
+struct NestedStructuralUnionArrayMemberKey {
+    NestedStructuralUnionArrayCell values[2];
+    unsigned char suffix;
+};
+
 struct NestedStructuralEmptyKey {};
 
 struct NestedStructuralPairKey {
@@ -255,6 +265,14 @@ struct NestedStructuralUnionNestedUnionClassArrayOwnerPack {
                   Values.payload.values[0].bias * 100 +
                   Values.payload.values[1].payload.marker * 10 +
                   Values.payload.values[1].bias + Values.suffix) + ... + 0));
+    }
+};
+
+template <NestedStructuralUnionArrayMemberKey... Values>
+struct NestedStructuralUnionArrayMemberOwnerPack {
+    static constexpr int combined() {
+        return (((Values.values[0].code * 100 +
+                  Values.values[1].marker * 10 + Values.suffix) + ... + 0));
     }
 };
 
@@ -499,6 +517,16 @@ int main() {
     if (NestedStructuralUnionNestedUnionClassArrayOwnerPack<>::combined()
         != 0) {
         return 34;
+    }
+    if (NestedStructuralUnionArrayMemberOwnerPack<
+            NestedStructuralUnionArrayMemberKey{
+                {{.code = 12}, {.marker = 3}}, 4},
+            NestedStructuralUnionArrayMemberKey{
+                {{.code = 5}, {.marker = 6}}, 7}>::combined() != 1801) {
+        return 35;
+    }
+    if (NestedStructuralUnionArrayMemberOwnerPack<>::combined() != 0) {
+        return 36;
     }
     return NestedStructuralNullptrRecordOwnerPack<>::combined() == 0 ? 0 : 24;
 }

@@ -14305,3 +14305,10 @@ remains a separate open item.
       Itanium symbols match on i686 and AMD64; strict C++20, both host programs,
       and all 35 verified-backend functions with zero fallback at `-O0`/`-O2`
       pass in `test-cxx-nested-class-template-owner-structural-value-pack`.
+- [x] Preserve per-element active union values in a direct fixed-bound array
+      member of a structural class NTTP pack. Read distinct alternatives from
+      adjacent union elements, include the following scalar in a fold, and
+      verify empty-pack identity. GCC Itanium symbols match RCC on i686/AMD64;
+      strict C++20, both host programs, and all 37 verified-backend functions
+      with zero fallback at `-O0`/`-O2` pass in
+      `test-cxx-nested-class-template-owner-structural-value-pack`.
