@@ -1517,6 +1517,20 @@ static bool cxx_mangle_structural_value_body(
             cxx_mangle_type_char(buf, pos, 'E');
             return true;
         }
+        if (active_field->type->kind == TYPE_ARRAY) {
+            cxx_mangle_type_char(buf, pos, 'i');
+            mangle_name(buf, pos, active_field->name);
+            if (!cxx_mangle_structural_scalar_array_body(
+                    buf, pos, active_field->type, true, packed_value,
+                    bit_offset, context, pointer_token, recorded_values,
+                    recorded_count, recorded_index)) {
+                return false;
+            }
+            *recorded_index += (int)(union_leaf_count - 1u -
+                                     active_member_leaves);
+            cxx_mangle_type_char(buf, pos, 'E');
+            return true;
+        }
         cxx_mangle_type_char(buf, pos, 'i');
         mangle_name(buf, pos, active_field->name);
         cxx_mangle_type_char(buf, pos, 'L');
@@ -5006,6 +5020,28 @@ static bool cxx_structural_union_member_measure(
         if (member_leaves) *member_leaves = 1u;
         return true;
     }
+    if (field->type->kind == TYPE_ARRAY) {
+        const Type* element_type = NULL;
+        unsigned element_count = 0u;
+        unsigned element_bits = 0u;
+        unsigned element_leaves = 0u;
+        unsigned element_pointers = 0u;
+        if (!cxx_structural_array_leaf_info(
+                field->type, &element_type, &element_count) ||
+            !cxx_structural_array_element_layout(
+                element_type, &element_bits, &element_leaves,
+                &element_pointers) ||
+            element_count == 0u || element_leaves == 0u ||
+            element_pointers != 0u ||
+            (element_bits != 0u &&
+             element_count > UINT_MAX / element_bits) ||
+            element_count > UINT_MAX / element_leaves) {
+            return false;
+        }
+        if (member_bits) *member_bits = element_count * element_bits;
+        if (member_leaves) *member_leaves = element_count * element_leaves;
+        return true;
+    }
     if (field->type->kind == TYPE_STRUCT ||
         field->type->kind == TYPE_UNION) {
         unsigned leaf_count = 0u;
@@ -5773,6 +5809,14 @@ bool cxx_structural_class_unpack_array_member_path(
         !cxx_structural_class_value_supported_subset(type)) {
         return false;
     }
+    if (type->kind == TYPE_UNION && type->cxx_class &&
+        type->cxx_class->is_union) {
+        int array_indices[1];
+        array_indices[0] = array_element_index;
+        return cxx_structural_class_unpack_multidimensional_array_path(
+            type, packed_value, member_names, member_name_count,
+            array_indices, 1, member_value, member_type);
+    }
     if (!cxx_structural_class_value_record_resolve(
             type, packed_value, &recorded_values, &recorded_count)) {
         recorded_values = NULL;
@@ -5876,11 +5920,42 @@ bool cxx_structural_class_unpack_multidimensional_array_path(
     int recorded_count = 0;
     if (!member_names || member_name_count <= 0 || !member_names[0] ||
         !array_indices || array_index_count <= 0 || !member_value ||
-        !cxx_structural_class_value_supported_subset(type) ||
-        !cxx_structural_class_find_array_field(
-            type, member_names, member_name_count, 0, 0u, 0u,
-            &array_type, &array_base_bits, &array_base_leaves,
-            &array_member_name_index)) {
+        !cxx_structural_class_value_supported_subset(type)) {
+        return false;
+    }
+    if (type->kind == TYPE_UNION && type->cxx_class &&
+        type->cxx_class->is_union) {
+        const TypeParam* active_field;
+        int64_t active_index;
+        unsigned union_bits = 0u;
+        unsigned union_leaf_count = 0u;
+        unsigned union_pointer_count = 0u;
+        if (!cxx_structural_class_value_record_resolve(
+                type, packed_value, &recorded_values, &recorded_count) ||
+            !recorded_values || recorded_count <= 0 ||
+            !cxx_structural_class_measure_fields(
+                type, &union_bits, &union_leaf_count,
+                &union_pointer_count) ||
+            union_leaf_count == 0u ||
+            union_leaf_count > (unsigned)recorded_count) {
+            return false;
+        }
+        active_index = recorded_values[0];
+        active_field = active_index >= 0 && active_index <= INT_MAX
+            ? cxx_structural_union_field_at(type, (int)active_index)
+            : NULL;
+        if (!active_field || !active_field->name || !active_field->type ||
+            active_field->type->kind != TYPE_ARRAY ||
+            strcmp(active_field->name, member_names[0]) != 0) {
+            return false;
+        }
+        array_type = active_field->type;
+        array_base_leaves = 1u;
+        array_member_name_index = 0;
+    } else if (!cxx_structural_class_find_array_field(
+                   type, member_names, member_name_count, 0, 0u, 0u,
+                   &array_type, &array_base_bits, &array_base_leaves,
+                   &array_member_name_index)) {
         return false;
     }
     selected_type = array_type;
@@ -7297,7 +7372,11 @@ static void cxx_typeinfo_identity_append_structural_values(
         cxx_typeinfo_identity_append_char(builder, 'U');
         cxx_typeinfo_identity_append_text(builder, active_field->name);
         cxx_typeinfo_identity_append_type(builder, active_field->type);
-        if (active_field->type->kind == TYPE_STRUCT ||
+        if (active_field->type->kind == TYPE_ARRAY) {
+            cxx_typeinfo_identity_append_structural_scalar_array_values(
+                builder, active_field->type, false, values, value_count,
+                value_index);
+        } else if (active_field->type->kind == TYPE_STRUCT ||
             active_field->type->kind == TYPE_UNION) {
             cxx_typeinfo_identity_append_structural_values(
                 builder, active_field->type, values, value_count,

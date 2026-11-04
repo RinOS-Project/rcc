@@ -14125,7 +14125,8 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, pointer-bearing structural union alternatives,
-      direct array alternatives, extended-precision floating alternatives,
+      direct array layouts beyond the tested one-dimensional pointer-free scalar
+      case, extended-precision floating alternatives,
       union-array layouts beyond the tested three-dimensional case, and
       unsupported C++20 forms remain open.
   - [x] Preserve the active scalar union member when it is a direct public
@@ -14167,6 +14168,13 @@ remains a separate open item.
         exact symbols, host execution, and 34 fallback-free verified functions
         at `-O0`/`-O2` for i686/AMD64 in
         `test-cxx-function-template-structural-nontype`.
+  - [x] Support a one-dimensional fixed-bound integer array as an active
+        structural union alternative. Collect every element, pad its fixed-size
+        value record, preserve it through Itanium mangling and typeinfo identity,
+        and substitute indexed member reads. Verify positional/designated
+        initialization, explicit/deduced NTTPs, exact GCC symbols, host
+        execution, and 37 fallback-free verified functions at `-O0`/`-O2` for
+        i686/AMD64 in `test-cxx-function-template-structural-nontype`.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)
 

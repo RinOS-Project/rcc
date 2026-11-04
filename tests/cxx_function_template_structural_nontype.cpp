@@ -22,6 +22,11 @@ union FunctionTemplateStructuralFloatingUnion {
     double wide;
 };
 
+union FunctionTemplateStructuralArrayUnion {
+    int values[2];
+    int scalar;
+};
+
 struct FunctionTemplateStructuralUnionContainer {
     unsigned char prefix;
     FunctionTemplateStructuralNestedUnion payload;
@@ -103,6 +108,9 @@ struct FunctionTemplateStructuralUnionTag {};
 
 template<FunctionTemplateStructuralFloatingUnion Value>
 struct FunctionTemplateStructuralFloatingUnionTag {};
+
+template<FunctionTemplateStructuralArrayUnion Value>
+struct FunctionTemplateStructuralArrayUnionTag {};
 
 template<FunctionTemplateStructuralUnionContainer Value>
 struct FunctionTemplateStructuralUnionContainerTag {};
@@ -275,6 +283,22 @@ constexpr int function_template_structural_union_double_deduced(
     return Value.wide == 2.25 ? 22 : 0;
 }
 
+template<FunctionTemplateStructuralArrayUnion Value>
+constexpr int function_template_structural_union_array_explicit() {
+    return Value.values[0] * 10 + Value.values[1];
+}
+
+template<FunctionTemplateStructuralArrayUnion Value>
+constexpr int function_template_structural_union_array_deduced(
+    FunctionTemplateStructuralArrayUnionTag<Value>) {
+    return Value.values[0] * 10 + Value.values[1];
+}
+
+template<FunctionTemplateStructuralArrayUnion Value>
+constexpr int function_template_structural_union_scalar_alternative_explicit() {
+    return Value.scalar * 10 + 2;
+}
+
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_explicit() {
     return Value.payload.object.code * 100 +
@@ -415,6 +439,16 @@ static_assert(function_template_structural_union_double_deduced(
                   FunctionTemplateStructuralFloatingUnionTag<
                       FunctionTemplateStructuralFloatingUnion{
                           .wide = 2.25}>{}) == 22);
+static_assert(function_template_structural_union_array_explicit<
+                  FunctionTemplateStructuralArrayUnion{
+                      .values = {4, 2}}>() == 42);
+static_assert(function_template_structural_union_array_deduced(
+                  FunctionTemplateStructuralArrayUnionTag<
+                      FunctionTemplateStructuralArrayUnion{
+                          {5, 3}}>{}) == 53);
+static_assert(function_template_structural_union_scalar_alternative_explicit<
+                  FunctionTemplateStructuralArrayUnion{
+                      .scalar = 4}>() == 42);
 static_assert(function_template_structural_mixed_union_object_explicit<
                   FunctionTemplateStructuralMixedUnionContainer{
                       {.object = {4, 7}}, 2}>() == 472);
@@ -549,6 +583,16 @@ int main() {
             FunctionTemplateStructuralFloatingUnionTag<
                 FunctionTemplateStructuralFloatingUnion{
                     .wide = 2.25}>{}) != 22 ||
+        function_template_structural_union_array_explicit<
+            FunctionTemplateStructuralArrayUnion{
+                .values = {4, 2}}>() != 42 ||
+        function_template_structural_union_array_deduced(
+            FunctionTemplateStructuralArrayUnionTag<
+                FunctionTemplateStructuralArrayUnion{
+                    {5, 3}}>{}) != 53 ||
+        function_template_structural_union_scalar_alternative_explicit<
+            FunctionTemplateStructuralArrayUnion{
+                .scalar = 4}>() != 42 ||
         function_template_structural_mixed_union_object_explicit<
             FunctionTemplateStructuralMixedUnionContainer{
                 {.object = {4, 7}}, 2}>() != 472 ||

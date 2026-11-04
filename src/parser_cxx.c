@@ -3452,6 +3452,8 @@ static bool cxx_structural_class_collect_member_values(
     int64_t* member_values, size_t member_capacity, int* member_count);
 static bool cxx_structural_class_count_member_values(
     const Type* type, size_t* member_count);
+static bool cxx_structural_array_count_member_values(
+    const Type* type, size_t* member_count);
 
 static bool cxx_structural_array_collect_scalar_values(
     Type* array_type, Expr* initializer, int64_t* member_values,
@@ -3659,6 +3661,7 @@ static bool cxx_structural_class_collect_member_values(
         int union_value_start;
         bool active_is_class;
         bool active_is_floating;
+        bool active_is_array;
         for (field = type->cxx_class->fields; field; field = field->next) {
             if (field->is_static) continue;
             if (!active_field ||
@@ -3677,13 +3680,15 @@ static bool cxx_structural_class_collect_member_values(
         active_is_floating = active_field && active_field->type &&
             (active_field->type->kind == TYPE_FLOAT ||
              active_field->type->kind == TYPE_DOUBLE);
+        active_is_array = active_field && active_field->type &&
+            active_field->type->kind == TYPE_ARRAY;
         if (!active_field || active_field->is_bitfield ||
             !active_field->name || !active_field->type ||
-            (!active_is_class &&
+            (!active_is_class && !active_is_array &&
              !type_is_integer(active_field->type) &&
              active_field->type->kind != TYPE_ENUM &&
              !active_is_floating) ||
-            (!active_is_class && !active_is_floating &&
+            (!active_is_class && !active_is_array && !active_is_floating &&
              (active_field->type->size <= 0 ||
               active_field->type->size > 8)) ||
             (active_is_floating &&
@@ -3713,7 +3718,11 @@ static bool cxx_structural_class_collect_member_values(
             field_initializer->kind != EXPR_COMPOUND) {
             return false;
         }
-        if (!active_is_class && field_initializer) {
+        if (active_is_array && field_initializer &&
+            field_initializer->kind != EXPR_COMPOUND) {
+            return false;
+        }
+        if (!active_is_class && !active_is_array && field_initializer) {
             if (active_is_floating) {
                 double floating_value;
                 if (!eval_template_floating_expression(
@@ -3781,6 +3790,17 @@ static bool cxx_structural_class_collect_member_values(
                 !field_initializer ||
                     field_initializer->compound_value_init,
                 member_values, member_capacity, member_count) ||
+                (size_t)(*member_count - union_value_start - 1) !=
+                    active_value_count) {
+                return false;
+            }
+        } else if (active_is_array) {
+            if (!cxx_structural_array_count_member_values(
+                    active_field->type, &active_value_count) ||
+                active_value_count > (size_t)INT_MAX ||
+                !cxx_structural_array_collect_scalar_values(
+                    active_field->type, field_initializer, member_values,
+                    member_capacity, member_count) ||
                 (size_t)(*member_count - union_value_start - 1) !=
                     active_value_count) {
                 return false;
@@ -4164,6 +4184,12 @@ static bool cxx_structural_class_count_member_values(
                 field->type->kind == TYPE_UNION) {
                 alternative_count = 0u;
                 if (!cxx_structural_class_count_member_values(
+                        field->type, &alternative_count)) {
+                    return false;
+                }
+            } else if (field->type->kind == TYPE_ARRAY) {
+                alternative_count = 0u;
+                if (!cxx_structural_array_count_member_values(
                         field->type, &alternative_count)) {
                     return false;
                 }
