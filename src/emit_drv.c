@@ -10,6 +10,21 @@ static uint64_t drv_align(uint64_t value, uint64_t alignment) {
     return (value + alignment - 1u) & ~(alignment - 1u);
 }
 
+static bool drv_optional_entry_rva(
+    const Module* mod, const char* name, uint64_t* rva_out) {
+    const ModuleSymbol* symbol;
+    if (!mod || !name || !rva_out) return false;
+    *rva_out = 0u;
+    symbol = module_lookup_symbol(mod, name);
+    if (!symbol) return true;
+    if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
+        symbol->offset >= mod->code.size ||
+        (symbol->size != 0u && symbol->size > mod->code.size - symbol->offset))
+        return false;
+    *rva_out = symbol->offset;
+    return true;
+}
+
 static int drv_relocation_compare(const void* left, const void* right) {
     const RinRelocationV3* a = (const RinRelocationV3*)left;
     const RinRelocationV3* b = (const RinRelocationV3*)right;
@@ -360,6 +375,22 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     header.string_table_offset = string_table_offset;
     header.string_table_size = strings_size;
     header.start_rva = mod->entry_point;
+    if (!drv_optional_entry_rva(
+            mod, "rin_driver_probe_v3", &header.probe_rva) ||
+        !drv_optional_entry_rva(
+            mod, "rin_driver_bind_v3", &header.bind_rva) ||
+        !drv_optional_entry_rva(
+            mod, "rin_driver_start_v3", &header.start_rva) ||
+        !drv_optional_entry_rva(
+            mod, "rin_driver_stop_v3", &header.stop_rva) ||
+        !drv_optional_entry_rva(
+            mod, "rin_driver_unbind_v3", &header.remove_rva) ||
+        !drv_optional_entry_rva(
+            mod, "rin_driver_power_v3", &header.power_rva)) {
+        rcc_error((SourceLoc){outfile, 0, 0},
+                  "NDRV v3 lifecycle callbacks must be defined code symbols");
+        return false;
+    }
 
     sections[0].type = RIN_IMAGE_SECTION_CODE;
     sections[0].flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_EXECUTE;
