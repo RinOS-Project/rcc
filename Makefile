@@ -696,7 +696,9 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS = \
 	_Z57function_template_structural_union_nested_pointer_deducedIXtl38FunctionTemplateStructuralPointerUniondi6objecttl45FunctionTemplateStructuralPointerUnionPayloadadL_Z49function_template_structural_union_pointer_targetELi5EEEEEi41FunctionTemplateStructuralPointerUnionTagIXT_EE \
 	_Z58function_template_structural_union_direct_pointer_explicitIXtl44FunctionTemplateStructuralDirectPointerUniondi7pointeradL_Z49function_template_structural_union_pointer_targetEEEEiv \
 	_Z57function_template_structural_union_direct_pointer_deducedIXtl44FunctionTemplateStructuralDirectPointerUniondi7pointeradL_Z49function_template_structural_union_pointer_targetEEEEi47FunctionTemplateStructuralDirectPointerUnionTagIXT_EE \
-	_Z56function_template_structural_union_null_pointer_explicitIXtl44FunctionTemplateStructuralDirectPointerUnionEEEiv
+	_Z56function_template_structural_union_null_pointer_explicitIXtl44FunctionTemplateStructuralDirectPointerUnionEEEiv \
+	_Z56function_template_structural_union_matrix_array_explicitIXtl42FunctionTemplateStructuralMatrixArrayUniondi6valuestlA2_A2_itlS1_Li1ELi2EEtlS1_Li3ELi4EEEEEEiv \
+	_Z55function_template_structural_union_matrix_array_deducedIXtl42FunctionTemplateStructuralMatrixArrayUniondi6valuestlA2_A2_itlS1_Li5ELi6EEtlS1_Li7ELi8EEEEEEi45FunctionTemplateStructuralMatrixArrayUnionTagIXT_EE
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-reference-list-initialization
 .PHONY: test-cxx-initializer-list
@@ -5971,7 +5973,7 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,42)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,44)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -7757,7 +7759,7 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,42)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,44)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)

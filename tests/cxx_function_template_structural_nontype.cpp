@@ -27,6 +27,11 @@ union FunctionTemplateStructuralArrayUnion {
     int scalar;
 };
 
+union FunctionTemplateStructuralMatrixArrayUnion {
+    int values[2][2];
+    int scalar;
+};
+
 struct FunctionTemplateStructuralPointerUnionPayload {
     const int* pointer;
     int bias;
@@ -128,6 +133,9 @@ struct FunctionTemplateStructuralFloatingUnionTag {};
 
 template<FunctionTemplateStructuralArrayUnion Value>
 struct FunctionTemplateStructuralArrayUnionTag {};
+
+template<FunctionTemplateStructuralMatrixArrayUnion Value>
+struct FunctionTemplateStructuralMatrixArrayUnionTag {};
 
 template<FunctionTemplateStructuralPointerUnion Value>
 struct FunctionTemplateStructuralPointerUnionTag {};
@@ -351,6 +359,20 @@ constexpr int function_template_structural_union_scalar_alternative_explicit() {
     return Value.scalar * 10 + 2;
 }
 
+template<FunctionTemplateStructuralMatrixArrayUnion Value>
+constexpr int
+function_template_structural_union_matrix_array_explicit() {
+    return Value.values[1][0] * 1000 + Value.values[0][1] * 100 +
+           Value.values[1][1] * 10 + Value.values[0][0];
+}
+
+template<FunctionTemplateStructuralMatrixArrayUnion Value>
+constexpr int function_template_structural_union_matrix_array_deduced(
+    FunctionTemplateStructuralMatrixArrayUnionTag<Value>) {
+    return Value.values[1][0] * 1000 + Value.values[0][1] * 100 +
+           Value.values[1][1] * 10 + Value.values[0][0];
+}
+
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_explicit() {
     return Value.payload.object.code * 100 +
@@ -525,6 +547,13 @@ static_assert(function_template_structural_union_array_deduced(
 static_assert(function_template_structural_union_scalar_alternative_explicit<
                   FunctionTemplateStructuralArrayUnion{
                       .scalar = 4}>() == 42);
+static_assert(function_template_structural_union_matrix_array_explicit<
+                  FunctionTemplateStructuralMatrixArrayUnion{
+                      .values = {{1, 2}, {3, 4}}}>() == 3241);
+static_assert(function_template_structural_union_matrix_array_deduced(
+                  FunctionTemplateStructuralMatrixArrayUnionTag<
+                      FunctionTemplateStructuralMatrixArrayUnion{
+                          {{5, 6}, {7, 8}}}>{}) == 7685);
 static_assert(function_template_structural_mixed_union_object_explicit<
                   FunctionTemplateStructuralMixedUnionContainer{
                       {.object = {4, 7}}, 2}>() == 472);
@@ -717,6 +746,13 @@ int main() {
         function_template_structural_union_scalar_alternative_explicit<
             FunctionTemplateStructuralArrayUnion{
                 .scalar = 4}>() != 42 ||
+        function_template_structural_union_matrix_array_explicit<
+            FunctionTemplateStructuralMatrixArrayUnion{
+                .values = {{1, 2}, {3, 4}}}>() != 3241 ||
+        function_template_structural_union_matrix_array_deduced(
+            FunctionTemplateStructuralMatrixArrayUnionTag<
+                FunctionTemplateStructuralMatrixArrayUnion{
+                    {{5, 6}, {7, 8}}}>{}) != 7685 ||
         function_template_structural_mixed_union_object_explicit<
             FunctionTemplateStructuralMixedUnionContainer{
                 {.object = {4, 7}}, 2}>() != 472 ||
