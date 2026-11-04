@@ -368,6 +368,34 @@ unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_bitwise_
         ((computed_bitwise_division_divisor & 255ull) + 1ull));
 }
 
+unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_conditional_divide_entry(
+    unsigned long long computed_conditional_division_dividend,
+    unsigned long long computed_conditional_division_divisor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        ((computed_conditional_division_dividend & 1ull)
+             ? computed_conditional_division_dividend + 17ull
+             : computed_conditional_division_dividend ^
+                   0x8000000000000001ull) /
+        ((computed_conditional_division_divisor & 1ull)
+             ? computed_conditional_division_divisor * 2ull + 1ull
+             : (computed_conditional_division_divisor & 255ull) + 1ull));
+}
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_conditional_remainder_entry(
+    unsigned long long computed_conditional_division_dividend,
+    unsigned long long computed_conditional_division_divisor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        ((computed_conditional_division_dividend & 1ull)
+             ? computed_conditional_division_dividend + 17ull
+             : computed_conditional_division_dividend ^
+                   0x8000000000000001ull) %
+        ((computed_conditional_division_divisor & 1ull)
+             ? computed_conditional_division_divisor * 2ull + 1ull
+             : (computed_conditional_division_divisor & 255ull) + 1ull));
+}
+
 long long debug_inline_nonconstant_signed_long_long_negated_global_dividend_divide_entry(
     void)
 {
