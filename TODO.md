@@ -12790,7 +12790,7 @@ remains a separate open item.
         value matrix in legacy and verified objects through
         `test-debug-info-inline-expression`.
 
-## RCC continuation (2026-11-04, optimized inline-parameter DWARF)
+## RCC continuation (2026-11-04, optimized inline-variable DWARF)
 
 - [x] Run the existing mutable inline-parameter debug expressions through the
       optimized verified backend at `-O2` for i686 and AMD64. Verify all 24
@@ -12798,8 +12798,13 @@ remains a separate open item.
       location lists and i686 multi-piece values using the same operand matrix
       as the `-O1` gate. `test-debug-info-inline-expression` now gates both
       optimization levels.
+- [x] Extend the `-O2` verified-backend and expression-interpreter checks to
+      all ten mutable inline-local functions for i686 and AMD64, including
+      conditional and two-source locations. All ten functions per target emit
+      with zero fallback, and the existing location-list evaluator validates
+      their values.
 - [ ] Extend optimized location coverage to additional computed
-      division/remainder trees, atomic operands, and optimized mutable locals.
+      division/remainder trees and atomic operands.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
