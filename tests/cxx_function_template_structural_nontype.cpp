@@ -78,6 +78,14 @@ union FunctionTemplateStructuralDirectPointerUnion {
 
 inline constexpr int function_template_structural_union_pointer_target = 23;
 
+struct FunctionTemplateStructuralPointerArray {
+    const int* values[2];
+    int bias;
+};
+
+inline constexpr int function_template_structural_pointer_array_first = 13;
+inline constexpr int function_template_structural_pointer_array_second = 29;
+
 struct FunctionTemplateStructuralUnionContainer {
     unsigned char prefix;
     FunctionTemplateStructuralNestedUnion payload;
@@ -185,6 +193,9 @@ struct FunctionTemplateStructuralPointerUnionTag {};
 
 template<FunctionTemplateStructuralDirectPointerUnion Value>
 struct FunctionTemplateStructuralDirectPointerUnionTag {};
+
+template<FunctionTemplateStructuralPointerArray Value>
+struct FunctionTemplateStructuralPointerArrayTag {};
 
 template<FunctionTemplateStructuralUnionContainer Value>
 struct FunctionTemplateStructuralUnionContainerTag {};
@@ -406,6 +417,17 @@ template<FunctionTemplateStructuralDirectPointerUnion Value>
 constexpr int function_template_structural_union_direct_pointer_deduced(
     FunctionTemplateStructuralDirectPointerUnionTag<Value>) {
     return *Value.pointer;
+}
+
+template<FunctionTemplateStructuralPointerArray Value>
+constexpr int function_template_structural_pointer_array_explicit() {
+    return *Value.values[0] * 100 + *Value.values[1] * 10 + Value.bias;
+}
+
+template<FunctionTemplateStructuralPointerArray Value>
+constexpr int function_template_structural_pointer_array_deduced(
+    FunctionTemplateStructuralPointerArrayTag<Value>) {
+    return *Value.values[0] * 100 + *Value.values[1] * 10 + Value.bias;
 }
 
 template<FunctionTemplateStructuralDirectPointerUnion Value>
@@ -707,6 +729,18 @@ static_assert(function_template_structural_union_direct_pointer_deduced(
                           .pointer =
                               &function_template_structural_union_pointer_target}>{}) ==
               23);
+static_assert(function_template_structural_pointer_array_explicit<
+                  FunctionTemplateStructuralPointerArray{
+                      .values = {
+                          &function_template_structural_pointer_array_first,
+                          &function_template_structural_pointer_array_second},
+                      .bias = 7}>() == 1597);
+static_assert(function_template_structural_pointer_array_deduced(
+                  FunctionTemplateStructuralPointerArrayTag<
+                      FunctionTemplateStructuralPointerArray{
+                          {&function_template_structural_pointer_array_second,
+                           &function_template_structural_pointer_array_first},
+                          5}>{}) == 3035);
 static_assert(function_template_structural_union_array_explicit<
                   FunctionTemplateStructuralArrayUnion{
                       .values = {4, 2}}>() == 42);
@@ -984,6 +1018,18 @@ int main() {
                     .pointer =
                         &function_template_structural_union_pointer_target}>{}) !=
             23 ||
+        function_template_structural_pointer_array_explicit<
+            FunctionTemplateStructuralPointerArray{
+                .values = {
+                    &function_template_structural_pointer_array_first,
+                    &function_template_structural_pointer_array_second},
+                .bias = 7}>() != 1597 ||
+        function_template_structural_pointer_array_deduced(
+            FunctionTemplateStructuralPointerArrayTag<
+                FunctionTemplateStructuralPointerArray{
+                    {&function_template_structural_pointer_array_second,
+                     &function_template_structural_pointer_array_first},
+                    5}>{}) != 3035 ||
         function_template_structural_union_array_explicit<
             FunctionTemplateStructuralArrayUnion{
                 .values = {4, 2}}>() != 42 ||
