@@ -2618,9 +2618,8 @@ static Expr* sema_cxx_static_reference_temporary_source(Expr* expression) {
             expression->binary_lhs);
     }
     if (expression->kind == EXPR_COMMA && !is_lvalue(expression)) {
-        Expr* right = sema_cxx_static_reference_temporary_source(
+        return sema_cxx_static_reference_temporary_source(
             expression->binary_rhs);
-        return right ? expression : NULL;
     }
     if (expression->kind == EXPR_COND &&
         expression->cxx_conditional_xvalue && type &&
@@ -2651,51 +2650,104 @@ static Expr* sema_cxx_static_reference_temporary_source(Expr* expression) {
     return NULL;
 }
 
+static bool sema_cxx_static_reference_has_temporary_source(
+    Expr* expression);
+
+static bool sema_cxx_collect_conditional_temporary_types(
+    Expr* expression, Type** primary_type, Type** alternate_type,
+    int* storage_size, int* storage_align, int* leaf_count,
+    bool* has_temporary, unsigned depth) {
+    Expr* source;
+    Type* type;
+    if (!expression || depth >= 64u || !leaf_count ||
+        *leaf_count >= 4096) {
+        return false;
+    }
+    source = sema_cxx_static_reference_temporary_source(expression);
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue &&
+        sema_cxx_static_reference_has_temporary_source(expression) &&
+        source != expression) {
+        return false;
+    }
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue && source == expression) {
+        return sema_cxx_collect_conditional_temporary_types(
+                   expression->cond_then, primary_type, alternate_type,
+                   storage_size, storage_align, leaf_count,
+                   has_temporary, depth + 1u) &&
+               sema_cxx_collect_conditional_temporary_types(
+                   expression->cond_else, primary_type, alternate_type,
+                   storage_size, storage_align, leaf_count,
+                   has_temporary, depth + 1u);
+    }
+    if (source && source->kind == EXPR_COND) {
+        /* A cast/comma/member wrapper around a nested conditional needs an
+         * expression-preserving tree lowering path of its own. */
+        return false;
+    }
+    type = source ? source->type : expression->type;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        !type->is_complete || type->size <= 0 || type->align <= 0) {
+        return false;
+    }
+    ++*leaf_count;
+    if (source) {
+        if (has_temporary) *has_temporary = true;
+        if (storage_size && type->size > *storage_size) {
+            *storage_size = type->size;
+        }
+        if (storage_align && type->align > *storage_align) {
+            *storage_align = type->align;
+        }
+        if (primary_type && !*primary_type) *primary_type = type;
+        if (alternate_type && *primary_type &&
+            !type_is_compatible(*primary_type, type) && !*alternate_type) {
+            *alternate_type = type;
+        }
+    } else if (alternate_type && !*alternate_type) {
+        *alternate_type = type;
+    }
+    return true;
+}
+
 static bool sema_cxx_conditional_temporary_types(
-    Expr* expression, Type** then_type_out, Type** else_type_out,
-    bool* then_temporary_out, bool* else_temporary_out) {
-    Expr* then_source;
-    Expr* else_source;
-    Type* then_type;
-    Type* else_type;
-    if (then_type_out) *then_type_out = NULL;
-    if (else_type_out) *else_type_out = NULL;
-    if (then_temporary_out) *then_temporary_out = false;
-    if (else_temporary_out) *else_temporary_out = false;
+    Expr* expression, Type** primary_type_out, Type** alternate_type_out,
+    int* storage_size_out, int* storage_align_out, int* leaf_count_out) {
+    Type* primary_type = NULL;
+    Type* alternate_type = NULL;
+    int storage_size = 0;
+    int storage_align = 0;
+    int leaf_count = 0;
+    bool has_temporary = false;
+    if (primary_type_out) *primary_type_out = NULL;
+    if (alternate_type_out) *alternate_type_out = NULL;
+    if (storage_size_out) *storage_size_out = 0;
+    if (storage_align_out) *storage_align_out = 0;
+    if (leaf_count_out) *leaf_count_out = 0;
     if (!expression || expression->kind != EXPR_COND ||
-        !expression->cxx_conditional_xvalue) {
+        !expression->cxx_conditional_xvalue ||
+        !sema_cxx_collect_conditional_temporary_types(
+            expression, &primary_type, &alternate_type, &storage_size,
+            &storage_align, &leaf_count, &has_temporary, 0u) ||
+        !has_temporary || !primary_type || storage_size <= 0 ||
+        storage_align <= 0 || leaf_count <= 0) {
         return false;
     }
-    then_source = sema_cxx_static_reference_temporary_source(
-        expression->cond_then);
-    else_source = sema_cxx_static_reference_temporary_source(
-        expression->cond_else);
-    then_type = then_source ? then_source->type
-                            : expression->cond_then->type;
-    else_type = else_source ? else_source->type
-                            : expression->cond_else->type;
-    if (then_type && then_type->kind == TYPE_PTR && then_type->is_reference) {
-        then_type = then_type->base;
-    }
-    if (else_type && else_type->kind == TYPE_PTR && else_type->is_reference) {
-        else_type = else_type->base;
-    }
-    if ((!then_source && !else_source) || !then_type || !else_type ||
-        (then_type->kind != TYPE_STRUCT && then_type->kind != TYPE_UNION) ||
-        (else_type->kind != TYPE_STRUCT && else_type->kind != TYPE_UNION) ||
-        !then_type->is_complete || !else_type->is_complete ||
-        then_type->is_volatile != else_type->is_volatile) {
-        return false;
-    }
-    if (then_type_out) *then_type_out = then_type;
-    if (else_type_out) *else_type_out = else_type;
-    if (then_temporary_out) *then_temporary_out = then_source != NULL;
-    if (else_temporary_out) *else_temporary_out = else_source != NULL;
+    if (!alternate_type) alternate_type = primary_type;
+    if (primary_type_out) *primary_type_out = primary_type;
+    if (alternate_type_out) *alternate_type_out = alternate_type;
+    if (storage_size_out) *storage_size_out = storage_size;
+    if (storage_align_out) *storage_align_out = storage_align;
+    if (leaf_count_out) *leaf_count_out = leaf_count;
     return true;
 }
 
 static Expr* sema_cxx_reference_temporary_selector(
-    Decl* owner, int offset, SourceLoc loc) {
+    Decl* owner, int offset, int tag, SourceLoc loc) {
     Expr* object;
     Expr* address;
     Expr* byte_address;
@@ -2722,7 +2774,7 @@ static Expr* sema_cxx_reference_temporary_selector(
     selector_address->type = selector_pointer_type;
     selector = expr_unary(EXPR_DEREF, selector_address, loc);
     selector->type = type_int;
-    condition = expr_binary(EXPR_NE, selector, expr_int(0, loc), loc);
+    condition = expr_binary(EXPR_EQ, selector, expr_int(tag, loc), loc);
     condition->type = type_int;
     return condition;
 }
@@ -17823,16 +17875,84 @@ static bool sema_attach_static_initializer_guard(
     return true;
 }
 
+static bool sema_cxx_append_conditional_reference_cleanups(
+    Decl* declaration, Expr* expression, Decl* owner, int selector_offset,
+    int* next_tag, int* cleanup_budget, CxxCleanupPlan** cleanup_plan,
+    unsigned depth) {
+    Expr* source;
+    Type* type;
+    if (!declaration || !expression || !owner || !next_tag ||
+        !cleanup_budget || !cleanup_plan || depth >= 64u ||
+        *next_tag >= 4096) {
+        return false;
+    }
+    source = sema_cxx_static_reference_temporary_source(expression);
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue &&
+        sema_cxx_static_reference_has_temporary_source(expression) &&
+        source != expression) {
+        return false;
+    }
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue && source == expression) {
+        return sema_cxx_append_conditional_reference_cleanups(
+                   declaration, expression->cond_then, owner,
+                   selector_offset, next_tag, cleanup_budget, cleanup_plan,
+                   depth + 1u) &&
+               sema_cxx_append_conditional_reference_cleanups(
+                   declaration, expression->cond_else, owner,
+                   selector_offset, next_tag, cleanup_budget, cleanup_plan,
+                   depth + 1u);
+    }
+    if (source && source->kind == EXPR_COND) return false;
+    {
+        int tag = (*next_tag)++;
+        Expr* object;
+        CxxCleanupPlan* branch_cleanups = NULL;
+        CxxCleanupPlan* conditional_cleanup;
+        if (!source) return true;
+        type = source->type;
+        if (type && type->kind == TYPE_PTR && type->is_reference) {
+            type = type->base;
+        }
+        if (!type || (type->kind != TYPE_STRUCT &&
+                      type->kind != TYPE_UNION)) {
+            return false;
+        }
+        if (!sema_cxx_type_has_destructor_cleanup(type, 0)) return true;
+        object = expr_ident(owner->name, declaration->loc);
+        object->ident_decl = owner;
+        object->type = type;
+        if (!sema_cxx_append_object_cleanups(
+                declaration, type, object, &branch_cleanups, 0,
+                cleanup_budget, true, !declaration->var_is_thread_local)) {
+            return false;
+        }
+        if (!branch_cleanups) return true;
+        conditional_cleanup = ast_arena_alloc(sizeof(*conditional_cleanup));
+        memset(conditional_cleanup, 0, sizeof(*conditional_cleanup));
+        conditional_cleanup->kind = CXX_CLEANUP_CONDITIONAL;
+        conditional_cleanup->expression = sema_cxx_reference_temporary_selector(
+            owner, selector_offset, tag, declaration->loc);
+        conditional_cleanup->body = branch_cleanups;
+        conditional_cleanup->alternate_body = *cleanup_plan;
+        if (!conditional_cleanup->expression) return false;
+        *cleanup_plan = conditional_cleanup;
+    }
+    return true;
+}
+
 static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* object;
     Expr* materialized_xvalue_source = NULL;
     Expr* xvalue_temporary_source = NULL;
     Expr* reference_subobject_source = NULL;
     Type* object_type;
-    Type* conditional_then_type = NULL;
-    Type* conditional_else_type = NULL;
-    bool conditional_then_temporary = false;
-    bool conditional_else_temporary = false;
+    Type* conditional_primary_type = NULL;
+    Type* conditional_alternate_type = NULL;
+    int conditional_storage_size = 0;
+    int conditional_storage_align = 0;
+    int conditional_leaf_count = 0;
     bool reference_temporary = false;
     bool static_reference_temporary = false;
     bool xvalue_has_temporary = false;
@@ -17897,9 +18017,17 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             conditional_xvalue_temporary =
                 xvalue_temporary_source &&
                 sema_cxx_conditional_temporary_types(
-                    xvalue_temporary_source, &conditional_then_type,
-                    &conditional_else_type, &conditional_then_temporary,
-                    &conditional_else_temporary);
+                    xvalue_temporary_source, &conditional_primary_type,
+                    &conditional_alternate_type, &conditional_storage_size,
+                    &conditional_storage_align, &conditional_leaf_count);
+            if (xvalue_temporary_source &&
+                xvalue_temporary_source->kind == EXPR_COND &&
+                !conditional_xvalue_temporary) {
+                rcc_error(
+                    declaration->loc,
+                    "conditional xvalue lifetime extension exceeds the supported branch tree");
+                return;
+            }
             conditional_xvalue_needs_variant =
                 conditional_xvalue_temporary;
             if (xvalue_has_temporary && !xvalue_temporary_source) {
@@ -17917,7 +18045,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         prvalue_initializer = !is_lvalue(declaration->var_init) &&
                               !is_xvalue(declaration->var_init);
         object_type = conditional_xvalue_needs_variant
-            ? conditional_then_type
+            ? conditional_primary_type
             : xvalue_temporary_source
             ? xvalue_temporary_source->type
             : materialized_xvalue_source
@@ -18010,19 +18138,13 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         Decl* owner = decl_var("__rcc_reference_temporary", object_type,
                                NULL, declaration->loc);
         if (conditional_xvalue_needs_variant) {
-            int storage_size = conditional_then_type->size;
-            int storage_align = conditional_then_type->align;
+            int storage_size = conditional_storage_size;
+            int storage_align = conditional_storage_align;
             int selector_align = type_int && type_int->align > 0
                 ? type_int->align : 4;
             int selector_size = type_int && type_int->size > 0
                 ? type_int->size : 4;
             int selector_offset;
-            if (conditional_else_type->size > storage_size) {
-                storage_size = conditional_else_type->size;
-            }
-            if (conditional_else_type->align > storage_align) {
-                storage_align = conditional_else_type->align;
-            }
             if (selector_align > storage_align) {
                 storage_align = selector_align;
             }
@@ -18036,14 +18158,14 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                               selector_align * selector_align;
             storage_size = selector_offset + selector_size;
             declaration->var_reference_temporary_alternate_type =
-                conditional_else_type;
+                conditional_alternate_type;
             declaration->var_reference_temporary_variant_offset =
                 selector_offset;
             declaration->var_reference_temporary_storage_size = storage_size;
             declaration->var_reference_temporary_storage_align =
                 storage_align;
             owner->var_reference_temporary_alternate_type =
-                conditional_else_type;
+                conditional_alternate_type;
             owner->var_reference_temporary_variant_offset = selector_offset;
             owner->var_reference_temporary_storage_size = storage_size;
             owner->var_reference_temporary_storage_align = storage_align;
@@ -18098,48 +18220,19 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     if (conditional_xvalue_needs_variant &&
         declaration->var_reference_temporary_owner) {
         Decl* owner = declaration->var_reference_temporary_owner;
-        Expr* then_object = expr_ident(owner->name, declaration->loc);
-        Expr* else_object = expr_ident(owner->name, declaration->loc);
-        CxxCleanupPlan* then_cleanups = NULL;
-        CxxCleanupPlan* else_cleanups = NULL;
-        CxxCleanupPlan* conditional_cleanup;
+        CxxCleanupPlan* conditional_cleanups = NULL;
         int branch_cleanup_budget = cleanup_budget;
-        then_object->ident_decl = owner;
-        then_object->type = conditional_then_type;
-        else_object->ident_decl = owner;
-        else_object->type = conditional_else_type;
-        if ((conditional_then_temporary &&
-             sema_cxx_type_has_destructor_cleanup(
-                 conditional_then_type, 0) &&
-             !sema_cxx_append_object_cleanups(
-                 declaration, conditional_then_type, then_object,
-                 &then_cleanups, 0, &branch_cleanup_budget, true,
-                 !declaration->var_is_thread_local)) ||
-            (conditional_else_temporary &&
-             sema_cxx_type_has_destructor_cleanup(
-                 conditional_else_type, 0) &&
-             !sema_cxx_append_object_cleanups(
-                 declaration, conditional_else_type, else_object,
-                 &else_cleanups, 0, &branch_cleanup_budget, true,
-                 !declaration->var_is_thread_local))) {
+        int next_tag = 0;
+        if (!sema_cxx_append_conditional_reference_cleanups(
+                declaration, xvalue_temporary_source, owner,
+                owner->var_reference_temporary_variant_offset, &next_tag,
+                &branch_cleanup_budget, &conditional_cleanups, 0u) ||
+            next_tag != conditional_leaf_count) {
             rcc_error(declaration->loc,
                       "conditional C++ temporary cleanup metadata is incomplete");
             return;
         }
-        conditional_cleanup = ast_arena_alloc(sizeof(*conditional_cleanup));
-        memset(conditional_cleanup, 0, sizeof(*conditional_cleanup));
-        conditional_cleanup->kind = CXX_CLEANUP_CONDITIONAL;
-        conditional_cleanup->expression = sema_cxx_reference_temporary_selector(
-            owner, owner->var_reference_temporary_variant_offset,
-            declaration->loc);
-        conditional_cleanup->body = else_cleanups;
-        conditional_cleanup->alternate_body = then_cleanups;
-        if (!conditional_cleanup->expression) {
-            rcc_error(declaration->loc,
-                      "conditional C++ temporary cleanup selector is unavailable");
-            return;
-        }
-        declaration->var_cleanups = conditional_cleanup;
+        declaration->var_cleanups = conditional_cleanups;
     } else if (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
         !sema_cxx_append_object_cleanups(declaration, object_type, object,
                                          &declaration->var_cleanups, 0,
@@ -18149,7 +18242,8 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                   "C++ object lifetime cleanup metadata is incomplete");
     }
     if ((declaration->var_is_thread_local ||
-         declaration->var_is_static_local) && declaration->var_cleanups) {
+         declaration->var_is_static_local) &&
+        (declaration->var_cleanups || reference_temporary)) {
         (void)sema_attach_static_initializer_guard(declaration);
     }
 }

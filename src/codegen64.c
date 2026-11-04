@@ -14360,15 +14360,95 @@ static void gen64_conditional_reference_temporary_store_tag(
     emit64_pop_reg(mod, RAX);
 }
 
+static bool gen64_conditional_xvalue_tree_has_temporary(
+    Expr* expression, unsigned depth) {
+    if (!expression || depth >= 64u) return false;
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue) {
+        return gen64_conditional_xvalue_tree_has_temporary(
+                   expression->cond_then, depth + 1u) ||
+               gen64_conditional_xvalue_tree_has_temporary(
+                   expression->cond_else, depth + 1u);
+    }
+    return gen64_conditional_xvalue_complete_source(expression, 0u) != NULL;
+}
+
+static bool gen64_conditional_reference_temporary_tree(
+    Module* mod, Decl* declaration, Expr* expression, int* next_tag,
+    unsigned depth) {
+    Decl* owner = declaration
+        ? declaration->var_reference_temporary_owner : NULL;
+    Expr* source;
+    Type* type;
+    if (!mod || !declaration || !owner || !expression || !next_tag ||
+        depth >= 64u || *next_tag >= 4096) {
+        return false;
+    }
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue &&
+        gen64_conditional_xvalue_tree_has_temporary(expression, depth)) {
+        int else_label = new_label64();
+        int done_label = new_label64();
+        gen64_expr(mod, expression->cond_test);
+        gen64_truth_value(mod, expression->cond_test->type);
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_E, else_label);
+        if (!gen64_conditional_reference_temporary_tree(
+                mod, declaration, expression->cond_then, next_tag,
+                depth + 1u)) {
+            return false;
+        }
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, else_label);
+        if (!gen64_conditional_reference_temporary_tree(
+                mod, declaration, expression->cond_else, next_tag,
+                depth + 1u)) {
+            return false;
+        }
+        emit64_label(mod, done_label);
+        return true;
+    }
+    source = gen64_conditional_xvalue_complete_source(expression, 0u);
+    if (source) {
+        type = source->type;
+        if (type && type->kind == TYPE_PTR && type->is_reference) {
+            type = type->base;
+        }
+        if (!type || type->size <= 0 ||
+            (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+            !gen64_static_reference_aggregate_into_owner(
+                mod, declaration, source, type)) {
+            rcc_error(declaration->loc,
+                      "conditional reference temporary has no complete class source");
+            return false;
+        }
+        gen64_static_reference_owner_vtable_init(mod, type, owner);
+        gen64_reference_temporary_owner_address(mod, owner);
+        gen64_cxx_reference_adjustment_force(mod, expression);
+    } else {
+        Type* arm_type = expression->type;
+        if (arm_type && arm_type->kind == TYPE_PTR &&
+            arm_type->is_reference) {
+            arm_type = arm_type->base;
+        }
+        if (!arm_type || (arm_type->kind != TYPE_STRUCT &&
+                          arm_type->kind != TYPE_UNION)) {
+            rcc_error(declaration->loc,
+                      "conditional reference named arm is not a class xvalue");
+            return false;
+        }
+        gen64_lvalue(mod, expression);
+    }
+    gen64_conditional_reference_temporary_store_tag(
+        mod, owner, (*next_tag)++);
+    return true;
+}
+
 static bool gen64_conditional_reference_temporary_initializer(
     Module* mod, Decl* declaration, Expr* conditional) {
     Decl* owner = declaration
         ? declaration->var_reference_temporary_owner : NULL;
-    Expr* arms[2];
-    Expr* sources[2];
-    Type* types[2];
-    int else_label;
-    int done_label;
+    int next_tag = 0;
     if (!mod || !declaration || !owner || !conditional ||
         conditional->kind != EXPR_COND ||
         !conditional->cxx_conditional_xvalue ||
@@ -14376,68 +14456,8 @@ static bool gen64_conditional_reference_temporary_initializer(
         owner->var_reference_temporary_variant_offset < 0) {
         return false;
     }
-    arms[0] = conditional->cond_then;
-    arms[1] = conditional->cond_else;
-    types[0] = owner->type;
-    types[1] = owner->var_reference_temporary_alternate_type;
-    sources[0] = gen64_conditional_xvalue_complete_source(arms[0], 0u);
-    sources[1] = gen64_conditional_xvalue_complete_source(arms[1], 0u);
-    for (size_t index = 0u; index < 2u; ++index) {
-        Type* arm_type = arms[index] ? arms[index]->type : NULL;
-        if (arm_type && arm_type->kind == TYPE_PTR &&
-            arm_type->is_reference) {
-            arm_type = arm_type->base;
-        }
-        if (!types[index] || types[index]->size <= 0 ||
-            (types[index]->kind != TYPE_STRUCT &&
-             types[index]->kind != TYPE_UNION) ||
-            (sources[index]
-                 ? (!sources[index]->type ||
-                    (sources[index]->type->kind != TYPE_STRUCT &&
-                     sources[index]->type->kind != TYPE_UNION) ||
-                    !type_is_compatible(types[index], sources[index]->type))
-                 : (!arm_type ||
-                    (arm_type->kind != TYPE_STRUCT &&
-                     arm_type->kind != TYPE_UNION)))) {
-            rcc_error(declaration->loc,
-                      "conditional reference temporary arm has no class source");
-            return false;
-        }
-    }
-    else_label = new_label64();
-    done_label = new_label64();
-    gen64_expr(mod, conditional->cond_test);
-    gen64_truth_value(mod, conditional->cond_test->type);
-    emit64_test_reg_reg(mod, RAX, RAX);
-    emit64_jcc_label(mod, CC64_E, else_label);
-    if (sources[0]) {
-        if (!gen64_static_reference_aggregate_into_owner(
-                mod, declaration, sources[0], types[0])) {
-            return false;
-        }
-        gen64_static_reference_owner_vtable_init(mod, types[0], owner);
-        gen64_reference_temporary_owner_address(mod, owner);
-        gen64_cxx_reference_adjustment_force(mod, arms[0]);
-    } else {
-        gen64_lvalue(mod, arms[0]);
-    }
-    gen64_conditional_reference_temporary_store_tag(mod, owner, 0);
-    emit64_jmp_label(mod, done_label);
-    emit64_label(mod, else_label);
-    if (sources[1]) {
-        if (!gen64_static_reference_aggregate_into_owner(
-                mod, declaration, sources[1], types[1])) {
-            return false;
-        }
-        gen64_static_reference_owner_vtable_init(mod, types[1], owner);
-        gen64_reference_temporary_owner_address(mod, owner);
-        gen64_cxx_reference_adjustment_force(mod, arms[1]);
-    } else {
-        gen64_lvalue(mod, arms[1]);
-    }
-    gen64_conditional_reference_temporary_store_tag(mod, owner, 1);
-    emit64_label(mod, done_label);
-    return true;
+    return gen64_conditional_reference_temporary_tree(
+        mod, declaration, conditional, &next_tag, 0u) && next_tag > 0;
 }
 
 static bool gen64_static_reference_temporary_initializer(

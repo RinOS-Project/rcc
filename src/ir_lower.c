@@ -19437,6 +19437,120 @@ static bool lower_conditional_branch(RccIrLowerContext* context,
     return true;
 }
 
+static bool lower_conditional_xvalue_tree_has_temporary(
+    const Expr* expression, unsigned depth) {
+    if (!expression || depth >= 64u) return false;
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue) {
+        return lower_conditional_xvalue_tree_has_temporary(
+                   expression->cond_then, depth + 1u) ||
+               lower_conditional_xvalue_tree_has_temporary(
+                   expression->cond_else, depth + 1u);
+    }
+    return lower_conditional_xvalue_complete_source(expression, 0u) != NULL;
+}
+
+static RccIrLowerValue lower_conditional_xvalue_tree(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerValue selector_address, RccIrType selector_type,
+    int* next_tag, unsigned depth) {
+    RccIrLowerValue values[2];
+    RccIrBlock* arm_blocks[2];
+    RccIrBlock* end_blocks[2];
+    RccIrBlock* merge_block;
+    RccIrValue phi_operands[2];
+    RccIrBlockId phi_targets[2];
+    RccIrInstruction* phi;
+    const Expr* source;
+    if (!context || !expression || !next_tag || depth >= 64u ||
+        *next_tag >= 4096) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue &&
+        lower_conditional_xvalue_tree_has_temporary(expression, depth)) {
+        RccIrLowerValue condition = lower_truth_expression(
+            context, expression->cond_test);
+        if (!condition.valid) return lower_invalid_value();
+        arm_blocks[0] = rcc_ir_block_add(
+            context->function, "reference.xvalue.then");
+        arm_blocks[1] = rcc_ir_block_add(
+            context->function, "reference.xvalue.else");
+        merge_block = rcc_ir_block_add(
+            context->function, "reference.xvalue.end");
+        if (!arm_blocks[0] || !arm_blocks[1] || !merge_block ||
+            !lower_conditional_branch(context, condition, arm_blocks[0]->id,
+                                      arm_blocks[1]->id)) {
+            return lower_invalid_value();
+        }
+        for (unsigned index = 0u; index < 2u; ++index) {
+            context->current = arm_blocks[index];
+            context->terminated = false;
+            values[index] = lower_conditional_xvalue_tree(
+                context, index == 0u ? expression->cond_then
+                                     : expression->cond_else,
+                selector_address, selector_type, next_tag, depth + 1u);
+            if (!values[index].valid ||
+                values[index].type.kind != RCC_IR_TYPE_POINTER ||
+                context->terminated ||
+                !lower_branch(context, merge_block->id)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            end_blocks[index] = context->current;
+        }
+        context->current = merge_block;
+        context->terminated = false;
+        phi_operands[0] = values[0].value;
+        phi_operands[1] = values[1].value;
+        phi_targets[0] = end_blocks[0]->id;
+        phi_targets[1] = end_blocks[1]->id;
+        phi = lower_append(context, RCC_IR_PHI,
+                           rcc_ir_type_pointer(0u), phi_operands, 2u,
+                           phi_targets, 2u);
+        if (!phi) return lower_invalid_value();
+        return lower_value(phi->result, rcc_ir_type_pointer(0u), true);
+    }
+
+    source = lower_conditional_xvalue_complete_source(expression, 0u);
+    {
+        const Expr* previous_destination_expression =
+            context->aggregate_result_destination_expression;
+        RccIrLowerValue previous_destination =
+            context->aggregate_result_destination;
+        const Decl* previous_owner = context->conditional_xvalue_owner;
+        RccIrLowerValue value;
+        RccIrLowerValue tag;
+        if (source && source->kind == EXPR_COND) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        context->aggregate_result_destination_expression = source;
+        context->aggregate_result_destination = source
+            ? previous_destination : lower_invalid_value();
+        context->conditional_xvalue_owner = NULL;
+        value = source ? lower_expression(context, expression)
+                       : lower_lvalue_address(context, expression);
+        context->aggregate_result_destination_expression =
+            previous_destination_expression;
+        context->aggregate_result_destination = previous_destination;
+        context->conditional_xvalue_owner = previous_owner;
+        if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER ||
+            context->terminated) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        tag = lower_integer_constant(
+            context, selector_type, true, (uint64_t)(*next_tag)++);
+        if (!tag.valid ||
+            !lower_store_address(context, selector_address, tag)) {
+            return lower_invalid_value();
+        }
+        return value;
+    }
+}
+
 static RccIrLowerValue lower_conditional_expression(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue condition;
@@ -19469,17 +19583,9 @@ static RccIrLowerValue lower_conditional_expression(
         context->conditional_xvalue_owner
             ->var_reference_temporary_alternate_type) {
         const Decl* owner = context->conditional_xvalue_owner;
-        const Expr* arms[2] = {expression->cond_then,
-                               expression->cond_else};
-        RccIrLowerValue values[2];
         RccIrLowerValue selector_address;
         RccIrType selector_type;
-        RccIrBlock* arm_blocks[2];
-        RccIrBlock* merge_block;
-        RccIrBlock* end_blocks[2];
-        RccIrValue phi_operands[2];
-        RccIrBlockId phi_targets[2];
-        uint64_t tag_values[2] = {0u, 1u};
+        int next_tag = 0;
         if (!expression->cxx_conditional_xvalue ||
             expression->kind != EXPR_COND ||
             !owner->type || owner->var_reference_temporary_variant_offset < 0 ||
@@ -19493,69 +19599,12 @@ static RccIrLowerValue lower_conditional_expression(
         selector_address = lower_byte_offset_address(
             context, context->aggregate_result_destination,
             (uint64_t)owner->var_reference_temporary_variant_offset);
-        condition = lower_truth_expression(context, expression->cond_test);
-        if (!selector_address.valid || !condition.valid) {
+        if (!selector_address.valid) {
             return lower_invalid_value();
         }
-        arm_blocks[0] = rcc_ir_block_add(
-            context->function, "reference.xvalue.then");
-        arm_blocks[1] = rcc_ir_block_add(
-            context->function, "reference.xvalue.else");
-        merge_block = rcc_ir_block_add(
-            context->function, "reference.xvalue.end");
-        if (!arm_blocks[0] || !arm_blocks[1] || !merge_block ||
-            !lower_conditional_branch(context, condition, arm_blocks[0]->id,
-                                      arm_blocks[1]->id)) {
-            return lower_invalid_value();
-        }
-        for (unsigned index = 0u; index < 2u; ++index) {
-            const Expr* source = lower_conditional_xvalue_complete_source(
-                arms[index], 0u);
-            const Expr* previous_destination_expression;
-            RccIrLowerValue previous_destination;
-            const Decl* previous_owner;
-            RccIrLowerValue tag;
-            context->current = arm_blocks[index];
-            context->terminated = false;
-            tag = lower_integer_constant(
-                context, selector_type, true, tag_values[index]);
-            if (!tag.valid) return lower_invalid_value();
-            if (!lower_store_address(context, selector_address, tag)) {
-                return lower_invalid_value();
-            }
-            previous_destination_expression =
-                context->aggregate_result_destination_expression;
-            previous_destination = context->aggregate_result_destination;
-            previous_owner = context->conditional_xvalue_owner;
-            context->aggregate_result_destination_expression = source;
-            context->aggregate_result_destination = source
-                ? previous_destination : lower_invalid_value();
-            context->conditional_xvalue_owner = NULL;
-            values[index] = lower_expression(context, arms[index]);
-            context->aggregate_result_destination_expression =
-                previous_destination_expression;
-            context->aggregate_result_destination = previous_destination;
-            context->conditional_xvalue_owner = previous_owner;
-            if (!values[index].valid ||
-                values[index].type.kind != RCC_IR_TYPE_POINTER ||
-                context->terminated ||
-                !lower_branch(context, merge_block->id)) {
-                context->unsupported = true;
-                return lower_invalid_value();
-            }
-            end_blocks[index] = context->current;
-        }
-        context->current = merge_block;
-        context->terminated = false;
-        phi_operands[0] = values[0].value;
-        phi_operands[1] = values[1].value;
-        phi_targets[0] = end_blocks[0]->id;
-        phi_targets[1] = end_blocks[1]->id;
-        phi = lower_append(context, RCC_IR_PHI,
-                           rcc_ir_type_pointer(0u), phi_operands, 2u,
-                           phi_targets, 2u);
-        if (!phi) return lower_invalid_value();
-        return lower_value(phi->result, rcc_ir_type_pointer(0u), true);
+        return lower_conditional_xvalue_tree(
+            context, expression, selector_address, selector_type,
+            &next_tag, 0u);
     }
     if (!expression || !expression->type) {
         context->unsupported = true;
