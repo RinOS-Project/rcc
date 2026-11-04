@@ -34046,6 +34046,7 @@ static bool sema_sse2_builtin_name(const char* name) {
     if (strcmp(suffix, "pause") == 0 || strcmp(suffix, "clflush") == 0 ||
         strcmp(suffix, "lfence") == 0 || strcmp(suffix, "mfence") == 0 ||
         strcmp(suffix, "movnti") == 0 || strcmp(suffix, "movntdq") == 0 ||
+        strcmp(suffix, "movq128") == 0 ||
         strcmp(suffix, "loaddqu") == 0 ||
         strcmp(suffix, "storedqu") == 0 ||
         strcmp(suffix, "vec_ext_v8hi") == 0 ||
@@ -34066,6 +34067,7 @@ static int sema_sse_builtin_arity(const char* name) {
         strcmp(suffix, "lfence") == 0 || strcmp(suffix, "mfence") == 0) {
         return 0;
     }
+    if (strcmp(suffix, "movq128") == 0) return 1;
     if (strcmp(suffix, "vec_set_v8hi") == 0) return 9;
     if (strcmp(suffix, "cvtsd2ss") == 0 ||
         strcmp(suffix, "cvtss2sd") == 0) return 2;
@@ -34171,6 +34173,8 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
         if (strcmp(suffix, "vec_ext_v8hi") == 0) {
             sema_sse_require_integer(call, name, 1);
         }
+    } else if (strcmp(suffix, "movq128") == 0) {
+        sema_sse_require_vector(call, name, 0);
     } else if (strcmp(suffix, "vec_set_v8hi") == 0) {
         for (int index = 0; index < expected_count; ++index) {
             sema_sse_require_integer(call, name, index);

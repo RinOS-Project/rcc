@@ -3302,6 +3302,12 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
         emit_byte(mod, 0xF3); emit_byte(mod, 0x90);
         return true;
     }
+    if (strcmp(name, "movq128") == 0) {
+        gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+        emit64_sse128_reg(mod, 0, 0, 0xF3, 0x7E);
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
     if (strcmp(name, "sfence") == 0 || strcmp(name, "lfence") == 0 ||
         strcmp(name, "mfence") == 0) {
         emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);

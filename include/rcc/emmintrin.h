@@ -705,6 +705,10 @@ static __inline __m128i _mm_undefined_si128(void) {
     return _mm_setzero_si128();
 }
 
+static __inline __m128i _mm_move_epi64(__m128i __a) {
+    return (__m128i)__builtin_ia32_movq128((__v2di)__a);
+}
+
 static __inline __m128d _mm_undefined_pd(void) {
     return _mm_setzero_pd();
 }

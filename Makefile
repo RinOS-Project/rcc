@@ -872,7 +872,7 @@ CXX_NESTED_STRUCTURAL_UNION_ARRAY_MEMBER_PACK_SYMBOLS = \
 .PHONY: test-utf16-utf32-rin-format
 .PHONY: test-compiler-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate
 .PHONY: test-sse2-movntdq-feature-lowering test-sse2-movdqu-load
-.PHONY: test-sse2-conversion-result-types
+.PHONY: test-sse2-conversion-result-types test-sse2-move-epi64
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -21261,7 +21261,7 @@ test-noreturn: $(RCC_TARGET)
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
-test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering test-sse2-movdqu-load test-sse2-conversion-result-types
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering test-sse2-movdqu-load test-sse2-conversion-result-types test-sse2-move-epi64
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
@@ -21718,6 +21718,42 @@ test-sse2-conversion-result-types: $(RCC_TARGET)
 	$(GREP) -F -q "__builtin_ia32_cvtpd2dq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-conversion-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-conversion-x64.ro)
 	@echo "SSE2 conversion result types and lowering tests completed"
+
+test-sse2-move-epi64: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors -msse2 \
+		-Iinclude -o $(TEST_OUT)/compiler-builtins/sse2-move-epi64-gcc \
+		tests/sse2_move_epi64.c
+	$(TEST_OUT)/compiler-builtins/sse2-move-epi64-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-move-epi64-x86.s \
+		tests/sse2_move_epi64.c
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/compiler-builtins/sse2-move-epi64-x86.o \
+		$(TEST_OUT)/compiler-builtins/sse2-move-epi64-x86.s
+	$(PYTHON) scripts/rcc_check_sse2_move_epi64_opcode.py \
+		--objdump "$(OBJDUMP)" --arch i686 \
+		$(TEST_OUT)/compiler-builtins/sse2-move-epi64-x86.o
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse2-move-epi64-x86,$(TEST_OUT)/compiler-builtins/sse2-move-epi64-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-move-epi64-x64.s \
+		tests/sse2_move_epi64.c
+	$(CC) -c \
+		-o $(TEST_OUT)/compiler-builtins/sse2-move-epi64-x64.o \
+		$(TEST_OUT)/compiler-builtins/sse2-move-epi64-x64.s
+	$(PYTHON) scripts/rcc_check_sse2_move_epi64_opcode.py \
+		--objdump "$(OBJDUMP)" --arch x86_64 \
+		$(TEST_OUT)/compiler-builtins/sse2-move-epi64-x64.o
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse2-move-epi64-x64,$(TEST_OUT)/compiler-builtins/sse2-move-epi64-x64.s)
+	$(call REMOVE_FILE,$(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x86.ro)
+	$(call EXPECT_FAILURE,./$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 -c -o $(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x86.ro tests/sse2_move_epi64_gate.c,$(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x86.log)
+	$(GREP) -F -q "__builtin_ia32_movq128 requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x64.ro)
+	$(call EXPECT_FAILURE,./$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse -mno-sse2 -c -o $(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x64.ro tests/sse2_move_epi64_gate.c,$(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x64.log)
+	$(GREP) -F -q "__builtin_ia32_movq128 requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-move-epi64-x64.ro)
+	@echo "SSE2 _mm_move_epi64 lowering tests completed"
 
 ifeq ($(OS),Windows_NT)
 FLOATING_MATH_X86_LINK = $(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main'

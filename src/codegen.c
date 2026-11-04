@@ -7312,6 +7312,12 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
     if (strcmp(name, "pause") == 0) {
         emit_byte(mod, 0xF3); emit_byte(mod, 0x90); return true;
     }
+    if (strcmp(name, "movq128") == 0) {
+        gen_sse_vector_argument32(mod, call_argument(expr, 0), 0);
+        emit_sse128_reg(mod, 0, 0, 0xF3, 0x7E);
+        gen_sse_store_result32(mod, expr, 0);
+        return true;
+    }
     if (strcmp(name, "sfence") == 0 || strcmp(name, "lfence") == 0 ||
         strcmp(name, "mfence") == 0) {
         emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
