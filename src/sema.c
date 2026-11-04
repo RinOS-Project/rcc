@@ -33974,6 +33974,7 @@ static RccMmxBuiltinKind sema_mmx_builtin_kind(const char* name) {
         "__builtin_ia32_psubsw", "__builtin_ia32_psubusb",
         "__builtin_ia32_psubusw", "__builtin_ia32_pmaddwd",
         "__builtin_ia32_pmulhw", "__builtin_ia32_pmullw",
+        "__builtin_ia32_pmuludq",
         "__builtin_ia32_pand", "__builtin_ia32_pandn",
         "__builtin_ia32_por", "__builtin_ia32_pxor",
         "__builtin_ia32_pcmpeqb", "__builtin_ia32_pcmpeqw",
@@ -34048,6 +34049,9 @@ static bool sema_sse2_builtin_name(const char* name) {
         strcmp(suffix, "movnti") == 0 ||
         strcmp(suffix, "movnti64") == 0 ||
         strcmp(suffix, "movntdq") == 0 ||
+        strcmp(suffix, "movdq2q") == 0 ||
+        strcmp(suffix, "movq2dq") == 0 ||
+        strcmp(suffix, "maskmovdqu") == 0 ||
         strcmp(suffix, "movq128") == 0 ||
         strcmp(suffix, "loaddqu") == 0 ||
         strcmp(suffix, "storedqu") == 0 ||
@@ -34069,7 +34073,10 @@ static int sema_sse_builtin_arity(const char* name) {
         strcmp(suffix, "lfence") == 0 || strcmp(suffix, "mfence") == 0) {
         return 0;
     }
-    if (strcmp(suffix, "movq128") == 0) return 1;
+    if (strcmp(suffix, "movq128") == 0 ||
+        strcmp(suffix, "movdq2q") == 0 ||
+        strcmp(suffix, "movq2dq") == 0) return 1;
+    if (strcmp(suffix, "maskmovdqu") == 0) return 3;
     if (strcmp(suffix, "vec_set_v8hi") == 0) return 9;
     if (strcmp(suffix, "cvtsd2ss") == 0 ||
         strcmp(suffix, "cvtss2sd") == 0) return 2;
@@ -34145,6 +34152,17 @@ static void sema_sse_require_integer(Expr* call, const char* name, int index) {
     }
 }
 
+static void sema_sse_require_mmx_scalar(Expr* call, const char* name,
+                                        int index) {
+    Expr* argument = sema_sse_argument(call, index);
+    if (!argument || !argument->type || !type_is_integer(argument->type) ||
+        argument->type->size != 8) {
+        rcc_error(call->loc,
+                  "%s argument %d must have 64-bit integer type", name,
+                  index + 1);
+    }
+}
+
 static void sema_validate_sse_operands(Expr* call, const char* name,
                                         int expected_count) {
     const char* suffix;
@@ -34183,6 +34201,16 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
         }
     } else if (strcmp(suffix, "movq128") == 0) {
         sema_sse_require_vector(call, name, 0);
+    } else if (strcmp(suffix, "movdq2q") == 0) {
+        sema_sse_require_vector(call, name, 0);
+    } else if (strcmp(suffix, "movq2dq") == 0) {
+        sema_sse_require_mmx_scalar(call, name, 0);
+    } else if (strcmp(suffix, "cvtpi2pd") == 0) {
+        sema_sse_require_mmx_scalar(call, name, 0);
+    } else if (strcmp(suffix, "maskmovdqu") == 0) {
+        sema_sse_require_vector(call, name, 0);
+        sema_sse_require_vector(call, name, 1);
+        sema_sse_require_pointer(call, name, 2);
     } else if (strcmp(suffix, "vec_set_v8hi") == 0) {
         for (int index = 0; index < expected_count; ++index) {
             sema_sse_require_integer(call, name, index);
@@ -34265,6 +34293,9 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
 
 static Type* sema_sse_builtin_vector(const char* name) {
     if (!name) return NULL;
+    if (strstr(name, "movq2dq")) {
+        return rcc_parser_lookup_type("__v2di");
+    }
     if (strstr(name, "cvtsd2ss")) {
         return rcc_parser_lookup_type("__v4sf");
     }
@@ -34292,6 +34323,11 @@ static Type* sema_sse_builtin_vector(const char* name) {
 
 static Type* sema_sse_builtin_return_type(const char* name) {
     if (!name) return type_int;
+    if (strcmp(name, "__builtin_ia32_cvtpd2pi") == 0 ||
+        strcmp(name, "__builtin_ia32_cvttpd2pi") == 0 ||
+        strcmp(name, "__builtin_ia32_movdq2q") == 0) {
+        return type_llong;
+    }
     if (strstr(name, "comi") || strstr(name, "ucomi") ||
         strstr(name, "movmsk") || strstr(name, "cvtss2si") ||
         strstr(name, "cvttss2si") || strstr(name, "cvtsd2si") ||
@@ -34303,6 +34339,7 @@ static Type* sema_sse_builtin_return_type(const char* name) {
     if (strstr(name, "lfence") || strstr(name, "mfence") ||
         strstr(name, "sfence") || strstr(name, "pause") ||
         strstr(name, "clflush") || strstr(name, "ldmxcsr") ||
+        strstr(name, "maskmove") ||
         strstr(name, "movnt") ||
         strstr(name, "store")) {
         return type_void;
@@ -34685,6 +34722,20 @@ static bool sema_compiler_builtin_call(Expr* expr) {
                           "%s second argument must be an integer no wider than 8 bytes",
                           name);
             }
+        } else if (strcmp(name, "__builtin_ia32_pmuludq") == 0) {
+            for (argument = expr->call_args; argument;
+                 argument = argument->next) {
+                if (!argument->expr->type ||
+                    !type_is_integer(argument->expr->type) ||
+                    argument->expr->type->size != 8) {
+                    rcc_error(expr->loc,
+                              "%s expects 64-bit integer arguments", name);
+                }
+            }
+            if (!g_opts.sse2_enabled) {
+                rcc_error(expr->loc,
+                          "%s requires SSE2; enable it with -msse2", name);
+            }
         } else {
             for (argument = expr->call_args; argument;
                  argument = argument->next) {
@@ -34714,9 +34765,10 @@ static bool sema_compiler_builtin_call(Expr* expr) {
                           name);
             }
         }
-        function->type = type_ptr(mmx_kind == RCC_MMX_BUILTIN_STORE
-                                      ? type_void : type_llong);
-        expr->type = mmx_kind == RCC_MMX_BUILTIN_STORE ? type_void : type_llong;
+        Type* result_type = mmx_kind == RCC_MMX_BUILTIN_STORE
+            ? type_void : type_llong;
+        function->type = type_ptr(result_type);
+        expr->type = result_type;
         return true;
     }
     if (sema_sse_builtin_name(name)) {

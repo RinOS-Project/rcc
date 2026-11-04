@@ -6962,6 +6962,7 @@ static RccCodegenMmxKind codegen_mmx_builtin_kind(const char* name) {
         "__builtin_ia32_psubsw", "__builtin_ia32_psubusb",
         "__builtin_ia32_psubusw", "__builtin_ia32_pmaddwd",
         "__builtin_ia32_pmulhw", "__builtin_ia32_pmullw",
+        "__builtin_ia32_pmuludq",
         "__builtin_ia32_pand", "__builtin_ia32_pandn",
         "__builtin_ia32_por", "__builtin_ia32_pxor",
         "__builtin_ia32_pcmpeqb", "__builtin_ia32_pcmpeqw",
@@ -7039,7 +7040,8 @@ static int codegen_mmx_binary_opcode(const char* name) {
         {"__builtin_ia32_psubsb", 0xE8}, {"__builtin_ia32_psubsw", 0xE9},
         {"__builtin_ia32_psubusb", 0xD8}, {"__builtin_ia32_psubusw", 0xD9},
         {"__builtin_ia32_pmaddwd", 0xF5}, {"__builtin_ia32_pmulhw", 0xE5},
-        {"__builtin_ia32_pmullw", 0xD5}, {"__builtin_ia32_pand", 0xDB},
+        {"__builtin_ia32_pmullw", 0xD5}, {"__builtin_ia32_pmuludq", 0xF4},
+        {"__builtin_ia32_pand", 0xDB},
         {"__builtin_ia32_pandn", 0xDF}, {"__builtin_ia32_por", 0xEB},
         {"__builtin_ia32_pxor", 0xEF}, {"__builtin_ia32_pcmpeqb", 0x74},
         {"__builtin_ia32_pcmpeqw", 0x75}, {"__builtin_ia32_pcmpeqd", 0x76},
@@ -7276,6 +7278,20 @@ static void gen_sse_store_result32(Module* mod, Expr* expr, int xmm) {
     emit_dword(mod, (uint32_t)expr->call_result_offset);
 }
 
+static void gen_mmx_store_scalar_result32(Module* mod, Expr* expr, int mmx) {
+    if (!expr || !expr->type || !type_is_integer(expr->type) ||
+        expr->type->size != 8) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<mmx>", 0, 0},
+                  "MMX builtin result must use the 64-bit scalar carrier");
+        return;
+    }
+    emit_sub_reg_imm(mod, ESP, 8);
+    emit_mmx_store(mod, ESP, 0, mmx);
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    emit_mov_reg_mem(mod, EDX, ESP, 4);
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
 static void gen_sse_vector_argument32(Module* mod, Expr* argument, int xmm) {
     gen_expr(mod, argument);
     emit_sse128_memory(mod, xmm, EAX, 0, 0, 0x10);
@@ -7316,6 +7332,38 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
         gen_sse_vector_argument32(mod, call_argument(expr, 0), 0);
         emit_sse128_reg(mod, 0, 0, 0xF3, 0x7E);
         gen_sse_store_result32(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "movdq2q") == 0) {
+        gen_sse_vector_argument32(mod, call_argument(expr, 0), 0);
+        emit_sse128_reg(mod, 0, 0, 0xF2, 0xD6);
+        gen_mmx_store_scalar_result32(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "movq2dq") == 0) {
+        gen_expr_as_integer64(mod, call_argument(expr, 0));
+        emit_sub_reg_imm(mod, ESP, 8);
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        emit_mov_mem_reg(mod, ESP, 4, EDX);
+        emit_mmx_load(mod, 0, ESP, 0);
+        emit_add_reg_imm(mod, ESP, 8);
+        emit_sse128_reg(mod, 0, 0, 0xF3, 0xD6);
+        gen_sse_store_result32(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "maskmovdqu") == 0) {
+        emit_push_reg(mod, EDI);
+        emit_sub_reg_imm(mod, ESP, 4);
+        gen_expr(mod, call_argument(expr, 2));
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        if (gen_sse_two_vectors32(mod, expr)) {
+            emit_mov_reg_mem(mod, EDI, ESP, 0);
+            emit_add_reg_imm(mod, ESP, 4);
+            emit_sse128_reg(mod, 0, 1, 0x66, 0xF7);
+        } else {
+            emit_add_reg_imm(mod, ESP, 4);
+        }
+        emit_pop_reg(mod, EDI);
         return true;
     }
     if (strcmp(name, "sfence") == 0 || strcmp(name, "lfence") == 0 ||
@@ -7504,6 +7552,25 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
         return true;
     }
     if (strstr(name, "cvt") == name) {
+        if (strcmp(name, "cvtpd2pi") == 0 ||
+            strcmp(name, "cvttpd2pi") == 0) {
+            gen_sse_vector_argument32(mod, call_argument(expr, 0), 0);
+            emit_sse128_reg(mod, 0, 0, 0x66,
+                            strcmp(name, "cvtpd2pi") == 0 ? 0x2D : 0x2C);
+            gen_mmx_store_scalar_result32(mod, expr, 0);
+            return true;
+        }
+        if (strcmp(name, "cvtpi2pd") == 0) {
+            gen_expr_as_integer64(mod, call_argument(expr, 0));
+            emit_sub_reg_imm(mod, ESP, 8);
+            emit_mov_mem_reg(mod, ESP, 0, EAX);
+            emit_mov_mem_reg(mod, ESP, 4, EDX);
+            emit_mmx_load(mod, 0, ESP, 0);
+            emit_add_reg_imm(mod, ESP, 8);
+            emit_sse128_reg(mod, 0, 0, 0x66, 0x2A);
+            gen_sse_store_result32(mod, expr, 0);
+            return true;
+        }
         if (strcmp(name, "cvtsd2ss") == 0 ||
             strcmp(name, "cvtss2sd") == 0) {
             if (!gen_sse_two_vectors32(mod, expr)) return true;
@@ -7638,6 +7705,22 @@ static bool gen_mmx_builtin32(Module* mod, Expr* expr) {
     }
     kind = codegen_mmx_builtin_kind(expr->call_func->ident_name);
     if (kind == RCC_CODEGEN_MMX_NONE) return false;
+    if (strcmp(expr->call_func->ident_name, "__builtin_ia32_pmuludq") == 0) {
+        emit_sub_reg_imm(mod, ESP, 16);
+        gen_expr_as_integer64(mod, call_argument(expr, 0));
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        emit_mov_mem_reg(mod, ESP, 4, EDX);
+        gen_expr_as_integer64(mod, call_argument(expr, 1));
+        emit_mov_mem_reg(mod, ESP, 8, EAX);
+        emit_mov_mem_reg(mod, ESP, 12, EDX);
+        emit_mmx_load(mod, 0, ESP, 0);
+        emit_mmx_load(mod, 1, ESP, 8);
+        emit_mmx_binary(mod, codegen_mmx_binary_opcode(
+            expr->call_func->ident_name));
+        gen_mmx_store_scalar_result32(mod, expr, 0);
+        emit_add_reg_imm(mod, ESP, 16);
+        return true;
+    }
     if (kind == RCC_CODEGEN_MMX_STORE) {
         emit_sub_reg_imm(mod, ESP, 16);
         gen_expr(mod, call_argument(expr, 0));
@@ -16525,6 +16608,8 @@ static void gen_call(Module* mod, Expr* expr) {
             emit_mov_reg_mem(
                 mod, EAX, EBP,
                 expr->call_member_pointer_this_offset);
+        } else if (gen_is_integer64(passed_type)) {
+            gen_expr_as_integer64(mod, argument);
         } else {
             gen_expr(mod, argument);
         }

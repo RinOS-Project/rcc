@@ -2718,6 +2718,7 @@ static RccCodegen64MmxKind codegen64_mmx_builtin_kind(const char* name) {
         "__builtin_ia32_psubsw", "__builtin_ia32_psubusb",
         "__builtin_ia32_psubusw", "__builtin_ia32_pmaddwd",
         "__builtin_ia32_pmulhw", "__builtin_ia32_pmullw",
+        "__builtin_ia32_pmuludq",
         "__builtin_ia32_pand", "__builtin_ia32_pandn",
         "__builtin_ia32_por", "__builtin_ia32_pxor",
         "__builtin_ia32_pcmpeqb", "__builtin_ia32_pcmpeqw",
@@ -2795,7 +2796,8 @@ static int codegen64_mmx_binary_opcode(const char* name) {
         {"__builtin_ia32_psubsb", 0xE8}, {"__builtin_ia32_psubsw", 0xE9},
         {"__builtin_ia32_psubusb", 0xD8}, {"__builtin_ia32_psubusw", 0xD9},
         {"__builtin_ia32_pmaddwd", 0xF5}, {"__builtin_ia32_pmulhw", 0xE5},
-        {"__builtin_ia32_pmullw", 0xD5}, {"__builtin_ia32_pand", 0xDB},
+        {"__builtin_ia32_pmullw", 0xD5}, {"__builtin_ia32_pmuludq", 0xF4},
+        {"__builtin_ia32_pand", 0xDB},
         {"__builtin_ia32_pandn", 0xDF}, {"__builtin_ia32_por", 0xEB},
         {"__builtin_ia32_pxor", 0xEF}, {"__builtin_ia32_pcmpeqb", 0x74},
         {"__builtin_ia32_pcmpeqw", 0x75}, {"__builtin_ia32_pcmpeqd", 0x76},
@@ -2879,6 +2881,19 @@ static void emit64_mmx_immediate_shift(Module* mod, int opcode, int group,
     emit_byte(mod, amount);
 }
 
+static void gen64_mmx_store_scalar_result(Module* mod, Expr* expr, int mmx) {
+    if (!expr || !expr->type || !type_is_integer(expr->type) ||
+        expr->type->size != 8) {
+        rcc_error(expr ? expr->loc : (SourceLoc){"<mmx>", 0, 0},
+                  "MMX builtin result must use the 64-bit scalar carrier");
+        return;
+    }
+    emit64_sub_reg_imm(mod, RSP, 8);
+    emit64_mmx_store(mod, RSP, 0, mmx);
+    emit64_mov_reg_mem(mod, RAX, RSP, 0);
+    emit64_add_reg_imm(mod, RSP, 8);
+}
+
 static bool gen64_mmx_builtin(Module* mod, Expr* expr) {
     RccCodegen64MmxKind kind;
     Expr* argument;
@@ -2893,6 +2908,21 @@ static bool gen64_mmx_builtin(Module* mod, Expr* expr) {
     }
     kind = codegen64_mmx_builtin_kind(expr->call_func->ident_name);
     if (kind == RCC_CODEGEN64_MMX_NONE) return false;
+    if (strcmp(expr->call_func->ident_name,
+               "__builtin_ia32_pmuludq") == 0) {
+        emit64_sub_reg_imm(mod, RSP, 16);
+        gen64_expr(mod, call64_argument(expr, 0));
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        gen64_expr(mod, call64_argument(expr, 1));
+        emit64_mov_mem_reg(mod, RSP, 8, RAX);
+        emit64_mmx_load(mod, 0, RSP, 0);
+        emit64_mmx_load(mod, 1, RSP, 8);
+        emit64_mmx_binary(mod, codegen64_mmx_binary_opcode(
+            expr->call_func->ident_name));
+        gen64_mmx_store_scalar_result(mod, expr, 0);
+        emit64_add_reg_imm(mod, RSP, 16);
+        return true;
+    }
     if (kind == RCC_CODEGEN64_MMX_STORE) {
         emit64_sub_reg_imm(mod, RSP, 16);
         gen64_expr(mod, call64_argument(expr, 0));
@@ -3308,6 +3338,37 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
         emit64_sse_store_result(mod, expr, 0);
         return true;
     }
+    if (strcmp(name, "movdq2q") == 0) {
+        gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+        emit64_sse128_reg(mod, 0, 0, 0xF2, 0xD6);
+        gen64_mmx_store_scalar_result(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "movq2dq") == 0) {
+        gen64_expr(mod, call64_argument(expr, 0));
+        emit64_sub_reg_imm(mod, RSP, 8);
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        emit64_mmx_load(mod, 0, RSP, 0);
+        emit64_add_reg_imm(mod, RSP, 8);
+        emit64_sse128_reg(mod, 0, 0, 0xF3, 0xD6);
+        emit64_sse_store_result(mod, expr, 0);
+        return true;
+    }
+    if (strcmp(name, "maskmovdqu") == 0) {
+        emit64_push_reg(mod, RDI);
+        emit64_sub_reg_imm(mod, RSP, 8);
+        gen64_expr(mod, call64_argument(expr, 2));
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        if (gen64_sse_two_vectors(mod, expr)) {
+            emit64_mov_reg_mem(mod, RDI, RSP, 0);
+            emit64_add_reg_imm(mod, RSP, 8);
+            emit64_sse128_reg(mod, 0, 1, 0x66, 0xF7);
+        } else {
+            emit64_add_reg_imm(mod, RSP, 8);
+        }
+        emit64_pop_reg(mod, RDI);
+        return true;
+    }
     if (strcmp(name, "sfence") == 0 || strcmp(name, "lfence") == 0 ||
         strcmp(name, "mfence") == 0) {
         emit_byte(mod, 0x0F); emit_byte(mod, 0xAE);
@@ -3511,6 +3572,24 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
         return true;
     }
     if (strstr(name, "cvt") == name) {
+        if (strcmp(name, "cvtpd2pi") == 0 ||
+            strcmp(name, "cvttpd2pi") == 0) {
+            gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
+            emit64_sse128_reg(mod, 0, 0, 0x66,
+                              strcmp(name, "cvtpd2pi") == 0 ? 0x2D : 0x2C);
+            gen64_mmx_store_scalar_result(mod, expr, 0);
+            return true;
+        }
+        if (strcmp(name, "cvtpi2pd") == 0) {
+            gen64_expr(mod, call64_argument(expr, 0));
+            emit64_sub_reg_imm(mod, RSP, 8);
+            emit64_mov_mem_reg(mod, RSP, 0, RAX);
+            emit64_mmx_load(mod, 0, RSP, 0);
+            emit64_add_reg_imm(mod, RSP, 8);
+            emit64_sse128_reg(mod, 0, 0, 0x66, 0x2A);
+            emit64_sse_store_result(mod, expr, 0);
+            return true;
+        }
         if (strcmp(name, "cvtsd2ss") == 0 ||
             strcmp(name, "cvtss2sd") == 0) {
             if (!gen64_sse_two_vectors(mod, expr)) return true;

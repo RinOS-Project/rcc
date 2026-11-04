@@ -875,6 +875,7 @@ CXX_NESTED_STRUCTURAL_UNION_ARRAY_MEMBER_PACK_SYMBOLS = \
 .PHONY: test-sse2-conversion-result-types test-sse2-move-epi64
 .PHONY: test-sse2-stream-si64
 .PHONY: test-sse2-partial-load-store
+.PHONY: test-sse2-mmx-compat
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -21263,7 +21264,7 @@ test-noreturn: $(RCC_TARGET)
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
-test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering test-sse2-movdqu-load test-sse2-conversion-result-types test-sse2-move-epi64 test-sse2-stream-si64 test-sse2-partial-load-store
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering test-sse2-movdqu-load test-sse2-conversion-result-types test-sse2-move-epi64 test-sse2-stream-si64 test-sse2-partial-load-store test-sse2-mmx-compat
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
@@ -21798,6 +21799,55 @@ test-sse2-partial-load-store: $(RCC_TARGET)
 		tests/sse2_partial_load_store.c
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse2-partial-load-store-x64,$(TEST_OUT)/compiler-builtins/sse2-partial-load-store-x64.s)
 	@echo "SSE2 partial-width load/store tests completed"
+
+test-sse2-mmx-compat: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors -msse2 -Iinclude \
+		-o $(TEST_OUT)/compiler-builtins/sse2-mmx-compat-gcc \
+		tests/sse2_mmx_compat.c
+	$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x86.s \
+		tests/sse2_mmx_compat.c
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x86.o \
+		$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x86.s
+	$(PYTHON) scripts/rcc_check_sse2_mmx_compat_opcodes.py \
+		--objdump "$(OBJDUMP)" --arch i686 \
+		$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x86.o
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x86,$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x64.s \
+		tests/sse2_mmx_compat.c
+	$(CC) -c \
+		-o $(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x64.o \
+		$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x64.s
+	$(PYTHON) scripts/rcc_check_sse2_mmx_compat_opcodes.py \
+		--objdump "$(OBJDUMP)" --arch x86_64 \
+		$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x64.o
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x64,$(TEST_OUT)/compiler-builtins/sse2-mmx-compat-x64.s)
+	$(call REMOVE_FILE,$(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.ro)
+	$(call EXPECT_FAILURE,./$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.ro tests/sse2_mmx_compat_gate.c,$(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.log)
+	$(GREP) -F -q "__builtin_ia32_pmuludq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.log
+	$(GREP) -F -q "__builtin_ia32_movdq2q requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.log
+	$(GREP) -F -q "__builtin_ia32_movq2dq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.log
+	$(GREP) -F -q "__builtin_ia32_cvtpd2pi requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.log
+	$(GREP) -F -q "__builtin_ia32_cvttpd2pi requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.log
+	$(GREP) -F -q "__builtin_ia32_cvtpi2pd requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.log
+	$(GREP) -F -q "__builtin_ia32_maskmovdqu requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.ro)
+	$(call EXPECT_FAILURE,./$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse -mno-sse2 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.ro tests/sse2_mmx_compat_gate.c,$(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.log)
+	$(GREP) -F -q "__builtin_ia32_pmuludq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.log
+	$(GREP) -F -q "__builtin_ia32_movdq2q requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.log
+	$(GREP) -F -q "__builtin_ia32_movq2dq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.log
+	$(GREP) -F -q "__builtin_ia32_cvtpd2pi requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.log
+	$(GREP) -F -q "__builtin_ia32_cvttpd2pi requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.log
+	$(GREP) -F -q "__builtin_ia32_cvtpi2pd requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.log
+	$(GREP) -F -q "__builtin_ia32_maskmovdqu requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-mmx-compat-x64.ro)
+	@echo "SSE2 MMX compatibility and MASKMOVDQU tests completed"
+
 
 ifneq ($(OS),Windows_NT)
 .PHONY: test-sse2-partial-load-store-page-boundary
