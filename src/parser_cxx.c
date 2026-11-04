@@ -4278,6 +4278,36 @@ static bool cxx_template_non_type_constant_value(
         *value_out = 0;
         return true;
     }
+    if (expression->kind == EXPR_IDENT) {
+        Decl* declaration = expression->ident_decl;
+        if (!declaration && expression->ident_name) {
+            Symbol* symbol = g_symtab
+                ? symtab_lookup(g_symtab, expression->ident_name) : NULL;
+            declaration = symbol ? symbol->decl : NULL;
+        }
+        if (!declaration && expression->ident_name && active_ast) {
+            for (DeclList* item = active_ast->decls; item;
+                 item = item->next) {
+                Decl* candidate = item->decl;
+                if (candidate && candidate->kind == DECL_VAR &&
+                    candidate->name &&
+                    strcmp(candidate->name, expression->ident_name) == 0) {
+                    declaration = candidate;
+                    break;
+                }
+            }
+        }
+        if (declaration && declaration->kind == DECL_VAR &&
+            declaration->var_is_constexpr && declaration->var_init &&
+            !declaration->var_is_being_constant_evaluated) {
+            bool evaluated;
+            declaration->var_is_being_constant_evaluated = true;
+            evaluated = cxx_template_non_type_constant_value(
+                declaration->var_init, value_out);
+            declaration->var_is_being_constant_evaluated = false;
+            return evaluated;
+        }
+    }
     if (expression->kind == EXPR_COMPOUND) {
         Type* value_type = expression->compound_type
             ? expression->compound_type : expression->type;

@@ -528,6 +528,11 @@ static_assert(function_template_structural_value_explicit<
 static_assert(function_template_structural_value_deduced(
                   FunctionTemplateStructuralValueTag<
                       FunctionTemplateStructuralTarget{41}>{}) == 41);
+static_assert(function_template_structural_value_explicit<
+                  function_template_structural_target_one>() == 37);
+static_assert(function_template_structural_value_deduced(
+                  FunctionTemplateStructuralValueTag<
+                      function_template_structural_target_two>{}) == 41);
 static_assert(function_template_structural_reference_explicit<
                   FunctionTemplateStructuralReference{
                       function_template_structural_target_one}>() == 37);
@@ -776,6 +781,11 @@ int main() {
         function_template_structural_value_deduced(
             FunctionTemplateStructuralValueTag<
                 FunctionTemplateStructuralTarget{41}>{}) != 41 ||
+        function_template_structural_value_explicit<
+            function_template_structural_target_one>() != 37 ||
+        function_template_structural_value_deduced(
+            FunctionTemplateStructuralValueTag<
+                function_template_structural_target_two>{}) != 41 ||
         function_template_structural_reference_explicit<
             FunctionTemplateStructuralReference{
                 function_template_structural_target_one}>() != 37 ||
