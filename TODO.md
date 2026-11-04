@@ -14125,7 +14125,7 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, direct array layouts beyond the tested
-      two-dimensional fixed-bound integer active-union alternative,
+      three-dimensional fixed-bound integer active-union alternative,
       extended-precision floating alternatives,
       union-array layouts beyond the tested three-dimensional case, and
       unsupported C++20 forms remain open.
@@ -14193,6 +14193,14 @@ remains a separate open item.
         deduced arguments pass exact GCC symbols, strict C++20 checks, host
         execution, and 44 fallback-free verified-backend functions at `-O0` and
         `-O2` for i686/AMD64 in
+        `test-cxx-function-template-structural-nontype`.
+  - [x] Support three-dimensional fixed-bound integer arrays as active
+        structural union alternatives. Collect all eight elements in row-major
+        order, preserve the array layout in Itanium mangling and typeinfo
+        identity, and substitute reads using all three indices. Designated
+        explicit and positional deduced arguments pass exact GCC symbols, strict
+        C++20 checks, host execution, i686/AMD64 output, and 46 fallback-free
+        verified-backend functions at `-O0` and `-O2` in
         `test-cxx-function-template-structural-nontype`.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)

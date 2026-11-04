@@ -32,6 +32,11 @@ union FunctionTemplateStructuralMatrixArrayUnion {
     int scalar;
 };
 
+union FunctionTemplateStructuralTensorArrayUnion {
+    int values[2][2][2];
+    int scalar;
+};
+
 struct FunctionTemplateStructuralPointerUnionPayload {
     const int* pointer;
     int bias;
@@ -136,6 +141,9 @@ struct FunctionTemplateStructuralArrayUnionTag {};
 
 template<FunctionTemplateStructuralMatrixArrayUnion Value>
 struct FunctionTemplateStructuralMatrixArrayUnionTag {};
+
+template<FunctionTemplateStructuralTensorArrayUnion Value>
+struct FunctionTemplateStructuralTensorArrayUnionTag {};
 
 template<FunctionTemplateStructuralPointerUnion Value>
 struct FunctionTemplateStructuralPointerUnionTag {};
@@ -373,6 +381,29 @@ constexpr int function_template_structural_union_matrix_array_deduced(
            Value.values[1][1] * 10 + Value.values[0][0];
 }
 
+template<FunctionTemplateStructuralTensorArrayUnion Value>
+constexpr int function_template_structural_union_tensor_array_explicit() {
+    return Value.values[0][0][0] * 10000000 +
+           Value.values[0][0][1] * 1000000 +
+           Value.values[0][1][0] * 100000 +
+           Value.values[0][1][1] * 10000 +
+           Value.values[1][0][0] * 1000 +
+           Value.values[1][0][1] * 100 +
+           Value.values[1][1][0] * 10 + Value.values[1][1][1];
+}
+
+template<FunctionTemplateStructuralTensorArrayUnion Value>
+constexpr int function_template_structural_union_tensor_array_deduced(
+    FunctionTemplateStructuralTensorArrayUnionTag<Value>) {
+    return Value.values[0][0][0] * 10000000 +
+           Value.values[0][0][1] * 1000000 +
+           Value.values[0][1][0] * 100000 +
+           Value.values[0][1][1] * 10000 +
+           Value.values[1][0][0] * 1000 +
+           Value.values[1][0][1] * 100 +
+           Value.values[1][1][0] * 10 + Value.values[1][1][1];
+}
+
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_explicit() {
     return Value.payload.object.code * 100 +
@@ -554,6 +585,15 @@ static_assert(function_template_structural_union_matrix_array_deduced(
                   FunctionTemplateStructuralMatrixArrayUnionTag<
                       FunctionTemplateStructuralMatrixArrayUnion{
                           {{5, 6}, {7, 8}}}>{}) == 7685);
+static_assert(function_template_structural_union_tensor_array_explicit<
+                  FunctionTemplateStructuralTensorArrayUnion{
+                      .values = {{{1, 2}, {3, 4}}, {{5, 6}, {7, 8}}}}>() ==
+              12345678);
+static_assert(function_template_structural_union_tensor_array_deduced(
+                  FunctionTemplateStructuralTensorArrayUnionTag<
+                      FunctionTemplateStructuralTensorArrayUnion{
+                          {{{8, 7}, {6, 5}}, {{4, 3}, {2, 1}}}}>{}) ==
+              87654321);
 static_assert(function_template_structural_mixed_union_object_explicit<
                   FunctionTemplateStructuralMixedUnionContainer{
                       {.object = {4, 7}}, 2}>() == 472);
@@ -753,6 +793,14 @@ int main() {
             FunctionTemplateStructuralMatrixArrayUnionTag<
                 FunctionTemplateStructuralMatrixArrayUnion{
                     {{5, 6}, {7, 8}}}>{}) != 7685 ||
+        function_template_structural_union_tensor_array_explicit<
+            FunctionTemplateStructuralTensorArrayUnion{
+                .values = {{{1, 2}, {3, 4}}, {{5, 6}, {7, 8}}}}>() !=
+            12345678 ||
+        function_template_structural_union_tensor_array_deduced(
+            FunctionTemplateStructuralTensorArrayUnionTag<
+                FunctionTemplateStructuralTensorArrayUnion{
+                    {{{8, 7}, {6, 5}}, {{4, 3}, {2, 1}}}}>{}) != 87654321 ||
         function_template_structural_mixed_union_object_explicit<
             FunctionTemplateStructuralMixedUnionContainer{
                 {.object = {4, 7}}, 2}>() != 472 ||
