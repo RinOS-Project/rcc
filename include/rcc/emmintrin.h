@@ -870,6 +870,12 @@ static __inline void _mm_stream_si32(int* __p, int __a) {
     __builtin_ia32_movnti(__p, __a);
 }
 
+#ifdef __x86_64__
+static __inline void _mm_stream_si64(long long* __p, long long __a) {
+    __builtin_ia32_movnti64(__p, __a);
+}
+#endif
+
 /* Pause instruction */
 static __inline void _mm_pause(void) {
     __builtin_ia32_pause();

@@ -34045,7 +34045,9 @@ static bool sema_sse2_builtin_name(const char* name) {
         strcmp(suffix, "cvttss2si64") == 0) return false;
     if (strcmp(suffix, "pause") == 0 || strcmp(suffix, "clflush") == 0 ||
         strcmp(suffix, "lfence") == 0 || strcmp(suffix, "mfence") == 0 ||
-        strcmp(suffix, "movnti") == 0 || strcmp(suffix, "movntdq") == 0 ||
+        strcmp(suffix, "movnti") == 0 ||
+        strcmp(suffix, "movnti64") == 0 ||
+        strcmp(suffix, "movntdq") == 0 ||
         strcmp(suffix, "movq128") == 0 ||
         strcmp(suffix, "loaddqu") == 0 ||
         strcmp(suffix, "storedqu") == 0 ||
@@ -34158,8 +34160,14 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
         sema_sse_require_pointer(call, name, 0);
     } else if (strncmp(suffix, "store", 5) == 0 ||
                strncmp(suffix, "movnt", 5) == 0) {
+        if (strcmp(suffix, "movnti64") == 0 &&
+            g_opts.target_arch != ARCH_X64) {
+            rcc_error(call->loc,
+                      "%s requires an x86_64 target", name);
+        }
         sema_sse_require_pointer(call, name, 0);
         if (strcmp(suffix, "movnti") == 0 ||
+            strcmp(suffix, "movnti64") == 0 ||
             strcmp(suffix, "movntq") == 0) {
             sema_sse_require_integer(call, name, 1);
         } else {

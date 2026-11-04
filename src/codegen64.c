@@ -3350,6 +3350,19 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
         emit64_add_reg_imm(mod, RSP, 8);
         return true;
     }
+    if (strcmp(name, "movnti64") == 0) {
+        emit64_sub_reg_imm(mod, RSP, 8);
+        gen64_expr(mod, call64_argument(expr, 0));
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        gen64_expr(mod, call64_argument(expr, 1));
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        emit_rex(mod, true, RCX, 0, RAX);
+        emit_byte(mod, 0x0F); emit_byte(mod, 0xC3);
+        emit64_memory_operand(mod, RCX, RAX, 0);
+        emit64_add_reg_imm(mod, RSP, 8);
+        return true;
+    }
     if (strstr(name, "store") == name || strstr(name, "movnt") == name) {
         Expr* pointer = call64_argument(expr, 0);
         Expr* value = call64_argument(expr, 1);
