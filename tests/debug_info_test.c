@@ -20398,6 +20398,14 @@ int main(int argc, char** argv)
                 argv[index],
                 "debug_inline_nonconstant_unsigned_long_long_atomic_store_pointer_volatile_remainder_entry",
                 false, true, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_store_volatile_local_divide_entry",
+                false, false, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_store_volatile_local_remainder_entry",
+                false, true, false, false, false, false, false, true);
         }
         return 0;
     }
