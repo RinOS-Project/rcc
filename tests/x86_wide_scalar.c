@@ -153,7 +153,8 @@ u64 abi_wide_multiply_lvalue_once(u64* value, int* calls) {
 }
 
 u64 abi_wide_call(void) {
-    return abi_wide_add((u64)0x00000001ffffffff, (u64)2);
+    u64 local = abi_wide_add((u64)0x00000001ffffffff, (u64)2);
+    return abi_wide_identity(local);
 }
 
 u64 abi_wide_call_promoted(void) {
