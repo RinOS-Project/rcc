@@ -113,3 +113,15 @@ int verified_debug_optimized_const_local(int value)
     const double optimized_double = -3.5;
     return value + 1;
 }
+
+float verified_debug_optimized_const_float_return(void)
+{
+    const float verified_used_const_float = 1.25f;
+    return verified_used_const_float;
+}
+
+double verified_debug_optimized_const_double_return(void)
+{
+    const double verified_used_const_double = -3.5;
+    return verified_used_const_double;
+}

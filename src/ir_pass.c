@@ -4,6 +4,7 @@
 
 #include "rcc.h"
 #include "ir_pass.h"
+#include "ast.h"
 
 #include <stdarg.h>
 
@@ -324,6 +325,24 @@ static bool ir_pass_find_variable_type(
     return have_type && variable->initial_store != NULL;
 }
 
+static bool ir_pass_source_const_value_has_dwarf_representation(
+    const void* source_declaration) {
+    const Decl* declaration = (const Decl*)source_declaration;
+    const Type* type;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        declaration->var_is_global || declaration->var_is_static_local ||
+        declaration->var_is_thread_local || !declaration->type ||
+        !declaration->type->is_const || declaration->type->is_volatile ||
+        declaration->type->is_atomic || declaration->type->is_reference ||
+        !declaration->var_debug_const_value_valid) {
+        return false;
+    }
+    type = declaration->type;
+    return (type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+           type->kind == TYPE_ENUM || type->kind == TYPE_FLOAT ||
+           type->kind == TYPE_DOUBLE;
+}
+
 static bool ir_pass_collect_variables(
     RccIrFunction* function, RccIrPromotedVariable** variables_out,
     size_t* variable_count_out, size_t** address_variables_out,
@@ -350,7 +369,9 @@ static bool ir_pass_collect_variables(
         RccIrPromotedVariable variable;
         if (instruction->opcode != RCC_IR_ALLOCA) continue;
         if (preserve_source_declarations &&
-            instruction->source_declaration) continue;
+            instruction->source_declaration &&
+            !ir_pass_source_const_value_has_dwarf_representation(
+                instruction->source_declaration)) continue;
         memset(&variable, 0, sizeof(variable));
         if (!ir_pass_find_variable_type(function, instruction, &variable)) {
             continue;

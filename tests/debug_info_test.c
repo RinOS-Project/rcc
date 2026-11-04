@@ -2727,6 +2727,21 @@ static void verify_optimized_verified_debug_object(
             info, strings, "optimized_double", &double_size, &double_bits));
         assert(double_size == 8u &&
                double_bits == UINT64_C(0xc00c000000000000));
+        assert_variable_has_no_location(
+            info, strings, locations, "verified_used_const_float",
+            architecture);
+        assert_variable_has_no_location(
+            info, strings, locations, "verified_used_const_double",
+            architecture);
+        assert(find_variable_float_const_bits(
+            info, strings, "verified_used_const_float", &float_size,
+            &float_bits));
+        assert(float_size == 4u && float_bits == UINT32_C(0x3fa00000));
+        assert(find_variable_float_const_bits(
+            info, strings, "verified_used_const_double", &double_size,
+            &double_bits));
+        assert(double_size == 8u &&
+               double_bits == UINT64_C(0xc00c000000000000));
     }
     {
         int64_t branch_start;
