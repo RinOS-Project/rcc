@@ -260,6 +260,12 @@ CXX_HOST_EXCEPTION_RUNTIME_I686 = \
 	$(TEST_OUT)/cxx-host-exception-runtime-i686.o
 CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686 = \
 	$(TEST_OUT)/cxx-static-reference-guard-runtime-i686.o
+ifeq ($(OS),Windows_NT)
+CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES = $(CXX_HOST_EXCEPTION_RUNTIME)
+else
+CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES = \
+	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_HOST_EXCEPTION_RUNTIME_I686)
+endif
 
 $(CXX_HOST_EXCEPTION_RUNTIME): tests/cxx_exceptions_x64_start.s
 	$(call MKDIR_P,$(TEST_OUT))
@@ -3328,7 +3334,7 @@ test-cxx-braced-argument-overload: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_braced_aggregate_overload_ambiguous.cpp, \
 		$(TEST_OUT)/cxx-braced-argument-overload/gcc-ambiguous.log)
-	$(GREP) -F -q "call of overloaded 'choose" \
+	$(GREP) -E -q "call of overloaded .*choose" \
 		$(TEST_OUT)/cxx-braced-argument-overload/gcc-ambiguous.log
 	$(GREP) -F -q "narrowing conversion" \
 		$(TEST_OUT)/cxx-braced-argument-overload/gcc-ambiguous.log
@@ -3542,7 +3548,7 @@ test-cxx-initializer-list: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_initializer_list_overload_ambiguous.cpp, \
 		$(TEST_OUT)/cxx-initializer-list/gcc-overload-ambiguous.log)
-	$(GREP) -F -q "call of overloaded 'choose_initializer_list_rank" \
+	$(GREP) -E -q "call of overloaded .*choose_initializer_list_rank" \
 		$(TEST_OUT)/cxx-initializer-list/gcc-overload-ambiguous.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/overload-ambiguous-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
@@ -3589,7 +3595,7 @@ test-cxx-initializer-list: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_initializer_list_empty_ambiguous.cpp, \
 		$(TEST_OUT)/cxx-initializer-list/gcc-empty-overload-ambiguous.log)
-	$(GREP) -F -q "call of overloaded 'choose_empty_initializer_list" \
+	$(GREP) -E -q "call of overloaded .*choose_empty_initializer_list" \
 		$(TEST_OUT)/cxx-initializer-list/gcc-empty-overload-ambiguous.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/empty-overload-ambiguous-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
@@ -4355,7 +4361,7 @@ test-cxx-cli: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -q 'expected -O0 through -O3' $(TEST_OUT)/invalid-o-cxx.log
 	@echo "RCC++ command-line compatibility test completed"
 
-test-cxx-language-core: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
+test-cxx-language-core: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-language-core)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/new-delete-x86.ro \
@@ -4465,7 +4471,8 @@ ifeq ($(OS),Windows_NT)
 		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-language-core/inheritance-x64-host
 else
-	bash tests/run_cxx_language_core.sh $(TEST_OUT)/cxx-language-core
+	bash tests/run_cxx_language_core.sh $(TEST_OUT)/cxx-language-core \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686) $(CXX_HOST_EXCEPTION_RUNTIME)
 endif
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-language-core/template-call-x86.ro \
@@ -5051,8 +5058,8 @@ else
 		tests/cxx_array_destructor.cpp
 	gcc -m32 -c -o $(TEST_OUT)/cxx-array-destructor/x86.o \
 		$(TEST_OUT)/cxx-array-destructor/x86.s
-	gcc -m32 -c -o $(TEST_OUT)/cxx-array-destructor/start-x86.o \
-		tests/cxx_array_destructor_i686_start.s
+	gcc -m32 -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-array-destructor/start-x86.o \
+		tests/cxx_exceptions_i686_start.s
 	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-array-destructor/x86 \
 		$(TEST_OUT)/cxx-array-destructor/start-x86.o \
@@ -5063,8 +5070,8 @@ else
 		tests/cxx_array_destructor.cpp
 	gcc -c -o $(TEST_OUT)/cxx-array-destructor/x64.o \
 		$(TEST_OUT)/cxx-array-destructor/x64.s
-	gcc -c -o $(TEST_OUT)/cxx-array-destructor/start-x64.o \
-		tests/cxx_array_destructor_x64_start.s
+	gcc -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-array-destructor/start-x64.o \
+		tests/cxx_exceptions_x64_start.s
 	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-array-destructor/x64 \
 		$(TEST_OUT)/cxx-array-destructor/start-x64.o \
@@ -5102,7 +5109,7 @@ else
 test-cxx-constexpr: test-cxx-constexpr-posix
 endif
 
-test-cxx-constexpr-posix: $(RCXX_TARGET)
+test-cxx-constexpr-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constexpr/x86.s tests/cxx_constexpr.cpp
@@ -5116,7 +5123,8 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/x86.o
 	gcc -m32 -no-pie -o $(TEST_OUT)/cxx-constexpr/x86 \
 		$(TEST_OUT)/cxx-constexpr/host-x86.o \
-		$(TEST_OUT)/cxx-constexpr/x86.o
+		$(TEST_OUT)/cxx-constexpr/x86.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
 	$(TEST_OUT)/cxx-constexpr/x86
 	gcc -c -o $(TEST_OUT)/cxx-constexpr/x64.o \
 		$(TEST_OUT)/cxx-constexpr/x64.s
@@ -5126,7 +5134,8 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/x64.o
 	gcc -no-pie -o $(TEST_OUT)/cxx-constexpr/x64 \
 		$(TEST_OUT)/cxx-constexpr/host-x64.o \
-		$(TEST_OUT)/cxx-constexpr/x64.o
+		$(TEST_OUT)/cxx-constexpr/x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-constexpr/x64
 	! $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-constexpr/invalid-x86.ro \
@@ -5458,8 +5467,8 @@ test-cxx-deferred-class-template-member-bodies: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DTEST_INVALID_STATIC_BODY -fsyntax-only tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-gcc.log)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DTEST_INVALID_MEMBER_BODY -fsyntax-only tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-gcc.log)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DTEST_INVALID_ATOMIC_VOID_POINTER_ARITHMETIC -fsyntax-only tests/cxx_deferred_class_template_member_bodies.cpp,$(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-gcc.log)
-	$(GREP) -F -q "invalid application of 'sizeof'" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-gcc.log
-	$(GREP) -F -q "invalid application of 'sizeof'" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-gcc.log
+	$(GREP) -E -q "invalid application of .*sizeof" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-static-gcc.log
+	$(GREP) -E -q "invalid application of .*sizeof" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-member-gcc.log
 	$(GREP) -F -q "pointer to object type" $(TEST_OUT)/cxx-deferred-class-template-member-bodies/invalid-atomic-gcc.log
 	@echo "RCC++ deferred class-template member-body tests completed"
 
@@ -14926,7 +14935,7 @@ test-cxx-template-parameter-pack-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "class-template parameter pack 'Ts' must be the final parameter" \
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-x64.log
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_template_parameter_pack_invalid.cpp,$(TEST_OUT)/cxx-template-parameter-pack/invalid-gcc.log)
-	$(GREP) -F -q "parameter pack 'Ts' must be at the end of the template parameter list" \
+	$(GREP) -E -q "parameter pack .*Ts.* must be at the end of the template parameter list" \
 		$(TEST_OUT)/cxx-template-parameter-pack/invalid-gcc.log
 	@echo "C++ type parameter pack arity tests completed"
 
@@ -17411,7 +17420,7 @@ test-cxx-constructor-body: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-body)
 	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-constructor-body,cxx_constructor_body.cpp,cxx_constructor_body_run_test.c)
 else
-test-cxx-constructor-body: $(RCXX_TARGET)
+test-cxx-constructor-body: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-body)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constructor-body/x86.s \
@@ -17421,66 +17430,74 @@ test-cxx-constructor-body: $(RCXX_TARGET)
 		tests/cxx_constructor_body.cpp
 	$(CC) -m32 -o $(TEST_OUT)/cxx-constructor-body/run-x86 \
 		tests/cxx_constructor_body_run_test.c \
-		$(TEST_OUT)/cxx-constructor-body/x86.s
+		$(TEST_OUT)/cxx-constructor-body/x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
 	$(TEST_OUT)/cxx-constructor-body/run-x86
 	$(CC) -o $(TEST_OUT)/cxx-constructor-body/run-x64 \
 		tests/cxx_constructor_body_run_test.c \
-		$(TEST_OUT)/cxx-constructor-body/x64.s
+		$(TEST_OUT)/cxx-constructor-body/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-constructor-body/run-x64
 	@echo "Dual-architecture C++ constructor-body lowering tests completed"
 endif
 
-test-cxx-constructor-initializer-body-posix: $(RCXX_TARGET)
+test-cxx-constructor-initializer-body-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constructor-initializer-body)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constructor-initializer-body/x86.s \
 		tests/cxx_constructor_initializer_body.cpp
 	$(CC) -m32 -o $(TEST_OUT)/cxx-constructor-initializer-body/x86 \
 		tests/cxx_constructor_initializer_body_run_test.c \
-		$(TEST_OUT)/cxx-constructor-initializer-body/x86.s
+		$(TEST_OUT)/cxx-constructor-initializer-body/x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
 	$(TEST_OUT)/cxx-constructor-initializer-body/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constructor-initializer-body/x64.s \
 		tests/cxx_constructor_initializer_body.cpp
 	$(CC) -o $(TEST_OUT)/cxx-constructor-initializer-body/x64 \
 		tests/cxx_constructor_initializer_body_run_test.c \
-		$(TEST_OUT)/cxx-constructor-initializer-body/x64.s
+		$(TEST_OUT)/cxx-constructor-initializer-body/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-constructor-initializer-body/x64
 	@echo "C++ constructor mem-initializer plus body tests completed"
 
-test-cxx-base-constructor-initializer-posix: $(RCXX_TARGET)
+test-cxx-base-constructor-initializer-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-base-constructor-initializer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-base-constructor-initializer/x86.s \
 		tests/cxx_base_constructor_initializer.cpp
 	$(CC) -m32 -o $(TEST_OUT)/cxx-base-constructor-initializer/x86 \
 		tests/cxx_base_constructor_initializer_run_test.c \
-		$(TEST_OUT)/cxx-base-constructor-initializer/x86.s
+		$(TEST_OUT)/cxx-base-constructor-initializer/x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
 	$(TEST_OUT)/cxx-base-constructor-initializer/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-base-constructor-initializer/x64.s \
 		tests/cxx_base_constructor_initializer.cpp
 	$(CC) -o $(TEST_OUT)/cxx-base-constructor-initializer/x64 \
 		tests/cxx_base_constructor_initializer_run_test.c \
-		$(TEST_OUT)/cxx-base-constructor-initializer/x64.s
+		$(TEST_OUT)/cxx-base-constructor-initializer/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-base-constructor-initializer/x64
 	@echo "C++ fixed-layout base constructor initializer tests completed"
 
-test-cxx-default-member-initializer-posix: $(RCXX_TARGET)
+test-cxx-default-member-initializer-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-default-member-initializer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-default-member-initializer/x86.s \
 		tests/cxx_default_member_initializer.cpp
 	$(CC) -m32 -o $(TEST_OUT)/cxx-default-member-initializer/x86 \
 		tests/cxx_default_member_initializer_run_test.c \
-		$(TEST_OUT)/cxx-default-member-initializer/x86.s
+		$(TEST_OUT)/cxx-default-member-initializer/x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
 	$(TEST_OUT)/cxx-default-member-initializer/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-default-member-initializer/x64.s \
 		tests/cxx_default_member_initializer.cpp
 	$(CC) -o $(TEST_OUT)/cxx-default-member-initializer/x64 \
 		tests/cxx_default_member_initializer_run_test.c \
-		$(TEST_OUT)/cxx-default-member-initializer/x64.s
+		$(TEST_OUT)/cxx-default-member-initializer/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-default-member-initializer/x64
 	! $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.ro \
@@ -17496,21 +17513,23 @@ test-cxx-default-member-initializer-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
 	@echo "C++ default member initializer tests completed"
 
-test-cxx-delegating-constructor-posix: $(RCXX_TARGET)
+test-cxx-delegating-constructor-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-delegating-constructor)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-delegating-constructor/x86.s \
 		tests/cxx_delegating_constructor.cpp
 	$(CC) -m32 -o $(TEST_OUT)/cxx-delegating-constructor/x86 \
 		tests/cxx_delegating_constructor_run_test.c \
-		$(TEST_OUT)/cxx-delegating-constructor/x86.s
+		$(TEST_OUT)/cxx-delegating-constructor/x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
 	$(TEST_OUT)/cxx-delegating-constructor/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-delegating-constructor/x64.s \
 		tests/cxx_delegating_constructor.cpp
 	$(CC) -o $(TEST_OUT)/cxx-delegating-constructor/x64 \
 		tests/cxx_delegating_constructor_run_test.c \
-		$(TEST_OUT)/cxx-delegating-constructor/x64.s
+		$(TEST_OUT)/cxx-delegating-constructor/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-delegating-constructor/x64
 	! $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-delegating-constructor/invalid-x86.ro \
@@ -19429,13 +19448,17 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wai
 		$(TEST_OUT)/atomic-x64/atomic.ro
 	$(call MKDIR_P,$(TEST_OUT)/atomic-cxx-x86)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-cxx-x64)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DRCC_ATOMIC_REF_AGGREGATE_RUNTIME_SEPARATE -c \
 		-o $(TEST_OUT)/atomic-cxx-x86/atomic.ro tests/atomic_lock_free.cpp
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -c \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-DRCC_ATOMIC_REF_AGGREGATE_RUNTIME_SEPARATE -c \
 		-o $(TEST_OUT)/atomic-cxx-x86/atomic-o2.ro tests/atomic_lock_free.cpp
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DRCC_ATOMIC_REF_AGGREGATE_RUNTIME_SEPARATE -c \
 		-o $(TEST_OUT)/atomic-cxx-x64/atomic.ro tests/atomic_lock_free.cpp
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -c \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-DRCC_ATOMIC_REF_AGGREGATE_RUNTIME_SEPARATE -c \
 		-o $(TEST_OUT)/atomic-cxx-x64/atomic-o2.ro tests/atomic_lock_free.cpp
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -Wno-overflow \
 		-Wno-deprecated-declarations \
@@ -19560,6 +19583,39 @@ else
 		$(TEST_OUT)/atomic-x64/atomic.ro \
 		$(TEST_OUT)/atomic-cxx-x64/atomic.ro \
 		$(TEST_OUT)/atomic-cxx-x64/atomic-o2.ro
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/atomic-cxx-x86/aggregate-fallback.s \
+		tests/atomic_ref_aggregate_fallback.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/atomic-cxx-x64/aggregate-fallback.s \
+		tests/atomic_ref_aggregate_fallback.cpp
+	$(CC) -m32 $(CFLAGS) -std=c11 \
+		-DRIN_ATOMIC_WAIT_RUNTIME_TEST_HOOKS \
+		-DRIN_USERSPACE -DRIN_HOST_LINUX_FUTEX_TEST \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include \
+		-c $(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c \
+		-o $(TEST_OUT)/atomic-wait/runtime-host-x86.o
+	$(CXX) -m32 $(CXXFLAGS) -std=c++20 -Wall -Wextra -Werror -pthread \
+		-Dmain=atomic_wait_runtime_test_unused_main \
+		-c tests/atomic_wait_runtime_test.cpp \
+		-o $(TEST_OUT)/atomic-wait/hooks-host-x86.o
+	$(CXX) $(CXXFLAGS) -std=c++20 -Wall -Wextra -Werror -pthread \
+		-Dmain=atomic_wait_runtime_test_unused_main \
+		-c tests/atomic_wait_runtime_test.cpp \
+		-o $(TEST_OUT)/atomic-wait/hooks-host-x64.o
+	$(CXX) -m32 -pthread -Wl,--gc-sections \
+		-o $(TEST_OUT)/atomic-cxx-x86/aggregate-fallback-host \
+		$(TEST_OUT)/atomic-cxx-x86/aggregate-fallback.s \
+		$(TEST_OUT)/atomic-wait/runtime-host-x86.o \
+		$(TEST_OUT)/atomic-wait/hooks-host-x86.o
+	$(TEST_OUT)/atomic-cxx-x86/aggregate-fallback-host
+	$(CXX) -pthread -Wl,--gc-sections \
+		-o $(TEST_OUT)/atomic-cxx-x64/aggregate-fallback-host \
+		$(TEST_OUT)/atomic-cxx-x64/aggregate-fallback.s \
+		$(TEST_OUT)/atomic-wait/runtime-host.o \
+		$(TEST_OUT)/atomic-wait/hooks-host-x64.o
+	$(TEST_OUT)/atomic-cxx-x64/aggregate-fallback-host
 endif
 	$(call EXPECT_FAILURE,./rcc.exe --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid.ro \
@@ -19664,13 +19720,13 @@ test-atomic-private-access: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -fsyntax-only \
 		tests/invalid_atomic_private_access.cpp, \
 		$(TEST_OUT)/atomic-private-access/gcc-invalid.log)
-	$(GREP) -F -q "std::is_copy_constructible_v<AtomicPrivateCopyConstructorWithDefaultParameter>' evaluates to false" \
+	$(GREP) -E -q "std::is_copy_constructible_v<AtomicPrivateCopyConstructorWithDefaultParameter>.*evaluates to false" \
 		$(TEST_OUT)/atomic-private-access/gcc-invalid.log
-	$(GREP) -F -q "std::is_move_constructible_v<AtomicPrivateMoveConstructorWithDefaultParameter>' evaluates to false" \
+	$(GREP) -E -q "std::is_move_constructible_v<AtomicPrivateMoveConstructorWithDefaultParameter>.*evaluates to false" \
 		$(TEST_OUT)/atomic-private-access/gcc-invalid.log
-	$(GREP) -F -q "std::is_copy_assignable_v<AtomicNonConstCopyAssignmentValue>' evaluates to false" \
+	$(GREP) -E -q "std::is_copy_assignable_v<AtomicNonConstCopyAssignmentValue>.*evaluates to false" \
 		$(TEST_OUT)/atomic-private-access/gcc-invalid.log
-	$(GREP) -F -q "std::is_move_assignable_v<AtomicNonConstCopyAssignmentValue>' evaluates to false" \
+	$(GREP) -E -q "std::is_move_assignable_v<AtomicNonConstCopyAssignmentValue>.*evaluates to false" \
 		$(TEST_OUT)/atomic-private-access/gcc-invalid.log
 	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/invalid-x86.ro)
 	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
@@ -19739,7 +19795,7 @@ test-atomic-private-access: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror \
 		-fsyntax-only tests/invalid_cxx_defaulted_reference_assignment.cpp, \
 		$(TEST_OUT)/atomic-private-access/gcc-reference-assignment.log)
-	$(GREP) -F -q "use of deleted function 'ReferenceMemberDefaultedAssignment& ReferenceMemberDefaultedAssignment::operator=" \
+	$(GREP) -E -q "use of deleted function .*ReferenceMemberDefaultedAssignment::operator=" \
 		$(TEST_OUT)/atomic-private-access/gcc-reference-assignment.log
 	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/reference-assignment-x86.ro)
 	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
@@ -19760,7 +19816,7 @@ test-atomic-private-access: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror \
 		-fsyntax-only tests/invalid_cxx_inherited_deleted_move_assignment.cpp, \
 		$(TEST_OUT)/atomic-private-access/gcc-inherited-deleted-move.log)
-	$(GREP) -F -q "use of deleted function 'InheritedDeletedMoveAssignmentBase& InheritedDeletedMoveAssignmentBase::operator=(InheritedDeletedMoveAssignmentBase&&)'" \
+	$(GREP) -E -q "use of deleted function .*InheritedDeletedMoveAssignmentBase::operator=" \
 		$(TEST_OUT)/atomic-private-access/gcc-inherited-deleted-move.log
 	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/inherited-deleted-move-x86.ro)
 	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
@@ -19781,7 +19837,7 @@ test-atomic-private-access: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror \
 		-fsyntax-only tests/invalid_cxx_inherited_deleted_exact_assignment.cpp, \
 		$(TEST_OUT)/atomic-private-access/gcc-inherited-deleted-exact.log)
-	$(GREP) -F -q "use of deleted function 'InheritedDeletedExactBase& InheritedDeletedExactBase::operator=(int)'" \
+	$(GREP) -E -q "use of deleted function .*InheritedDeletedExactBase::operator=" \
 		$(TEST_OUT)/atomic-private-access/gcc-inherited-deleted-exact.log
 	$(call REMOVE_FILE,$(TEST_OUT)/atomic-private-access/inherited-deleted-exact-x86.ro)
 	$(call EXPECT_FAILURE,./rcc++.exe --target i686-unknown-rinos \
@@ -19990,6 +20046,7 @@ else
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x64.s \
 		tests/verified_backend_cxx_atomic_concurrency.cpp
 	$(CC) -std=c11 -Wall -Wextra -Werror -Wno-unused-but-set-variable \
+		-DRIN_USERSPACE -DRIN_HOST_LINUX_FUTEX_TEST \
 		-ffunction-sections -fdata-sections \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-I$(RINOS_SDK_ROOT)/include -c \
@@ -20030,6 +20087,7 @@ test-atomic-wait: $(RCC_TARGET) $(RCXX_TARGET) test-clear-padding
 		-fsyntax-only tests/atomic_wait.cpp
 	$(CC) -std=c11 -Wall -Wextra -Werror -Wno-unused-but-set-variable \
 		-DRIN_ATOMIC_WAIT_RUNTIME_TEST_HOOKS \
+		-DRIN_USERSPACE -DRIN_HOST_LINUX_FUTEX_TEST \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-I$(RINOS_SDK_ROOT)/include \
 		-c $(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c \
@@ -20732,14 +20790,14 @@ test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/compiler_float_math_builtins.c
 	$(CC) -no-pie -o $(TEST_OUT)/floating-math-builtins/c-x64 \
 		$(TEST_OUT)/floating-math-builtins/c-x64.s \
-		tests/compiler_float_math_errno_runtime.c
+		tests/compiler_float_math_errno_runtime.c -lm
 	$(TEST_OUT)/floating-math-builtins/c-x64
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/floating-math-builtins/cxx-x64.s \
 		tests/compiler_float_math_builtins.cpp
 	$(CC) -no-pie -o $(TEST_OUT)/floating-math-builtins/cxx-x64 \
 		$(TEST_OUT)/floating-math-builtins/cxx-x64.s \
-		tests/compiler_float_math_errno_runtime.c
+		tests/compiler_float_math_errno_runtime.c -lm
 	$(TEST_OUT)/floating-math-builtins/cxx-x64
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -DRCC_TEST_VERIFIED \
 		-fverified-backend -v -c \
@@ -26453,7 +26511,7 @@ test-cxx-conversion-reference-ranking-ambiguous: $(RCXX_TARGET)
 test-cxx-conversion-distinct-user-sequences: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-distinct-user-sequences)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_distinct_user_sequences_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/gcc.log)
-	$(GREP) -F -q "call of overloaded 'choose_distinct_user_conversion" $(TEST_OUT)/cxx-conversion-distinct-user-sequences/gcc.log
+	$(GREP) -E -q "call of overloaded .*choose_distinct_user_conversion" $(TEST_OUT)/cxx-conversion-distinct-user-sequences/gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.ro tests/cxx_conversion_distinct_user_sequences_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.log)
 	$(GREP) -F -q "ambiguous overload for 'choose_distinct_user_conversion'" $(TEST_OUT)/cxx-conversion-distinct-user-sequences/x86.log
@@ -26469,7 +26527,7 @@ test-cxx-conversion-indirect-using: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTI
 	$(TEST_OUT)/cxx-conversion-indirect-using/gcc-host
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-indirect-using,cxx_conversion_indirect_using.cpp)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -DTEST_AMBIGUOUS -fsyntax-only tests/cxx_conversion_indirect_using.cpp,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-gcc.log)
-	$(GREP) -F -q "conversion from 'IndirectConversionDerived' to 'int' is ambiguous" $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-gcc.log
+	$(GREP) -E -q "conversion from .*IndirectConversionDerived.* to .*int.* is ambiguous" $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_AMBIGUOUS -c -o $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.ro tests/cxx_conversion_indirect_using.cpp,$(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.log)
 	$(GREP) -F -q "ambiguous user-defined conversion in C++ return" $(TEST_OUT)/cxx-conversion-indirect-using/ambiguous-x86.log
@@ -26563,9 +26621,9 @@ test-cxx-prvalue-scalar-conversion-cleanup: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_
 	$(CXX) -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX) $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log
-	powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "0" "Verified backend fallback:" "$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log"
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.log
-	powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "0" "Verified backend fallback:" "$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.log"
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.log,0)
 
 .PHONY: test-cxx-conversion-member-pointer-owner-ranking
 test-cxx-conversion-member-pointer-owner-ranking: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)

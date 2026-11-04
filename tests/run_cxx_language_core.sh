@@ -2,6 +2,8 @@
 set -eu
 
 out=${1:?expected build output directory}
+exception_runtime_i686=${2:?expected i686 exception runtime object}
+exception_runtime_x64=${3:?expected x86-64 exception runtime object}
 
 build_and_run() {
     arch=$1
@@ -12,13 +14,15 @@ build_and_run() {
         gcc -m32 -c -o "$out/$name-start-$arch.o" "$start"
         gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
             -o "$out/$name-$arch" \
-            "$out/$name-start-$arch.o" "$out/$name-$arch.o"
+            "$out/$name-start-$arch.o" "$out/$name-$arch.o" \
+            "$exception_runtime_i686"
     else
         gcc -c -o "$out/$name-$arch.o" "$out/$name-$arch.s"
         gcc -c -o "$out/$name-start-$arch.o" "$start"
         gcc -nostdlib -static -no-pie -Wl,--entry=_start \
             -o "$out/$name-$arch" \
-            "$out/$name-start-$arch.o" "$out/$name-$arch.o"
+            "$out/$name-start-$arch.o" "$out/$name-$arch.o" \
+            "$exception_runtime_x64"
     fi
     "$out/$name-$arch"
 }

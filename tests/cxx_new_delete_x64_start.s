@@ -16,6 +16,13 @@ rin_malloc:
 rin_free:
     ret
 
+.globl abort
+abort:
+    mov $134, %edi
+    mov $60, %eax
+    syscall
+    ud2
+
 _start:
     call _rcc_entry
     test %eax, %eax

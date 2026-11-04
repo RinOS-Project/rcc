@@ -1,4 +1,5 @@
 #include <atomic>
+#include <stddef.h>
 #if !defined(__cpp_lib_atomic_is_always_lock_free) || \
     __cpp_lib_atomic_is_always_lock_free != 201603L
 #error "<atomic> must advertise is_always_lock_free"
@@ -819,6 +820,7 @@ static unsigned test_atomic_ref() {
         (pointer_reference -= 2) != values + 2 || pointer != values + 2)
         return 125u;
 
+#ifndef RCC_ATOMIC_REF_AGGREGATE_RUNTIME_SEPARATE
     alignas(8) AtomicRefAggregate aggregate_storage{2u, 3u};
     std::atomic_ref<AtomicRefAggregate> aggregate_reference{aggregate_storage};
     AtomicRefAggregate aggregate_value = aggregate_reference.load();
@@ -876,6 +878,7 @@ static unsigned test_atomic_ref() {
             word_expected, word_desired, std::memory_order_acq_rel,
             std::memory_order_acquire) || word_reference.load().value != 11u)
         return 140u;
+#endif
 
     AtomicRefNonTrivial nontrivial_object{17u};
     AtomicRefNonTrivial* nontrivial_pointer = &nontrivial_object;
@@ -1036,6 +1039,7 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             &zero, 1u, std::memory_order_relaxed) != 5u ||
         std::atomic_load(&zero) != 4u)
         return 116u;
+#ifndef RCC_ATOMIC_REF_AGGREGATE_RUNTIME_SEPARATE
     AtomicRefAggregate atomic_aggregate_initial{2u, 3u};
     std::atomic<AtomicRefAggregate> aggregate_atomic{
         atomic_aggregate_initial};
@@ -1106,6 +1110,7 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     AtomicBraceDefaultMemberUnion brace_union_default_value =
         brace_union_default_atomic.load();
     if (brace_union_default_value.integer != 13u) return 160u;
+#endif
     AtomicDefaultMemberUnion direct_union_default;
     if (direct_union_default.integer != 11u) return 161u;
     AtomicBraceDefaultMemberUnion direct_brace_union_default;
@@ -1114,6 +1119,7 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         .floating = 2.5f};
     if (explicitly_selected_union_member.floating != 2.5f) return 163u;
     AtomicRefWordAggregate atomic_word_initial{7u};
+#ifndef RCC_ATOMIC_REF_AGGREGATE_RUNTIME_SEPARATE
     std::atomic<AtomicRefWordAggregate> word_atomic{atomic_word_initial};
     AtomicRefWordAggregate atomic_word_value = word_atomic.load();
     if (atomic_word_value.value != 7u) return 148u;
@@ -1128,6 +1134,7 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             atomic_word_expected, atomic_word_desired) ||
         word_atomic.load().value != 13u)
         return 150u;
+#endif
     if (atomic_value_type != 1u) return 79u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
     if (initialized_pointer.load() != pointer_values + 1) return 29u;

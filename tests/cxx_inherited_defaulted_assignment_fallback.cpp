@@ -927,7 +927,7 @@ int main() {
         bitfield_payload_copy_assignment_calls != 0 ||
         bitfield_payload_move_assignment_calls != 1) return 14;
 
-    MultipleInheritedAssignmentOverloads multiple_overload_destination;
+    MultipleInheritedAssignmentOverloads multiple_overload_destination{};
     multiple_overload_destination.marker = 223;
     multiple_overload_destination = 227;
     if (static_cast<IntegerInheritedAssignmentBase&>(

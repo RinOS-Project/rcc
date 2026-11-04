@@ -14086,3 +14086,11 @@ remains a separate open item.
       regressing the structural class NTTP cases. The complete
       `make -j1 test-cxx-function-template-overloads` gate passes, including
       GCC checks, i686/AMD64 generation, and AMD64 execution.
+
+## RCC continuation (2026-11-04, host execution of aggregate atomic fallbacks)
+
+- [x] Separate aggregate and union `std::atomic` / `std::atomic_ref` runtime
+      cases from the raw-object atomic verifier, which does not apply external
+      relocations. Link the generated i686 and AMD64 fixtures to libc's actual
+      `atomic_runtime_fallback.c` and the existing host wait implementation.
+      The focused `test-atomic-builtins` gate and full `test-cxx` aggregate pass.
