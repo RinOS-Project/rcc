@@ -498,8 +498,16 @@ static __inline __m128i _mm_cvtsi32_si128(int __a) {
     return _mm_set_epi32(0, 0, 0, __a);
 }
 
+static __inline __m128i _mm_cvtsi64_si128(long long __a) {
+    return _mm_set_epi64x(0, __a);
+}
+
 static __inline int _mm_cvtsi128_si32(__m128i __a) {
     return ((__v4si)__a)[0];
+}
+
+static __inline long long _mm_cvtsi128_si64(__m128i __a) {
+    return ((__v2di)__a)[0];
 }
 
 /* Load/Store - integer */
