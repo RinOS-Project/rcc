@@ -350,6 +350,24 @@ unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_constant
         (computed_unsigned_constant_division_dividend + 17ull) % 7ull);
 }
 
+unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_bitwise_divide_entry(
+    unsigned long long computed_bitwise_division_dividend,
+    unsigned long long computed_bitwise_division_divisor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (computed_bitwise_division_dividend ^ 0x8000000000000001ull) /
+        ((computed_bitwise_division_divisor & 255ull) + 1ull));
+}
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_bitwise_remainder_entry(
+    unsigned long long computed_bitwise_division_dividend,
+    unsigned long long computed_bitwise_division_divisor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (computed_bitwise_division_dividend ^ 0x8000000000000001ull) %
+        ((computed_bitwise_division_divisor & 255ull) + 1ull));
+}
+
 long long debug_inline_nonconstant_signed_long_long_negated_global_dividend_divide_entry(
     void)
 {

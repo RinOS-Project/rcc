@@ -12831,6 +12831,10 @@ remains a separate open item.
         constant-divisor division and remainder (`-7` and `7`). Check full-width
         boundary matrices against emitted DWARF in legacy and verified `-O1`/
         `-O2` objects with `test-debug-info-inline-expression`.
+  - [x] Verify unsigned divmod over recursive bitwise frame-backed operands:
+        `dividend ^ 0x8000000000000001` and `(divisor & 255) + 1`. The full-width
+        matrix passes for division and remainder in legacy and verified
+        `-O1`/`-O2` objects through `test-debug-info-inline-expression`.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
