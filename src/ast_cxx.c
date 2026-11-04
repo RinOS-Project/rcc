@@ -1443,10 +1443,20 @@ static bool cxx_mangle_structural_value_body(
     for (int index = 0;
          index < value_type->cxx_class->base_count; ++index) {
         CxxClass* base = value_type->cxx_class->bases[index].base;
+        unsigned base_bits = 0u;
+        unsigned base_leaves = 0u;
+        unsigned base_pointers = 0u;
         if (!base || !base->type ||
             value_type->cxx_class->bases[index].is_virtual ||
             value_type->cxx_class->bases[index].access != ACCESS_PUBLIC ||
-            !cxx_mangle_structural_value_body(
+            !cxx_structural_class_measure_fields(
+                base->type, &base_bits, &base_leaves, &base_pointers)) {
+            return false;
+        }
+        if (base_bits == 0u && base_leaves == 0u && base_pointers == 0u) {
+            continue;
+        }
+        if (!cxx_mangle_structural_value_body(
                 buf, pos, base->type, packed_value, bit_offset, context,
                 pointer_token, recorded_values, recorded_count,
                 recorded_index)) {
