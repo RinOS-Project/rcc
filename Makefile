@@ -664,6 +664,12 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_WIDE_BITFIELD_SYMBOLS = \
 	_Z34wide_structural_union_signed_valueIXtl27WideStructuralUnionBitFielddi8negativeLin29EEEEiv \
 	_Z36wide_structural_union_unsigned_valueIXtl27WideStructuralUnionBitFielddi8positiveLj41EEEEiv
 
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNNAMED_BITFIELD_SYMBOLS = \
+	_Z41structural_private_unnamed_bitfield_valueIXtl32StructuralPrivateUnnamedBitFieldLi37EEEEiv \
+	_Z33structural_unnamed_bitfield_valueIXtl25StructuralUnnamedBitFieldLan7ELi13EEEEiv \
+	_Z37structural_unnamed_union_signed_valueIXtl30StructuralUnnamedUnionBitFielddi5valueLin19EEEEiv \
+	_Z39structural_unnamed_union_unsigned_valueIXtl30StructuralUnnamedUnionBitFielddi5otherLh23EEEEiv
+
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS = \
 	_Z43function_template_structural_value_explicitIXtl32FunctionTemplateStructuralTargetLi37EEEEiv \
 	_Z42function_template_structural_value_deducedIXtl32FunctionTemplateStructuralTargetLi41EEEEi34FunctionTemplateStructuralValueTagIXT_EE \
@@ -6056,6 +6062,19 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_WIDE_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-wide-bitfield/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_WIDE_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-wide-bitfield/x64.s)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-wide-bitfield,cxx_function_template_structural_wide_bitfield.cpp,4,-DRCC_STRUCTURAL_WIDE_BITFIELD_VERIFIED)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-unnamed-bitfield,cxx_function_template_structural_unnamed_bitfield.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -include typeinfo \
+		-o $(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/gcc-host \
+		tests/cxx_function_template_structural_unnamed_bitfield.cpp
+	$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/gcc-host
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -include typeinfo -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/gcc-symbols.s \
+		tests/cxx_function_template_structural_unnamed_bitfield.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNNAMED_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNNAMED_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNNAMED_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-unnamed-bitfield,cxx_function_template_structural_unnamed_bitfield.cpp,6,-DRCC_STRUCTURAL_UNNAMED_BITFIELD_VERIFIED)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-host \
 		tests/cxx_function_template_structural_nontype.cpp
@@ -7901,6 +7920,19 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_WIDE_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-wide-bitfield/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_WIDE_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-wide-bitfield/x64.s)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-wide-bitfield,cxx_function_template_structural_wide_bitfield.cpp,4,-DRCC_STRUCTURAL_WIDE_BITFIELD_VERIFIED)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-unnamed-bitfield,cxx_function_template_structural_unnamed_bitfield.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -include typeinfo \
+		-o $(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/gcc-host.exe \
+		tests/cxx_function_template_structural_unnamed_bitfield.cpp
+	$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/gcc-host.exe
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -include typeinfo -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/gcc-symbols.s \
+		tests/cxx_function_template_structural_unnamed_bitfield.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNNAMED_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNNAMED_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNNAMED_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-unnamed-bitfield/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-unnamed-bitfield,cxx_function_template_structural_unnamed_bitfield.cpp,6,-DRCC_STRUCTURAL_UNNAMED_BITFIELD_VERIFIED)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-host.exe \
 		tests/cxx_function_template_structural_nontype.cpp

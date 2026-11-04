@@ -3664,7 +3664,10 @@ static bool cxx_structural_class_collect_member_values(
         bool active_is_array;
         bool active_is_pointer;
         for (field = type->cxx_class->fields; field; field = field->next) {
-            if (field->is_static) continue;
+            if (field->is_static ||
+                (field->is_bitfield && !field->name)) {
+                continue;
+            }
             if (!active_field ||
                 (initializer &&
                  initializer->designator_kind == INIT_DESIGNATOR_FIELD &&
@@ -3832,7 +3835,8 @@ static bool cxx_structural_class_collect_member_values(
         return true;
     }
     for (field = type->cxx_class->fields; field; field = field->next) {
-        if (!field->is_static) {
+        if (!field->is_static &&
+            !(field->is_bitfield && !field->name)) {
             has_nonstatic_field = true;
             break;
         }
@@ -3849,7 +3853,9 @@ static bool cxx_structural_class_collect_member_values(
     for (field = type->cxx_class->fields; field; field = field->next) {
         Expr* field_initializer = NULL;
         int64_t member_value = 0;
-        if (field->is_static) continue;
+        if (field->is_static || (field->is_bitfield && !field->name)) {
+            continue;
+        }
         if (initializer) {
             if (initializer->designator_kind == INIT_DESIGNATOR_FIELD &&
                 type->cxx_class->base_count == 0) {
@@ -4193,7 +4199,9 @@ static bool cxx_structural_class_count_member_values(
         if (type->kind != TYPE_UNION) return false;
         for (field = type->cxx_class->fields; field; field = field->next) {
             size_t alternative_count = 1u;
-            if (field->is_static) continue;
+            if (field->is_static || (field->is_bitfield && !field->name)) {
+                continue;
+            }
             if (field->type->kind == TYPE_STRUCT ||
                 field->type->kind == TYPE_UNION) {
                 alternative_count = 0u;
@@ -4246,7 +4254,9 @@ static bool cxx_structural_class_count_member_values(
         }
     }
     for (field = type->cxx_class->fields; field; field = field->next) {
-        if (field->is_static) continue;
+        if (field->is_static || (field->is_bitfield && !field->name)) {
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT ||
             field->type->kind == TYPE_UNION) {
             if (!cxx_structural_class_count_member_values(

@@ -817,6 +817,11 @@ static bool cxx_structural_class_decode_leaf(
 static const TypeParam* cxx_structural_union_field_at(
     const Type* type, int field_index);
 
+static bool cxx_structural_field_is_unnamed_bitfield(
+    const TypeParam* field) {
+    return field && field->is_bitfield && !field->name;
+}
+
 static const TypeParam* cxx_structural_union_field_at(
     const Type* type, int field_index) {
     const TypeParam* field;
@@ -826,7 +831,10 @@ static const TypeParam* cxx_structural_union_field_at(
         return NULL;
     }
     for (field = type->cxx_class->fields; field; field = field->next) {
-        if (field->is_static) continue;
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field)) {
+            continue;
+        }
         if (index++ == field_index) return field;
     }
     return NULL;
@@ -835,7 +843,9 @@ static const TypeParam* cxx_structural_union_field_at(
 static bool cxx_structural_class_has_later_value_field(
     const TypeParam* field) {
     for (field = field ? field->next : NULL; field; field = field->next) {
-        if (!field->is_static && cxx_structural_field_value_bits(field) != 0u) {
+        if (!field->is_static &&
+            !cxx_structural_field_is_unnamed_bitfield(field) &&
+            cxx_structural_field_value_bits(field) != 0u) {
             return true;
         }
     }
@@ -1188,7 +1198,10 @@ static bool cxx_structural_class_single_pointer_kind(
     for (const TypeParam* field = type && type->cxx_class
              ? type->cxx_class->fields : NULL;
          field; field = field->next) {
-        if (field->is_static) continue;
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field)) {
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT) {
             if (cxx_structural_class_single_pointer_kind(
                     field->type, member_pointer)) {
@@ -1604,7 +1617,10 @@ static bool cxx_mangle_structural_value_body(
     for (field = value_type->cxx_class->fields; field; field = field->next) {
         int64_t field_value;
         unsigned field_bits;
-        if (field->is_static) continue;
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field)) {
+            continue;
+        }
         if (field->type->kind == TYPE_ARRAY) {
             const Type* element_type = NULL;
             unsigned element_count = 0u;
@@ -2464,7 +2480,10 @@ static void cxx_mangle_record_structural_member_pointer_owner_types_in_value(
     for (field = type->cxx_class->fields; field; field = field->next) {
         int64_t field_value;
         unsigned field_bits;
-        if (field->is_static) continue;
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field)) {
+            continue;
+        }
         if (field->type->kind == TYPE_ARRAY) {
             cxx_mangle_record_structural_member_pointer_owner_types_in_array(
                 context, field->type, packed_value, recorded_values,
@@ -4918,7 +4937,6 @@ static bool cxx_structural_class_measure_fields(
     if (!type ||
         (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
         !(cls = type->cxx_class) ||
-        cls->has_nonpublic_field ||
         (cls->has_user_constructor &&
          !cxx_structural_class_has_literal_constructor(cls)) ||
         cls->vtable_size != 0 || cls->is_abstract ||
@@ -4935,7 +4953,10 @@ static bool cxx_structural_class_measure_fields(
             unsigned field_bits;
             unsigned field_leaves;
             unsigned field_pointers;
-            if (field->is_static) continue;
+            if (field->is_static ||
+                cxx_structural_field_is_unnamed_bitfield(field)) {
+                continue;
+            }
             if (field->cxx_access != ACCESS_PUBLIC || !field->name ||
                 !cxx_structural_union_member_measure(
                     field, &field_bits, &field_leaves, &field_pointers)) {
@@ -4986,6 +5007,7 @@ static bool cxx_structural_class_measure_fields(
         unsigned field_bits;
         unsigned field_leaves = 1u;
         if (field->is_static) continue;
+        if (cxx_structural_field_is_unnamed_bitfield(field)) continue;
         if (field->cxx_access != ACCESS_PUBLIC || !field->name ||
             !field->type) {
             return false;
@@ -5423,7 +5445,10 @@ static bool cxx_structural_class_pack_fields(
         unsigned field_bits;
         uint64_t mask;
         uint64_t field_value;
-        if (field->is_static) continue;
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field)) {
+            continue;
+        }
         if (field->type->kind == TYPE_ARRAY) {
             const Type* element_type = NULL;
             unsigned element_count = 0u;
@@ -5518,6 +5543,7 @@ static bool cxx_structural_type_has_union_subobject(const Type* type) {
     for (const TypeParam* field = type->cxx_class->fields;
          field; field = field->next) {
         if (!field->is_static &&
+            !cxx_structural_field_is_unnamed_bitfield(field) &&
             cxx_structural_type_has_union_subobject(field->type)) {
             return true;
         }
@@ -5691,7 +5717,10 @@ static bool cxx_structural_class_find_member_path(
     if (recorded_values) *value_index += (int)preceding_base_leaves;
     for (field = type->cxx_class->fields; field; field = field->next) {
         unsigned field_bits;
-        if (field->is_static) continue;
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field)) {
+            continue;
+        }
         if (strcmp(field->name, member_names[path_index]) == 0) {
             if (field->type->kind == TYPE_STRUCT ||
                 field->type->kind == TYPE_UNION) {
@@ -5988,7 +6017,10 @@ static bool cxx_structural_class_find_array_field(
     for (field = type->cxx_class->fields; field; field = field->next) {
         unsigned field_bits;
         unsigned field_leaves;
-        if (field->is_static) continue;
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field)) {
+            continue;
+        }
         field_bits = cxx_structural_field_value_bits(field);
         if (!cxx_structural_type_value_leaves(field->type, &field_leaves)) {
             return false;
@@ -7613,7 +7645,10 @@ static void cxx_typeinfo_identity_append_structural_values(
     }
     for (field = type->cxx_class->fields; field; field = field->next) {
         int64_t value;
-        if (field->is_static) continue;
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field)) {
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT ||
             field->type->kind == TYPE_UNION) {
             cxx_typeinfo_identity_append_char(
@@ -7811,7 +7846,9 @@ static bool cxx_class_is_empty_impl(const CxxClass* cls, unsigned depth) {
         return false;
     }
     for (field = cls->fields; field; field = field->next) {
-        if (field->is_static || (field->is_bitfield && field->bit_width == 0u)) {
+        if (field->is_static ||
+            cxx_structural_field_is_unnamed_bitfield(field) ||
+            (field->is_bitfield && field->bit_width == 0u)) {
             continue;
         }
         return false;

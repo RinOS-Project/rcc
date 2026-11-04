@@ -14399,3 +14399,12 @@ remains a separate open item.
       C++20 checks, GCC host execution, RCC-generated x64 runtime, i686/AMD64
       output, and all four verified-backend functions with zero fallback at
       `-O0`/`-O2` pass in the Windows and POSIX structural NTTP gates.
+- [x] Ignore unnamed bit-fields when collecting structural class/union NTTP
+      members and preserve their layout as padding. C++20 says unnamed
+      bit-fields are not members and cannot be initialized
+      ([class.bit](https://eel.is/c++draft/class.bit)). Positional aggregate
+      initialization, private unnamed fields, active union alternatives,
+      exact GCC Itanium symbols, and same/different structural-value typeinfo
+      identities pass strict GCC C++20 and RCC host runtime checks. i686/AMD64
+      output and all six verified-backend functions with zero fallback at
+      `-O0`/`-O2` pass in the Windows and POSIX structural NTTP gates.
