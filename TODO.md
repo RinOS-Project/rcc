@@ -14124,8 +14124,16 @@ remains a separate open item.
       i686/AMD64 output, and all 15 verified-backend functions at `-O0` and
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
-      layouts, structural packs, non-scalar union alternatives, unions nested
-      within structural aggregates, and unsupported C++20 forms remain open.
+      layouts, structural packs, non-scalar union alternatives, unions used
+      directly as structural array elements, and unsupported C++20 forms remain
+      open.
+  - [x] Preserve the active scalar union member when it is a direct public
+        subobject of a structural class. Recurse through explicit/deduced
+        template arguments, Itanium value mangling, typeinfo identity, and
+        member reads. The focused gate verifies positional/designated
+        equivalence, both active alternatives, exact GCC symbols, host
+        execution, and 19 fallback-free verified functions at `-O0`/`-O2` for
+        i686/AMD64.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)
 

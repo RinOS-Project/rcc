@@ -3899,7 +3899,8 @@ static bool cxx_structural_class_collect_member_values(
             if (array_initializer) return false;
             continue;
         }
-        if (field->type->kind == TYPE_STRUCT) {
+        if (field->type->kind == TYPE_STRUCT ||
+            field->type->kind == TYPE_UNION) {
             ExprList* nested_initializer = NULL;
             Type* nested_type = NULL;
             if (field_initializer) {
@@ -4009,7 +4010,7 @@ static bool cxx_structural_array_count_member_values(
     size_t element_count = 1u;
     if (!type || !member_count) return false;
     if (type->kind != TYPE_ARRAY) {
-        if (type->kind == TYPE_STRUCT) {
+        if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
             return cxx_structural_class_count_member_values(
                 type, member_count);
         }
@@ -4054,7 +4055,8 @@ static bool cxx_structural_class_count_member_values(
     }
     for (field = type->cxx_class->fields; field; field = field->next) {
         if (field->is_static) continue;
-        if (field->type->kind == TYPE_STRUCT) {
+        if (field->type->kind == TYPE_STRUCT ||
+            field->type->kind == TYPE_UNION) {
             if (!cxx_structural_class_count_member_values(
                     field->type, member_count)) {
                 return false;

@@ -1469,7 +1469,7 @@ static bool cxx_mangle_structural_value_body(
     cxx_mangle_type_append_context(buf, pos, value_type, context);
     if (value_type->kind == TYPE_UNION &&
         value_type->cxx_class->is_union) {
-        const TypeParam* active_field;
+        const TypeParam* active_field = NULL;
         int64_t active_index;
         int64_t field_value;
         if (!recorded_values || !recorded_index || *recorded_index < 0 ||
@@ -1672,7 +1672,8 @@ static bool cxx_mangle_structural_value_body(
             }
             continue;
         }
-        if (field->type->kind == TYPE_STRUCT) {
+        if (field->type->kind == TYPE_STRUCT ||
+            field->type->kind == TYPE_UNION) {
             unsigned member_bits = 0u;
             unsigned member_leaves = 0u;
             unsigned member_pointers = 0u;
@@ -4868,7 +4869,8 @@ static bool cxx_structural_class_measure_fields(
                 return false;
             }
             field_bits = field->bit_width;
-        } else if (field->type->kind == TYPE_STRUCT) {
+        } else if (field->type->kind == TYPE_STRUCT ||
+                   field->type->kind == TYPE_UNION) {
             if (!cxx_structural_class_measure_fields(
                     field->type, total_bits, leaf_count, pointer_count)) {
                 return false;
@@ -5027,7 +5029,7 @@ static unsigned cxx_structural_type_value_bits(const Type* type) {
     unsigned leaf_count = 0;
     unsigned pointer_count = 0;
     if (!type) return 0;
-    if (type->kind == TYPE_STRUCT) {
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
         if (!cxx_structural_class_measure_fields(
                 type, &total_bits, &leaf_count, &pointer_count)) {
             return 0;
@@ -5269,6 +5271,29 @@ static bool cxx_structural_class_pack_fields(
     return true;
 }
 
+static bool cxx_structural_type_has_union_subobject(const Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_UNION) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return cxx_structural_type_has_union_subobject(type->base);
+    }
+    if (type->kind != TYPE_STRUCT || !type->cxx_class) return false;
+    for (int index = 0; index < type->cxx_class->base_count; ++index) {
+        CxxClass* base = type->cxx_class->bases[index].base;
+        if (base && cxx_structural_type_has_union_subobject(base->type)) {
+            return true;
+        }
+    }
+    for (const TypeParam* field = type->cxx_class->fields;
+         field; field = field->next) {
+        if (!field->is_static &&
+            cxx_structural_type_has_union_subobject(field->type)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool cxx_structural_class_pack_member_values(
     const Type* type, const int64_t* member_values, int member_count,
     int64_t* packed_value) {
@@ -5303,6 +5328,7 @@ bool cxx_structural_class_pack_member_values(
     }
     if (member_count != (int)leaf_count) return false;
     needs_record = total_bits > 64u ||
+        cxx_structural_type_has_union_subobject(type) ||
         (pointer_count != 0u &&
          (pointer_count != 1u || leaf_count != 1u));
     if (needs_record) {
@@ -5417,7 +5443,8 @@ static bool cxx_structural_class_find_member_path(
         unsigned field_bits;
         if (field->is_static) continue;
         if (strcmp(field->name, member_names[path_index]) == 0) {
-            if (field->type->kind == TYPE_STRUCT) {
+            if (field->type->kind == TYPE_STRUCT ||
+                field->type->kind == TYPE_UNION) {
                 if (path_index + 1 >= member_name_count) return false;
                 return cxx_structural_class_find_member_path(
                     field->type, packed_value, member_names,
@@ -5534,7 +5561,8 @@ static bool cxx_structural_class_find_member_path(
             return true;
         }
         if (recorded_values) {
-            if (field->type->kind == TYPE_STRUCT) {
+            if (field->type->kind == TYPE_STRUCT ||
+                field->type->kind == TYPE_UNION) {
                 unsigned nested_bits = 0u;
                 unsigned nested_leaf_count = 0u;
                 unsigned nested_pointer_count = 0u;
@@ -7136,10 +7164,37 @@ static void cxx_typeinfo_identity_append_structural_values(
     CxxTypeInfoIdentityBuilder* builder, const Type* type,
     const int64_t* values, int value_count, int* value_index) {
     const TypeParam* field;
+    if (type->kind == TYPE_UNION && type->cxx_class &&
+        type->cxx_class->is_union) {
+        const TypeParam* active_field = NULL;
+        int64_t active_index;
+        if (!value_index || *value_index < 0 ||
+            *value_index > value_count ||
+            2 > value_count - *value_index) {
+            rcc_fatal("C++ typeinfo structural union value is incomplete");
+        }
+        active_index = values[(*value_index)++];
+        if (active_index < 0 || active_index > INT_MAX ||
+            !(active_field = cxx_structural_union_field_at(
+                  type, (int)active_index)) || !active_field->name ||
+            !active_field->type || active_field->is_bitfield ||
+            (!type_is_integer(active_field->type) &&
+             active_field->type->kind != TYPE_ENUM) ||
+            active_field->type->size <= 0 || active_field->type->size > 8) {
+            rcc_fatal("C++ typeinfo structural union member is invalid");
+        }
+        cxx_typeinfo_identity_append_char(builder, 'U');
+        cxx_typeinfo_identity_append_text(builder, active_field->name);
+        cxx_typeinfo_identity_append_type(builder, active_field->type);
+        cxx_typeinfo_identity_append_signed(
+            builder, values[(*value_index)++]);
+        return;
+    }
     for (field = type->cxx_class->fields; field; field = field->next) {
         int64_t value;
         if (field->is_static) continue;
-        if (field->type->kind == TYPE_STRUCT) {
+        if (field->type->kind == TYPE_STRUCT ||
+            field->type->kind == TYPE_UNION) {
             cxx_typeinfo_identity_append_char(builder, 'S');
             cxx_typeinfo_identity_append_type(builder, field->type);
             cxx_typeinfo_identity_append_structural_values(
