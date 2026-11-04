@@ -11,7 +11,12 @@ struct FunctionTemplateStructuralBase {
     unsigned short prefix[2];
 };
 
-struct FunctionTemplateStructuralDerived : FunctionTemplateStructuralBase {
+struct FunctionTemplateStructuralTagBase {
+    unsigned char tag;
+};
+
+struct FunctionTemplateStructuralDerived : FunctionTemplateStructuralBase,
+                                            FunctionTemplateStructuralTagBase {
     unsigned char suffix;
 };
 
@@ -71,13 +76,13 @@ constexpr int function_template_structural_pair_deduced(
 
 template<FunctionTemplateStructuralDerived Value>
 constexpr int function_template_structural_derived_explicit() {
-    return Value.prefix[1] * 100 + Value.suffix;
+    return Value.tag * 10000 + Value.prefix[1] * 100 + Value.suffix;
 }
 
 template<FunctionTemplateStructuralDerived Value>
 constexpr int function_template_structural_derived_deduced(
     FunctionTemplateStructuralDerivedTag<Value>) {
-    return Value.prefix[1] * 100 + Value.suffix;
+    return Value.tag * 10000 + Value.prefix[1] * 100 + Value.suffix;
 }
 
 static_assert(function_template_structural_value_explicit<
@@ -105,12 +110,12 @@ static_assert(function_template_structural_pair_deduced(
                   FunctionTemplateStructuralPairTag<
                       FunctionTemplateStructuralPair{8, 3}>{}) == 803);
 static_assert(function_template_structural_derived_explicit<
-                  FunctionTemplateStructuralDerived{{{11, 23}}, 7}>() ==
-              2307);
+                  FunctionTemplateStructuralDerived{{{11, 23}}, {2}, 7}>() ==
+              22307);
 static_assert(function_template_structural_derived_deduced(
                   FunctionTemplateStructuralDerivedTag<
-                      FunctionTemplateStructuralDerived{{{4, 9}}, 4}>{}) ==
-              904);
+                      FunctionTemplateStructuralDerived{{{4, 9}}, {3}, 4}>{}) ==
+              30904);
 int main() {
     if (function_template_structural_value_explicit<
             FunctionTemplateStructuralTarget{37}>() != 37 ||
@@ -137,15 +142,17 @@ int main() {
             FunctionTemplateStructuralPairTag<
                 FunctionTemplateStructuralPair{8, 3}>{}) != 803 ||
         function_template_structural_derived_explicit<
-            FunctionTemplateStructuralDerived{{{11, 23}}, 7}>() != 2307 ||
+            FunctionTemplateStructuralDerived{{{11, 23}}, {2}, 7}>() !=
+                22307 ||
         function_template_structural_derived_deduced(
             FunctionTemplateStructuralDerivedTag<
-                FunctionTemplateStructuralDerived{{{4, 9}}, 4}>{}) != 904 ||
+                FunctionTemplateStructuralDerived{{{4, 9}}, {3}, 4}>{}) !=
+                30904 ||
         function_template_structural_pair_explicit<
             FunctionTemplateStructuralPair{6 + 6, 2 + 3}>() != 1205 ||
         function_template_structural_derived_explicit<
             FunctionTemplateStructuralDerived{{{1 + 10, 20 + 3}},
-                                                4 + 3}>() != 2307) {
+                                                {1 + 1}, 4 + 3}>() != 22307) {
         return 1;
     }
     return 0;

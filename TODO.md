@@ -14076,10 +14076,11 @@ remains a separate open item.
       at `-O0` and `-O2`.
 - [x] Pack differently sized public data members in declaration order and
       preserve a public non-virtual base subobject before derived members,
-      including a fixed-bound array in the inherited subobject. Explicit and
-      deduced function-template arguments read inherited array elements;
-      calls with equivalent arithmetic initializers reuse the same
-      specialization. Verify GCC C++20 Itanium symbol parity and host
+      including a fixed-bound array in the first of two declaration-ordered
+      public non-virtual base subobjects. Explicit and deduced function-template
+      arguments read inherited members from both bases; calls with equivalent
+      arithmetic initializers reuse the same specialization. Verify GCC C++20
+      Itanium symbol parity and host
       execution, plus i686/AMD64 assembly and verified-backend emission of all
       11 functions at `-O0` and `-O2` with zero fallback through
       `test-cxx-function-template-structural-nontype`.
