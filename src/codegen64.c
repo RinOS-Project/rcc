@@ -14313,14 +14313,147 @@ static void gen64_conditional_reference_temporary_store_tag(
 
 static bool gen64_conditional_reference_temporary_tree(
     Module* mod, Decl* declaration,
+    const CxxConditionalXvaluePlan* plan);
+
+static bool gen64_conditional_reference_temporary_wrapper(
+    Module* mod, Decl* declaration, Expr* expression, Expr* source,
+    const CxxConditionalXvaluePlan* wrapped_plan) {
+    if (!mod || !declaration || !expression || !source || !wrapped_plan) {
+        return false;
+    }
+    if (expression == source) {
+        return gen64_conditional_reference_temporary_tree(
+            mod, declaration, wrapped_plan);
+    }
+    switch (expression->kind) {
+        case EXPR_CAST:
+            if (!expression->cast_expr ||
+                !gen64_conditional_reference_temporary_wrapper(
+                    mod, declaration, expression->cast_expr, source,
+                    wrapped_plan)) {
+                return false;
+            }
+            if (expression->cxx_cast_kind == CXX_CAST_DYNAMIC &&
+                expression->cxx_dynamic_cast_runtime) {
+                gen64_cxx_dynamic_cast_runtime(mod, expression);
+            } else {
+                gen64_cxx_reference_adjustment_force(mod, expression);
+            }
+            return true;
+        case EXPR_COMMA:
+            if (!expression->binary_lhs || !expression->binary_rhs) {
+                return false;
+            }
+            gen64_expr(mod, expression->binary_lhs);
+            return gen64_conditional_reference_temporary_wrapper(
+                mod, declaration, expression->binary_rhs, source,
+                wrapped_plan);
+        case EXPR_MEMBER:
+            if (!expression->member_base ||
+                !gen64_conditional_reference_temporary_wrapper(
+                    mod, declaration, expression->member_base, source,
+                    wrapped_plan)) {
+                return false;
+            }
+            if (expression->cxx_virtual_base_member_access) {
+                int end_label;
+                if (!expression->cxx_virtual_base_source_class ||
+                    expression->cxx_virtual_base_pointer_offset < 0 ||
+                    expression->cxx_virtual_base_index < 0 ||
+                    expression->cxx_virtual_base_index >=
+                        expression->cxx_virtual_base_source_class
+                            ->virtual_base_count) {
+                    rcc_error(expression->loc,
+                              "conditional xvalue virtual-base member metadata is incomplete");
+                    return false;
+                }
+                end_label = new_label64();
+                emit64_test_reg_reg(mod, RAX, RAX);
+                emit64_jcc_label(mod, CC64_E, end_label);
+                emit64_mov_reg_mem(
+                    mod, RDX, RAX,
+                    expression->cxx_virtual_base_pointer_offset);
+                emit64_mov_reg_mem(
+                    mod, RCX, RDX,
+                    expression->cxx_virtual_base_index * 8);
+                emit64_add_reg_reg(mod, RAX, RCX);
+                if (expression->cxx_virtual_base_nested_adjustment != 0) {
+                    emit64_add_reg_imm(
+                        mod, RAX,
+                        expression->cxx_virtual_base_nested_adjustment);
+                }
+                emit64_label(mod, end_label);
+            } else if (expression->member_field &&
+                       expression->member_field->offset != 0) {
+                emit64_add_reg_imm(
+                    mod, RAX, expression->member_field->offset);
+            }
+            if (expression->member_field &&
+                expression->member_field->type &&
+                expression->member_field->type->is_reference) {
+                emit64_mov_reg_mem(mod, RAX, RAX, 0);
+            }
+            return true;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            if (!expression->binary_lhs || !expression->binary_rhs ||
+                !gen64_conditional_reference_temporary_wrapper(
+                    mod, declaration, expression->binary_lhs, source,
+                    wrapped_plan)) {
+                return false;
+            }
+            if (expression->cxx_virtual_base_member_access) {
+                if (!expression->cxx_virtual_base_source_class ||
+                    expression->cxx_virtual_base_pointer_offset < 0 ||
+                    expression->cxx_virtual_base_index < 0 ||
+                    expression->cxx_virtual_base_index >=
+                        expression->cxx_virtual_base_source_class
+                            ->virtual_base_count) {
+                    rcc_error(expression->loc,
+                              "conditional xvalue member-pointer metadata is incomplete");
+                    return false;
+                }
+                emit64_mov_reg_mem(
+                    mod, RDX, RAX,
+                    expression->cxx_virtual_base_pointer_offset);
+                emit64_mov_reg_mem(
+                    mod, RCX, RDX,
+                    expression->cxx_virtual_base_index * 8);
+                emit64_add_reg_reg(mod, RAX, RCX);
+                if (expression->cxx_virtual_base_nested_adjustment != 0) {
+                    emit64_add_reg_imm(
+                        mod, RAX,
+                        expression->cxx_virtual_base_nested_adjustment);
+                }
+            }
+            if (expression->cxx_pointer_adjustment_valid &&
+                expression->cxx_pointer_adjustment != 0) {
+                emit64_add_reg_imm(
+                    mod, RAX, expression->cxx_pointer_adjustment);
+            }
+            emit64_push_reg(mod, RAX);
+            gen64_expr(mod, expression->binary_rhs);
+            emit64_pop_reg(mod, RCX);
+            emit64_add_reg_reg(mod, RAX, RCX);
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool gen64_conditional_reference_temporary_tree(
+    Module* mod, Decl* declaration,
     const CxxConditionalXvaluePlan* plan) {
     Decl* owner = declaration
         ? declaration->var_reference_temporary_owner : NULL;
     if (!mod || !declaration || !owner || !plan) {
         return false;
     }
-    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH &&
-        plan->contains_temporary) {
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER) {
+        return gen64_conditional_reference_temporary_wrapper(
+            mod, declaration, plan->expression, plan->source,
+            plan->wrapped_plan);
+    }
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH) {
         if (!plan->expression || plan->expression->kind != EXPR_COND ||
             !plan->expression->cond_test || !plan->then_plan ||
             !plan->else_plan) {
@@ -14383,7 +14516,8 @@ static bool gen64_conditional_reference_temporary_initializer(
     const CxxConditionalXvaluePlan* plan = declaration
         ? declaration->var_reference_temporary_plan : NULL;
     if (!mod || !declaration || !owner || !plan ||
-        plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_BRANCH ||
+        (plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_BRANCH &&
+         plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER) ||
         !plan->contains_temporary ||
         !owner->var_reference_temporary_alternate_type ||
         owner->var_reference_temporary_variant_offset < 0) {

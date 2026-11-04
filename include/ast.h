@@ -721,6 +721,7 @@ struct CxxCleanupPlan {
 typedef enum {
     CXX_CONDITIONAL_XVALUE_PLAN_LEAF,
     CXX_CONDITIONAL_XVALUE_PLAN_BRANCH,
+    CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER,
 } CxxConditionalXvaluePlanKind;
 struct CxxConditionalXvaluePlan {
     CxxConditionalXvaluePlanKind kind;
@@ -729,6 +730,7 @@ struct CxxConditionalXvaluePlan {
     Type* type;
     struct CxxConditionalXvaluePlan* then_plan;
     struct CxxConditionalXvaluePlan* else_plan;
+    struct CxxConditionalXvaluePlan* wrapped_plan;
     unsigned tag;
     unsigned leaf_count;
     bool contains_temporary;

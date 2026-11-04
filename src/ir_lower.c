@@ -3339,6 +3339,12 @@ static RccIrLowerValue lower_lvalue_address_impl(
         return lower_lvalue_address(context, expression->binary_rhs);
     }
     if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue &&
+        context->conditional_xvalue_owner &&
+        context->aggregate_result_destination_expression == expression) {
+        return lower_conditional_expression(context, expression);
+    }
+    if (expression->kind == EXPR_COND &&
         (expression->cxx_conditional_lvalue ||
          expression->cxx_conditional_xvalue)) {
         return lower_conditional_glvalue_address(context, expression);
@@ -3492,9 +3498,7 @@ static RccIrLowerValue lower_lvalue_address_impl(
                    context->aggregate_result_destination_expression &&
                    context->conditional_xvalue_owner &&
                    cast_source->cxx_reference_temporary_source ==
-                       context->aggregate_result_destination_expression &&
-                   cast_source->cxx_reference_temporary_source->kind !=
-                       EXPR_COND) {
+                       context->aggregate_result_destination_expression) {
             address = lower_expression(context, cast_source);
         } else {
             address = lower_lvalue_address(context, cast_source);
@@ -11281,11 +11285,20 @@ static bool lower_scope_cleanup_declaration_supported(
         ? declaration->var_reference_temporary_owner : NULL;
     const Expr* reference_source = declaration
         ? declaration->var_reference_temporary_source : NULL;
+    const CxxConditionalXvaluePlan* reference_plan = declaration
+        ? declaration->var_reference_temporary_plan : NULL;
     bool conditional_reference_temporary = reference_owner &&
         reference_owner->var_reference_temporary_alternate_type &&
         declaration && declaration->var_reference_temporary_alternate_type &&
-        declaration->var_init && declaration->var_init->kind == EXPR_COND &&
-        declaration->var_init->cxx_conditional_xvalue &&
+        reference_plan && reference_plan->contains_temporary &&
+        reference_plan->expression == declaration->var_init &&
+        ((reference_plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH &&
+          declaration->var_init && declaration->var_init->kind == EXPR_COND &&
+          declaration->var_init->cxx_conditional_xvalue) ||
+         (reference_plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER &&
+          reference_plan->source &&
+          reference_plan->source->kind == EXPR_COND &&
+          reference_plan->source->cxx_conditional_xvalue)) &&
         declaration->var_reference_temporary_variant_offset >= 0 &&
         reference_owner->var_reference_temporary_storage_size > 0;
     bool storage_supported;
@@ -19406,8 +19419,32 @@ static RccIrLowerValue lower_conditional_xvalue_tree(
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
-    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH &&
-        plan->contains_temporary) {
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER) {
+        const Expr* previous_destination_expression =
+            context->aggregate_result_destination_expression;
+        RccIrLowerValue previous_destination =
+            context->aggregate_result_destination;
+        RccIrLowerValue value;
+        if (!plan->expression || !plan->source || !plan->wrapped_plan ||
+            plan->source->kind != EXPR_COND ||
+            !plan->source->cxx_conditional_xvalue) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        context->aggregate_result_destination_expression = plan->source;
+        context->aggregate_result_destination = previous_destination;
+        value = lower_expression(context, plan->expression);
+        context->aggregate_result_destination_expression =
+            previous_destination_expression;
+        context->aggregate_result_destination = previous_destination;
+        if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER ||
+            context->terminated) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        return value;
+    }
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH) {
         expression = plan->expression;
         if (!expression || expression->kind != EXPR_COND ||
             !expression->cond_test || !plan->then_plan ||
@@ -19496,6 +19533,29 @@ static RccIrLowerValue lower_conditional_xvalue_tree(
     }
 }
 
+static const CxxConditionalXvaluePlan*
+lower_find_conditional_xvalue_plan(
+    const CxxConditionalXvaluePlan* plan, const Expr* expression) {
+    const CxxConditionalXvaluePlan* found;
+    if (!plan || !expression) return NULL;
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH &&
+        plan->expression == expression) {
+        return plan;
+    }
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH) {
+        found = lower_find_conditional_xvalue_plan(
+            plan->then_plan, expression);
+        if (found) return found;
+        return lower_find_conditional_xvalue_plan(
+            plan->else_plan, expression);
+    }
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER) {
+        return lower_find_conditional_xvalue_plan(
+            plan->wrapped_plan, expression);
+    }
+    return NULL;
+}
+
 static RccIrLowerValue lower_conditional_expression(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue condition;
@@ -19529,7 +19589,8 @@ static RccIrLowerValue lower_conditional_expression(
             ->var_reference_temporary_alternate_type) {
         const Decl* owner = context->conditional_xvalue_owner;
         const CxxConditionalXvaluePlan* plan =
-            owner->var_reference_temporary_plan;
+            lower_find_conditional_xvalue_plan(
+                owner->var_reference_temporary_plan, expression);
         RccIrLowerValue selector_address;
         RccIrType selector_type;
         if (!expression->cxx_conditional_xvalue ||
@@ -19537,7 +19598,6 @@ static RccIrLowerValue lower_conditional_expression(
             !plan ||
             plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_BRANCH ||
             plan->expression != expression ||
-            !plan->contains_temporary ||
             !owner->type || owner->var_reference_temporary_variant_offset < 0 ||
             !context->aggregate_result_destination.valid ||
             context->aggregate_result_destination.type.kind !=
@@ -31012,14 +31072,33 @@ static bool lower_declaration(RccIrLowerContext* context,
                     ? temporary_source : declaration->var_init;
                 bool conditional_xvalue_owner = owner &&
                     owner->var_reference_temporary_alternate_type != NULL;
+                const CxxConditionalXvaluePlan* conditional_xvalue_plan =
+                    conditional_xvalue_owner
+                    ? owner->var_reference_temporary_plan : NULL;
+                const Expr* conditional_xvalue_destination =
+                    conditional_xvalue_plan &&
+                            conditional_xvalue_plan->kind ==
+                                CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER
+                        ? conditional_xvalue_plan->source
+                        : owner_initializer;
                 if (!owner_initializer || !owner_initializer->type ||
                     !owner->type ||
                     (conditional_xvalue_owner
-                         ? (owner_initializer->kind != EXPR_COND ||
-                            !owner_initializer->cxx_conditional_xvalue ||
-                            !owner->var_reference_temporary_plan ||
-                            owner->var_reference_temporary_plan->expression !=
+                         ? (!conditional_xvalue_plan ||
+                            !conditional_xvalue_plan->contains_temporary ||
+                            conditional_xvalue_plan->expression !=
                                 owner_initializer ||
+                            (conditional_xvalue_plan->kind ==
+                                     CXX_CONDITIONAL_XVALUE_PLAN_BRANCH
+                                 ? (owner_initializer->kind != EXPR_COND ||
+                                    !owner_initializer->cxx_conditional_xvalue)
+                                 : (conditional_xvalue_plan->kind !=
+                                        CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER ||
+                                    !conditional_xvalue_plan->source ||
+                                    conditional_xvalue_plan->source->kind !=
+                                        EXPR_COND ||
+                                    !conditional_xvalue_plan->source
+                                         ->cxx_conditional_xvalue)) ||
                             !owner->var_reference_temporary_alternate_type ||
                             owner->var_reference_temporary_variant_offset < 0)
                          : ((owner_initializer->type->kind != TYPE_STRUCT &&
@@ -31063,7 +31142,7 @@ static bool lower_declaration(RccIrLowerContext* context,
                     }
                     context->allow_nontrivial_temporary_conditional = true;
                     context->aggregate_result_destination_expression =
-                        owner_initializer;
+                        conditional_xvalue_destination;
                     context->aggregate_result_destination = owner_storage;
                     context->conditional_xvalue_owner =
                         conditional_xvalue_owner ? owner : NULL;

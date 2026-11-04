@@ -2696,13 +2696,32 @@ static bool sema_cxx_collect_conditional_temporary_types(
         plan->contains_temporary =
             plan->then_plan->contains_temporary ||
             plan->else_plan->contains_temporary;
-        if (!plan->contains_temporary || !plan_out) return false;
+        if (!plan_out) return false;
+        *plan_out = plan;
+        return true;
+    }
+    if (source && source->kind == EXPR_COND && source != expression) {
+        int leaf_count_before = *leaf_count;
+        plan = ast_arena_alloc(sizeof(*plan));
+        if (!plan) return false;
+        memset(plan, 0, sizeof(*plan));
+        plan->kind = CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER;
+        plan->expression = expression;
+        plan->source = source;
+        if (!source->cxx_conditional_xvalue ||
+            !sema_cxx_collect_conditional_temporary_types(
+                source, primary_type, alternate_type, storage_size,
+                storage_align, leaf_count, has_temporary,
+                &plan->wrapped_plan, depth + 1u)) {
+            return false;
+        }
+        plan->leaf_count = (unsigned)(*leaf_count - leaf_count_before);
+        plan->contains_temporary = plan->wrapped_plan->contains_temporary;
+        if (!plan_out) return false;
         *plan_out = plan;
         return true;
     }
     if (source && source->kind == EXPR_COND) {
-        /* A cast/comma/member wrapper around a nested conditional needs an
-         * expression-preserving tree lowering path of its own. */
         return false;
     }
     type = source ? source->type : expression->type;
@@ -2749,6 +2768,7 @@ static bool sema_cxx_conditional_temporary_types(
     Expr* expression, Type** primary_type_out, Type** alternate_type_out,
     int* storage_size_out, int* storage_align_out, int* leaf_count_out,
     CxxConditionalXvaluePlan** plan_out) {
+    Expr* conditional_source;
     Type* primary_type = NULL;
     Type* alternate_type = NULL;
     int storage_size = 0;
@@ -2762,8 +2782,11 @@ static bool sema_cxx_conditional_temporary_types(
     if (storage_align_out) *storage_align_out = 0;
     if (leaf_count_out) *leaf_count_out = 0;
     if (plan_out) *plan_out = NULL;
-    if (!expression || expression->kind != EXPR_COND ||
-        !expression->cxx_conditional_xvalue ||
+    conditional_source = sema_cxx_static_reference_temporary_source(
+        expression, 0u);
+    if (!expression || !conditional_source ||
+        conditional_source->kind != EXPR_COND ||
+        !conditional_source->cxx_conditional_xvalue ||
         !sema_cxx_collect_conditional_temporary_types(
             expression, &primary_type, &alternate_type, &storage_size,
             &storage_align, &leaf_count, &has_temporary, &plan, 0u) ||
@@ -17931,6 +17954,11 @@ static bool sema_cxx_append_conditional_reference_cleanups(
                    declaration, plan->else_plan, owner, selector_offset,
                    cleanup_budget, cleanup_plan);
     }
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER) {
+        return sema_cxx_append_conditional_reference_cleanups(
+            declaration, plan->wrapped_plan, owner, selector_offset,
+            cleanup_budget, cleanup_plan);
+    }
     {
         Expr* object;
         CxxCleanupPlan* branch_cleanups = NULL;
@@ -18041,7 +18069,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             conditional_xvalue_temporary =
                 xvalue_temporary_source &&
                 sema_cxx_conditional_temporary_types(
-                    xvalue_temporary_source, &conditional_primary_type,
+                    declaration->var_init, &conditional_primary_type,
                     &conditional_alternate_type, &conditional_storage_size,
                     &conditional_storage_align, &conditional_leaf_count,
                     &conditional_xvalue_plan);
@@ -18061,7 +18089,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                     "reference lifetime extension for this class xvalue path is unsupported");
                 return;
             }
-            if (xvalue_temporary_source &&
+            if (!conditional_xvalue_temporary && xvalue_temporary_source &&
                 sema_cxx_reference_subobject_path(
                     declaration->var_init, xvalue_temporary_source)) {
                 reference_subobject_source = xvalue_temporary_source;
