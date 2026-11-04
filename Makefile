@@ -3120,13 +3120,15 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/debug_info_atomic_store.c
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_atomic_dividend,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,4)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_atomic_dividend,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
-	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,14)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_tls_atomic_dividend@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
+	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,16)
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -S \
 		-o $(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s \
 		tests/debug_info_atomic_store.c
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_atomic_dividend,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,4)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_atomic_dividend,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
-	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,14)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_tls_atomic_dividend@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
+	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,16)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -g -O1 -fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.ro \
 		tests/debug_info.c \

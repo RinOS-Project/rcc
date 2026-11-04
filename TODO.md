@@ -12822,12 +12822,12 @@ remains a separate open item.
       `test-debug-info-inline-expression`.
 - [ ] Additional computed division/remainder trees beyond the current C
       corpus, remaining i686 64-bit atomic store shapes, atomic
-      read-modify-write operations, and volatile/reference/TLS atomic operand
-      combinations remain open.
+      read-modify-write operations, and untested volatile/reference/TLS atomic
+      operand combinations remain open.
   - [x] Add computed signed and unsigned i686 divmod trees over ordinary
         frame-backed parameters, with a full-width expression evaluator matrix
         in normal and verified `-O1`/`-O2` objects. Atomic stores/RMW and
-        volatile/reference/TLS combinations remain open.
+        volatile/reference/TLS source leaves are outside this subtask.
   - [x] Extend those frame-backed expression trees to signed and unsigned
         constant-divisor division and remainder (`-7` and `7`). Check full-width
         boundary matrices against emitted DWARF in legacy and verified `-O1`/
@@ -12848,9 +12848,9 @@ remains a separate open item.
         `test-debug-info-inline-expression`.
   - [x] Preserve unsigned i686 divmod values when the dividend is the result
         of assignment to a 64-bit atomic integer, with volatile and
-        nonvolatile global and automatic-local targets, and nonvolatile and
-        volatile pointer-indirect targets. Use a parameter RHS for each; also
-        cover a computed
+        nonvolatile global and automatic-local targets, nonvolatile and
+        volatile pointer-indirect targets, and a nonvolatile TLS global target.
+        Use a parameter RHS for each; also cover a computed
         `parameter + 0x123456789abcdef0` RHS for a nonvolatile global target.
         Use divisor `2 * parameter + 1`. Restrict safe inline substitution to
         this supported integer width. Retain the one-parameter, one-use side
@@ -12858,9 +12858,10 @@ remains a separate open item.
         expression. The dedicated fixture evaluates full-width division and
         remainder matrices in legacy `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`. Its generated i686 assembly has
-        six global store references and fourteen locked `cmpxchg8b` sequences,
-        one per entry function, at both optimization levels. The existing
-        verified corpus continues to emit with zero fallback.
+        six global store references, two TLS `@NTPOFF` references, and sixteen
+        locked `cmpxchg8b` sequences, one per entry function, at both
+        optimization levels. This covers nonvolatile TLS global assignment
+        values. The existing verified corpus also emits with zero fallback.
         Verified SSA lowering for this atomic assignment, other atomic-store
         shapes, and atomic RMW remain open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
