@@ -7307,9 +7307,13 @@ static void cxx_typeinfo_identity_append_type(
         case TYPE_LONG:
         case TYPE_LLONG:
         case TYPE_FLOAT:
-        case TYPE_DOUBLE:
         case TYPE_NULLPTR:
         case TYPE_VOID:
+            break;
+        case TYPE_DOUBLE:
+            if (type->is_long_double) {
+                cxx_typeinfo_identity_append_char(builder, 'L');
+            }
             break;
     }
 }

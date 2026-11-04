@@ -701,6 +701,10 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS = \
 	_Z55function_template_structural_union_matrix_array_deducedIXtl42FunctionTemplateStructuralMatrixArrayUniondi6valuestlA2_A2_itlS1_Li5ELi6EEtlS1_Li7ELi8EEEEEEi45FunctionTemplateStructuralMatrixArrayUnionTagIXT_EE \
 	_Z56function_template_structural_union_tensor_array_explicitIXtl42FunctionTemplateStructuralTensorArrayUniondi6valuestlA2_A2_A2_itlS2_tlS1_Li1ELi2EEtlS1_Li3ELi4EEEtlS2_tlS1_Li5ELi6EEtlS1_Li7ELi8EEEEEEEiv \
 	_Z55function_template_structural_union_tensor_array_deducedIXtl42FunctionTemplateStructuralTensorArrayUniondi6valuestlA2_A2_A2_itlS2_tlS1_Li8ELi7EEtlS1_Li6ELi5EEEtlS2_tlS1_Li4ELi3EEtlS1_Li2ELi1EEEEEEEi45FunctionTemplateStructuralTensorArrayUnionTagIXT_EE
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_LONG_DOUBLE_SYMBOLS = \
+	_Z55function_template_structural_union_long_double_explicitIXtl39FunctionTemplateStructuralFloatingUniondi8extendedLe3ff4000000000000EEEEiv \
+	_Z54function_template_structural_union_long_double_deducedIXtl39FunctionTemplateStructuralFloatingUniondi8extendedLe4004000000000000EEEEi42FunctionTemplateStructuralFloatingUnionTagIXT_EE
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-reference-list-initialization
 .PHONY: test-cxx-initializer-list
@@ -5972,10 +5976,14 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
 		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s \
 		tests/cxx_function_template_structural_nontype.cpp
+	g++ -mlong-double-64 -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols-rinos-long-double.s \
+		tests/cxx_function_template_structural_nontype.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_LONG_DOUBLE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols-rinos-long-double.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,46)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,48)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -7758,10 +7766,14 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
 		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s \
 		tests/cxx_function_template_structural_nontype.cpp
+	g++ -mlong-double-64 -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols-rinos-long-double.s \
+		tests/cxx_function_template_structural_nontype.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_LONG_DOUBLE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols-rinos-long-double.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,46)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,48)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -15316,6 +15328,7 @@ test-cxx-noexcept-redeclarations: $(RCXX_TARGET)
 ifeq ($(OS),Windows_NT)
 test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-long-double)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-char-type-identity)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-char16-char32)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-deep)
@@ -15324,6 +15337,27 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-local-scope)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeinfo-api)
 	$(call CXX_WINDOWS_ENTRY_TWO_TU_TEST,cxx-typeid,cxx_typeid.cpp,cxx_typeid_peer.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-typeid-long-double/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_typeid_long_double.cpp
+	$(TEST_OUT)/cxx-typeid-long-double/gcc-host$(EXE_SUFFIX)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-long-double,cxx_typeid_long_double.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-long-double/x86.ro \
+		tests/cxx_typeid_long_double.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-long-double/x64.ro \
+		tests/cxx_typeid_long_double.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid-long-double/x86.rin \
+		$(TEST_OUT)/cxx-typeid-long-double/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid-long-double/x64.rin \
+		$(TEST_OUT)/cxx-typeid-long-double/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-long-double/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-long-double/x64.rin
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-char-type-identity,cxx_char_type_identity.cpp)
 	g++ -std=c++11 -Wall -Wextra -Werror -fsyntax-only tests/cxx_char16_char32.cpp
 	g++ -std=c++11 -S -o $(TEST_OUT)/cxx-char16-char32/gcc.s tests/cxx_char16_char32.cpp
@@ -15399,6 +15433,7 @@ endif
 
 test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-long-double)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-char-type-identity)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-char16-char32)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-deep)
@@ -15406,6 +15441,27 @@ test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-composite)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-local-scope)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeinfo-api)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-typeid-long-double/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_typeid_long_double.cpp
+	$(TEST_OUT)/cxx-typeid-long-double/gcc-host$(EXE_SUFFIX)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-long-double,cxx_typeid_long_double.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-long-double/x86.ro \
+		tests/cxx_typeid_long_double.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-long-double/x64.ro \
+		tests/cxx_typeid_long_double.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid-long-double/x86.rin \
+		$(TEST_OUT)/cxx-typeid-long-double/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid-long-double/x64.rin \
+		$(TEST_OUT)/cxx-typeid-long-double/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-long-double/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-long-double/x64.rin
 	$(call CXX_POSIX_ENTRY_TEST,cxx-char-type-identity,cxx_char_type_identity.cpp)
 	g++ -std=c++11 -Wall -Wextra -Werror -fsyntax-only tests/cxx_char16_char32.cpp
 	g++ -std=c++11 -S -o $(TEST_OUT)/cxx-char16-char32/gcc.s tests/cxx_char16_char32.cpp

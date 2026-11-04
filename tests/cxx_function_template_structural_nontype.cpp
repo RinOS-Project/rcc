@@ -20,6 +20,7 @@ union FunctionTemplateStructuralNestedUnion {
 union FunctionTemplateStructuralFloatingUnion {
     float single;
     double wide;
+    long double extended;
 };
 
 union FunctionTemplateStructuralArrayUnion {
@@ -322,6 +323,17 @@ constexpr int function_template_structural_union_double_deduced(
     return Value.wide == 2.25 ? 22 : 0;
 }
 
+template<FunctionTemplateStructuralFloatingUnion Value>
+constexpr int function_template_structural_union_long_double_explicit() {
+    return Value.extended == 1.25L ? 125 : 0;
+}
+
+template<FunctionTemplateStructuralFloatingUnion Value>
+constexpr int function_template_structural_union_long_double_deduced(
+    FunctionTemplateStructuralFloatingUnionTag<Value>) {
+    return Value.extended == 2.5L ? 250 : 0;
+}
+
 template<FunctionTemplateStructuralPointerUnion Value>
 constexpr int
 function_template_structural_union_nested_pointer_explicit() {
@@ -544,6 +556,13 @@ static_assert(function_template_structural_union_double_deduced(
                   FunctionTemplateStructuralFloatingUnionTag<
                       FunctionTemplateStructuralFloatingUnion{
                           .wide = 2.25}>{}) == 22);
+static_assert(function_template_structural_union_long_double_explicit<
+                  FunctionTemplateStructuralFloatingUnion{
+                      .extended = 1.25L}>() == 125);
+static_assert(function_template_structural_union_long_double_deduced(
+                  FunctionTemplateStructuralFloatingUnionTag<
+                      FunctionTemplateStructuralFloatingUnion{
+                          .extended = 2.5L}>{}) == 250);
 static_assert(function_template_structural_union_null_pointer_explicit<
                   FunctionTemplateStructuralDirectPointerUnion{
                       .pointer = nullptr}>() == 1);
@@ -728,6 +747,13 @@ int main() {
             FunctionTemplateStructuralFloatingUnionTag<
                 FunctionTemplateStructuralFloatingUnion{
                     .wide = 2.25}>{}) != 22 ||
+        function_template_structural_union_long_double_explicit<
+            FunctionTemplateStructuralFloatingUnion{
+                .extended = 1.25L}>() != 125 ||
+        function_template_structural_union_long_double_deduced(
+            FunctionTemplateStructuralFloatingUnionTag<
+                FunctionTemplateStructuralFloatingUnion{
+                    .extended = 2.5L}>{}) != 250 ||
         function_template_structural_union_nested_pointer_explicit<
             FunctionTemplateStructuralPointerUnion{
                 .object = {

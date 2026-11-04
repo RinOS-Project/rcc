@@ -14126,7 +14126,6 @@ remains a separate open item.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, direct array layouts beyond the tested
       three-dimensional fixed-bound integer active-union alternative,
-      extended-precision floating alternatives,
       union-array layouts beyond the tested three-dimensional case, and
       unsupported C++20 forms remain open.
   - [x] Collect pointer values from direct and nested pointer-bearing active
@@ -14202,6 +14201,20 @@ remains a separate open item.
         C++20 checks, host execution, i686/AMD64 output, and 46 fallback-free
         verified-backend functions at `-O0` and `-O2` in
         `test-cxx-function-template-structural-nontype`.
+  - [x] Preserve RinOS binary64 `long double` as a distinct active structural
+        union value. Verify explicit/deduced member reads and exact Itanium
+        floating-value symbols against GCC's `-mlong-double-64` ABI oracle.
+        Host execution, i686/AMD64 output, and 48 verified-backend functions
+        with zero fallback at `-O0` and `-O2` pass in
+        `test-cxx-function-template-structural-nontype`.
+
+## RCC continuation (2026-11-04, binary64 long-double typeinfo identity)
+
+- [x] Include the `is_long_double` type distinction in static typeinfo
+      identities. Regress `typeid(Template<double>) !=
+      typeid(Template<long double>)`; before the fix both specializations
+      received the same identity. The full `test-cxx-typeid` gate passes host
+      GCC/RCC runtime checks, i686/AMD64 generation, RIN linking, and validation.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)
 
