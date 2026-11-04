@@ -8,6 +8,7 @@ debug_nonconstant_unsigned_long_long_parameter_inline(
 _Atomic unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_dividend;
 volatile _Atomic unsigned long long debug_inline_nonconstant_unsigned_long_long_volatile_atomic_dividend;
 _Thread_local _Atomic unsigned long long debug_inline_nonconstant_unsigned_long_long_tls_atomic_dividend;
+_Thread_local volatile _Atomic unsigned long long debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_dividend;
 
 unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_divide_entry(
     unsigned long long computed_atomic_store_division_dividend,
@@ -171,6 +172,26 @@ unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_tls_
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         (debug_inline_nonconstant_unsigned_long_long_tls_atomic_dividend =
+             computed_atomic_store_division_dividend) %
+        (computed_atomic_store_division_divisor * 2ull + 1ull));
+}
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_volatile_tls_divide_entry(
+    unsigned long long computed_atomic_store_division_dividend,
+    unsigned long long computed_atomic_store_division_divisor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_dividend =
+             computed_atomic_store_division_dividend) /
+        (computed_atomic_store_division_divisor * 2ull + 1ull));
+}
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_volatile_tls_remainder_entry(
+    unsigned long long computed_atomic_store_division_dividend,
+    unsigned long long computed_atomic_store_division_divisor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_dividend =
              computed_atomic_store_division_dividend) %
         (computed_atomic_store_division_divisor * 2ull + 1ull));
 }

@@ -12849,7 +12849,8 @@ remains a separate open item.
   - [x] Preserve unsigned i686 divmod values when the dividend is the result
         of assignment to a 64-bit atomic integer, with volatile and
         nonvolatile global and automatic-local targets, nonvolatile and
-        volatile pointer-indirect targets, and a nonvolatile TLS global target.
+        volatile pointer-indirect targets, and volatile and nonvolatile TLS
+        global targets.
         Use a parameter RHS for each; also cover a computed
         `parameter + 0x123456789abcdef0` RHS for a nonvolatile global target.
         Use divisor `2 * parameter + 1`. Restrict safe inline substitution to
@@ -12858,10 +12859,11 @@ remains a separate open item.
         expression. The dedicated fixture evaluates full-width division and
         remainder matrices in legacy `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`. Its generated i686 assembly has
-        six global store references, two TLS `@NTPOFF` references, and sixteen
-        locked `cmpxchg8b` sequences, one per entry function, at both
-        optimization levels. This covers nonvolatile TLS global assignment
-        values. The existing verified corpus also emits with zero fallback.
+        six global store references, four TLS `@NTPOFF` references, and
+        eighteen locked `cmpxchg8b` sequences, one per entry function, at both
+        optimization levels. This covers volatile and nonvolatile TLS global
+        assignment values. The existing verified corpus also emits with zero
+        fallback.
         Verified SSA lowering for this atomic assignment, other atomic-store
         shapes, and atomic RMW remain open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
