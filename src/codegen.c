@@ -23528,55 +23528,6 @@ static void gen_static_reference_owner_vtable_init32(
     emit_pop_reg(mod, ECX);
 }
 
-static Expr* gen_conditional_xvalue_complete_source32(
-    Expr* expression, unsigned depth) {
-    Type* type;
-    if (!expression || depth >= 64u) return NULL;
-    type = expression->type;
-    if (type && type->kind == TYPE_PTR && type->is_reference) {
-        type = type->base;
-    }
-    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
-        (expression->kind == EXPR_CALL ||
-         expression->kind == EXPR_COMPOUND ||
-         expression->kind == EXPR_VA_ARG)) {
-        return expression;
-    }
-    if (expression->kind == EXPR_CAST && expression->cast_expr) {
-        Type* source_type = expression->cast_expr->type;
-        if (source_type && source_type->kind == TYPE_PTR &&
-            source_type->is_reference) {
-            source_type = source_type->base;
-        }
-        if (source_type &&
-            (source_type->kind == TYPE_STRUCT ||
-             source_type->kind == TYPE_UNION)) {
-            return gen_conditional_xvalue_complete_source32(
-                expression->cast_expr, depth + 1u);
-        }
-        if (expression->cast_type && expression->cast_type->is_reference &&
-            expression->cast_type->is_rvalue_reference) {
-            return gen_conditional_xvalue_complete_source32(
-                expression->cast_expr, depth + 1u);
-        }
-    }
-    if (expression->kind == EXPR_COMMA) {
-        return gen_conditional_xvalue_complete_source32(
-            expression->binary_rhs, depth + 1u);
-    }
-    if (expression->kind == EXPR_MEMBER &&
-        expression->cxx_member_xvalue) {
-        return gen_conditional_xvalue_complete_source32(
-            expression->member_base, depth + 1u);
-    }
-    if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT &&
-        expression->cxx_member_xvalue) {
-        return gen_conditional_xvalue_complete_source32(
-            expression->binary_lhs, depth + 1u);
-    }
-    return NULL;
-}
-
 static void gen_conditional_reference_temporary_store_tag32(
     Module* mod, Decl* owner, int tag) {
     emit_push_reg(mod, EAX);
@@ -23589,103 +23540,84 @@ static void gen_conditional_reference_temporary_store_tag32(
     emit_pop_reg(mod, EAX);
 }
 
-static bool gen_conditional_xvalue_tree_has_temporary32(
-    Expr* expression, unsigned depth) {
-    if (!expression || depth >= 64u) return false;
-    if (expression->kind == EXPR_COND &&
-        expression->cxx_conditional_xvalue) {
-        return gen_conditional_xvalue_tree_has_temporary32(
-                   expression->cond_then, depth + 1u) ||
-               gen_conditional_xvalue_tree_has_temporary32(
-                   expression->cond_else, depth + 1u);
-    }
-    return gen_conditional_xvalue_complete_source32(expression, 0u) != NULL;
-}
-
 static bool gen_conditional_reference_temporary_tree32(
-    Module* mod, Decl* declaration, Expr* expression, int* next_tag,
-    unsigned depth) {
+    Module* mod, Decl* declaration,
+    const CxxConditionalXvaluePlan* plan) {
     Decl* owner = declaration
         ? declaration->var_reference_temporary_owner : NULL;
-    Expr* source;
-    Type* type;
-    if (!mod || !declaration || !owner || !expression || !next_tag ||
-        depth >= 64u || *next_tag >= 4096) {
+    if (!mod || !declaration || !owner || !plan) {
         return false;
     }
-    if (expression->kind == EXPR_COND &&
-        expression->cxx_conditional_xvalue &&
-        gen_conditional_xvalue_tree_has_temporary32(expression, depth)) {
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH &&
+        plan->contains_temporary) {
+        if (!plan->expression || plan->expression->kind != EXPR_COND ||
+            !plan->expression->cond_test || !plan->then_plan ||
+            !plan->else_plan) {
+            return false;
+        }
         int else_label = new_label();
         int done_label = new_label();
-        gen_expr(mod, expression->cond_test);
-        emit_test_scalar_value(mod, expression->cond_test->type);
+        gen_expr(mod, plan->expression->cond_test);
+        emit_test_scalar_value(mod, plan->expression->cond_test->type);
         emit_jcc_label(mod, CC_E, else_label);
         if (!gen_conditional_reference_temporary_tree32(
-                mod, declaration, expression->cond_then, next_tag,
-                depth + 1u)) {
+                mod, declaration, plan->then_plan)) {
             return false;
         }
         emit_jmp_label(mod, done_label);
         emit_label(mod, else_label);
         if (!gen_conditional_reference_temporary_tree32(
-                mod, declaration, expression->cond_else, next_tag,
-                depth + 1u)) {
+                mod, declaration, plan->else_plan)) {
             return false;
         }
         emit_label(mod, done_label);
         return true;
     }
-    source = gen_conditional_xvalue_complete_source32(expression, 0u);
-    if (source) {
-        type = source->type;
-        if (type && type->kind == TYPE_PTR && type->is_reference) {
-            type = type->base;
-        }
-        if (!type || type->size <= 0 ||
-            (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+    if (plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_LEAF ||
+        !plan->expression || !plan->type) {
+        return false;
+    }
+    if (plan->source) {
+        if (plan->type->size <= 0 ||
+            (plan->type->kind != TYPE_STRUCT &&
+             plan->type->kind != TYPE_UNION) ||
             !gen_static_reference_aggregate_into_owner32(
-                mod, declaration, source, type)) {
+                mod, declaration, plan->source, plan->type)) {
             rcc_error(declaration->loc,
                       "conditional reference temporary has no complete class source");
             return false;
         }
-        gen_static_reference_owner_vtable_init32(mod, type, owner);
+        gen_static_reference_owner_vtable_init32(mod, plan->type, owner);
         gen_reference_temporary_owner_address32(mod, owner);
-        gen_cxx_reference_adjustment32_force(mod, expression);
+        gen_cxx_reference_adjustment32_force(mod, plan->expression);
     } else {
-        Type* arm_type = expression->type;
-        if (arm_type && arm_type->kind == TYPE_PTR &&
-            arm_type->is_reference) {
-            arm_type = arm_type->base;
-        }
-        if (!arm_type || (arm_type->kind != TYPE_STRUCT &&
-                          arm_type->kind != TYPE_UNION)) {
+        if (plan->type->kind != TYPE_STRUCT &&
+            plan->type->kind != TYPE_UNION) {
             rcc_error(declaration->loc,
                       "conditional reference named arm is not a class xvalue");
             return false;
         }
-        gen_lvalue(mod, expression);
+        gen_lvalue(mod, plan->expression);
     }
     gen_conditional_reference_temporary_store_tag32(
-        mod, owner, (*next_tag)++);
+        mod, owner, (int)plan->tag);
     return true;
 }
 
 static bool gen_conditional_reference_temporary_initializer32(
-    Module* mod, Decl* declaration, Expr* conditional) {
+    Module* mod, Decl* declaration) {
     Decl* owner = declaration
         ? declaration->var_reference_temporary_owner : NULL;
-    int next_tag = 0;
-    if (!mod || !declaration || !owner || !conditional ||
-        conditional->kind != EXPR_COND ||
-        !conditional->cxx_conditional_xvalue ||
+    const CxxConditionalXvaluePlan* plan = declaration
+        ? declaration->var_reference_temporary_plan : NULL;
+    if (!mod || !declaration || !owner || !plan ||
+        plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_BRANCH ||
+        !plan->contains_temporary ||
         !owner->var_reference_temporary_alternate_type ||
         owner->var_reference_temporary_variant_offset < 0) {
         return false;
     }
-    return gen_conditional_reference_temporary_tree32(
-        mod, declaration, conditional, &next_tag, 0u) && next_tag > 0;
+    return gen_conditional_reference_temporary_tree32(mod, declaration, plan);
 }
 
 static bool gen_static_reference_temporary_initializer32(
@@ -23704,7 +23636,7 @@ static bool gen_static_reference_temporary_initializer32(
 
     if (conditional_variant) {
         if (!gen_conditional_reference_temporary_initializer32(
-                mod, declaration, initializer)) {
+                mod, declaration)) {
             return false;
         }
     } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
@@ -24889,7 +24821,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     d->var_reference_temporary_owner
                         ->var_reference_temporary_alternate_type) {
                     if (!gen_conditional_reference_temporary_initializer32(
-                            mod, d, d->var_init)) {
+                            mod, d)) {
                         rcc_error(
                             d->loc,
                             "cannot initialize conditional reference temporary for '%s'",

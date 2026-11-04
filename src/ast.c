@@ -2223,6 +2223,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_reference_temporary_owner = NULL;
     d->var_reference_temporary_source = NULL;
     d->var_reference_temporary_alternate_type = NULL;
+    d->var_reference_temporary_plan = NULL;
     d->var_reference_temporary_variant_offset = 0;
     d->var_reference_temporary_storage_size = 0;
     d->var_reference_temporary_storage_align = 0;

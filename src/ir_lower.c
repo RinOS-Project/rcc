@@ -918,55 +918,6 @@ static bool lower_mark_wide_local_address_escaped(
     return true;
 }
 
-static const Expr* lower_conditional_xvalue_complete_source(
-    const Expr* expression, unsigned depth) {
-    const Type* type;
-    if (!expression || depth >= 64u) return NULL;
-    type = expression->type;
-    if (type && type->kind == TYPE_PTR && type->is_reference) {
-        type = type->base;
-    }
-    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
-        (expression->kind == EXPR_CALL ||
-         expression->kind == EXPR_COMPOUND ||
-         expression->kind == EXPR_VA_ARG)) {
-        return expression;
-    }
-    if (expression->kind == EXPR_CAST && expression->cast_expr) {
-        const Type* source_type = expression->cast_expr->type;
-        if (source_type && source_type->kind == TYPE_PTR &&
-            source_type->is_reference) {
-            source_type = source_type->base;
-        }
-        if (source_type &&
-            (source_type->kind == TYPE_STRUCT ||
-             source_type->kind == TYPE_UNION)) {
-            return lower_conditional_xvalue_complete_source(
-                expression->cast_expr, depth + 1u);
-        }
-        if (expression->cast_type && expression->cast_type->is_reference &&
-            expression->cast_type->is_rvalue_reference) {
-            return lower_conditional_xvalue_complete_source(
-                expression->cast_expr, depth + 1u);
-        }
-    }
-    if (expression->kind == EXPR_COMMA) {
-        return lower_conditional_xvalue_complete_source(
-            expression->binary_rhs, depth + 1u);
-    }
-    if (expression->kind == EXPR_MEMBER &&
-        expression->cxx_member_xvalue) {
-        return lower_conditional_xvalue_complete_source(
-            expression->member_base, depth + 1u);
-    }
-    if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT &&
-        expression->cxx_member_xvalue) {
-        return lower_conditional_xvalue_complete_source(
-            expression->binary_lhs, depth + 1u);
-    }
-    return NULL;
-}
-
 static RccIrLowerLabel* lower_find_label_statement(
     RccIrLowerContext* context, const Stmt* statement) {
     if (!context || !statement) return NULL;
@@ -3539,9 +3490,11 @@ static RccIrLowerValue lower_lvalue_address_impl(
             address = lower_expression(context, cast_source);
         } else if (cast_source &&
                    context->aggregate_result_destination_expression &&
-                   lower_conditional_xvalue_complete_source(
-                       cast_source, 0u) ==
-                       context->aggregate_result_destination_expression) {
+                   context->conditional_xvalue_owner &&
+                   cast_source->cxx_reference_temporary_source ==
+                       context->aggregate_result_destination_expression &&
+                   cast_source->cxx_reference_temporary_source->kind !=
+                       EXPR_COND) {
             address = lower_expression(context, cast_source);
         } else {
             address = lower_lvalue_address(context, cast_source);
@@ -19437,23 +19390,9 @@ static bool lower_conditional_branch(RccIrLowerContext* context,
     return true;
 }
 
-static bool lower_conditional_xvalue_tree_has_temporary(
-    const Expr* expression, unsigned depth) {
-    if (!expression || depth >= 64u) return false;
-    if (expression->kind == EXPR_COND &&
-        expression->cxx_conditional_xvalue) {
-        return lower_conditional_xvalue_tree_has_temporary(
-                   expression->cond_then, depth + 1u) ||
-               lower_conditional_xvalue_tree_has_temporary(
-                   expression->cond_else, depth + 1u);
-    }
-    return lower_conditional_xvalue_complete_source(expression, 0u) != NULL;
-}
-
 static RccIrLowerValue lower_conditional_xvalue_tree(
-    RccIrLowerContext* context, const Expr* expression,
-    RccIrLowerValue selector_address, RccIrType selector_type,
-    int* next_tag, unsigned depth) {
+    RccIrLowerContext* context, const CxxConditionalXvaluePlan* plan,
+    RccIrLowerValue selector_address, RccIrType selector_type) {
     RccIrLowerValue values[2];
     RccIrBlock* arm_blocks[2];
     RccIrBlock* end_blocks[2];
@@ -19461,15 +19400,21 @@ static RccIrLowerValue lower_conditional_xvalue_tree(
     RccIrValue phi_operands[2];
     RccIrBlockId phi_targets[2];
     RccIrInstruction* phi;
+    const Expr* expression;
     const Expr* source;
-    if (!context || !expression || !next_tag || depth >= 64u ||
-        *next_tag >= 4096) {
+    if (!context || !plan) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
-    if (expression->kind == EXPR_COND &&
-        expression->cxx_conditional_xvalue &&
-        lower_conditional_xvalue_tree_has_temporary(expression, depth)) {
+    if (plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH &&
+        plan->contains_temporary) {
+        expression = plan->expression;
+        if (!expression || expression->kind != EXPR_COND ||
+            !expression->cond_test || !plan->then_plan ||
+            !plan->else_plan) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
         RccIrLowerValue condition = lower_truth_expression(
             context, expression->cond_test);
         if (!condition.valid) return lower_invalid_value();
@@ -19488,9 +19433,8 @@ static RccIrLowerValue lower_conditional_xvalue_tree(
             context->current = arm_blocks[index];
             context->terminated = false;
             values[index] = lower_conditional_xvalue_tree(
-                context, index == 0u ? expression->cond_then
-                                     : expression->cond_else,
-                selector_address, selector_type, next_tag, depth + 1u);
+                context, index == 0u ? plan->then_plan : plan->else_plan,
+                selector_address, selector_type);
             if (!values[index].valid ||
                 values[index].type.kind != RCC_IR_TYPE_POINTER ||
                 context->terminated ||
@@ -19513,7 +19457,13 @@ static RccIrLowerValue lower_conditional_xvalue_tree(
         return lower_value(phi->result, rcc_ir_type_pointer(0u), true);
     }
 
-    source = lower_conditional_xvalue_complete_source(expression, 0u);
+    if (plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_LEAF ||
+        !plan->expression || !plan->type) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    expression = plan->expression;
+    source = plan->source;
     {
         const Expr* previous_destination_expression =
             context->aggregate_result_destination_expression;
@@ -19522,14 +19472,9 @@ static RccIrLowerValue lower_conditional_xvalue_tree(
         const Decl* previous_owner = context->conditional_xvalue_owner;
         RccIrLowerValue value;
         RccIrLowerValue tag;
-        if (source && source->kind == EXPR_COND) {
-            context->unsupported = true;
-            return lower_invalid_value();
-        }
         context->aggregate_result_destination_expression = source;
         context->aggregate_result_destination = source
             ? previous_destination : lower_invalid_value();
-        context->conditional_xvalue_owner = NULL;
         value = source ? lower_expression(context, expression)
                        : lower_lvalue_address(context, expression);
         context->aggregate_result_destination_expression =
@@ -19542,7 +19487,7 @@ static RccIrLowerValue lower_conditional_xvalue_tree(
             return lower_invalid_value();
         }
         tag = lower_integer_constant(
-            context, selector_type, true, (uint64_t)(*next_tag)++);
+            context, selector_type, true, (uint64_t)plan->tag);
         if (!tag.valid ||
             !lower_store_address(context, selector_address, tag)) {
             return lower_invalid_value();
@@ -19583,11 +19528,16 @@ static RccIrLowerValue lower_conditional_expression(
         context->conditional_xvalue_owner
             ->var_reference_temporary_alternate_type) {
         const Decl* owner = context->conditional_xvalue_owner;
+        const CxxConditionalXvaluePlan* plan =
+            owner->var_reference_temporary_plan;
         RccIrLowerValue selector_address;
         RccIrType selector_type;
-        int next_tag = 0;
         if (!expression->cxx_conditional_xvalue ||
             expression->kind != EXPR_COND ||
+            !plan ||
+            plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_BRANCH ||
+            plan->expression != expression ||
+            !plan->contains_temporary ||
             !owner->type || owner->var_reference_temporary_variant_offset < 0 ||
             !context->aggregate_result_destination.valid ||
             context->aggregate_result_destination.type.kind !=
@@ -19603,8 +19553,7 @@ static RccIrLowerValue lower_conditional_expression(
             return lower_invalid_value();
         }
         return lower_conditional_xvalue_tree(
-            context, expression, selector_address, selector_type,
-            &next_tag, 0u);
+            context, plan, selector_address, selector_type);
     }
     if (!expression || !expression->type) {
         context->unsupported = true;
@@ -31068,6 +31017,9 @@ static bool lower_declaration(RccIrLowerContext* context,
                     (conditional_xvalue_owner
                          ? (owner_initializer->kind != EXPR_COND ||
                             !owner_initializer->cxx_conditional_xvalue ||
+                            !owner->var_reference_temporary_plan ||
+                            owner->var_reference_temporary_plan->expression !=
+                                owner_initializer ||
                             !owner->var_reference_temporary_alternate_type ||
                             owner->var_reference_temporary_variant_offset < 0)
                          : ((owner_initializer->type->kind != TYPE_STRUCT &&

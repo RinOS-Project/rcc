@@ -13962,6 +13962,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->cxx_fold_pack_name)) {
             copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
+            copy->cxx_reference_temporary_source = NULL;
             copy->type = template_substitute_type(
                 tmpl, expression->type, args, arg_count,
                 value_args, value_present);
@@ -13981,6 +13982,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->sizeof_pack_name)) {
             copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
+            copy->cxx_reference_temporary_source = NULL;
             copy->type = template_substitute_type(
                 tmpl, expression->type, args, arg_count,
                 value_args, value_present);
@@ -14037,6 +14039,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
     }
     copy = ast_arena_alloc(sizeof(*copy));
     *copy = *expression;
+    copy->cxx_reference_temporary_source = NULL;
     copy->type = template_substitute_type(
         tmpl, expression->type, args, arg_count, value_args, value_present);
     copy->cxx_move_assignment = NULL;
@@ -14789,6 +14792,7 @@ static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
         copy->var_reference_temporary_owner = NULL;
         copy->var_reference_temporary_source = NULL;
         copy->var_reference_temporary_alternate_type = NULL;
+        copy->var_reference_temporary_plan = NULL;
         copy->var_reference_temporary_variant_offset = 0;
         copy->var_reference_temporary_storage_size = 0;
         copy->var_reference_temporary_storage_align = 0;

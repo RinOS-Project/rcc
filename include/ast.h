@@ -20,6 +20,7 @@ typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
 typedef struct CxxCleanupPlan CxxCleanupPlan;
+typedef struct CxxConditionalXvaluePlan CxxConditionalXvaluePlan;
 typedef struct CxxParsedTemplateArgument CxxParsedTemplateArgument;
 typedef struct CxxDependentFunctionTemplateCall
     CxxDependentFunctionTemplateCall;
@@ -712,6 +713,27 @@ struct CxxCleanupPlan {
     CxxCleanupPlan* next;
 };
 
+/* Semantic analysis assigns one bounded branch/leaf plan for a conditional
+ * xvalue lifetime extension.  Cleanup generation, typed IR, and both native
+ * code generators consume these same selected sources and variant tags. */
+#define RCC_CXX_CONDITIONAL_XVALUE_MAX_DEPTH 64u
+#define RCC_CXX_CONDITIONAL_XVALUE_MAX_LEAVES 4096u
+typedef enum {
+    CXX_CONDITIONAL_XVALUE_PLAN_LEAF,
+    CXX_CONDITIONAL_XVALUE_PLAN_BRANCH,
+} CxxConditionalXvaluePlanKind;
+struct CxxConditionalXvaluePlan {
+    CxxConditionalXvaluePlanKind kind;
+    Expr* expression;
+    Expr* source;
+    Type* type;
+    struct CxxConditionalXvaluePlan* then_plan;
+    struct CxxConditionalXvaluePlan* else_plan;
+    unsigned tag;
+    unsigned leaf_count;
+    bool contains_temporary;
+};
+
 typedef struct TypeList {
     Type* type;
     SourceLoc loc;
@@ -802,6 +824,9 @@ struct Expr {
     /* A non-reference data member selected through a C++ dot-expression on
      * an xvalue object is itself an xvalue. */
     bool cxx_member_xvalue;
+    /* Semantic analysis caches the complete temporary behind this xvalue
+     * expression so IR lowering does not rediscover it from the AST. */
+    Expr* cxx_reference_temporary_source;
     /* The left side of a class-qualified member expression names a type,
      * not a runtime object. */
     bool cxx_member_qualified_type;
@@ -1555,6 +1580,7 @@ struct Decl {
             Decl* var_reference_temporary_owner; /* Complete-object cleanup */
             Expr* var_reference_temporary_source; /* Complete object for subobject binding */
             Type* var_reference_temporary_alternate_type; /* Other conditional xvalue arm */
+            CxxConditionalXvaluePlan* var_reference_temporary_plan;
             int var_reference_temporary_variant_offset; /* Selector byte offset in owner storage */
             int var_reference_temporary_storage_size; /* Includes conditional selector storage */
             int var_reference_temporary_storage_align;
