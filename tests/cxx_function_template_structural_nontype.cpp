@@ -88,6 +88,11 @@ struct FunctionTemplateStructuralLongDoubleMember {
     int bias;
 };
 
+struct FunctionTemplateStructuralLongDoubleArray {
+    long double values[2];
+    int bias;
+};
+
 inline constexpr int function_template_structural_pointer_array_first = 13;
 inline constexpr int function_template_structural_pointer_array_second = 29;
 
@@ -204,6 +209,9 @@ struct FunctionTemplateStructuralPointerArrayTag {};
 
 template<FunctionTemplateStructuralLongDoubleMember Value>
 struct FunctionTemplateStructuralLongDoubleMemberTag {};
+
+template<FunctionTemplateStructuralLongDoubleArray Value>
+struct FunctionTemplateStructuralLongDoubleArrayTag {};
 
 template<FunctionTemplateStructuralUnionContainer Value>
 struct FunctionTemplateStructuralUnionContainerTag {};
@@ -447,6 +455,19 @@ template<FunctionTemplateStructuralLongDoubleMember Value>
 constexpr int function_template_structural_long_double_member_deduced(
     FunctionTemplateStructuralLongDoubleMemberTag<Value>) {
     return Value.value == 2.5L ? Value.bias : 0;
+}
+
+template<FunctionTemplateStructuralLongDoubleArray Value>
+constexpr int function_template_structural_long_double_array_explicit() {
+    return Value.values[0] == 1.25L && Value.values[1] == 2.5L
+        ? Value.bias : 0;
+}
+
+template<FunctionTemplateStructuralLongDoubleArray Value>
+constexpr int function_template_structural_long_double_array_deduced(
+    FunctionTemplateStructuralLongDoubleArrayTag<Value>) {
+    return Value.values[0] == 2.5L && Value.values[1] == 1.25L
+        ? Value.bias : 0;
 }
 
 template<FunctionTemplateStructuralDirectPointerUnion Value>
@@ -767,6 +788,13 @@ static_assert(function_template_structural_long_double_member_deduced(
                   FunctionTemplateStructuralLongDoubleMemberTag<
                       FunctionTemplateStructuralLongDoubleMember{2.5L, 5}>{}) ==
               5);
+static_assert(function_template_structural_long_double_array_explicit<
+                  FunctionTemplateStructuralLongDoubleArray{
+                      .values = {1.25L, 2.5L}, .bias = 7}>() == 7);
+static_assert(function_template_structural_long_double_array_deduced(
+                  FunctionTemplateStructuralLongDoubleArrayTag<
+                      FunctionTemplateStructuralLongDoubleArray{
+                          {2.5L, 1.25L}, 5}>{}) == 5);
 static_assert(function_template_structural_union_array_explicit<
                   FunctionTemplateStructuralArrayUnion{
                       .values = {4, 2}}>() == 42);
@@ -1061,6 +1089,13 @@ int main() {
         function_template_structural_long_double_member_deduced(
             FunctionTemplateStructuralLongDoubleMemberTag<
                 FunctionTemplateStructuralLongDoubleMember{2.5L, 5}>{}) != 5 ||
+        function_template_structural_long_double_array_explicit<
+            FunctionTemplateStructuralLongDoubleArray{
+                .values = {1.25L, 2.5L}, .bias = 7}>() != 7 ||
+        function_template_structural_long_double_array_deduced(
+            FunctionTemplateStructuralLongDoubleArrayTag<
+                FunctionTemplateStructuralLongDoubleArray{
+                    {2.5L, 1.25L}, 5}>{}) != 5 ||
         function_template_structural_union_array_explicit<
             FunctionTemplateStructuralArrayUnion{
                 .values = {4, 2}}>() != 42 ||
