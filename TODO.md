@@ -14125,7 +14125,7 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, direct array layouts beyond the tested
-      four-dimensional fixed-bound integer active-union alternative,
+      five-dimensional fixed-bound integer active-union alternative,
       union-array layouts beyond the tested four-dimensional 2x2x2x2 case, and
       unsupported C++20 forms remain open.
   - [x] Collect pointer values from direct and nested pointer-bearing active
@@ -14214,6 +14214,19 @@ remains a separate open item.
         explicit and positional deduced arguments pass exact GCC symbols, strict
         C++20 checks, host execution, i686/AMD64 output, and 52 fallback-free
         verified-backend functions at `-O0` and `-O2` in
+        `test-cxx-function-template-structural-nontype`.
+  - [x] Preserve zero-leaf counts for arrays of empty structural classes.
+        Do not reject a fixed-bound array merely because each element contributes
+        no scalar leaves; retain the correct count while collecting a derived
+        structural NTTP with empty base/member arrays. The original derived-value
+        assertions pass again in the strict C++20, host, exact-symbol, and
+        verified-backend matrix.
+  - [x] Support a five-dimensional fixed-bound integer array as an active
+        structural union alternative. Collect all 32 elements in row-major
+        order and substitute reads through all five indices in explicit and
+        deduced NTTPs. GCC C++20, exact GCC Itanium symbols, RCC/GCC host
+        execution, i686/AMD64 output, and all 54 verified-backend functions with
+        zero fallback at `-O0`/`-O2` pass in
         `test-cxx-function-template-structural-nontype`.
   - [x] Preserve RinOS binary64 `long double` as a distinct active structural
         union value. Verify explicit/deduced member reads and exact Itanium

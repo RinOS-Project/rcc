@@ -43,6 +43,24 @@ union FunctionTemplateStructuralQuadArrayUnion {
     int scalar;
 };
 
+union FunctionTemplateStructuralQuintArrayUnion {
+    int values[2][2][2][2][2];
+    int scalar;
+};
+
+#define FUNCTION_TEMPLATE_STRUCTURAL_QUINT_ARRAY_VALUE \
+    FunctionTemplateStructuralQuintArrayUnion{ \
+        .values = { \
+            { \
+                {{{1, 2}, {3, 4}}, {{5, 6}, {7, 8}}}, \
+                {{{9, 10}, {11, 12}}, {{13, 14}, {15, 16}}}, \
+            }, \
+            { \
+                {{{17, 18}, {19, 20}}, {{21, 22}, {23, 24}}}, \
+                {{{25, 26}, {27, 28}}, {{29, 30}, {31, 32}}}, \
+            }, \
+        }}
+
 struct FunctionTemplateStructuralPointerUnionPayload {
     const int* pointer;
     int bias;
@@ -158,6 +176,9 @@ struct FunctionTemplateStructuralTensorArrayUnionTag {};
 
 template<FunctionTemplateStructuralQuadArrayUnion Value>
 struct FunctionTemplateStructuralQuadArrayUnionTag {};
+
+template<FunctionTemplateStructuralQuintArrayUnion Value>
+struct FunctionTemplateStructuralQuintArrayUnionTag {};
 
 template<FunctionTemplateStructuralPointerUnion Value>
 struct FunctionTemplateStructuralPointerUnionTag {};
@@ -458,6 +479,21 @@ constexpr int function_template_structural_union_quad_array_alternative_deduced(
            Value.values[0][1][0][1] * 10 + Value.values[1][1][1][1];
 }
 
+template<FunctionTemplateStructuralQuintArrayUnion Value>
+constexpr int function_template_structural_union_quint_array_explicit() {
+    return Value.values[1][0][1][0][1] * 1000 +
+           Value.values[0][1][0][1][0] * 10 +
+           Value.values[1][1][1][1][1];
+}
+
+template<FunctionTemplateStructuralQuintArrayUnion Value>
+constexpr int function_template_structural_union_quint_array_deduced(
+    FunctionTemplateStructuralQuintArrayUnionTag<Value>) {
+    return Value.values[1][0][1][0][1] * 1000 +
+           Value.values[0][1][0][1][0] * 10 +
+           Value.values[1][1][1][1][1];
+}
+
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_explicit() {
     return Value.payload.object.code * 100 +
@@ -727,6 +763,13 @@ static_assert(function_template_structural_derived_deduced(
                       FunctionTemplateStructuralDerived{
                           {}, {{4, 9}}, {3}, {}, {{}, {}}, 4, {},
                           {{}, {}}}>{}) == 30904);
+static_assert(function_template_structural_union_quint_array_explicit<
+                  FUNCTION_TEMPLATE_STRUCTURAL_QUINT_ARRAY_VALUE>() ==
+              22142);
+static_assert(function_template_structural_union_quint_array_deduced(
+                  FunctionTemplateStructuralQuintArrayUnionTag<
+                      FUNCTION_TEMPLATE_STRUCTURAL_QUINT_ARRAY_VALUE>{}) ==
+              22142);
 int main() {
     if (function_template_structural_value_explicit<
             FunctionTemplateStructuralTarget{37}>() != 37 ||
@@ -996,8 +1039,15 @@ int main() {
         function_template_structural_derived_explicit<
             FunctionTemplateStructuralDerived{
                 {}, {{1 + 10, 20 + 3}}, {1 + 1}, {}, {{}, {}},
-                4 + 3, {}, {{}, {}}}>() != 22307) {
+                4 + 3, {}, {{}, {}}}>() != 22307 ||
+        function_template_structural_union_quint_array_explicit<
+            FUNCTION_TEMPLATE_STRUCTURAL_QUINT_ARRAY_VALUE>() != 22142 ||
+        function_template_structural_union_quint_array_deduced(
+            FunctionTemplateStructuralQuintArrayUnionTag<
+                FUNCTION_TEMPLATE_STRUCTURAL_QUINT_ARRAY_VALUE>{}) != 22142) {
         return 1;
     }
     return 0;
 }
+
+#undef FUNCTION_TEMPLATE_STRUCTURAL_QUINT_ARRAY_VALUE

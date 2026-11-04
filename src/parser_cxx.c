@@ -4173,7 +4173,6 @@ static bool cxx_structural_array_count_member_values(
     if (!type->base || type->array_len <= 0 || type->array_bound ||
         !cxx_structural_array_count_member_values(type->base,
                                                   &element_count) ||
-        element_count == 0u ||
         element_count > (size_t)INT_MAX / (size_t)type->array_len) {
         return false;
     }
