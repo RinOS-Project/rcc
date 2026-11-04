@@ -111,3 +111,25 @@ unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_vola
              computed_atomic_store_division_dividend) %
         (computed_atomic_store_division_divisor * 2ull + 1ull));
 }
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_pointer_volatile_divide_entry(
+    volatile _Atomic unsigned long long *computed_atomic_store_volatile_pointer_destination,
+    unsigned long long computed_atomic_store_pointer_division_dividend,
+    unsigned long long computed_atomic_store_pointer_division_divisor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        ((*computed_atomic_store_volatile_pointer_destination =
+              computed_atomic_store_pointer_division_dividend) /
+         (computed_atomic_store_pointer_division_divisor * 2ull + 1ull)));
+}
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_pointer_volatile_remainder_entry(
+    volatile _Atomic unsigned long long *computed_atomic_store_volatile_pointer_destination,
+    unsigned long long computed_atomic_store_pointer_division_dividend,
+    unsigned long long computed_atomic_store_pointer_division_divisor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        ((*computed_atomic_store_volatile_pointer_destination =
+              computed_atomic_store_pointer_division_dividend) %
+         (computed_atomic_store_pointer_division_divisor * 2ull + 1ull)));
+}

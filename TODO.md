@@ -12849,18 +12849,19 @@ remains a separate open item.
   - [x] Preserve unsigned i686 divmod values when the dividend is the result
         of assignment to a 64-bit atomic integer, with volatile and
         nonvolatile global targets, nonvolatile automatic-local and
-        pointer-indirect targets, and a parameter RHS for each. Also cover a
-        computed `parameter + 0x123456789abcdef0` RHS for a nonvolatile global
-        target. Use divisor `2 * parameter + 1`. Restrict safe inline
+        pointer-indirect targets, and volatile pointer-indirect targets. Use a
+        parameter RHS for each; also cover a computed
+        `parameter + 0x123456789abcdef0` RHS for a nonvolatile global target.
+        Use divisor `2 * parameter + 1`. Restrict safe inline
         substitution to this supported integer width and retain the
         one-parameter, one-use side effect exactly once. Describe each
         assignment value from its RHS frame expression. A dedicated fixture
         evaluates full-width division and remainder matrices in legacy
         `-O1`/`-O2` objects through `test-debug-info-inline-expression`. Its
-        generated i686 assembly has six global store references and ten locked
-        `cmpxchg8b` sequences, one per entry function, at both optimization
-        levels; the existing verified corpus continues to emit with zero
-        fallback.
+        generated i686 assembly has six global store references and twelve
+        locked `cmpxchg8b` sequences, one per entry function, at both
+        optimization levels; the existing verified corpus continues to emit
+        with zero fallback.
         Verified SSA lowering for this atomic assignment, other atomic-store
         shapes, and atomic RMW remain open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
