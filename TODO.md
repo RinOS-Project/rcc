@@ -14124,22 +14124,22 @@ remains a separate open item.
       i686/AMD64 output, and all 15 verified-backend functions at `-O0` and
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
-      layouts, structural packs, non-null active pointer-member reads from
-      pointer-bearing structural union alternatives under optimized code
-      generation, direct array layouts beyond the tested one-dimensional
-      pointer-free scalar case, extended-precision floating alternatives,
+      layouts, structural packs, direct array layouts beyond the tested
+      one-dimensional pointer-free scalar case, extended-precision floating
+      alternatives,
       union-array layouts beyond the tested three-dimensional case, and
       unsupported C++20 forms remain open.
   - [x] Collect pointer values from direct and nested pointer-bearing active
         union alternatives into fixed-width structural value records, preserve
         pointer identity in typeinfo keys, and match GCC Itanium mangling for
-        non-null and null pointers. Verify explicit/deduced NTTPs, exact GCC
-        symbols, host execution, i686/AMD64 output, and 42 verified-backend
-        functions with zero fallback at `-O0`/`-O2` in
-        `test-cxx-function-template-structural-nontype`. The pointer-valued
-        arguments are covered, but reading a non-null active pointer member
-        during an instantiated function body still fails i686 `-O2` code
-        generation with `not an lvalue`; that read path remains open.
+        non-null and null pointers. Preserve lvalue identity for address
+        operands during optimization, so constexpr target objects remain
+        addressable instead of becoming scalar literals. Verify non-null
+        pointer reads from direct and nested alternatives in explicit/deduced
+        NTTPs, exact GCC symbols, host execution, i686/AMD64 output, and 42
+        verified-backend functions with zero fallback at `-O0`/`-O2` in
+        `test-cxx-function-template-structural-nontype`. The overload,
+        constexpr pointer/aggregate, and `test-optimize` gates also pass.
   - [x] Preserve the active scalar union member when it is a direct public
         subobject of a structural class. Recurse through explicit/deduced
         template arguments, Itanium value mangling, typeinfo identity, and

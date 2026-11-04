@@ -309,25 +309,25 @@ constexpr int function_template_structural_union_double_deduced(
 template<FunctionTemplateStructuralPointerUnion Value>
 constexpr int
 function_template_structural_union_nested_pointer_explicit() {
-    return Value.object.bias + 23;
+    return *Value.object.pointer + Value.object.bias;
 }
 
 template<FunctionTemplateStructuralPointerUnion Value>
 constexpr int function_template_structural_union_nested_pointer_deduced(
     FunctionTemplateStructuralPointerUnionTag<Value>) {
-    return Value.object.bias + 23;
+    return *Value.object.pointer + Value.object.bias;
 }
 
 template<FunctionTemplateStructuralDirectPointerUnion Value>
 constexpr int
 function_template_structural_union_direct_pointer_explicit() {
-    return 23;
+    return *Value.pointer;
 }
 
 template<FunctionTemplateStructuralDirectPointerUnion Value>
 constexpr int function_template_structural_union_direct_pointer_deduced(
     FunctionTemplateStructuralDirectPointerUnionTag<Value>) {
-    return 23;
+    return *Value.pointer;
 }
 
 template<FunctionTemplateStructuralDirectPointerUnion Value>

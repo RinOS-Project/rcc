@@ -5677,6 +5677,78 @@ static void optimize_expr_list(ExprList* list) {
     }
 }
 
+/* An address operand must retain its lvalue identity. Optimizing an object
+ * name as an ordinary value can replace a constexpr object with its stored
+ * scalar value, producing an invalid address expression such as `&23`. */
+static void optimize_lvalue_expr(Expr** expression) {
+    Expr* value;
+    if (!expression || !*expression) return;
+    value = *expression;
+    switch (value->kind) {
+        case EXPR_IDENT:
+        case EXPR_CXX_THIS:
+        case EXPR_CXX_TYPEID:
+        case EXPR_STRING_LIT:
+            return;
+        case EXPR_DEREF:
+            optimize_expr(&value->unary_operand);
+            return;
+        case EXPR_INDEX:
+            if (value->index_base && value->index_base->type &&
+                value->index_base->type->kind == TYPE_ARRAY) {
+                optimize_lvalue_expr(&value->index_base);
+            } else {
+                optimize_expr(&value->index_base);
+            }
+            optimize_expr(&value->index_expr);
+            return;
+        case EXPR_MEMBER:
+            optimize_lvalue_expr(&value->member_base);
+            return;
+        case EXPR_PTR_MEMBER:
+            optimize_expr(&value->member_base);
+            return;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            optimize_lvalue_expr(&value->binary_lhs);
+            optimize_expr(&value->binary_rhs);
+            return;
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            optimize_expr(&value->binary_lhs);
+            optimize_expr(&value->binary_rhs);
+            return;
+        case EXPR_CAST:
+            if (value->type && value->type->is_reference) {
+                optimize_lvalue_expr(&value->cast_expr);
+            } else {
+                optimize_expr(&value->cast_expr);
+            }
+            return;
+        case EXPR_COND: {
+            bool condition;
+            optimize_expr(&value->cond_test);
+            if (constant_scalar_truth(value->cond_test, &condition)) {
+                Expr** selected = condition
+                    ? &value->cond_then : &value->cond_else;
+                optimize_lvalue_expr(selected);
+                *expression = *selected;
+                return;
+            }
+            optimize_lvalue_expr(&value->cond_then);
+            optimize_lvalue_expr(&value->cond_else);
+            return;
+        }
+        case EXPR_COMMA:
+            optimize_expr(&value->binary_lhs);
+            optimize_lvalue_expr(&value->binary_rhs);
+            return;
+        case EXPR_COMPOUND:
+            optimize_expr_list(value->compound_init);
+            return;
+        default:
+            return;
+    }
+}
+
 static void optimize_expr(Expr** expression) {
     Expr* value;
     int64_t left;
@@ -5698,13 +5770,15 @@ static void optimize_expr(Expr** expression) {
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
-        case EXPR_ADDR:
         case EXPR_DEREF:
         case EXPR_PREINC:
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
             optimize_expr(&value->unary_operand);
+            break;
+        case EXPR_ADDR:
+            optimize_lvalue_expr(&value->unary_operand);
             break;
         case EXPR_ADD:
         case EXPR_SUB:
