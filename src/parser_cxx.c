@@ -4308,6 +4308,25 @@ static bool cxx_template_non_type_constant_value(
             return evaluated;
         }
     }
+    Type* aggregate_value_type = expression->kind == EXPR_COMPOUND &&
+            expression->compound_type
+        ? expression->compound_type : expression->type;
+    if (aggregate_value_type &&
+        aggregate_value_type->kind == TYPE_STRUCT &&
+        (expression->kind == EXPR_CALL || expression->kind == EXPR_COND ||
+         expression->kind == EXPR_COMMA ||
+         (expression->kind == EXPR_COMPOUND &&
+          (expression->compound_constructor ||
+           (expression->compound_paren_init &&
+            aggregate_value_type->cxx_class &&
+            aggregate_value_type->cxx_class->has_user_constructor))))) {
+        Expr* initialized = rcc_sema_eval_constexpr_aggregate_initializer(
+            (Expr*)expression, aggregate_value_type);
+        if (initialized) {
+            return cxx_template_non_type_constant_value(
+                initialized, value_out);
+        }
+    }
     if (expression->kind == EXPR_COMPOUND) {
         Type* value_type = expression->compound_type
             ? expression->compound_type : expression->type;
@@ -48027,6 +48046,8 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     initializer->compound_type = type;
     initializer->compound_value_init = arguments == NULL;
     if (type->cxx_class) {
+        initializer->compound_paren_init = !brace_form;
+        initializer->compound_direct_list_init = brace_form;
         rcc_parser_validate_cxx_constructor_initializer(type, initializer);
     }
     return initializer;

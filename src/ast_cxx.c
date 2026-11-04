@@ -4878,7 +4878,7 @@ static bool cxx_structural_class_measure_fields(
     if (!type ||
         (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
         !(cls = type->cxx_class) ||
-        cls->has_nonpublic_field || cls->has_user_constructor ||
+        cls->has_nonpublic_field ||
         cls->vtable_size != 0 || cls->is_abstract ||
         cxx_structural_class_has_destructor(cls)) {
         return false;

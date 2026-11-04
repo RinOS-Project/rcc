@@ -14267,6 +14267,13 @@ remains a separate open item.
         execution, i686/AMD64 output, and all 64 verified-backend functions
         with zero fallback at `-O0`/`-O2` pass in
         `test-cxx-function-template-structural-nontype`.
+  - [x] Treat structural classes with user-provided `constexpr` constructors
+        as legal C++20 structural types. Select and evaluate the constructor for
+        functional-cast NTTP values, then encode the initialized public
+        subobjects for explicit and deduced arguments. Exact GCC Itanium symbols,
+        GCC/RCC host execution, i686/AMD64 output, and all 67 verified-backend
+        functions with zero fallback at `-O0`/`-O2` pass in
+        `test-cxx-function-template-structural-nontype` on Windows and POSIX.
   - [x] Preserve RinOS binary64 `long double` as a distinct active structural
         union value. Verify explicit/deduced member reads and exact Itanium
         floating-value symbols against GCC's `-mlong-double-64` ABI oracle.

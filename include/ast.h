@@ -1239,6 +1239,10 @@ bool rcc_sema_eval_constexpr_floating_constant(Expr* expression,
  * constant-expression argument. */
 bool rcc_sema_eval_constexpr_aggregate_constant(Expr* expression,
                                                 Type* type);
+/* Materialize a constexpr class expression and rebuild it as initialized
+ * member values for structural non-type template argument evaluation. */
+Expr* rcc_sema_eval_constexpr_aggregate_initializer(Expr* expression,
+                                                    Type* type);
 
 /* ═══════════════════════════════════════
  * Statements

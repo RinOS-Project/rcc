@@ -98,6 +98,13 @@ struct FunctionTemplateStructuralDefaultMember {
     int bias = 6;
 };
 
+struct FunctionTemplateStructuralConstexprConstructor {
+    int value;
+
+    constexpr explicit FunctionTemplateStructuralConstexprConstructor(
+        int input) : value(input + 1) {}
+};
+
 inline constexpr int function_template_structural_pointer_array_first = 13;
 inline constexpr int function_template_structural_pointer_array_second = 29;
 
@@ -220,6 +227,9 @@ struct FunctionTemplateStructuralLongDoubleArrayTag {};
 
 template<FunctionTemplateStructuralDefaultMember Value>
 struct FunctionTemplateStructuralDefaultMemberTag {};
+
+template<FunctionTemplateStructuralConstexprConstructor Value>
+struct FunctionTemplateStructuralConstexprConstructorTag {};
 
 template<FunctionTemplateStructuralUnionContainer Value>
 struct FunctionTemplateStructuralUnionContainerTag {};
@@ -489,6 +499,17 @@ constexpr int function_template_structural_default_member_deduced(
     return Value.value * 10 + Value.bias;
 }
 
+template<FunctionTemplateStructuralConstexprConstructor Value>
+constexpr int function_template_structural_constexpr_constructor_explicit() {
+    return Value.value;
+}
+
+template<FunctionTemplateStructuralConstexprConstructor Value>
+constexpr int function_template_structural_constexpr_constructor_deduced(
+    FunctionTemplateStructuralConstexprConstructorTag<Value>) {
+    return Value.value;
+}
+
 template<FunctionTemplateStructuralDirectPointerUnion Value>
 constexpr int function_template_structural_union_null_pointer_explicit() {
     return Value.pointer == nullptr ? 1 : 0;
@@ -614,6 +635,13 @@ static_assert(function_template_structural_value_explicit<
 static_assert(function_template_structural_value_deduced(
                   FunctionTemplateStructuralValueTag<
                       FunctionTemplateStructuralTarget(47)>{}) == 47);
+static_assert(function_template_structural_constexpr_constructor_explicit<
+                  FunctionTemplateStructuralConstexprConstructor(67)>() ==
+              68);
+static_assert(function_template_structural_constexpr_constructor_deduced(
+                  FunctionTemplateStructuralConstexprConstructorTag<
+                      FunctionTemplateStructuralConstexprConstructor(71)>{}) ==
+              72);
 static_assert(function_template_structural_value_explicit<
                   function_template_structural_target_one>() == 37);
 static_assert(function_template_structural_value_deduced(
@@ -904,6 +932,11 @@ int main() {
         function_template_structural_value_deduced(
             FunctionTemplateStructuralValueTag<
                 FunctionTemplateStructuralTarget(47)>{}) != 47 ||
+        function_template_structural_constexpr_constructor_explicit<
+            FunctionTemplateStructuralConstexprConstructor(67)>() != 68 ||
+        function_template_structural_constexpr_constructor_deduced(
+            FunctionTemplateStructuralConstexprConstructorTag<
+                FunctionTemplateStructuralConstexprConstructor(71)>{}) != 72 ||
         function_template_structural_value_explicit<
             function_template_structural_target_one>() != 37 ||
         function_template_structural_value_deduced(

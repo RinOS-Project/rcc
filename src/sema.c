@@ -7701,6 +7701,8 @@ static bool sema_constexpr_load_scalar_bytes(
 static bool sema_constexpr_materialize_object(
     Type* type, Expr* initializer, SemaConstexprBinding* bindings,
     int binding_count, unsigned char* storage, size_t storage_size);
+static CxxConstructorInfo* sema_select_cxx_new_constructor(
+    Type* object_type, ExprList** arguments, SourceLoc loc);
 static bool sema_constexpr_constructor_body_writes_direct_member(
     CxxConstructorInfo* constructor, CxxClass* cls, Type* type,
     const char* member_name, bool* supported,
@@ -11595,6 +11597,142 @@ static Expr* sema_constexpr_rebuild_object(
         exprlist_append(&expression->compound_init, item);
     }
     return expression;
+}
+
+/* Structural NTTP values are represented as member lists for the parser's
+ * structural-value encoder. A class with a user-provided constructor is not
+ * an aggregate, so rebuild its public base and member subobjects directly
+ * instead of treating that list as a source initializer. */
+static Expr* sema_constexpr_rebuild_structural_nttp_object(
+    Type* type, const unsigned char* storage, size_t storage_size,
+    SourceLoc loc) {
+    Expr* expression;
+    if (!type || !storage || type->size <= 0 ||
+        (size_t)type->size > storage_size) return NULL;
+    if (sema_constexpr_scalar_type(type)) {
+        return sema_constexpr_rebuild_object(
+            type, storage, storage_size, loc);
+    }
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->base->size <= 0) return NULL;
+        expression = expr_initializer_list(NULL, loc);
+        expression->compound_type = type;
+        expression->type = type;
+        for (int64_t index = 0; index < type->array_len; ++index) {
+            size_t offset = (size_t)index * (size_t)type->base->size;
+            Expr* item;
+            if (offset > (size_t)type->size) return NULL;
+            item = sema_constexpr_rebuild_structural_nttp_object(
+                type->base, storage + offset,
+                (size_t)type->size - offset, loc);
+            if (!item) return NULL;
+            exprlist_append(&expression->compound_init, item);
+        }
+        return expression;
+    }
+    if (type->kind != TYPE_STRUCT || !type->cxx_class ||
+        type->cxx_class->is_union) {
+        return NULL;
+    }
+    expression = expr_initializer_list(NULL, loc);
+    expression->compound_type = type;
+    expression->type = type;
+    if (ast_cxx_is_aggregate(type)) {
+        int element_count = ast_cxx_aggregate_element_count(type);
+        for (int index = 0; index < element_count; ++index) {
+            Type* element_type = NULL;
+            int element_offset = 0;
+            Expr* item;
+            if (!ast_cxx_aggregate_element(type, index, &element_type,
+                                           &element_offset, NULL) ||
+                !element_type || element_type->size <= 0 ||
+                element_offset < 0 ||
+                (size_t)element_offset > (size_t)type->size ||
+                (size_t)element_type->size >
+                    (size_t)type->size - (size_t)element_offset) {
+                return NULL;
+            }
+            item = sema_constexpr_rebuild_structural_nttp_object(
+                element_type, storage + (size_t)element_offset,
+                (size_t)type->size - (size_t)element_offset, loc);
+            if (!item) return NULL;
+            exprlist_append(&expression->compound_init, item);
+        }
+        return expression;
+    }
+    for (int index = 0; index < type->cxx_class->base_count; ++index) {
+        CxxClass* base = type->cxx_class->bases[index].base;
+        int offset = type->cxx_class->base_offsets
+            ? type->cxx_class->base_offsets[index] : -1;
+        Expr* item;
+        if (!base || !base->type ||
+            type->cxx_class->bases[index].is_virtual ||
+            type->cxx_class->bases[index].access != ACCESS_PUBLIC ||
+            offset < 0 || base->type->size <= 0 ||
+            (size_t)offset > (size_t)type->size ||
+            (size_t)base->type->size >
+                (size_t)type->size - (size_t)offset) {
+            return NULL;
+        }
+        item = sema_constexpr_rebuild_structural_nttp_object(
+            base->type, storage + (size_t)offset,
+            (size_t)type->size - (size_t)offset, loc);
+        if (!item) return NULL;
+        exprlist_append(&expression->compound_init, item);
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        size_t offset;
+        Expr* item;
+        if (field->cxx_declaring_class != type->cxx_class) continue;
+        if (field->is_bitfield || field->offset < 0 || !field->type ||
+            field->type->size <= 0) return NULL;
+        offset = (size_t)field->offset;
+        if (offset > (size_t)type->size ||
+            (size_t)field->type->size > (size_t)type->size - offset) {
+            return NULL;
+        }
+        item = sema_constexpr_rebuild_structural_nttp_object(
+            field->type, storage + offset,
+            (size_t)type->size - offset, loc);
+        if (!item) return NULL;
+        exprlist_append(&expression->compound_init, item);
+    }
+    return expression;
+}
+
+Expr* rcc_sema_eval_constexpr_aggregate_initializer(
+    Expr* expression, Type* type) {
+    unsigned char* storage;
+    bool materialized;
+    if (!expression || !type || type->kind != TYPE_STRUCT ||
+        !sema_constexpr_aggregate_type(type)) {
+        return NULL;
+    }
+    if (expression->kind == EXPR_COMPOUND &&
+        !expression->compound_constructor && type->cxx_class &&
+        expression->compound_paren_init &&
+        type->cxx_class->has_user_constructor) {
+        ExprList* constructor_arguments = expression->compound_value_init
+            ? NULL : expression->compound_init;
+        CxxConstructorInfo* constructor = sema_select_cxx_new_constructor(
+            type, &constructor_arguments, expression->loc);
+        if (!constructor) return NULL;
+        expression->compound_constructor = constructor;
+        if (constructor_arguments != expression->compound_init) {
+            expression->compound_init = constructor_arguments;
+            expression->compound_value_init = constructor_arguments == NULL;
+        }
+    }
+    storage = ast_arena_alloc((size_t)type->size);
+    materialized = storage && sema_constexpr_materialize_object(
+        type, expression, NULL, 0, storage, (size_t)type->size);
+    if (!materialized) return NULL;
+    if (type->cxx_class && !ast_cxx_is_aggregate(type)) {
+        return sema_constexpr_rebuild_structural_nttp_object(
+            type, storage, (size_t)type->size, expression->loc);
+    }
+    return sema_constexpr_rebuild_object(
+        type, storage, (size_t)type->size, expression->loc);
 }
 
 static bool sema_fold_constexpr_aggregate_call(Expr* expression,
