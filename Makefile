@@ -801,6 +801,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-verified-cxx-static-local-scalar
 .PHONY: test-verified-cxx-static-local-aggregate
 .PHONY: test-verified-cxx-dynamic-tls-aggregate
+.PHONY: test-verified-cxx-value-initialized-aggregate
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
 .PHONY: test-cxx-return-semantics
@@ -25941,6 +25942,13 @@ test-verified-backend: test-verified-cxx-static-local-aggregate
 test-verified-backend: test-verified-cxx-inherited-assignment
 
 test-verified-backend: test-verified-cxx-defaulted-large-array-assignment
+
+test-verified-backend: test-verified-cxx-value-initialized-aggregate
+
+test-verified-cxx-value-initialized-aggregate: $(RCXX_SHELL_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-value-initialized-aggregate)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,verified-cxx-value-initialized-aggregate,cxx_value_initialized_aggregate_constructor.cpp,10)
+	@echo "Verified C++ aggregate and union member value-initialization constructor tests completed"
 
 test-verified-cxx-defaulted-large-array-assignment: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-defaulted-large-array-assignment)

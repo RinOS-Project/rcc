@@ -23811,6 +23811,11 @@ static bool lower_cxx_throwing_scalar_default_member_initializer_supported(
     return true;
 }
 
+static bool lower_cxx_value_initialized_union_supported(
+    const Type* type, unsigned depth);
+static bool lower_cxx_value_initialized_subobject_supported(
+    const Type* type, unsigned depth);
+
 /* A potentially-throwing exception specification does not itself add a
  * throwing operation. Completed direct bases are registered before the body
  * is lowered, so body throws unwind those bases. Scalar default-member
@@ -23827,6 +23832,11 @@ static bool lower_cxx_throwing_constructor_with_bases_supported(
         const CxxClass* member_class;
         if (member->is_static) continue;
         if (member->type && type_is_scalar(member->type)) continue;
+        if (member->type &&
+            lower_cxx_value_initialized_subobject_supported(
+                member->type, 0u)) {
+            continue;
+        }
         member_class = member->type &&
                 member->type->kind == TYPE_STRUCT
             ? member->type->cxx_class : NULL;
@@ -23846,6 +23856,169 @@ static bool lower_cxx_throwing_constructor_with_bases_supported(
         }
     }
     return true;
+}
+
+static const TypeField* lower_cxx_value_initialized_union_member(
+    const Type* type) {
+    const TypeField* first = NULL;
+    const TypeField* initialized = NULL;
+    if (!type || type->kind != TYPE_UNION) return NULL;
+    for (const TypeField* field = type->fields; field; field = field->next) {
+        if (!field->type || field->offset != 0 || field->type->size <= 0 ||
+            field->type->size > type->size) {
+            return NULL;
+        }
+        if (!first) first = field;
+        if (field->initializer) {
+            if (initialized) return NULL;
+            initialized = field;
+        }
+    }
+    return initialized ? initialized : first;
+}
+
+static bool lower_cxx_integer_default_initializer_constant(
+    const Expr* expression, const Type* type, int64_t* value) {
+    if (!expression || !type || !value || !type_is_integer((Type*)type)) {
+        return false;
+    }
+    if (expr_eval_integer_constant((Expr*)expression, value)) return true;
+    if (expression->kind != EXPR_COMPOUND ||
+        !expression->compound_direct_list_init ||
+        !expression->compound_type) {
+        return false;
+    }
+    {
+        Type unqualified_type = *type;
+        Type initializer_type = *expression->compound_type;
+        unqualified_type.is_const = false;
+        unqualified_type.is_volatile = false;
+        initializer_type.is_const = false;
+        initializer_type.is_volatile = false;
+        if (!type_is_compatible(&unqualified_type, &initializer_type)) {
+            return false;
+        }
+    }
+    if (expression->compound_init) {
+        return !expression->compound_init->next &&
+            expression->compound_init->expr &&
+            expr_eval_integer_constant(
+                expression->compound_init->expr, value);
+    }
+    if (!expression->compound_value_init) return false;
+    *value = 0;
+    return true;
+}
+
+static bool lower_cxx_value_initialized_union_supported(
+    const Type* type, unsigned depth) {
+    const CxxClass* cls;
+    const TypeField* active;
+    if (!type || type->kind != TYPE_UNION || !type->is_complete ||
+        type->size <= 0 || depth >= 16u || type->cleanup_function ||
+        type->cleanup_field) {
+        return false;
+    }
+    cls = type->cxx_class;
+    if (cls && (cls->has_user_constructor || cls->destructor_method ||
+                cls->base_count != 0 || cls->virtual_base_count != 0 ||
+                cls->vtable_size != 0)) {
+        return false;
+    }
+    active = lower_cxx_value_initialized_union_member(type);
+    if (!active || active->is_bitfield || active->type->size != type->size ||
+        active->type->is_reference || active->type->is_atomic) {
+        return false;
+    }
+    if (active->initializer) {
+        int64_t value;
+        return lower_cxx_integer_default_initializer_constant(
+            active->initializer, active->type, &value);
+    }
+    if (active->type->kind == TYPE_UNION) {
+        return lower_cxx_value_initialized_union_supported(
+            active->type, depth + 1u);
+    }
+    if (active->type->kind == TYPE_STRUCT) {
+        return lower_cxx_value_initialized_subobject_supported(
+            active->type, depth + 1u);
+    }
+    return type_is_scalar(active->type);
+}
+
+static bool lower_cxx_value_initialized_subobject_supported(
+    const Type* type, unsigned depth) {
+    const CxxClass* cls;
+    if (!type || depth >= 64u || type->size <= 0 ||
+        type->cleanup_function || type->cleanup_field) {
+        return false;
+    }
+    if (type_is_scalar((Type*)type)) {
+        return !type->is_reference && !type->is_atomic &&
+            !type_is_cxx_member_function_pointer(type);
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->is_complete && type->array_len > 0 &&
+            type->array_len <= 4096 && type->size <= 65536 && type->base &&
+            lower_cxx_value_initialized_subobject_supported(
+                type->base, depth + 1u);
+    }
+    if (type->kind == TYPE_UNION) {
+        return lower_cxx_value_initialized_union_supported(type, depth);
+    }
+    if (type->kind != TYPE_STRUCT || !type->is_complete ||
+        !lower_storage_type_supported_ignoring_volatile_internal(type, 0u) ||
+        !(cls = type->cxx_class) || cls->has_user_constructor ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        cls->destructor_method || cls->vtable_size != 0 ||
+        cls->secondary_vtable_count != 0) {
+        return false;
+    }
+    int covered_size = 0;
+    for (const TypeField* field = type->fields; field; field = field->next) {
+        if (!field->type || field->is_bitfield ||
+            field->offset != covered_size || field->offset < 0 ||
+            field->offset > type->size || field->type->size <= 0 ||
+            field->type->size > type->size - field->offset) {
+            return false;
+        }
+        covered_size += field->type->size;
+        if (field->initializer) {
+            int64_t value;
+            if (!lower_cxx_integer_default_initializer_constant(
+                    field->initializer, field->type, &value)) {
+                return false;
+            }
+        } else if (!lower_cxx_value_initialized_subobject_supported(
+                       field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return !type->fields || covered_size == type->size;
+}
+
+static bool lower_cxx_constructor_initializer_value_initializes(
+    const CxxConstructorInitializer* initializer, const Type* type) {
+    Type unqualified_type;
+    Type initializer_type;
+    if (!initializer || !type ||
+        initializer->is_default_member_initializer ||
+        initializer->constructor || initializer->arguments) {
+        return false;
+    }
+    if (!initializer->value) return true;
+    if (initializer->value->kind != EXPR_COMPOUND ||
+        !initializer->value->compound_cxx_default_member_normalized ||
+        !initializer->value->type) {
+        return false;
+    }
+    unqualified_type = *type;
+    unqualified_type.is_const = false;
+    unqualified_type.is_volatile = false;
+    initializer_type = *initializer->value->type;
+    initializer_type.is_const = false;
+    initializer_type.is_volatile = false;
+    return type_is_compatible(&unqualified_type, &initializer_type);
 }
 
 static bool lower_cxx_zero_value_initialized_subobject(
@@ -23875,14 +24048,44 @@ static bool lower_cxx_zero_value_initialized_subobject(
         }
         return true;
     }
+    if (type->kind == TYPE_UNION) {
+        const TypeField* active;
+        RccIrLowerValue member;
+        if (!lower_cxx_value_initialized_union_supported(type, depth) ||
+            !(active = lower_cxx_value_initialized_union_member(type))) {
+            return false;
+        }
+        member = lower_byte_offset_address(
+            context, address, (uint64_t)active->offset);
+        if (!member.valid) return false;
+        if (active->initializer) {
+            int64_t constant_value;
+            RccIrType member_type;
+            RccIrLowerValue value;
+            if (!lower_cxx_integer_default_initializer_constant(
+                    active->initializer, active->type, &constant_value) ||
+                !lower_type(active->type, &member_type) ||
+                member_type.kind != RCC_IR_TYPE_INTEGER) {
+                return false;
+            }
+            value = lower_integer_constant(
+                context, member_type, active->type->is_unsigned,
+                (uint64_t)constant_value);
+            return value.valid && lower_store_address(context, member, value);
+        }
+        return lower_cxx_zero_value_initialized_subobject(
+            context, member, active->type, depth + 1u);
+    }
     if (type->kind == TYPE_STRUCT) {
         const TypeField* field;
         const CxxClass* cls = type->cxx_class;
         Type unqualified_type = *type;
         unqualified_type.is_volatile = false;
-        if (!lower_struct_type_supported(&unqualified_type) || !cls ||
+        if (!lower_cxx_value_initialized_subobject_supported(
+                type, depth) ||
+            !lower_struct_type_supported(&unqualified_type) || !cls ||
             cls->base_count != 0 || cls->virtual_base_count != 0 ||
-            cls->has_user_constructor || cls->has_field_initializer ||
+            cls->has_user_constructor ||
             cls->destructor_method || cls->vtable_size != 0 ||
             type->cleanup_function || type->cleanup_field) {
             return false;
@@ -23899,8 +24102,24 @@ static bool lower_cxx_zero_value_initialized_subobject(
                 field->type->is_volatile) {
                 member.volatile_access = true;
             }
-            if (!lower_cxx_zero_value_initialized_subobject(
-                    context, member, field->type, depth + 1u)) {
+            if (field->initializer) {
+                int64_t constant_value;
+                RccIrType member_type;
+                RccIrLowerValue value;
+                if (!lower_cxx_integer_default_initializer_constant(
+                        field->initializer, field->type, &constant_value) ||
+                    !lower_type(field->type, &member_type) ||
+                    member_type.kind != RCC_IR_TYPE_INTEGER) {
+                    return false;
+                }
+                value = lower_integer_constant(
+                    context, member_type, field->type->is_unsigned,
+                    (uint64_t)constant_value);
+                if (!value.valid || !lower_store_address(context, member, value)) {
+                    return false;
+                }
+            } else if (!lower_cxx_zero_value_initialized_subobject(
+                           context, member, field->type, depth + 1u)) {
                 return false;
             }
         }
@@ -24218,10 +24437,11 @@ static bool lower_cxx_initialize_constructor_members(
                 return false;
             }
         }
-        value_initialize = !initializer->is_default_member_initializer &&
-            !initializer->constructor && !initializer->value && !argument;
-        if (field->type->kind == TYPE_STRUCT && !value_initialize &&
-            !initializer->constructor) {
+        value_initialize = lower_cxx_constructor_initializer_value_initializes(
+            initializer, field->type);
+        if ((field->type->kind == TYPE_STRUCT ||
+             field->type->kind == TYPE_UNION) &&
+            !value_initialize && !initializer->constructor) {
             Type unqualified_type = *field->type;
             unqualified_type.is_const = false;
             unqualified_type.is_volatile = false;
@@ -24230,11 +24450,14 @@ static bool lower_cxx_initialize_constructor_members(
             if (initializer->is_default_member_initializer || !source ||
                 source->kind != EXPR_IDENT || !source->ident_decl ||
                 source->ident_decl->kind != DECL_PARAM ||
-                !source->type || source->type->kind != TYPE_STRUCT ||
+                !source->type || source->type->kind != field->type->kind ||
                 !type_is_compatible(&unqualified_type, source->type) ||
                 !lower_find_local(context, source->ident_decl) ||
                 !lower_storage_type_supported_ignoring_volatile_internal(
-                    field->type, 0u) || field->type->cxx_nontrivial ||
+                    field->type, 0u) ||
+                (field->type->cxx_nontrivial &&
+                 !lower_cxx_value_initialized_subobject_supported(
+                     field->type, 0u)) ||
                 field->type->cleanup_function || field->type->cleanup_field) {
                 context->unsupported = true;
                 return false;
@@ -24300,13 +24523,19 @@ static bool lower_cxx_initialize_constructor_members(
             context->unsupported = true;
             return false;
         }
+        if (value_initialize && field->type->kind == TYPE_UNION) {
+            if (!lower_cxx_value_initialized_union_supported(
+                    field->type, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
         if (value_initialize && field->type->kind == TYPE_STRUCT) {
             Type unqualified_type = *field->type;
             unqualified_type.is_const = false;
             unqualified_type.is_volatile = false;
-            if (!field->type->cxx_class ||
-                field->type->cxx_class->base_count != 0 ||
-                !lower_cxx_implicit_default_subobject_supported(
+            if (!lower_cxx_value_initialized_subobject_supported(
                     &unqualified_type, 0u)) {
                 context->unsupported = true;
                 return false;
@@ -24452,9 +24681,8 @@ static bool lower_cxx_initialize_constructor_members(
         if (address.valid && field->type->is_volatile) {
             address.volatile_access = true;
         }
-        value_initialize = !initializer->is_default_member_initializer &&
-            !initializer->constructor && !initializer->arguments &&
-            !initializer->value;
+        value_initialize = lower_cxx_constructor_initializer_value_initializes(
+            initializer, field->type);
         if (field->type->kind == TYPE_STRUCT && initializer->constructor) {
             Expr member_expression;
             memset(&member_expression, 0, sizeof(member_expression));
@@ -24474,7 +24702,8 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
-        if (field->type->kind == TYPE_STRUCT && !value_initialize) {
+        if ((field->type->kind == TYPE_STRUCT ||
+             field->type->kind == TYPE_UNION) && !value_initialize) {
             source = initializer->arguments &&
                     !initializer->arguments->next
                 ? initializer->arguments->expr : NULL;
@@ -24512,7 +24741,9 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
-        if (value_initialize && field->type->kind == TYPE_STRUCT) {
+        if (value_initialize &&
+            (field->type->kind == TYPE_STRUCT ||
+             field->type->kind == TYPE_UNION)) {
             if (!lower_cxx_zero_value_initialized_subobject(
                     context, address, field->type, 0u)) {
                 context->unsupported = true;

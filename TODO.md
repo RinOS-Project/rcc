@@ -14094,3 +14094,14 @@ remains a separate open item.
       relocations. Link the generated i686 and AMD64 fixtures to libc's actual
       `atomic_runtime_fallback.c` and the existing host wait implementation.
       The focused `test-atomic-builtins` gate and full `test-cxx` aggregate pass.
+
+## RCC continuation (2026-11-04, verified aggregate and union value initialization)
+
+- [x] Lower value-initialized trivial aggregate and union members in C++
+      constructors, including constant default member initializers, empty and
+      single-element direct-list integer initializers, and compatible aggregate
+      copies through a base-bearing storage class. Reject layouts with uncovered
+      padding or non-constant initialization from this SSA path. The focused
+      `test-verified-cxx-value-initialized-aggregate` gate emits all 10
+      constructors with zero fallback for i686 and AMD64 at `-O0` and `-O2`;
+      `test-atomic-builtins` and full `test-cxx` pass.
