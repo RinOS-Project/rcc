@@ -17513,7 +17513,7 @@ static void sema_prepare_variadic_class_argument(ExprList* argument) {
     Type* object_type;
     if (!rcc_parser_is_cxx_mode() || !argument ||
         !(source = argument->expr) || !(object_type = source->type) ||
-        !object_type->cxx_nontrivial ||
+        !rcc_sema_cxx_is_nontrivial_for_calls(object_type) ||
         (object_type->kind != TYPE_STRUCT &&
          object_type->kind != TYPE_UNION)) {
         return;
@@ -17541,7 +17541,8 @@ static void sema_prepare_cxx_by_value_class_argument(
     Expr* source;
     if (!rcc_parser_is_cxx_mode() || !argument ||
         !(source = argument->expr) || !parameter_type ||
-        parameter_type->is_reference || !parameter_type->cxx_nontrivial ||
+        parameter_type->is_reference ||
+        !rcc_sema_cxx_is_nontrivial_for_calls(parameter_type) ||
         sema_cxx_initializer_list_element_type(parameter_type) ||
         (parameter_type->kind != TYPE_STRUCT &&
          parameter_type->kind != TYPE_UNION)) {
@@ -21124,6 +21125,12 @@ static bool sema_cxx_type_trait_has_trivial_copy_recursive(
 
 bool rcc_sema_cxx_has_trivial_copy(Type* type) {
     return sema_cxx_type_trait_has_trivial_copy_recursive(type, 0u);
+}
+
+bool rcc_sema_cxx_is_nontrivial_for_calls(Type* type) {
+    return type && type->cxx_class && type->cxx_nontrivial &&
+        (!rcc_sema_cxx_has_trivial_copy(type) ||
+         !rcc_sema_cxx_has_trivial_destructor(type));
 }
 
 static bool sema_cxx_type_trait_union_members_are_nothrow_copy(

@@ -381,6 +381,7 @@ static bool lower_initialize_union_storage(
 static RccIrLowerValue lower_compound_literal_address(
     RccIrLowerContext* context, const Expr* expression);
 static bool lower_abi_is_aggregate(const Type* type);
+static bool lower_abi_class_nontrivial_for_calls(const Type* type);
 static bool lower_abi_indirect_class_parameter(const Type* type);
 static bool lower_abi_native_scalar_type(
     const Type* type, RccIrType* ir_type);
@@ -22044,9 +22045,16 @@ static bool lower_abi_is_aggregate(const Type* type) {
 }
 
 static bool lower_abi_indirect_class_parameter(const Type* type) {
-    return type && type->cxx_class && type->cxx_nontrivial &&
-        !type->is_reference &&
-        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+    return lower_abi_class_nontrivial_for_calls(type) &&
+        !type->is_reference && lower_abi_is_aggregate(type);
+}
+
+/* SysV's invisible-reference rule depends on non-trivial copy/move
+ * construction or destruction. A user-provided default constructor or a
+ * default member initializer alone does not change by-value register
+ * classification. */
+static bool lower_abi_class_nontrivial_for_calls(const Type* type) {
+    return rcc_sema_cxx_is_nontrivial_for_calls((Type*)type);
 }
 
 static bool lower_abi_naturally_aligned_internal(
@@ -22164,7 +22172,8 @@ static bool lower_sysv_classify_type_at(
         return true;
     }
     if (lower_abi_is_aggregate(type)) {
-        if (!type->is_complete || type->cxx_nontrivial) return false;
+        if (!type->is_complete ||
+            lower_abi_class_nontrivial_for_calls(type)) return false;
         for (field = type->fields; field; field = field->next) {
             if (field->type && field->type->kind == TYPE_ARRAY &&
                 field->type->array_len == -1 &&
@@ -22207,7 +22216,8 @@ static bool lower_sysv_classify_type_at(
 static bool lower_sysv_classify_aggregate(
     const Type* type, LowerSysvAggregateClass* result) {
     if (!type || !result || !lower_abi_is_aggregate(type) ||
-        type->size <= 0 || type->cxx_nontrivial ||
+        type->size <= 0 ||
+        lower_abi_class_nontrivial_for_calls(type) ||
         !lower_storage_type_supported_ignoring_volatile_internal(
             type, 0u)) return false;
     memset(result, 0, sizeof(*result));
@@ -22303,17 +22313,25 @@ static int lower_abi_return_layout(const Type* type,
         *return_type = rcc_ir_type_pointer(0u);
         return LOWER_ABI_RETURN_SRET;
     }
-    if (type->size <= 8 &&
-        lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
-        lower_abi_integer_class_internal(type, 0u)) {
-        *return_type = rcc_ir_type_integer(64u);
-        return LOWER_ABI_RETURN_REGISTER_AGGREGATE;
+    if (lower_abi_class_nontrivial_for_calls(type)) {
+        *return_type = rcc_ir_type_pointer(0u);
+        return LOWER_ABI_RETURN_SRET;
     }
-    if (type->size <= 16 &&
-        lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
-        lower_abi_integer_class_internal(type, 0u)) {
-        *return_type = rcc_ir_type_integer(64u);
-        return LOWER_ABI_RETURN_REGISTER_PAIR;
+    {
+        LowerSysvAggregateClass classification;
+        if (type->size <= 16 &&
+            lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
+            lower_sysv_classify_aggregate(type, &classification) &&
+            !classification.memory &&
+            (classification.count == 1 || classification.count == 2) &&
+            classification.classes[0] == LOWER_SYSV_CLASS_INTEGER &&
+            (classification.count == 1 ||
+             classification.classes[1] == LOWER_SYSV_CLASS_INTEGER)) {
+            *return_type = rcc_ir_type_integer(64u);
+            return type->size <= 8
+                ? LOWER_ABI_RETURN_REGISTER_AGGREGATE
+                : LOWER_ABI_RETURN_REGISTER_PAIR;
+        }
     }
     /* A single SSE-class eightbyte has the same low XMM register transport
      * as its scalar-width bit pattern. Multi-eightbyte results use a tagged

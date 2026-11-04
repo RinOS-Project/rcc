@@ -9550,7 +9550,7 @@ static void gen_copy_aggregate_to_address32(Module* mod, int destination_registe
 }
 
 static bool gen_cxx_indirect_parameter32(const Type* type) {
-    return type && type->cxx_class && type->cxx_nontrivial &&
+    return rcc_sema_cxx_is_nontrivial_for_calls((Type*)type) &&
            !type->is_reference &&
            (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
 }
@@ -10788,7 +10788,8 @@ static void gen_expr64_pair_impl(Module* mod, Expr* expr) {
             if (expr->va_arg_type &&
                 (expr->va_arg_type->kind == TYPE_STRUCT ||
                  expr->va_arg_type->kind == TYPE_UNION)) {
-                if (expr->va_arg_type->cxx_nontrivial) {
+                if (rcc_sema_cxx_is_nontrivial_for_calls(
+                        expr->va_arg_type)) {
                     /* Non-trivial C++ ellipsis arguments are pointers to
                      * temporaries under the Itanium ABI. */
                     gen_lvalue(mod, expr->va_list_operand);
@@ -16243,7 +16244,7 @@ static void gen_call(Module* mod, Expr* expr) {
         Type* argument_type = argument->expr ? argument->expr->type : NULL;
         bool variadic_nontrivial_class = !parameter && function_type &&
             function_type->variadic && argument_type &&
-            argument_type->cxx_nontrivial &&
+            rcc_sema_cxx_is_nontrivial_for_calls(argument_type) &&
             (argument_type->kind == TYPE_STRUCT ||
              argument_type->kind == TYPE_UNION);
         args[i] = argument;
@@ -18243,7 +18244,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             if (expr->va_arg_type &&
                 (expr->va_arg_type->kind == TYPE_STRUCT ||
                  expr->va_arg_type->kind == TYPE_UNION)) {
-                if (expr->va_arg_type->cxx_nontrivial) {
+                if (rcc_sema_cxx_is_nontrivial_for_calls(
+                        expr->va_arg_type)) {
                     /* Non-trivial C++ ellipsis arguments are pointers to
                      * temporaries under the Itanium ABI. */
                     gen_lvalue(mod, expr->va_list_operand);
@@ -20547,7 +20549,7 @@ bool codegen_cxx_constructor_argument_is_parameter_object(
         ? owner_type->base : NULL;
     bool indirect_class_parameter = parameter_type &&
         !parameter_type->is_reference && parameter_type->cxx_class &&
-        parameter_type->cxx_nontrivial &&
+        rcc_sema_cxx_is_nontrivial_for_calls((Type*)parameter_type) &&
         (parameter_type->kind == TYPE_STRUCT ||
          parameter_type->kind == TYPE_UNION);
     return argument && argument->cxx_temporary_is_parameter_object &&

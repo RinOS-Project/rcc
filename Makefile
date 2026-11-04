@@ -25945,6 +25945,86 @@ test-verified-backend: test-verified-cxx-defaulted-large-array-assignment
 
 test-verified-backend: test-verified-cxx-value-initialized-aggregate
 
+.PHONY: test-verified-cxx-default-member-initializer-abi
+test-verified-backend: test-verified-cxx-default-member-initializer-abi
+
+test-verified-cxx-default-member-initializer-abi: $(RCXX_SHELL_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-default-member-initializer-abi)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-abi/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_default_member_initializer_abi.cpp
+	$(TEST_OUT)/verified-cxx-default-member-initializer-abi/gcc-host$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-abi/legacy-x64.s \
+		tests/cxx_default_member_initializer_abi.cpp
+	$(CC) -o $(TEST_OUT)/verified-cxx-default-member-initializer-abi/legacy-host$(EXE_SUFFIX) \
+		$(TEST_OUT)/verified-cxx-default-member-initializer-abi/legacy-x64.s
+	$(TEST_OUT)/verified-cxx-default-member-initializer-abi/legacy-host$(EXE_SUFFIX)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,verified-cxx-default-member-initializer-abi,cxx_default_member_initializer_abi.cpp,4)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-runner$(EXE_SUFFIX) \
+		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c -lm
+	$(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-runner$(EXE_SUFFIX) \
+		--entry $(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-x64.ro
+	$(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-runner$(EXE_SUFFIX) \
+		--entry $(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-x64-o2.ro
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-i686-asm$(EXE_SUFFIX) \
+		tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-i686-asm$(EXE_SUFFIX) \
+		$(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-x86.ro \
+		$(TEST_OUT)/verified-cxx-default-member-initializer-abi/verified-x86.s
+	@echo "Verified C++ default-initializer aggregate ABI tests completed"
+
+.PHONY: test-verified-cxx-default-member-initializer-variadic-abi
+test-verified-backend: test-verified-cxx-default-member-initializer-variadic-abi
+
+test-verified-cxx-default-member-initializer-variadic-abi: $(RCXX_SHELL_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_default_member_initializer_variadic_abi.cpp
+	$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/gcc-host$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/legacy-x86.s \
+		tests/cxx_default_member_initializer_variadic_abi.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/legacy-x86.o \
+		$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/legacy-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/legacy-x64.s \
+		tests/cxx_default_member_initializer_variadic_abi.cpp
+	$(CC) -o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/legacy-host$(EXE_SUFFIX) \
+		$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/legacy-x64.s
+	$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/legacy-host$(EXE_SUFFIX)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64.ro \
+		tests/cxx_default_member_initializer_variadic_abi.cpp \
+		>$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64-o2.ro \
+		tests/cxx_default_member_initializer_variadic_abi.cpp \
+		>$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64-o2.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-runner$(EXE_SUFFIX) \
+		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c -lm
+	$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-runner$(EXE_SUFFIX) \
+		--entry $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64.ro
+	$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-runner$(EXE_SUFFIX) \
+		--entry $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64-o2.ro
+	@echo "Verified C++ default-initializer variadic ABI tests completed"
+
 test-verified-cxx-value-initialized-aggregate: $(RCXX_SHELL_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-value-initialized-aggregate)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,verified-cxx-value-initialized-aggregate,cxx_value_initialized_aggregate_constructor.cpp,10)

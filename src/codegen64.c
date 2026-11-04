@@ -1923,7 +1923,7 @@ typedef struct {
 } Gen64PlacementCallArg64;
 
 static bool gen64_cxx_indirect_parameter(const Type* type) {
-    return type && type->cxx_class && type->cxx_nontrivial &&
+    return rcc_sema_cxx_is_nontrivial_for_calls((Type*)type) &&
            !type->is_reference &&
            (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
 }
@@ -1964,7 +1964,8 @@ static bool gen64_classify_type_at(const Type* type, int base_offset,
         return true;
     }
     if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
-        if (!type->is_complete || !type->fields || type->cxx_nontrivial) {
+        if (!type->is_complete || !type->fields ||
+            rcc_sema_cxx_is_nontrivial_for_calls((Type*)type)) {
             return false;
         }
         for (const TypeField* field = type->fields; field;
@@ -2561,7 +2562,7 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
     int fp_count = 0;
     int rounded_size = gen64_aggregate_storage(type);
 
-    if (!type || (!type->cxx_nontrivial &&
+    if (!type || (!rcc_sema_cxx_is_nontrivial_for_calls(type) &&
                   expression->va_arg_result_offset >= 0)) {
         SourceLoc location;
         codegen64_expr_loc(&location, expression);
@@ -2569,7 +2570,7 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
         return;
     }
 
-    if (type->cxx_nontrivial) {
+    if (rcc_sema_cxx_is_nontrivial_for_calls(type)) {
         /* Itanium C++ ABI variadic class arguments are passed as pointers to
          * caller-owned temporaries. Retrieve that pointer from the GP save
          * area, or from the overflow area once GP registers are exhausted. */
@@ -11724,7 +11725,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 argument_type = a->expr ? a->expr->type : NULL;
                 variadic_nontrivial_class = !parameter && function_type &&
                     function_type->variadic && argument_type &&
-                    argument_type->cxx_nontrivial &&
+                    rcc_sema_cxx_is_nontrivial_for_calls(argument_type) &&
                     (argument_type->kind == TYPE_STRUCT ||
                      argument_type->kind == TYPE_UNION);
                 argument_types[i - 1] = parameter ? parameter->type

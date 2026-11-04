@@ -14105,3 +14105,18 @@ remains a separate open item.
       `test-verified-cxx-value-initialized-aggregate` gate emits all 10
       constructors with zero fallback for i686 and AMD64 at `-O0` and `-O2`;
       `test-atomic-builtins` and full `test-cxx` pass.
+
+## RCC continuation (2026-11-04, C++ default-member-initializer call ABI)
+
+- [x] Classify C++ aggregate arguments and returns as nontrivial for calls only
+      when copy/move construction or destruction is nontrivial. Keep sema,
+      legacy i686/AMD64, verified SSA, and variadic argument/`va_arg` handling
+      aligned, including direct SysV register transport for trivially-copyable
+      unions and aggregates with default member initializers. The focused
+      parameter/return gate passes the strict GCC oracle, legacy x64 runtime,
+      verified x64 `-O0`/`-O2` runtime, and i686/AMD64 verified generation with
+      four functions and zero fallback. The variadic gate passes the strict GCC
+      oracle, legacy x64 runtime, i686 legacy object generation, and verified
+      x64 `-O0`/`-O2` runtime with zero fallback. Full `test-verified-backend`
+      passes after demoting an existing `libs/libc/time.h` unused-parameter
+      warning in its host-only GCC command.
