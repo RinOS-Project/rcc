@@ -3447,7 +3447,8 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
     if (strstr(name, "comi") == name || strstr(name, "ucomi") == name) {
         if (!gen64_sse_two_vectors(mod, expr)) return true;
         prefix = strstr(name, "d") ? 0x66 : 0;
-        emit64_sse128_reg(mod, 0, 1, prefix, 0x2E);
+        opcode = strncmp(name, "ucomi", 5) == 0 ? 0x2E : 0x2F;
+        emit64_sse128_reg(mod, 0, 1, prefix, opcode);
         if (strstr(name, "eq")) emit64_setcc(mod, CC64_E, RAX);
         else if (strstr(name, "neq")) emit64_setcc(mod, CC64_NE, RAX);
         else if (strstr(name, "lt")) emit64_setcc(mod, CC64_B, RAX);

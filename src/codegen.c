@@ -7453,7 +7453,8 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
     if (strstr(name, "comi") == name || strstr(name, "ucomi") == name) {
         if (!gen_sse_two_vectors32(mod, expr)) return true;
         prefix = strstr(name, "d") ? 0x66 : 0;
-        emit_sse128_reg(mod, 0, 1, prefix, 0x2E);
+        opcode = strncmp(name, "ucomi", 5) == 0 ? 0x2E : 0x2F;
+        emit_sse128_reg(mod, 0, 1, prefix, opcode);
         if (strstr(name, "eq")) emit_setcc(mod, CC_E, EAX);
         else if (strstr(name, "neq")) emit_setcc(mod, CC_NE, EAX);
         else if (strstr(name, "lt")) emit_setcc(mod, CC_B, EAX);

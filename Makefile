@@ -870,7 +870,7 @@ CXX_NESTED_STRUCTURAL_UNION_ARRAY_MEMBER_PACK_SYMBOLS = \
 .PHONY: test-c-wide-literals test-wide-literal-rin-format \
 	test-c-numeric-escape-ranges test-cxx-numeric-escape-ranges
 .PHONY: test-utf16-utf32-rin-format
-.PHONY: test-compiler-builtins test-sse1-cvtsi2ss
+.PHONY: test-compiler-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -21259,7 +21259,7 @@ test-noreturn: $(RCC_TARGET)
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
-test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
@@ -21446,6 +21446,90 @@ test-sse1-cvtsi2ss: $(RCC_TARGET)
 	$(GREP) -F -q "requires SSE; enable it with -msse" $(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x64.ro)
 	@echo "SSE1 integer-to-scalar conversion tests completed"
+
+test-sse1-comi-feature-gate: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors \
+		-msse -mno-sse2 -DRCC_EXPECT_SSE1 \
+		-o $(TEST_OUT)/compiler-builtins/sse1-comi-gcc tests/sse1_comi.c
+	$(TEST_OUT)/compiler-builtins/sse1-comi-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 \
+		-DRCC_EXPECT_SSE1 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse1-comi-x86.s tests/sse1_comi.c
+	$(CC) -m32 -c -o $(TEST_OUT)/compiler-builtins/sse1-comi-x86.o \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x86.s
+	$(OBJDUMP) -d -M att $(TEST_OUT)/compiler-builtins/sse1-comi-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x86-disassembly.log
+	$(OBJDUMP) -d -M att --disassemble=_mm_comieq_ss \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x86-ordered.log
+	$(GREP) -F -q "0f 2f" $(TEST_OUT)/compiler-builtins/sse1-comi-x86-ordered.log
+	$(OBJDUMP) -d -M att --disassemble=_mm_ucomieq_ss \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x86-unordered.log
+	$(GREP) -F -q "0f 2e" $(TEST_OUT)/compiler-builtins/sse1-comi-x86-unordered.log
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse1-comi-x86,$(TEST_OUT)/compiler-builtins/sse1-comi-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse -mno-sse2 \
+		-DRCC_EXPECT_SSE1 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse1-comi-x64.s tests/sse1_comi.c
+	$(CC) -c -o $(TEST_OUT)/compiler-builtins/sse1-comi-x64.o \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x64.s
+	$(OBJDUMP) -d -M att $(TEST_OUT)/compiler-builtins/sse1-comi-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x64-disassembly.log
+	$(OBJDUMP) -d -M att --disassemble=_mm_comieq_ss \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x64-ordered.log
+	$(GREP) -F -q "0f 2f" $(TEST_OUT)/compiler-builtins/sse1-comi-x64-ordered.log
+	$(OBJDUMP) -d -M att --disassemble=_mm_ucomieq_ss \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-comi-x64-unordered.log
+	$(GREP) -F -q "0f 2e" $(TEST_OUT)/compiler-builtins/sse1-comi-x64-unordered.log
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse1-comi-x64,$(TEST_OUT)/compiler-builtins/sse1-comi-x64.s)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors \
+		-msse2 -DRCC_EXPECT_SSE2 \
+		-o $(TEST_OUT)/compiler-builtins/sse2-comi-gcc tests/sse2_comi.c
+	$(TEST_OUT)/compiler-builtins/sse2-comi-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse2 \
+		-DRCC_EXPECT_SSE2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-comi-x86.s tests/sse2_comi.c
+	$(CC) -m32 -c -o $(TEST_OUT)/compiler-builtins/sse2-comi-x86.o \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x86.s
+	$(OBJDUMP) -d -M att $(TEST_OUT)/compiler-builtins/sse2-comi-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x86-disassembly.log
+	$(OBJDUMP) -d -M att --disassemble=ordered_equal \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x86-ordered.log
+	$(GREP) -F -q "66 0f 2f" $(TEST_OUT)/compiler-builtins/sse2-comi-x86-ordered.log
+	$(OBJDUMP) -d -M att --disassemble=unordered_equal \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x86-unordered.log
+	$(GREP) -F -q "66 0f 2e" $(TEST_OUT)/compiler-builtins/sse2-comi-x86-unordered.log
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse2-comi-x86,$(TEST_OUT)/compiler-builtins/sse2-comi-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse2 \
+		-DRCC_EXPECT_SSE2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-comi-x64.s tests/sse2_comi.c
+	$(CC) -c -o $(TEST_OUT)/compiler-builtins/sse2-comi-x64.o \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x64.s
+	$(OBJDUMP) -d -M att $(TEST_OUT)/compiler-builtins/sse2-comi-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x64-disassembly.log
+	$(OBJDUMP) -d -M att --disassemble=ordered_equal \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x64-ordered.log
+	$(GREP) -F -q "66 0f 2f" $(TEST_OUT)/compiler-builtins/sse2-comi-x64-ordered.log
+	$(OBJDUMP) -d -M att --disassemble=unordered_equal \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-comi-x64-unordered.log
+	$(GREP) -F -q "66 0f 2e" $(TEST_OUT)/compiler-builtins/sse2-comi-x64-unordered.log
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse2-comi-x64,$(TEST_OUT)/compiler-builtins/sse2-comi-x64.s)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x86.ro tests/sse2_comi.c,$(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x86.log)
+	$(GREP) -F -q "__builtin_ia32_comisdeq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x86.log
+	$(GREP) -F -q "__builtin_ia32_ucomisdeq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse -mno-sse2 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x64.ro tests/sse2_comi.c,$(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x64.log)
+	$(GREP) -F -q "__builtin_ia32_comisdeq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x64.log
+	$(GREP) -F -q "__builtin_ia32_ucomisdeq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x64.ro)
+	@echo "SSE1/SSE2 COMI feature-gate and opcode tests completed"
 
 ifeq ($(OS),Windows_NT)
 FLOATING_MATH_X86_LINK = $(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main'
