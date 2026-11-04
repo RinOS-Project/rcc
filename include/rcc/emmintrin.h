@@ -322,8 +322,24 @@ static __inline __m128i _mm_add_epi8(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_ia32_paddb128((__v16qi)__a, (__v16qi)__b);
 }
 
+static __inline __m128i _mm_adds_epi8(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_paddsb128((__v16qi)__a, (__v16qi)__b);
+}
+
+static __inline __m128i _mm_adds_epu8(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_paddusb128((__v16qi)__a, (__v16qi)__b);
+}
+
 static __inline __m128i _mm_add_epi16(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_ia32_paddw128((__v8hi)__a, (__v8hi)__b);
+}
+
+static __inline __m128i _mm_adds_epi16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_paddsw128((__v8hi)__a, (__v8hi)__b);
+}
+
+static __inline __m128i _mm_adds_epu16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_paddusw128((__v8hi)__a, (__v8hi)__b);
 }
 
 static __inline __m128i _mm_add_epi32(__m128i __a, __m128i __b) {
@@ -338,8 +354,24 @@ static __inline __m128i _mm_sub_epi8(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_ia32_psubb128((__v16qi)__a, (__v16qi)__b);
 }
 
+static __inline __m128i _mm_subs_epi8(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_psubsb128((__v16qi)__a, (__v16qi)__b);
+}
+
+static __inline __m128i _mm_subs_epu8(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_psubusb128((__v16qi)__a, (__v16qi)__b);
+}
+
 static __inline __m128i _mm_sub_epi16(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_ia32_psubw128((__v8hi)__a, (__v8hi)__b);
+}
+
+static __inline __m128i _mm_subs_epi16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_psubsw128((__v8hi)__a, (__v8hi)__b);
+}
+
+static __inline __m128i _mm_subs_epu16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_psubusw128((__v8hi)__a, (__v8hi)__b);
 }
 
 static __inline __m128i _mm_sub_epi32(__m128i __a, __m128i __b) {
