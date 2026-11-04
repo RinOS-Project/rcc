@@ -14283,3 +14283,15 @@ remains a separate open item.
       `test-cxx-nested-class-template-owner-structural-value-pack` gate emits all
       29 functions with zero verified-backend fallback at `-O0` and `-O2` for
       both architectures.
+- [x] Count structural-class array elements from an empty leaf accumulator and
+      preserve the active union alternative while reading a fixed-bound array
+      of structural-class values nested in a structural-class NTTP pack. Verify
+      a two-element class array, indexed scalar reads, a non-empty fold and the
+      empty-pack identity. Exact GCC Itanium symbols match on i686 and AMD64;
+      strict C++20 checks, RCC/GCC host execution, and all 31 verified-backend
+      functions with zero fallback at `-O0`/`-O2` pass in the focused
+      `test-cxx-nested-class-template-owner-structural-value-pack` gate.
+- [ ] Extend union-active structural-class arrays to additional nested and
+      multidimensional layouts, mixed union alternatives, and structural class
+      elements that themselves contain unions; compare all accepted forms with
+      GCC and add verified-backend coverage.

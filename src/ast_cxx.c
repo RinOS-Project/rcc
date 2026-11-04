@@ -5917,7 +5917,8 @@ static bool cxx_structural_class_find_array_field(
     const Type* type, const char* const* member_names, int member_name_count,
     int path_index, unsigned base_bits, unsigned base_leaves,
     const Type** array_type_out, unsigned* array_base_bits_out,
-    unsigned* array_base_leaves_out, int* array_member_name_index_out) {
+    unsigned* array_base_leaves_out, int* array_member_name_index_out,
+    const int64_t* recorded_values, int recorded_count) {
     const TypeParam* field;
     if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
         !member_names || path_index < 0 || path_index >= member_name_count) {
@@ -5940,12 +5941,52 @@ static bool cxx_structural_class_find_array_field(
                 *array_member_name_index_out = path_index;
                 return true;
             }
+            if (field->type->kind == TYPE_UNION &&
+                field->type->cxx_class &&
+                field->type->cxx_class->is_union) {
+                int64_t active_index;
+                const TypeParam* active_field;
+                if (!recorded_values || base_leaves >=
+                        (unsigned)recorded_count ||
+                    path_index + 1 >= member_name_count) {
+                    return false;
+                }
+                active_index = recorded_values[base_leaves];
+                active_field = active_index >= 0 && active_index <= INT_MAX
+                    ? cxx_structural_union_field_at(
+                          field->type, (int)active_index)
+                    : NULL;
+                if (!active_field || !active_field->name ||
+                    strcmp(active_field->name,
+                           member_names[path_index + 1]) != 0 ||
+                    !active_field->type) {
+                    return false;
+                }
+                if (active_field->type->kind == TYPE_ARRAY) {
+                    *array_type_out = active_field->type;
+                    *array_base_bits_out = base_bits;
+                    *array_base_leaves_out = base_leaves + 1u;
+                    *array_member_name_index_out = path_index + 1;
+                    return true;
+                }
+                if (active_field->type->kind == TYPE_STRUCT) {
+                    return cxx_structural_class_find_array_field(
+                        active_field->type, member_names, member_name_count,
+                        path_index + 2, base_bits, base_leaves + 1u,
+                        array_type_out, array_base_bits_out,
+                        array_base_leaves_out,
+                        array_member_name_index_out,
+                        recorded_values, recorded_count);
+                }
+                return false;
+            }
             if (field->type->kind != TYPE_STRUCT) return false;
             return cxx_structural_class_find_array_field(
                 field->type, member_names, member_name_count,
                 path_index + 1, base_bits, base_leaves, array_type_out,
                 array_base_bits_out, array_base_leaves_out,
-                array_member_name_index_out);
+                array_member_name_index_out, recorded_values,
+                recorded_count);
         }
         if (field_bits > UINT_MAX - base_bits ||
             field_leaves > UINT_MAX - base_leaves) {
@@ -5976,6 +6017,11 @@ bool cxx_structural_class_unpack_multidimensional_array_path(
         !array_indices || array_index_count <= 0 || !member_value ||
         !cxx_structural_class_value_supported_subset(type)) {
         return false;
+    }
+    if (!cxx_structural_class_value_record_resolve(
+            type, packed_value, &recorded_values, &recorded_count)) {
+        recorded_values = NULL;
+        recorded_count = 0;
     }
     if (type->kind == TYPE_UNION && type->cxx_class &&
         type->cxx_class->is_union) {
@@ -6009,7 +6055,8 @@ bool cxx_structural_class_unpack_multidimensional_array_path(
     } else if (!cxx_structural_class_find_array_field(
                    type, member_names, member_name_count, 0, 0u, 0u,
                    &array_type, &array_base_bits, &array_base_leaves,
-                   &array_member_name_index)) {
+                   &array_member_name_index, recorded_values,
+                   recorded_count)) {
         return false;
     }
     selected_type = array_type;

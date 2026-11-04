@@ -3818,7 +3818,7 @@ static bool cxx_structural_class_collect_member_values(
                     active_field->type, field_initializer, member_values,
                     member_capacity, member_count) ||
                 (size_t)(*member_count - union_value_start - 1) !=
-                    active_value_count) {
+                active_value_count) {
                 return false;
             }
         } else {
@@ -4160,7 +4160,7 @@ static bool cxx_structural_class_collect_member_values(
 
 static bool cxx_structural_array_count_member_values(
     const Type* type, size_t* member_count) {
-    size_t element_count = 1u;
+    size_t element_count = 0u;
     if (!type || !member_count) return false;
     if (type->kind != TYPE_ARRAY) {
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
