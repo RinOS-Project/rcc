@@ -12835,10 +12835,11 @@ remains a separate open item.
         `dividend ^ 0x8000000000000001` and `(divisor & 255) + 1`. The full-width
         matrix passes for division and remainder in legacy and verified
         `-O1`/`-O2` objects through `test-debug-info-inline-expression`.
-  - [x] Verify unsigned divmod over conditional frame-backed expression trees,
-        including both branches of the dividend and divisor. The full-width
-        matrix passes for division and remainder in legacy and verified
-        `-O1`/`-O2` objects through `test-debug-info-inline-expression`.
+  - [x] Verify signed and unsigned divmod over conditional frame-backed
+        expression trees, including both branches of the dividend and divisor.
+        The full-width matrix passes for division and remainder in legacy and
+        verified `-O1`/`-O2` objects through
+        `test-debug-info-inline-expression`.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 

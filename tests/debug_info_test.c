@@ -2259,20 +2259,23 @@ static bool try_read_sleb(const uint8_t* data, uint64_t size,
     return false;
 }
 
-static bool find_variable_location(const ObjSection* info,
-                                  const ObjSection* strings,
-                                  const ObjSection* locations,
-                                  const char* variable_name,
-                                  uint16_t architecture,
-                                  bool* has_location,
-                                  bool* is_location_list,
-                                  int64_t* frame_offset)
+static bool find_variable_location_search(const ObjSection* info,
+                                          const ObjSection* strings,
+                                          const ObjSection* locations,
+                                          const char* variable_name,
+                                          uint16_t architecture,
+                                          bool* has_location,
+                                          bool* is_location_list,
+                                          int64_t* frame_offset,
+                                          bool reverse)
 {
     uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
     bool found_abstract_origin = false;
     if (!info || !strings || !variable_name || !has_location ||
-        !is_location_list || !frame_offset) return false;
-    for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
+        !is_location_list || !frame_offset || info->size < 32u) return false;
+    for (uint64_t die = reverse ? info->size - 21u : 11u;
+         reverse ? die >= 11u : die + 21u <= info->size;
+         reverse ? --die : ++die) {
         uint8_t abbreviation = info->data[die];
         uint32_t name_offset;
         bool has_expression;
@@ -2411,6 +2414,34 @@ static bool find_variable_location(const ObjSection* info,
         return true;
     }
     return false;
+}
+
+static bool find_variable_location(const ObjSection* info,
+                                  const ObjSection* strings,
+                                  const ObjSection* locations,
+                                  const char* variable_name,
+                                  uint16_t architecture,
+                                  bool* has_location,
+                                  bool* is_location_list,
+                                  int64_t* frame_offset)
+{
+    return find_variable_location_search(
+        info, strings, locations, variable_name, architecture, has_location,
+        is_location_list, frame_offset, false);
+}
+
+static bool find_variable_location_last(const ObjSection* info,
+                                       const ObjSection* strings,
+                                       const ObjSection* locations,
+                                       const char* variable_name,
+                                       uint16_t architecture,
+                                       bool* has_location,
+                                       bool* is_location_list,
+                                       int64_t* frame_offset)
+{
+    return find_variable_location_search(
+        info, strings, locations, variable_name, architecture, has_location,
+        is_location_list, frame_offset, true);
 }
 
 static bool find_variable_const_value(const ObjSection* info,
@@ -10108,6 +10139,14 @@ static uint64_t evaluate_inline_i686_u64_constant_division_with_signed_hint(
                 } else if (pending_frame_offset == source_frame_offset) {
                     value = (uint32_t)dividend;
                 } else {
+                    if (pending_frame_offset != source_frame_offset + 4) {
+                        fprintf(stderr,
+                                "i686 u64 divmod frame offset mismatch: "
+                                "offset=%lld dividend=%lld divisor=%lld\n",
+                                (long long)pending_frame_offset,
+                                (long long)source_frame_offset,
+                                (long long)divisor_frame_offset);
+                    }
                     assert(pending_frame_offset == source_frame_offset + 4);
                     value = (uint32_t)(dividend >> 32u);
                 }
@@ -10152,6 +10191,9 @@ static uint64_t evaluate_inline_i686_u64_constant_division_with_signed_hint(
             stack[stack_size - 3u] = top;
             stack[stack_size - 2u] = bottom;
             stack[stack_size - 1u] = middle;
+        } else if (opcode == 0x1fu) { /* DW_OP_neg */
+            assert(stack_size > 0u);
+            stack[stack_size - 1u] = 0u - stack[stack_size - 1u];
         } else if (opcode == 0x1au || opcode == 0x1bu ||
                    opcode == 0x1cu || opcode == 0x1du ||
                    opcode == 0x1eu || opcode == 0x27u ||
@@ -10566,7 +10608,9 @@ static void verify_inline_i686_computed_division_expression(
     const char* dividend_name = bitwise_tree
         ? "computed_bitwise_division_dividend"
         : conditional_tree
-              ? "computed_conditional_division_dividend"
+              ? (is_signed
+                     ? "computed_signed_conditional_division_dividend"
+                     : "computed_conditional_division_dividend")
               : is_signed
               ? (constant_divisor ? "computed_constant_division_dividend"
                                   : "computed_division_dividend")
@@ -10576,7 +10620,9 @@ static void verify_inline_i686_computed_division_expression(
     const char* divisor_name = bitwise_tree
         ? "computed_bitwise_division_divisor"
         : conditional_tree
-              ? "computed_conditional_division_divisor"
+              ? (is_signed
+                     ? "computed_signed_conditional_division_divisor"
+                     : "computed_conditional_division_divisor")
               : (is_signed ? "computed_division_divisor"
                            : "computed_unsigned_division_divisor");
     size_t dividend_count = is_signed
@@ -10604,8 +10650,7 @@ static void verify_inline_i686_computed_division_expression(
     assert(object && object->arch == ARCH_X86 && call_site_name &&
            (!bitwise_tree || (!is_signed && !constant_divisor &&
                               !conditional_tree)) &&
-           (!conditional_tree || (!is_signed && !constant_divisor &&
-                                  !bitwise_tree)));
+           (!conditional_tree || (!constant_divisor && !bitwise_tree)));
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
@@ -10671,12 +10716,12 @@ static void verify_inline_i686_computed_division_expression(
         info->data, info->size, &expression_offset);
     assert(expression_size != 0u && expression_offset + expression_size <=
            info->size);
-    assert(find_variable_location(
+    assert(find_variable_location_last(
         info, strings, locations, dividend_name, ARCH_X86,
         &has_dividend_location, &dividend_is_location_list,
         &dividend_frame_offset));
     if (!constant_divisor) {
-        assert(find_variable_location(
+        assert(find_variable_location_last(
             info, strings, locations, divisor_name, ARCH_X86,
             &has_divisor_location, &divisor_is_location_list,
             &divisor_frame_offset));
@@ -10704,6 +10749,7 @@ static void verify_inline_i686_computed_division_expression(
                        : unsigned_divisors[divisor_index]);
             uint64_t actual;
             uint64_t expected;
+            uint64_t reported_divisor_bits;
             actual = evaluate_inline_i686_u64_constant_division_with_signed_hint(
                 info->data, expression_offset + expression_size,
                 expression_offset, dividend_frame_offset,
@@ -10711,9 +10757,18 @@ static void verify_inline_i686_computed_division_expression(
                 divisor_bits, remainder, !constant_divisor,
                 is_signed ? 1 : 0, constant_divisor, info, NULL, NULL);
             if (is_signed) {
-                int64_t dividend = signed_dividends[dividend_index] + 17;
-                int64_t divisor = constant_divisor
-                    ? -7 : signed_divisors[divisor_index] * 2 + 1;
+                int64_t dividend = conditional_tree
+                    ? ((signed_dividends[dividend_index] & 1)
+                           ? signed_dividends[dividend_index] + 17
+                           : -signed_dividends[dividend_index])
+                    : signed_dividends[dividend_index] + 17;
+                int64_t divisor = conditional_tree
+                    ? ((signed_divisors[divisor_index] & 1)
+                           ? signed_divisors[divisor_index] * 2 + 1
+                           : signed_divisors[divisor_index] + 4)
+                    : constant_divisor
+                          ? -7 : signed_divisors[divisor_index] * 2 + 1;
+                reported_divisor_bits = (uint64_t)divisor;
                 if (dividend == INT64_MIN && divisor == -1) continue;
                 expected = (uint64_t)(remainder
                     ? dividend % divisor : dividend / divisor);
@@ -10735,6 +10790,7 @@ static void verify_inline_i686_computed_division_expression(
                           ? (divisor_bits & UINT64_C(0xff)) + 1u
                           : constant_divisor
                                 ? 7u : divisor_bits * 2u + 1u;
+                reported_divisor_bits = divisor;
                 expected = remainder ? dividend % divisor : dividend / divisor;
             }
             if (actual != expected) {
@@ -10744,15 +10800,7 @@ static void verify_inline_i686_computed_division_expression(
                         is_signed ? "signed" : "unsigned",
                         remainder ? "remainder" : "division",
                         (unsigned long long)dividend_bits,
-                        (unsigned long long)(conditional_tree
-                            ? ((divisor_bits & 1u)
-                                   ? divisor_bits * 2u + 1u
-                                   : (divisor_bits & UINT64_C(0xff)) + 1u)
-                            : bitwise_tree
-                                  ? (divisor_bits & UINT64_C(0xff)) + 1u
-                                  : constant_divisor
-                                        ? divisor_bits
-                                        : divisor_bits * 2u + 1u),
+                        (unsigned long long)reported_divisor_bits,
                         (unsigned long long)actual,
                         (unsigned long long)expected);
             }
@@ -19744,6 +19792,14 @@ static void verify_inline_integer_expression_cases(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_conditional_remainder_entry",
             false, true, false, false, true);
+        verify_inline_i686_computed_division_expression(
+            path,
+            "debug_inline_nonconstant_signed_long_long_computed_conditional_divide_entry",
+            true, false, false, false, true);
+        verify_inline_i686_computed_division_expression(
+            path,
+            "debug_inline_nonconstant_signed_long_long_computed_conditional_remainder_entry",
+            true, true, false, false, true);
     }
     verify_inline_indirect_pointer_parameter(
         path, architecture, "debug_inline_indirect_pointer_entry",
