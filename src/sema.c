@@ -34044,8 +34044,9 @@ static bool sema_sse2_builtin_name(const char* name) {
         strcmp(suffix, "storedqu") == 0 ||
         strcmp(suffix, "vec_ext_v8hi") == 0 ||
         strcmp(suffix, "vec_set_v8hi") == 0) return true;
+    if (strncmp(suffix, "comisd", 6) == 0 ||
+        strncmp(suffix, "ucomisd", 7) == 0) return true;
     if (strstr(suffix, "pd") || strstr(suffix, "sd") ||
-        strstr(suffix, "comi") || strstr(suffix, "ucomi") ||
         strncmp(suffix, "cvt", 3) == 0 ||
         strncmp(suffix, "p", 1) == 0) return true;
     return false;
