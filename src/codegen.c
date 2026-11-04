@@ -21192,14 +21192,17 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                                                  stack_alignment);
                 }
             }
+            CxxConstructorInfo* constructor =
+                expression->compound_type &&
+                expression->compound_type->cxx_class
+                    ? expression->compound_constructor : NULL;
             TypeParam* constructor_parameter =
-                expression->compound_constructor
-                    ? expression->compound_constructor->parameters : NULL;
+                constructor ? constructor->parameters : NULL;
             for (ExprList* initializer = expression->compound_init;
                  initializer; initializer = initializer->next) {
                 codegen_assign_compound_expr(initializer->expr, bytes,
                                              stack_alignment);
-                if (expression->compound_constructor) {
+                if (constructor) {
                     codegen_assign_constructor_argument_storage(
                         initializer,
                         constructor_parameter

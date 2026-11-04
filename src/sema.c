@@ -34413,6 +34413,7 @@ static bool sema_builtin_complex_call(Expr* expression,
     expression->kind = EXPR_COMPOUND;
     expression->compound_type = complex_type;
     expression->compound_init = arguments;
+    expression->compound_constructor = NULL;
     expression->is_complex_constructor = true;
     expression->type = complex_type;
     return true;
