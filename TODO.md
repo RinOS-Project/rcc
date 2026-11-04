@@ -14125,7 +14125,7 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, direct array layouts beyond the tested
-      three-dimensional fixed-bound integer active-union alternative,
+      four-dimensional fixed-bound integer active-union alternative,
       union-array layouts beyond the tested four-dimensional 2x2x2x2 case, and
       unsupported C++20 forms remain open.
   - [x] Collect pointer values from direct and nested pointer-bearing active
@@ -14205,6 +14205,14 @@ remains a separate open item.
         identity, and substitute reads using all three indices. Designated
         explicit and positional deduced arguments pass exact GCC symbols, strict
         C++20 checks, host execution, i686/AMD64 output, and 46 fallback-free
+        verified-backend functions at `-O0` and `-O2` in
+        `test-cxx-function-template-structural-nontype`.
+  - [x] Support a four-dimensional fixed-bound integer array as an active
+        structural union alternative. Collect all 16 elements in row-major
+        order, preserve the layout in Itanium mangling and typeinfo identity,
+        and substitute indexed reads through all four dimensions. Designated
+        explicit and positional deduced arguments pass exact GCC symbols, strict
+        C++20 checks, host execution, i686/AMD64 output, and 52 fallback-free
         verified-backend functions at `-O0` and `-O2` in
         `test-cxx-function-template-structural-nontype`.
   - [x] Preserve RinOS binary64 `long double` as a distinct active structural

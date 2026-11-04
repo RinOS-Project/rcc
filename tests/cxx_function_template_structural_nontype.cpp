@@ -38,6 +38,11 @@ union FunctionTemplateStructuralTensorArrayUnion {
     int scalar;
 };
 
+union FunctionTemplateStructuralQuadArrayUnion {
+    int values[2][2][2][2];
+    int scalar;
+};
+
 struct FunctionTemplateStructuralPointerUnionPayload {
     const int* pointer;
     int bias;
@@ -150,6 +155,9 @@ struct FunctionTemplateStructuralMatrixArrayUnionTag {};
 
 template<FunctionTemplateStructuralTensorArrayUnion Value>
 struct FunctionTemplateStructuralTensorArrayUnionTag {};
+
+template<FunctionTemplateStructuralQuadArrayUnion Value>
+struct FunctionTemplateStructuralQuadArrayUnionTag {};
 
 template<FunctionTemplateStructuralPointerUnion Value>
 struct FunctionTemplateStructuralPointerUnionTag {};
@@ -437,6 +445,19 @@ constexpr int function_template_structural_union_tensor_array_deduced(
            Value.values[1][1][0] * 10 + Value.values[1][1][1];
 }
 
+template<FunctionTemplateStructuralQuadArrayUnion Value>
+constexpr int function_template_structural_union_quad_array_alternative_explicit() {
+    return Value.values[1][0][1][0] * 1000 +
+           Value.values[0][1][0][1] * 10 + Value.values[1][1][1][1];
+}
+
+template<FunctionTemplateStructuralQuadArrayUnion Value>
+constexpr int function_template_structural_union_quad_array_alternative_deduced(
+    FunctionTemplateStructuralQuadArrayUnionTag<Value>) {
+    return Value.values[1][0][1][0] * 1000 +
+           Value.values[0][1][0][1] * 10 + Value.values[1][1][1][1];
+}
+
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_explicit() {
     return Value.payload.object.code * 100 +
@@ -671,6 +692,19 @@ static_assert(function_template_structural_union_tensor_array_deduced(
                       FunctionTemplateStructuralTensorArrayUnion{
                           {{{8, 7}, {6, 5}}, {{4, 3}, {2, 1}}}}>{}) ==
               87654321);
+static_assert(function_template_structural_union_quad_array_alternative_explicit<
+                  FunctionTemplateStructuralQuadArrayUnion{
+                      .values = {{{{1, 2}, {3, 4}},
+                                  {{5, 6}, {7, 8}}},
+                                 {{{9, 10}, {11, 12}},
+                                  {{13, 14}, {15, 16}}}}}>() == 11076);
+static_assert(function_template_structural_union_quad_array_alternative_deduced(
+                  FunctionTemplateStructuralQuadArrayUnionTag<
+                      FunctionTemplateStructuralQuadArrayUnion{
+                          {{{{16, 15}, {14, 13}},
+                            {{12, 11}, {10, 9}}},
+                           {{{8, 7}, {6, 5}},
+                            {{4, 3}, {2, 1}}}}}>{}) == 6111);
 static_assert(function_template_structural_mixed_union_object_explicit<
                   FunctionTemplateStructuralMixedUnionContainer{
                       {.object = {4, 7}}, 2}>() == 472);
@@ -922,6 +956,19 @@ int main() {
             FunctionTemplateStructuralTensorArrayUnionTag<
                 FunctionTemplateStructuralTensorArrayUnion{
                     {{{8, 7}, {6, 5}}, {{4, 3}, {2, 1}}}}>{}) != 87654321 ||
+        function_template_structural_union_quad_array_alternative_explicit<
+            FunctionTemplateStructuralQuadArrayUnion{
+                .values = {{{{1, 2}, {3, 4}},
+                            {{5, 6}, {7, 8}}},
+                           {{{9, 10}, {11, 12}},
+                            {{13, 14}, {15, 16}}}}}>() != 11076 ||
+        function_template_structural_union_quad_array_alternative_deduced(
+            FunctionTemplateStructuralQuadArrayUnionTag<
+                FunctionTemplateStructuralQuadArrayUnion{
+                    {{{{16, 15}, {14, 13}},
+                      {{12, 11}, {10, 9}}},
+                     {{{8, 7}, {6, 5}},
+                      {{4, 3}, {2, 1}}}}}>{}) != 6111 ||
         function_template_structural_mixed_union_object_explicit<
             FunctionTemplateStructuralMixedUnionContainer{
                 {.object = {4, 7}}, 2}>() != 472 ||
