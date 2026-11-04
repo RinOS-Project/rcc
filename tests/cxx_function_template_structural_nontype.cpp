@@ -610,6 +610,11 @@ static_assert(function_template_structural_value_deduced(
                   FunctionTemplateStructuralValueTag<
                       FunctionTemplateStructuralTarget{41}>{}) == 41);
 static_assert(function_template_structural_value_explicit<
+                  FunctionTemplateStructuralTarget(43)>() == 43);
+static_assert(function_template_structural_value_deduced(
+                  FunctionTemplateStructuralValueTag<
+                      FunctionTemplateStructuralTarget(47)>{}) == 47);
+static_assert(function_template_structural_value_explicit<
                   function_template_structural_target_one>() == 37);
 static_assert(function_template_structural_value_deduced(
                   FunctionTemplateStructuralValueTag<
@@ -894,6 +899,11 @@ int main() {
         function_template_structural_value_deduced(
             FunctionTemplateStructuralValueTag<
                 FunctionTemplateStructuralTarget{41}>{}) != 41 ||
+        function_template_structural_value_explicit<
+            FunctionTemplateStructuralTarget(43)>() != 43 ||
+        function_template_structural_value_deduced(
+            FunctionTemplateStructuralValueTag<
+                FunctionTemplateStructuralTarget(47)>{}) != 47 ||
         function_template_structural_value_explicit<
             function_template_structural_target_one>() != 37 ||
         function_template_structural_value_deduced(

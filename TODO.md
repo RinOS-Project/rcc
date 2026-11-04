@@ -14261,6 +14261,12 @@ remains a separate open item.
         Itanium symbols, host execution, i686/AMD64 output, and all 62
         verified-backend functions with zero fallback at `-O0`/`-O2` in
         `test-cxx-function-template-structural-nontype`.
+  - [x] Accept C++20 parenthesized aggregate initialization as an explicit or
+        deduced structural-class NTTP value. Preserve the initialized member
+        values and match exact GCC Itanium symbols; strict GCC C++20, host
+        execution, i686/AMD64 output, and all 64 verified-backend functions
+        with zero fallback at `-O0`/`-O2` pass in
+        `test-cxx-function-template-structural-nontype`.
   - [x] Preserve RinOS binary64 `long double` as a distinct active structural
         union value. Verify explicit/deduced member reads and exact Itanium
         floating-value symbols against GCC's `-mlong-double-64` ABI oracle.
