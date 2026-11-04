@@ -82,6 +82,7 @@ int main(void) {
     _Alignas(16) double double_output[2];
     _Alignas(16) int integer_input[4] = {17, -23, 31, -47};
     _Alignas(16) int integer_output[4];
+    _Alignas(16) unsigned int unsigned_integer_output[4];
     unsigned int saved_mxcsr = _mm_getcsr();
     __m128 seed_single = _mm_set_ps(13.0f, 11.0f, 7.0f, 5.0f);
     __m128d seed_double = _mm_set_pd(91.5, 82.5);
@@ -153,6 +154,20 @@ int main(void) {
     scalar_double = _mm_set_pd(0.0, 1099511627779.75);
     if (rcc_cvtsd2si64(scalar_double) != 1099511627780LL ||
         rcc_cvttsd2si64(scalar_double) != 1099511627779LL) return 15;
+    if (_mm_cvtsd_si64x(_mm_set_sd(3.75)) != 4 ||
+        _mm_cvttsd_si64x(_mm_set_sd(3.75)) != 3) return 16;
+    if (_mm_cvtsi128_si64x(_mm_set_epi64x(
+            0x1122334455667788LL, 0x0123456789abcdefLL)) !=
+        0x0123456789abcdefLL) return 17;
+    _mm_storeu_pd(double_output,
+                  _mm_cvtsi64x_sd(seed_double, 4294967297LL));
+    if (double_output[0] != 4294967297.0 || double_output[1] != 91.5) return 18;
+    _mm_storeu_si128((__m128i*)unsigned_integer_output,
+                     _mm_cvtsi64x_si128(0x123456789abcdef0LL));
+    if (unsigned_integer_output[0] != 0x9abcdef0u ||
+        unsigned_integer_output[1] != 0x12345678u ||
+        unsigned_integer_output[2] != 0 || unsigned_integer_output[3] != 0)
+        return 19;
 #endif
 
     _mm_setcsr(saved_mxcsr);
