@@ -14541,3 +14541,13 @@ remains a separate open item.
       `-g -O2` objects preserve their exact IEEE values without frame locations.
       `make -j4 RCXX_TARGET=./rcc++.exe test-debug-info` passes, including the
       inline-expression verifier and zero-fallback checks.
+
+## RCC continuation (2026-11-05, signed atomic stores in i686 divmod DWARF)
+
+- [x] Cover signed 64-bit atomic assignment expressions used as the dividend
+      of computed division and remainder. Exercise global and TLS targets,
+      `parameter + 17` assignment values, and signed negative/positive boundary
+      matrices in legacy and verified i686 objects at `-O1` and `-O2`.
+      `test-debug-info-inline-expression` and the full `test-debug-info` gate
+      pass; both verified objects emit 24 functions with zero fallback, and
+      their 22 atomic stores resolve through `__rin_atomic_store_v1`.

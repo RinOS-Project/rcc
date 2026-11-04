@@ -10759,7 +10759,7 @@ static void verify_inline_i686_computed_division_expression(
             (!is_signed && !constant_divisor && !bitwise_tree &&
              !conditional_tree && !nested_conditional_tree)) &&
            (!atomic_store_tree ||
-            (!is_signed && !constant_divisor && !bitwise_tree &&
+            (!constant_divisor && !bitwise_tree &&
              !conditional_tree && !nested_conditional_tree &&
              !dynamic_shift_tree)));
     info = objfile_get_section(object, ".debug_info");
@@ -20442,7 +20442,7 @@ int main(int argc, char** argv)
             assert(object && object->arch == ARCH_X86 &&
                    count_relocations_to_symbol(
                        object, "__rin_atomic_store_v1") ==
-                       (verified_backend_object ? 18u : 0u));
+                       (verified_backend_object ? 22u : 0u));
             objfile_free(object);
             verify_inline_i686_computed_division_expression(
                 argv[index],
@@ -20516,6 +20516,22 @@ int main(int argc, char** argv)
                 argv[index],
                 "debug_inline_nonconstant_unsigned_long_long_atomic_store_volatile_tls_remainder_entry",
                 false, true, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_signed_long_long_atomic_store_global_divide_entry",
+                true, false, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_signed_long_long_atomic_store_global_remainder_entry",
+                true, true, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_signed_long_long_atomic_store_tls_divide_entry",
+                true, false, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_signed_long_long_atomic_store_tls_remainder_entry",
+                true, true, false, false, false, false, false, true);
         }
         return 0;
     }

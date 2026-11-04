@@ -10,6 +10,15 @@ volatile _Atomic unsigned long long debug_inline_nonconstant_unsigned_long_long_
 _Thread_local _Atomic unsigned long long debug_inline_nonconstant_unsigned_long_long_tls_atomic_dividend;
 _Thread_local volatile _Atomic unsigned long long debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_dividend;
 
+static inline long long
+debug_nonconstant_signed_long_long_parameter_inline(long long value)
+{
+    return value;
+}
+
+_Atomic long long debug_inline_nonconstant_signed_long_long_atomic_dividend;
+_Thread_local _Atomic long long debug_inline_nonconstant_signed_long_long_tls_atomic_dividend;
+
 unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_divide_entry(
     unsigned long long computed_atomic_store_division_dividend,
     unsigned long long computed_atomic_store_division_divisor)
@@ -194,4 +203,44 @@ unsigned long long debug_inline_nonconstant_unsigned_long_long_atomic_store_vola
         (debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_dividend =
              computed_atomic_store_division_dividend) %
         (computed_atomic_store_division_divisor * 2ull + 1ull));
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_store_global_divide_entry(
+    long long computed_atomic_store_division_dividend,
+    long long computed_atomic_store_division_divisor)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_atomic_dividend =
+             computed_atomic_store_division_dividend + 17ll) /
+        (computed_atomic_store_division_divisor * 2ll + 1ll));
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_store_global_remainder_entry(
+    long long computed_atomic_store_division_dividend,
+    long long computed_atomic_store_division_divisor)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_atomic_dividend =
+             computed_atomic_store_division_dividend + 17ll) %
+        (computed_atomic_store_division_divisor * 2ll + 1ll));
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_store_tls_divide_entry(
+    long long computed_atomic_store_division_dividend,
+    long long computed_atomic_store_division_divisor)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_tls_atomic_dividend =
+             computed_atomic_store_division_dividend + 17ll) /
+        (computed_atomic_store_division_divisor * 2ll + 1ll));
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_store_tls_remainder_entry(
+    long long computed_atomic_store_division_dividend,
+    long long computed_atomic_store_division_divisor)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_tls_atomic_dividend =
+             computed_atomic_store_division_dividend + 17ll) %
+        (computed_atomic_store_division_divisor * 2ll + 1ll));
 }
