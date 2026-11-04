@@ -871,7 +871,7 @@ CXX_NESTED_STRUCTURAL_UNION_ARRAY_MEMBER_PACK_SYMBOLS = \
 	test-c-numeric-escape-ranges test-cxx-numeric-escape-ranges
 .PHONY: test-utf16-utf32-rin-format
 .PHONY: test-compiler-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate
-.PHONY: test-sse2-movntdq-feature-lowering
+.PHONY: test-sse2-movntdq-feature-lowering test-sse2-movdqu-load
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -21260,7 +21260,7 @@ test-noreturn: $(RCC_TARGET)
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
-test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering test-sse2-movdqu-load
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
@@ -21611,6 +21611,73 @@ test-sse2-movntdq-feature-lowering: $(RCC_TARGET)
 	$(GREP) -F -q "__builtin_ia32_movntpd requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x64.ro)
 	@echo "SSE2 non-temporal store tests completed"
+
+test-sse2-movdqu-load: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors -msse2 \
+		-DRCC_EXPECT_SSE2 \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movdqu-gcc \
+		tests/sse2_movdqu_load.c
+	$(TEST_OUT)/compiler-builtins/sse2-movdqu-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse2 \
+		-DRCC_EXPECT_SSE2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movdqu-x86.s \
+		tests/sse2_movdqu_load.c
+	$(CC) -m32 -c -o $(TEST_OUT)/compiler-builtins/sse2-movdqu-x86.o \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-x86.s
+	$(OBJDUMP) -d -M att --disassemble=movdqu_copy \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-x86-opcode.log
+	$(GREP) -F -q "f3 0f 6f" \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-x86-opcode.log
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse2-movdqu-x86,$(TEST_OUT)/compiler-builtins/sse2-movdqu-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse2 \
+		-DRCC_EXPECT_SSE2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movdqu-x64.s \
+		tests/sse2_movdqu_load.c
+	$(CC) -c -o $(TEST_OUT)/compiler-builtins/sse2-movdqu-x64.o \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-x64.s
+	$(OBJDUMP) -d -M att --disassemble=movdqu_copy \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-x64-opcode.log
+	$(GREP) -F -q "f3 0f 6f" \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-x64-opcode.log
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse2-movdqu-x64,$(TEST_OUT)/compiler-builtins/sse2-movdqu-x64.s)
+	$(call EXPECT_FAILURE,./$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 -c -o $(TEST_OUT)/compiler-builtins/invalid-sse2-movdqu-x86.ro tests/sse2_movdqu_load.c,$(TEST_OUT)/compiler-builtins/invalid-sse2-movdqu-x86.log)
+	$(GREP) -F -q "__builtin_ia32_loaddqu requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-movdqu-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-movdqu-x86.ro)
+	$(call EXPECT_FAILURE,./$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse -mno-sse2 -c -o $(TEST_OUT)/compiler-builtins/invalid-sse2-movdqu-x64.ro tests/sse2_movdqu_load.c,$(TEST_OUT)/compiler-builtins/invalid-sse2-movdqu-x64.log)
+	$(GREP) -F -q "__builtin_ia32_loaddqu requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-movdqu-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-movdqu-x64.ro)
+	@echo "SSE2 MOVDQU aligned and unaligned load tests completed"
+
+ifneq ($(OS),Windows_NT)
+.PHONY: test-sse2-movdqu-page-boundary
+test-sse2-movdqu-load: test-sse2-movdqu-page-boundary
+
+test-sse2-movdqu-page-boundary: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse2 \
+		-DRCC_MOVDQU_NO_MAIN -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movdqu-guard-x86.s \
+		tests/sse2_movdqu_load.c
+	$(CC) -m32 -std=c17 -Wall -Wextra -Werror -pedantic-errors -no-pie \
+		-Wl,-z,noexecstack \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movdqu-guard-x86 \
+		tests/sse2_movdqu_guard_posix.c \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-guard-x86.s
+	$(TEST_OUT)/compiler-builtins/sse2-movdqu-guard-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse2 \
+		-DRCC_MOVDQU_NO_MAIN -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movdqu-guard-x64.s \
+		tests/sse2_movdqu_load.c
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors -no-pie \
+		-Wl,-z,noexecstack \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movdqu-guard-x64 \
+		tests/sse2_movdqu_guard_posix.c \
+		$(TEST_OUT)/compiler-builtins/sse2-movdqu-guard-x64.s
+	$(TEST_OUT)/compiler-builtins/sse2-movdqu-guard-x64
+endif
 
 ifeq ($(OS),Windows_NT)
 FLOATING_MATH_X86_LINK = $(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main'
