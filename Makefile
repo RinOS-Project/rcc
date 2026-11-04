@@ -705,6 +705,10 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS = \
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_LONG_DOUBLE_SYMBOLS = \
 	_Z55function_template_structural_union_long_double_explicitIXtl39FunctionTemplateStructuralFloatingUniondi8extendedLe3ff4000000000000EEEEiv \
 	_Z54function_template_structural_union_long_double_deducedIXtl39FunctionTemplateStructuralFloatingUniondi8extendedLe4004000000000000EEEEi42FunctionTemplateStructuralFloatingUnionTagIXT_EE
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_QUAD_ARRAY_SYMBOLS = \
+	_Z54function_template_structural_union_quad_array_explicitIXtl40FunctionTemplateStructuralUnionQuadArraytlA2_A2_A2_A2_37FunctionTemplateStructuralNestedUniontlS4_tlS3_tlS2_tlS1_di3tagLh2EEtlS1_di5valueLi3EEEtlS2_tlS1_di5valueLi4EEtlS1_di3tagLh5EEEEtlS3_tlS2_tlS1_di3tagLh6EEtlS1_di5valueLi7EEEtlS2_tlS1_di5valueLi8EEtlS1_di3tagLh9EEEEEtlS4_tlS3_tlS2_tlS1_di3tagLh10EEtlS1_di5valueLi11EEEtlS2_tlS1_di5valueLi12EEtlS1_di3tagLh13EEEEtlS3_tlS2_tlS1_di3tagLh14EEtlS1_di5valueLi15EEEtlS2_tlS1_di5valueLi16EEtlS1_di3tagLh17EEEEEELh9EEEEiv \
+	_Z53function_template_structural_union_quad_array_deducedIXtl40FunctionTemplateStructuralUnionQuadArraytlA2_A2_A2_A2_37FunctionTemplateStructuralNestedUniontlS4_tlS3_tlS2_tlS1_di3tagLh18EEtlS1_di5valueLi19EEEtlS2_tlS1_di5valueLi20EEtlS1_di3tagLh21EEEEtlS3_tlS2_tlS1_di3tagLh22EEtlS1_di5valueLi23EEEtlS2_tlS1_di5valueLi24EEtlS1_di3tagLh25EEEEEtlS4_tlS3_tlS2_tlS1_di3tagLh26EEtlS1_di5valueLi27EEEtlS2_tlS1_di5valueLi28EEtlS1_di3tagLh29EEEEtlS3_tlS2_tlS1_di3tagLh30EEtlS1_di5valueLi31EEEtlS2_tlS1_di5valueLi32EEtlS1_di3tagLh33EEEEEELh1EEEEi43FunctionTemplateStructuralUnionQuadArrayTagIXT_EE
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-reference-list-initialization
 .PHONY: test-cxx-initializer-list
@@ -5983,7 +5987,10 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,48)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_QUAD_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_QUAD_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_QUAD_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,50)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -7773,7 +7780,10 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,48)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_QUAD_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_QUAD_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_QUAD_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,50)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)

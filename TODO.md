@@ -14126,7 +14126,7 @@ remains a separate open item.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, direct array layouts beyond the tested
       three-dimensional fixed-bound integer active-union alternative,
-      union-array layouts beyond the tested three-dimensional case, and
+      union-array layouts beyond the tested four-dimensional 2x2x2x2 case, and
       unsupported C++20 forms remain open.
   - [x] Collect pointer values from direct and nested pointer-bearing active
         union alternatives into fixed-width structural value records, preserve
@@ -14170,6 +14170,12 @@ remains a separate open item.
         alternatives, explicit and deduced NTTPs, strict GCC C++20 checks, exact
         Itanium symbols, host execution, and 32 fallback-free verified functions
         at `-O0`/`-O2` for i686/AMD64 in
+        `test-cxx-function-template-structural-nontype`.
+  - [x] Verify four-dimensional 2x2x2x2 arrays of structural union elements,
+        including mixed active alternatives and reads through all four indices.
+        Explicit designated and deduced positional NTTPs match exact GCC
+        symbols; host execution, i686/AMD64 output, and 50 fallback-free
+        verified-backend functions at `-O0` and `-O2` pass in
         `test-cxx-function-template-structural-nontype`.
   - [x] Support direct `float` and `double` union alternatives in structural
         NTTPs. Preserve their IEEE bit patterns through collection, packed value

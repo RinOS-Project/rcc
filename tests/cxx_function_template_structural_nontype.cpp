@@ -76,6 +76,11 @@ struct FunctionTemplateStructuralUnionTensor {
     unsigned char suffix;
 };
 
+struct FunctionTemplateStructuralUnionQuadArray {
+    FunctionTemplateStructuralNestedUnion payloads[2][2][2][2];
+    unsigned char suffix;
+};
+
 struct FunctionTemplateStructuralUnionPayload {
     int code;
     int extra;
@@ -163,6 +168,9 @@ struct FunctionTemplateStructuralUnionMatrixTag {};
 
 template<FunctionTemplateStructuralUnionTensor Value>
 struct FunctionTemplateStructuralUnionTensorTag {};
+
+template<FunctionTemplateStructuralUnionQuadArray Value>
+struct FunctionTemplateStructuralUnionQuadArrayTag {};
 
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 struct FunctionTemplateStructuralMixedUnionTag {};
@@ -310,6 +318,19 @@ constexpr int function_template_structural_union_tensor_deduced(
     FunctionTemplateStructuralUnionTensorTag<Value>) {
     return Value.payloads[1][0][1].value * 100 +
            Value.payloads[0][1][0].tag * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionQuadArray Value>
+constexpr int function_template_structural_union_quad_array_explicit() {
+    return Value.payloads[1][0][1][0].value * 1000 +
+           Value.payloads[0][1][0][1].value * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionQuadArray Value>
+constexpr int function_template_structural_union_quad_array_deduced(
+    FunctionTemplateStructuralUnionQuadArrayTag<Value>) {
+    return Value.payloads[1][0][1][0].value * 1000 +
+           Value.payloads[0][1][0][1].value * 10 + Value.suffix;
 }
 
 template<FunctionTemplateStructuralFloatingUnion Value>
@@ -549,6 +570,43 @@ static_assert(function_template_structural_union_tensor_deduced(
                             {{.tag = 4}, {.tag = 5}}},
                            {{{.tag = 6}, {.value = 7}},
                            {{.tag = 8}, {.value = 9}}}}, 1}>{}) == 741);
+static_assert(function_template_structural_union_quad_array_explicit<
+                  FunctionTemplateStructuralUnionQuadArray{
+                      .payloads = {
+                          {
+                              {
+                                  {{.tag = 2}, {.value = 3}},
+                                  {{.value = 4}, {.tag = 5}}},
+                              {
+                                  {{.tag = 6}, {.value = 7}},
+                                  {{.value = 8}, {.tag = 9}}}},
+                          {
+                              {
+                                  {{.tag = 10}, {.value = 11}},
+                                  {{.value = 12}, {.tag = 13}}},
+                              {
+                                  {{.tag = 14}, {.value = 15}},
+                                  {{.value = 16}, {.tag = 17}}}}},
+                      .suffix = 9}>() == 12079);
+static_assert(function_template_structural_union_quad_array_deduced(
+                  FunctionTemplateStructuralUnionQuadArrayTag<
+                      FunctionTemplateStructuralUnionQuadArray{
+                          {
+                              {
+                                  {
+                                      {{.tag = 18}, {.value = 19}},
+                                      {{.value = 20}, {.tag = 21}}},
+                                  {
+                                      {{.tag = 22}, {.value = 23}},
+                                      {{.value = 24}, {.tag = 25}}}},
+                              {
+                                  {
+                                      {{.tag = 26}, {.value = 27}},
+                                      {{.value = 28}, {.tag = 29}}},
+                                  {
+                                      {{.tag = 30}, {.value = 31}},
+                                      {{.value = 32}, {.tag = 33}}}}},
+                          1}>{}) == 28231);
 static_assert(function_template_structural_union_float_explicit<
                   FunctionTemplateStructuralFloatingUnion{
                       .single = 1.5f}>() == 15);
@@ -740,6 +798,43 @@ int main() {
                       {{.tag = 4}, {.tag = 5}}},
                      {{{.tag = 6}, {.value = 7}},
                      {{.tag = 8}, {.value = 9}}}}, 1}>{}) != 741 ||
+        function_template_structural_union_quad_array_explicit<
+            FunctionTemplateStructuralUnionQuadArray{
+                .payloads = {
+                    {
+                        {
+                            {{.tag = 2}, {.value = 3}},
+                            {{.value = 4}, {.tag = 5}}},
+                        {
+                            {{.tag = 6}, {.value = 7}},
+                            {{.value = 8}, {.tag = 9}}}},
+                    {
+                        {
+                            {{.tag = 10}, {.value = 11}},
+                            {{.value = 12}, {.tag = 13}}},
+                        {
+                            {{.tag = 14}, {.value = 15}},
+                            {{.value = 16}, {.tag = 17}}}}},
+                .suffix = 9}>() != 12079 ||
+        function_template_structural_union_quad_array_deduced(
+            FunctionTemplateStructuralUnionQuadArrayTag<
+                FunctionTemplateStructuralUnionQuadArray{
+                    {
+                        {
+                            {
+                                {{.tag = 18}, {.value = 19}},
+                                {{.value = 20}, {.tag = 21}}},
+                            {
+                                {{.tag = 22}, {.value = 23}},
+                                {{.value = 24}, {.tag = 25}}}},
+                        {
+                            {
+                                {{.tag = 26}, {.value = 27}},
+                                {{.value = 28}, {.tag = 29}}},
+                            {
+                                {{.tag = 30}, {.value = 31}},
+                                {{.value = 32}, {.tag = 33}}}}},
+                    1}>{}) != 28231 ||
         function_template_structural_union_float_explicit<
             FunctionTemplateStructuralFloatingUnion{
                 .single = 1.5f}>() != 15 ||
