@@ -12856,9 +12856,9 @@ remains a separate open item.
         expression. A dedicated fixture evaluates full-width division and
         remainder matrices in legacy `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`. Its generated i686 assembly has
-        four global store references and one locked `cmpxchg8b` sequence per
-        each of six entry functions at both optimization levels; the existing
-        verified corpus continues to emit with zero fallback.
+        four global store references and six locked `cmpxchg8b` sequences, one
+        per entry function, at both optimization levels; the existing verified
+        corpus continues to emit with zero fallback.
         Verified SSA lowering for this atomic assignment, other atomic-store
         shapes, and atomic RMW remain open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
