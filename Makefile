@@ -3006,6 +3006,22 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 24 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -g -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86-o2.ro \
+		tests/debug_info_inline_mutated_parameter.cpp \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 24 function(s) emitted' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86-o2.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64-o2.ro \
+		tests/debug_info_inline_mutated_parameter.cpp \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 24 function(s) emitted' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64-o2.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.ro \
@@ -3045,6 +3061,10 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		--verify-inline-mutated-parameter \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64.ro
+	$(TEST_OUT)/debug-info-inline-expression/verify \
+		--verify-inline-mutated-parameter \
+		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x86-o2.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-parameter-x64-o2.ro
 	$(TEST_OUT)/debug-info-inline-expression/verify \
 		--verify-inline-mutated-local \
 		$(TEST_OUT)/debug-info-inline-expression/verified-mutated-local-x86.ro \

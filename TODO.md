@@ -12759,8 +12759,9 @@ remains a separate open item.
       results in legacy and verified objects through
       `test-debug-info-inline-expression`.
 - [ ] Extend computed division/remainder expressions to broader operand trees
-      and atomic sources; expand optimized multi-piece location tracking and
-      widen atomic bitwise operands beyond the verified mixed-signedness pair.
+      and atomic sources; cover additional optimized multi-piece expression
+      shapes and widen atomic bitwise operands beyond the verified
+      mixed-signedness pair.
   - [x] Extend i686 unsigned 64-bit constant-divisor division/remainder DWARF
         values to address-backed atomic global sources. Verify divisor 7,
         full-width values, and source relocations in legacy and verified
@@ -12788,6 +12789,17 @@ remains a separate open item.
         operand orders. Verify `&`, `|`, `^`, four relocations, and the full
         value matrix in legacy and verified objects through
         `test-debug-info-inline-expression`.
+
+## RCC continuation (2026-11-04, optimized inline-parameter DWARF)
+
+- [x] Run the existing mutable inline-parameter debug expressions through the
+      optimized verified backend at `-O2` for i686 and AMD64. Verify all 24
+      functions are emitted with zero fallback, then interpret the parameter
+      location lists and i686 multi-piece values using the same operand matrix
+      as the `-O1` gate. `test-debug-info-inline-expression` now gates both
+      optimization levels.
+- [ ] Extend optimized location coverage to additional computed
+      division/remainder trees, atomic operands, and optimized mutable locals.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
