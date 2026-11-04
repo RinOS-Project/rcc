@@ -4342,6 +4342,12 @@ static bool lower_i686_wide_scalar_expression_type(const Expr* expression) {
         return false;
     }
     switch (expression->kind) {
+        case EXPR_ASSIGN:
+            return expression->binary_lhs && expression->binary_rhs &&
+                lower_i686_wide_atomic_scalar_type(
+                    expression->binary_lhs->type) &&
+                lower_i686_wide_scalar_type(
+                    expression->binary_rhs->type);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -4458,6 +4464,51 @@ static bool lower_wide_scalar_store(
     high_address = lower_byte_offset_address(context, address, 4u);
     return lower_store_address(context, address, value.low) &&
         lower_store_address(context, high_address, value.high);
+}
+
+static bool lower_i686_wide_atomic_scalar_store(
+    RccIrLowerContext* context, const Expr* object_expression,
+    RccIrLowerWideValue value) {
+    RccIrLowerValue object_address;
+    RccIrLowerValue value_address;
+    RccIrLowerValue size;
+    RccIrLowerValue memory_order;
+    RccIrInstruction* allocation;
+    RccIrInstruction* call;
+    RccIrValue operands[4];
+    if (!context || !object_expression || !object_expression->type ||
+        !lower_i686_wide_atomic_scalar_type(object_expression->type) ||
+        !value.valid) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    object_address = lower_lvalue_address(context, object_expression);
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!object_address.valid || !allocation) return false;
+    rcc_ir_set_immediate(allocation, 8u);
+    allocation->alignment = 8u;
+    value_address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    if (!lower_wide_scalar_store(context, value_address, value)) {
+        return false;
+    }
+    size = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 8u);
+    memory_order = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 5u);
+    if (!size.valid || !memory_order.valid) return false;
+    operands[0] = object_address.value;
+    operands[1] = value_address.value;
+    operands[2] = size.value;
+    operands[3] = memory_order.value;
+    call = lower_append(
+        context, RCC_IR_CALL, rcc_ir_type_void(),
+        operands, 4u, NULL, 0u);
+    if (!call) return false;
+    rcc_ir_set_callee(call, "__rin_atomic_store_v1");
+    return true;
 }
 
 static bool lower_sysv_va_list_type(const Expr* list_expression) {
@@ -7479,11 +7530,15 @@ static bool lower_wide_scalar_expression_impl(
             context, expression->binary_rhs, result);
     }
     if (expression->kind == EXPR_ASSIGN &&
-        lower_i686_wide_scalar_type(expression->type) &&
+        (lower_i686_wide_scalar_type(expression->type) ||
+         lower_i686_wide_atomic_scalar_type(expression->type)) &&
         expression->binary_lhs && expression->binary_rhs &&
-        lower_i686_wide_scalar_type(expression->binary_lhs->type)) {
+        (lower_i686_wide_scalar_type(expression->binary_lhs->type) ||
+         lower_i686_wide_atomic_scalar_type(
+             expression->binary_lhs->type))) {
         RccIrLowerWideValue value;
-        if (expression->binary_lhs->kind == EXPR_IDENT &&
+        if (lower_i686_wide_scalar_type(expression->binary_lhs->type) &&
+            expression->binary_lhs->kind == EXPR_IDENT &&
             expression->binary_lhs->ident_decl) {
             local = lower_find_local(
                 context, expression->binary_lhs->ident_decl);
@@ -7502,7 +7557,11 @@ static bool lower_wide_scalar_expression_impl(
         address = lower_lvalue_address(context, expression->binary_lhs);
         if (!lower_wide_scalar_expression(
                 context, expression->binary_rhs, &value) ||
-            !lower_wide_scalar_store(context, address, value)) {
+            (lower_i686_wide_atomic_scalar_type(
+                 expression->binary_lhs->type)
+                 ? !lower_i686_wide_atomic_scalar_store(
+                       context, expression->binary_lhs, value)
+                 : !lower_wide_scalar_store(context, address, value))) {
             return false;
         }
         *result = value;

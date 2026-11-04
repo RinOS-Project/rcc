@@ -82,6 +82,24 @@ static unsigned count_sections_named(const ObjectFile* object,
     return count;
 }
 
+static unsigned count_relocations_to_symbol(const ObjectFile* object,
+                                            const char* symbol_name)
+{
+    unsigned count = 0u;
+    if (!object || !symbol_name) return 0u;
+    for (const ObjSection* section = object->sections; section;
+         section = section->next) {
+        for (const ObjReloc* relocation = section->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->symbol_name &&
+                strcmp(relocation->symbol_name, symbol_name) == 0) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
 static uint32_t read_u32(const uint8_t* data, uint64_t offset)
 {
     return (uint32_t)data[offset] |
@@ -2267,14 +2285,18 @@ static bool find_variable_location_search(const ObjSection* info,
                                           bool* has_location,
                                           bool* is_location_list,
                                           int64_t* frame_offset,
+                                          uint64_t search_begin,
+                                          uint64_t search_end,
                                           bool reverse)
 {
     uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
     bool found_abstract_origin = false;
     if (!info || !strings || !variable_name || !has_location ||
-        !is_location_list || !frame_offset || info->size < 32u) return false;
-    for (uint64_t die = reverse ? info->size - 21u : 11u;
-         reverse ? die >= 11u : die + 21u <= info->size;
+        !is_location_list || !frame_offset || info->size < 32u ||
+        search_begin < 11u || search_begin > search_end ||
+        search_end > info->size) return false;
+    for (uint64_t die = reverse ? search_end - 21u : search_begin;
+         reverse ? die >= search_begin : die + 21u <= search_end;
          reverse ? --die : ++die) {
         uint8_t abbreviation = info->data[die];
         uint32_t name_offset;
@@ -2427,7 +2449,7 @@ static bool find_variable_location(const ObjSection* info,
 {
     return find_variable_location_search(
         info, strings, locations, variable_name, architecture, has_location,
-        is_location_list, frame_offset, false);
+        is_location_list, frame_offset, 11u, info ? info->size : 0u, false);
 }
 
 static bool find_variable_location_last(const ObjSection* info,
@@ -2441,7 +2463,61 @@ static bool find_variable_location_last(const ObjSection* info,
 {
     return find_variable_location_search(
         info, strings, locations, variable_name, architecture, has_location,
-        is_location_list, frame_offset, true);
+        is_location_list, frame_offset, 11u, info ? info->size : 0u, true);
+}
+
+static bool find_variable_location_in_function(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const char* function_name,
+    const char* variable_name, uint16_t architecture,
+    bool* has_location, bool* is_location_list, int64_t* frame_offset) {
+    uint64_t function_die = UINT64_MAX;
+    uint64_t function_end;
+    if (!info || !function_name) return false;
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        uint64_t candidate;
+        if (relocation->offset < 5u || !relocation->symbol_name ||
+            strcmp(relocation->symbol_name, function_name) != 0) {
+            continue;
+        }
+        candidate = relocation->offset - 5u;
+        if (candidate + 21u > info->size ||
+            (info->data[candidate] != 2u &&
+             info->data[candidate] != 8u &&
+             info->data[candidate] != 26u &&
+             info->data[candidate] != 28u &&
+             info->data[candidate] != 29u &&
+             info->data[candidate] != 30u)) {
+            continue;
+        }
+        if (function_die != UINT64_MAX) return false;
+        function_die = candidate;
+    }
+    if (function_die == UINT64_MAX) return false;
+    function_end = info->size;
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        uint64_t candidate;
+        if (relocation->offset < 5u) continue;
+        candidate = relocation->offset - 5u;
+        if (candidate <= function_die || candidate >= function_end ||
+            candidate + 21u > info->size) {
+            continue;
+        }
+        if (info->data[candidate] == 2u ||
+            info->data[candidate] == 8u ||
+            info->data[candidate] == 26u ||
+            info->data[candidate] == 28u ||
+            info->data[candidate] == 29u ||
+            info->data[candidate] == 30u) {
+            function_end = candidate;
+        }
+    }
+    return find_variable_location_search(
+        info, strings, locations, variable_name, architecture,
+        has_location, is_location_list, frame_offset,
+        function_die + 1u, function_end, false);
 }
 
 static bool find_variable_const_value(const ObjSection* info,
@@ -10751,15 +10827,25 @@ static void verify_inline_i686_computed_division_expression(
         info->data, info->size, &expression_offset);
     assert(expression_size != 0u && expression_offset + expression_size <=
            info->size);
-    assert(find_variable_location_last(
-        info, strings, locations, dividend_name, ARCH_X86,
-        &has_dividend_location, &dividend_is_location_list,
-        &dividend_frame_offset));
+    assert(atomic_store_tree
+        ? find_variable_location_in_function(
+              info, strings, locations, call_site_name, dividend_name,
+              ARCH_X86, &has_dividend_location,
+              &dividend_is_location_list, &dividend_frame_offset)
+        : find_variable_location_last(
+              info, strings, locations, dividend_name, ARCH_X86,
+              &has_dividend_location, &dividend_is_location_list,
+              &dividend_frame_offset));
     if (!constant_divisor) {
-        assert(find_variable_location_last(
-            info, strings, locations, divisor_name, ARCH_X86,
-            &has_divisor_location, &divisor_is_location_list,
-            &divisor_frame_offset));
+        assert(atomic_store_tree
+            ? find_variable_location_in_function(
+                  info, strings, locations, call_site_name, divisor_name,
+                  ARCH_X86, &has_divisor_location,
+                  &divisor_is_location_list, &divisor_frame_offset)
+            : find_variable_location_last(
+                  info, strings, locations, divisor_name, ARCH_X86,
+                  &has_divisor_location, &divisor_is_location_list,
+                  &divisor_frame_offset));
     }
     assert(has_dividend_location &&
            (constant_divisor || has_divisor_location) &&
@@ -20350,6 +20436,14 @@ int main(int argc, char** argv)
     if (argc == 4 &&
         strcmp(argv[1], "--verify-inline-atomic-store-expression") == 0) {
         for (int index = 2; index < 4; ++index) {
+            ObjectFile* object = objfile_read(argv[index]);
+            bool verified_backend_object =
+                strstr(argv[index], "verified-atomic-store-") != NULL;
+            assert(object && object->arch == ARCH_X86 &&
+                   count_relocations_to_symbol(
+                       object, "__rin_atomic_store_v1") ==
+                       (verified_backend_object ? 18u : 0u));
+            objfile_free(object);
             verify_inline_i686_computed_division_expression(
                 argv[index],
                 "debug_inline_nonconstant_unsigned_long_long_atomic_store_divide_entry",

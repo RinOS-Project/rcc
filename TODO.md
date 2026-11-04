@@ -12863,9 +12863,10 @@ remains a separate open item.
         eighteen locked `cmpxchg8b` sequences, one per entry function, at both
         optimization levels. This covers volatile and nonvolatile TLS global
         assignment values. The existing verified corpus also emits with zero
-        fallback.
-        Verified SSA lowering for this atomic assignment, other atomic-store
-        shapes, and atomic RMW remain open.
+        fallback. Verified i686 `-O1`/`-O2` objects emit all 19 fixture
+        functions with zero fallback; the 18 atomic stores call the existing
+        `__rin_atomic_store_v1` runtime, and the DWARF value matrix passes on
+        those objects. Other atomic-store shapes and atomic RMW remain open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
         computed nonzero divisor. Cover shift counts 0, 1, 2, 7, 31, 32, 33,
         and 63, including a zero raw factor, across the full-width matrix in
