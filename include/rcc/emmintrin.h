@@ -40,6 +40,14 @@ static __inline __m128d _mm_loadu_pd(const double* __p) {
     return __builtin_ia32_loadupd(__p);
 }
 
+static __inline __m128d _mm_loadl_pd(__m128d __a, const double* __p) {
+    return (__m128d){ *__p, ((__v2df)__a)[1] };
+}
+
+static __inline __m128d _mm_loadh_pd(__m128d __a, const double* __p) {
+    return (__m128d){ ((__v2df)__a)[0], *__p };
+}
+
 /* Store operations - double */
 static __inline void _mm_store_sd(double* __p, __m128d __a) {
     __builtin_ia32_storesd(__p, __a);
@@ -64,6 +72,14 @@ static __inline void _mm_storer_pd(double* __p, __m128d __a) {
 
 static __inline void _mm_storeu_pd(double* __p, __m128d __a) {
     __builtin_ia32_storeupd(__p, __a);
+}
+
+static __inline void _mm_storel_pd(double* __p, __m128d __a) {
+    _mm_store_sd(__p, __a);
+}
+
+static __inline void _mm_storeh_pd(double* __p, __m128d __a) {
+    *__p = ((__v2df)__a)[1];
 }
 
 /* Arithmetic - double */
