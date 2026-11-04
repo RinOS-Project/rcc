@@ -14077,13 +14077,15 @@ remains a separate open item.
 - [x] Pack differently sized public data members in declaration order and
       preserve declaration-ordered public non-virtual base subobjects before
       derived members, including an empty base, a fixed-bound array in a data
-      base, and another data base. Omit empty base subobjects from structural
-      NTTP Itanium value encoding to match GCC. Explicit and deduced function-
-      template arguments read inherited members from both data bases; calls
-      with equivalent arithmetic initializers reuse the same specialization.
-      Verify GCC C++20 Itanium symbol parity and host execution, plus i686/AMD64
-      assembly and verified-backend emission of all 11 functions at `-O0` and
-      `-O2` with zero fallback through
+      base, and another data base. Accept fixed-bound arrays of empty structural
+      class elements with zero packed leaves. Match GCC's Itanium encoding by
+      omitting empty bases and trailing empty data subobjects while retaining
+      the wrappers for empty members that precede later value-bearing members.
+      Explicit and deduced function-template arguments read inherited members
+      from both data bases; calls with equivalent arithmetic initializers reuse
+      the same specialization. Verify GCC C++20 Itanium symbol parity and host
+      execution, plus i686/AMD64 assembly and verified-backend emission of all
+      11 functions at `-O0` and `-O2` with zero fallback through
       `test-cxx-function-template-structural-nontype`.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, and unsupported C++20 forms remain open.

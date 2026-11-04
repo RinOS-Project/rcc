@@ -812,6 +812,16 @@ static bool cxx_structural_class_decode_leaf(
     const TypeParam* field, uint64_t packed_value, unsigned bit_offset,
     int64_t* member_value);
 
+static bool cxx_structural_class_has_later_value_field(
+    const TypeParam* field) {
+    for (field = field ? field->next : NULL; field; field = field->next) {
+        if (!field->is_static && cxx_structural_field_value_bits(field) != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool cxx_mangle_structural_member_function_designator(
     char* buf, size_t* pos, TypeMethod* method,
     CxxMangleContext* context) {
@@ -1497,6 +1507,18 @@ static bool cxx_mangle_structural_value_body(
                     continue;
                 }
             }
+            if (element_layout_bits == 0u && element_leaves == 0u &&
+                element_pointers == 0u) {
+                if (!cxx_structural_class_has_later_value_field(field)) {
+                    continue;
+                }
+                cxx_mangle_type_char(buf, pos, 't');
+                cxx_mangle_type_char(buf, pos, 'l');
+                cxx_mangle_type_append_context(
+                    buf, pos, field->type, context);
+                cxx_mangle_type_char(buf, pos, 'E');
+                continue;
+            }
             cxx_mangle_type_char(buf, pos, 't');
             cxx_mangle_type_char(buf, pos, 'l');
             cxx_mangle_type_append_context(buf, pos, field->type, context);
@@ -1602,6 +1624,19 @@ static bool cxx_mangle_structural_value_body(
             continue;
         }
         if (field->type->kind == TYPE_STRUCT) {
+            unsigned member_bits = 0u;
+            unsigned member_leaves = 0u;
+            unsigned member_pointers = 0u;
+            if (!cxx_structural_class_measure_fields(
+                    field->type, &member_bits, &member_leaves,
+                    &member_pointers)) {
+                return false;
+            }
+            if (member_bits == 0u && member_leaves == 0u &&
+                member_pointers == 0u &&
+                !cxx_structural_class_has_later_value_field(field)) {
+                continue;
+            }
             if (!recorded_values &&
                 cxx_structural_class_has_only_pointer_member(field->type) &&
                 packed_value == 0u) {
@@ -4770,8 +4805,10 @@ static bool cxx_structural_class_measure_fields(
                 !cxx_structural_array_element_layout(
                     element_type, &element_bits, &element_leaves,
                     &element_pointers) ||
-                element_count > UINT_MAX / element_bits ||
-                element_count > UINT_MAX / element_leaves ||
+                (element_bits != 0u &&
+                 element_count > UINT_MAX / element_bits) ||
+                (element_leaves != 0u &&
+                 element_count > UINT_MAX / element_leaves) ||
                 (element_pointers != 0u &&
                  element_count > UINT_MAX / element_pointers)) {
                 return false;
@@ -4855,8 +4892,10 @@ static bool cxx_structural_array_element_layout(
             !cxx_structural_array_element_layout(
                 element_type, &element_bits, &element_leaves,
                 &element_pointers) ||
-            element_count > UINT_MAX / element_bits ||
-            element_count > UINT_MAX / element_leaves ||
+            (element_bits != 0u &&
+             element_count > UINT_MAX / element_bits) ||
+            (element_leaves != 0u &&
+             element_count > UINT_MAX / element_leaves) ||
             (element_pointers != 0u &&
              element_count > UINT_MAX / element_pointers)) {
             return false;
@@ -4886,7 +4925,6 @@ static bool cxx_structural_array_element_layout(
         bits = (unsigned)type->size * 8u;
         leaves = 1u;
     }
-    if (bits == 0u || leaves == 0u) return false;
     *value_bits = bits;
     *leaf_count = leaves;
     *pointer_count = pointers;
@@ -4927,7 +4965,8 @@ static unsigned cxx_structural_type_value_bits(const Type* type) {
             !cxx_structural_array_element_layout(
                 element_type, &element_bits, &element_leaves,
                 &element_pointers) ||
-            element_count > UINT_MAX / element_bits) {
+            (element_bits != 0u &&
+             element_count > UINT_MAX / element_bits)) {
             return 0u;
         }
         return element_count * element_bits;
@@ -5288,10 +5327,12 @@ static bool cxx_structural_class_find_member_path(
                     unsigned element_bit_offset;
                     unsigned leaf_offset;
                     if (path_index + 1 >= member_name_count ||
-                        (unsigned)array_element_index >
-                            UINT_MAX / element_bits ||
-                        (unsigned)array_element_index >
-                            UINT_MAX / element_leaves) {
+                        (element_bits != 0u &&
+                         (unsigned)array_element_index >
+                            UINT_MAX / element_bits) ||
+                        (element_leaves != 0u &&
+                         (unsigned)array_element_index >
+                            UINT_MAX / element_leaves)) {
                         return false;
                     }
                     element_bit_offset = bit_offset +
@@ -5397,7 +5438,8 @@ static bool cxx_structural_class_find_member_path(
                     !cxx_structural_array_element_layout(
                         element_type, &element_bits, &element_leaves,
                         &element_pointers) ||
-                    element_count > UINT_MAX / element_leaves ||
+                    (element_leaves != 0u &&
+                     element_count > UINT_MAX / element_leaves) ||
                     element_count * element_leaves >
                         (unsigned)(INT_MAX - *value_index)) {
                     return false;
@@ -5515,7 +5557,8 @@ static bool cxx_structural_type_value_leaves(
                 type, &element_type, &element_count) ||
             !cxx_structural_array_element_layout(
                 element_type, &bits, &element_leaves, &pointers) ||
-            element_count > UINT_MAX / element_leaves) {
+            (element_leaves != 0u &&
+             element_count > UINT_MAX / element_leaves)) {
             return false;
         }
         leaves = element_count * element_leaves;
@@ -5541,8 +5584,7 @@ static bool cxx_structural_class_find_array_field(
         unsigned field_leaves;
         if (field->is_static) continue;
         field_bits = cxx_structural_field_value_bits(field);
-        if (!field_bits ||
-            !cxx_structural_type_value_leaves(field->type, &field_leaves)) {
+        if (!cxx_structural_type_value_leaves(field->type, &field_leaves)) {
             return false;
         }
         if (field->name &&
@@ -6569,7 +6611,8 @@ static void cxx_typeinfo_identity_append_structural_scalar_array_values(
         !cxx_structural_array_element_layout(
             element_type, &element_bits, &element_leaves,
             &element_pointers) ||
-        element_count > UINT_MAX / element_leaves ||
+        (element_leaves != 0u &&
+         element_count > UINT_MAX / element_leaves) ||
         !value_index || *value_index < 0 || *value_index > value_count ||
         element_count * element_leaves >
             (unsigned)(value_count - *value_index)) {
@@ -6996,7 +7039,8 @@ static void cxx_typeinfo_identity_append_structural_values(
                 !cxx_structural_array_element_layout(
                     element_type, &element_bits, &element_leaves,
                     &element_pointers) ||
-                element_count > UINT_MAX / element_leaves ||
+                (element_leaves != 0u &&
+                 element_count > UINT_MAX / element_leaves) ||
                 !value_index || *value_index < 0 ||
                 *value_index > value_count ||
                 element_count * element_leaves >
