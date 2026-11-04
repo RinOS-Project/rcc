@@ -14289,6 +14289,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                             const CxxParsedTemplateArgument* source =
                                 &source_call->candidate_explicit_arguments[
                                     candidate_index][argument_index];
+                            bool structural_value_forwarded = false;
                             *destination = *source;
                             destination->type = source->is_type
                                 ? template_substitute_type(
@@ -14300,7 +14301,95 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                 : template_clone_expr(
                                       tmpl, source->value_expression, args,
                                       arg_count, value_args, value_present);
-                            if (destination->value_expression &&
+                            if (!source->is_type &&
+                                source->value_expression &&
+                                source->value_expression->kind == EXPR_IDENT &&
+                                source->value_expression->ident_name) {
+                                TemplateParam* value_parameter = NULL;
+                                int value_parameter_index =
+                                    template_clone_value_parameter_index(
+                                        tmpl,
+                                        source->value_expression->ident_name,
+                                        arg_count, &value_parameter);
+                                if (value_parameter_index >= 0 &&
+                                    value_parameter &&
+                                    value_parameter->kind == TPARAM_NONTYPE &&
+                                    value_parameter->type &&
+                                    (value_parameter->type->kind == TYPE_STRUCT ||
+                                     value_parameter->type->kind == TYPE_UNION) &&
+                                    cxx_structural_class_value_supported_subset(
+                                        value_parameter->type) &&
+                                    value_args && value_present &&
+                                    value_present[value_parameter_index]) {
+                                    CxxTemplate* candidate =
+                                        source_call->candidates[candidate_index];
+                                    int target_parameter_index = argument_index;
+                                    int target_pack_index = -1;
+                                    Type* target_type = NULL;
+                                    bool target_type_matches = false;
+                                    if (candidate) {
+                                        for (int parameter_index = 0;
+                                             parameter_index <
+                                                 candidate->param_count;
+                                             ++parameter_index) {
+                                            if (candidate->params[parameter_index]
+                                                    .is_pack) {
+                                                target_pack_index =
+                                                    parameter_index;
+                                                break;
+                                            }
+                                        }
+                                        if (target_pack_index >= 0 &&
+                                            target_parameter_index >=
+                                                target_pack_index) {
+                                            target_parameter_index =
+                                                target_pack_index;
+                                        }
+                                        if (target_parameter_index >= 0 &&
+                                            target_parameter_index <
+                                                candidate->param_count &&
+                                            candidate->params[
+                                                target_parameter_index].kind ==
+                                                TPARAM_NONTYPE) {
+                                            target_type = template_substitute_type(
+                                                tmpl,
+                                                candidate->params[
+                                                    target_parameter_index].type,
+                                                args, arg_count, value_args,
+                                                value_present);
+                                            target_type_matches = target_type &&
+                                                type_is_compatible(
+                                                    target_type,
+                                                    value_parameter->type);
+                                        }
+                                    }
+                                    if (!target_type_matches) {
+                                        /* A dependent structural argument may
+                                         * only be forwarded as this structural
+                                         * parameter's value when the target
+                                         * parameter has the same type.  Mark
+                                         * this overload non-viable instead of
+                                         * interpreting the opaque class-value
+                                         * handle as an integer constant. */
+                                        cloned_call->candidate_explicit_arguments_valid[
+                                            candidate_index] = false;
+                                        structural_value_forwarded = true;
+                                    } else {
+                                        /* Structural class values are encoded
+                                         * in the template argument slot. The
+                                         * cloned EXPR_INT_LIT is only an AST
+                                         * carrier and must not be re-evaluated
+                                         * using the class type's integer
+                                         * width. */
+                                        destination->value =
+                                            value_args[value_parameter_index];
+                                        destination->value_valid = true;
+                                        structural_value_forwarded = true;
+                                    }
+                                }
+                            }
+                            if (!structural_value_forwarded &&
+                                destination->value_expression &&
                                 expr_eval_integer_constant(
                                     destination->value_expression,
                                     &destination->value)) {

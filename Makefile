@@ -736,6 +736,13 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_FIVE_D_UNION_SYMBOLS = \
 	_Z55function_template_structural_union_quint_array_explicitIXtl41FunctionTemplateStructuralQuintArrayUniondi6valuestlA2_A2_A2_A2_A2_itlS4_tlS3_tlS2_tlS1_Li1ELi2EEtlS1_Li3ELi4EEEtlS2_tlS1_Li5ELi6EEtlS1_Li7ELi8EEEEtlS3_tlS2_tlS1_Li9ELi10EEtlS1_Li11ELi12EEEtlS2_tlS1_Li13ELi14EEtlS1_Li15ELi16EEEEEtlS4_tlS3_tlS2_tlS1_Li17ELi18EEtlS1_Li19ELi20EEEtlS2_tlS1_Li21ELi22EEtlS1_Li23ELi24EEEEtlS3_tlS2_tlS1_Li25ELi26EEtlS1_Li27ELi28EEEtlS2_tlS1_Li29ELi30EEtlS1_Li31ELi32EEEEEEEEEiv \
 	_Z54function_template_structural_union_quint_array_deducedIXtl41FunctionTemplateStructuralQuintArrayUniondi6valuestlA2_A2_A2_A2_A2_itlS4_tlS3_tlS2_tlS1_Li1ELi2EEtlS1_Li3ELi4EEEtlS2_tlS1_Li5ELi6EEtlS1_Li7ELi8EEEEtlS3_tlS2_tlS1_Li9ELi10EEtlS1_Li11ELi12EEEtlS2_tlS1_Li13ELi14EEtlS1_Li15ELi16EEEEEtlS4_tlS3_tlS2_tlS1_Li17ELi18EEtlS1_Li19ELi20EEEtlS2_tlS1_Li21ELi22EEtlS1_Li23ELi24EEEEtlS3_tlS2_tlS1_Li25ELi26EEtlS1_Li27ELi28EEEtlS2_tlS1_Li29ELi30EEtlS1_Li31ELi32EEEEEEEEEi44FunctionTemplateStructuralQuintArrayUnionTagIXT_EE
 
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_REQUIRED_SYMBOLS = \
+	_Z38structural_six_dimensional_array_valueIXtl24SixDimensionalArrayUniondi6valuestlA2_A1_A1_A1_A1_A2_itlS5_tlS4_tlS3_tlS2_tlS1_Li1ELi2EEEEEEtlS5_tlS4_tlS3_tlS2_tlS1_Li3ELi4EEEEEEEEEEiv \
+	_Z40structural_six_dimensional_array_deducedIXtl24SixDimensionalArrayUniondi6valuestlA2_A1_A1_A1_A1_A2_itlS5_tlS4_tlS3_tlS2_tlS1_Li5ELi6EEEEEEtlS5_tlS4_tlS3_tlS2_tlS1_Li7ELi8EEEEEEEEEEi22SixDimensionalArrayTagIXT_EE
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL = \
+	_Z38structural_six_dimensional_array_valueIXtl24SixDimensionalArrayUniondi6valuestlA2_A1_A1_A1_A1_A2_itlS5_tlS4_tlS3_tlS2_tlS1_Li5ELi6EEEEEEtlS5_tlS4_tlS3_tlS2_tlS1_Li7ELi8EEEEEEEEEEiv
+
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_ARRAY_SYMBOLS = \
 	_Z51function_template_structural_pointer_array_explicitIXtl38FunctionTemplateStructuralPointerArraytlA2_PKiadL_Z48function_template_structural_pointer_array_firstEadL_Z49function_template_structural_pointer_array_secondEELi7EEEEiv \
 	_Z50function_template_structural_pointer_array_deducedIXtl38FunctionTemplateStructuralPointerArraytlA2_PKiadL_Z49function_template_structural_pointer_array_secondEadL_Z48function_template_structural_pointer_array_firstEELi5EEEEi41FunctionTemplateStructuralPointerArrayTagIXT_EE
@@ -6036,8 +6043,25 @@ test-cxx-array-function-bool-reference-invalid: $(RCXX_TARGET)
 test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-nontype)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-union-bitfield)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-six-dim-array)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-union-bitfield,cxx_function_template_structural_union_bitfield.cpp)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-six-dim-array,cxx_function_template_structural_six_dim_array.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-host \
+		tests/cxx_function_template_structural_six_dim_array.cpp
+	$(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-host
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-symbols.s \
+		tests/cxx_function_template_structural_six_dim_array.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-six-dim-array/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-six-dim-array/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-symbols.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-six-dim-array,cxx_function_template_structural_six_dim_array.cpp,3)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.ro tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/gcc.log)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-host \
 		tests/cxx_function_template_structural_union_bitfield.cpp
@@ -7894,8 +7918,25 @@ test-cxx-adl-function-template-specialization: $(RCXX_TARGET)
 test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-nontype)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-union-bitfield)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-six-dim-array)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-union-bitfield,cxx_function_template_structural_union_bitfield.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-six-dim-array,cxx_function_template_structural_six_dim_array.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-host.exe \
+		tests/cxx_function_template_structural_six_dim_array.cpp
+	$(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-host.exe
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-symbols.s \
+		tests/cxx_function_template_structural_six_dim_array.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-six-dim-array/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-six-dim-array/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIX_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-symbols.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-six-dim-array,cxx_function_template_structural_six_dim_array.cpp,3)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.ro tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/gcc.log)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-host.exe \
 		tests/cxx_function_template_structural_union_bitfield.cpp

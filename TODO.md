@@ -14125,9 +14125,9 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, direct array layouts beyond the tested
-      five-dimensional fixed-bound integer active-union alternative,
-      union-array layouts beyond the tested four-dimensional 2x2x2x2 case, and
-      unsupported C++20 forms remain open.
+      six-dimensional fixed-bound integer active-union alternative,
+      structural union-array element layouts beyond the tested four-dimensional
+      2x2x2x2 case, and unsupported C++20 forms remain open.
   - [x] Collect pointer values from direct and nested pointer-bearing active
         union alternatives into fixed-width structural value records, preserve
         pointer identity in typeinfo keys, and match GCC Itanium mangling for
@@ -14228,6 +14228,16 @@ remains a separate open item.
         execution, i686/AMD64 output, and all 54 verified-backend functions with
         zero fallback at `-O0`/`-O2` pass in
         `test-cxx-function-template-structural-nontype`.
+  - [x] Support a six-dimensional `[2][1][1][1][1][2]` integer array as an
+        active structural union alternative. Substitute reads through all six
+        indices in designated explicit and deduced positional NTTPs, and forward
+        the deduced structural value as an explicit argument to another function
+        template. Preserve the packed class value during dependent-call
+        substitution and reject an incompatible integer NTTP target. Strict GCC
+        C++20, exact required Itanium symbols, RCC/GCC host execution,
+        i686/AMD64 output, and all three verified-backend functions with zero
+        fallback at `-O0`/`-O2` pass in the Windows and POSIX
+        `test-cxx-function-template-structural-nontype` gates.
   - [x] Resolve namespace-scope `constexpr` structural-class object names
         through their constant initializers when used as explicit or deduced
         function-template NTTPs. Verify that named and direct aggregate forms

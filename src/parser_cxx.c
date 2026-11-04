@@ -45870,7 +45870,9 @@ static bool cxx_parse_explicit_function_template_argument_list(
                 argument->value_valid = argument->value_expression &&
                     cxx_template_non_type_constant_value(
                         argument->value_expression, &argument->value);
-                if (!argument->value_valid) {
+                if (!argument->value_valid &&
+                    !cxx_expression_is_dependent(
+                        argument->value_expression, active_template)) {
                     rcc_error(argument->value_expression
                                   ? argument->value_expression->loc : loc,
                               "explicit function-template non-type argument must be an integer constant expression");
