@@ -2122,7 +2122,7 @@ static bool inline_scalar_argument_safe_evaluation_tree(
                 (declaration->kind == DECL_VAR ||
                  declaration->kind == DECL_PARAM) && declaration->type &&
                 target_type && target_type->is_atomic &&
-                !target_type->is_volatile && !target_type->is_reference &&
+                !target_type->is_reference &&
                 type_is_integer((Type*)target_type) &&
                 target_type->size == 8 &&
                 expression->type && type_is_integer(expression->type) &&

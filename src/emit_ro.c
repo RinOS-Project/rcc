@@ -6605,6 +6605,7 @@ static bool debug_inline_parameter_i686_u64_atomic_store_value(
     }
     result_type = *expression->type;
     result_type.is_atomic = false;
+    result_type.is_volatile = false;
     if (!debug_inline_integer_expression_type(&result_type) ||
         result_type.is_volatile || result_type.is_reference ||
         result_type.size != 8 || !stored_value->type ||
@@ -6617,7 +6618,7 @@ static bool debug_inline_parameter_i686_u64_atomic_store_value(
     return declaration &&
         (declaration->kind == DECL_VAR ||
             declaration->kind == DECL_PARAM) && declaration->type &&
-        target_type && target_type->is_atomic && !target_type->is_volatile &&
+        target_type && target_type->is_atomic &&
         !target_type->is_reference && target_type->size == 8 &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             &result_type, target_type, 0u);
