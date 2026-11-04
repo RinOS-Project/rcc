@@ -4992,6 +4992,20 @@ static bool cxx_structural_union_member_measure(
         if (member_leaves) *member_leaves = 1u;
         return true;
     }
+    if (field->type->kind == TYPE_FLOAT ||
+        field->type->kind == TYPE_DOUBLE) {
+        if ((field->type->kind == TYPE_FLOAT &&
+             field->type->size != (int)sizeof(float)) ||
+            (field->type->kind == TYPE_DOUBLE &&
+             field->type->size != (int)sizeof(double))) {
+            return false;
+        }
+        if (member_bits) {
+            *member_bits = (unsigned)field->type->size * 8u;
+        }
+        if (member_leaves) *member_leaves = 1u;
+        return true;
+    }
     if (field->type->kind == TYPE_STRUCT ||
         field->type->kind == TYPE_UNION) {
         unsigned leaf_count = 0u;

@@ -14124,10 +14124,10 @@ remains a separate open item.
       i686/AMD64 output, and all 15 verified-backend functions at `-O0` and
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
-      layouts, structural packs, multi-field or pointer-bearing structural
-      union alternatives containing pointers, direct floating/array union
-      alternatives, union-array layouts beyond the tested three-dimensional case,
-      and unsupported C++20 forms remain open.
+      layouts, structural packs, pointer-bearing structural union alternatives,
+      direct array alternatives, extended-precision floating alternatives,
+      union-array layouts beyond the tested three-dimensional case, and
+      unsupported C++20 forms remain open.
   - [x] Preserve the active scalar union member when it is a direct public
         subobject of a structural class. Recurse through explicit/deduced
         template arguments, Itanium value mangling, typeinfo identity, and
@@ -14158,6 +14158,13 @@ remains a separate open item.
         elements, including member reads through all three indices, mixed active
         alternatives, explicit and deduced NTTPs, strict GCC C++20 checks, exact
         Itanium symbols, host execution, and 32 fallback-free verified functions
+        at `-O0`/`-O2` for i686/AMD64 in
+        `test-cxx-function-template-structural-nontype`.
+  - [x] Support direct `float` and `double` union alternatives in structural
+        NTTPs. Preserve their IEEE bit patterns through collection, packed value
+        records, member reads, and Itanium floating-literal encoding. Verify
+        explicit `float` and deduced `double` arguments against strict GCC C++20,
+        exact symbols, host execution, and 34 fallback-free verified functions
         at `-O0`/`-O2` for i686/AMD64 in
         `test-cxx-function-template-structural-nontype`.
 

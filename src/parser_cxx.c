@@ -3658,6 +3658,7 @@ static bool cxx_structural_class_collect_member_values(
         size_t active_value_count = 0u;
         int union_value_start;
         bool active_is_class;
+        bool active_is_floating;
         for (field = type->cxx_class->fields; field; field = field->next) {
             if (field->is_static) continue;
             if (!active_field ||
@@ -3673,14 +3674,23 @@ static bool cxx_structural_class_collect_member_values(
         active_is_class = active_field && active_field->type &&
             (active_field->type->kind == TYPE_STRUCT ||
              active_field->type->kind == TYPE_UNION);
+        active_is_floating = active_field && active_field->type &&
+            (active_field->type->kind == TYPE_FLOAT ||
+             active_field->type->kind == TYPE_DOUBLE);
         if (!active_field || active_field->is_bitfield ||
             !active_field->name || !active_field->type ||
             (!active_is_class &&
              !type_is_integer(active_field->type) &&
-             active_field->type->kind != TYPE_ENUM) ||
-            (!active_is_class &&
+             active_field->type->kind != TYPE_ENUM &&
+             !active_is_floating) ||
+            (!active_is_class && !active_is_floating &&
              (active_field->type->size <= 0 ||
-              active_field->type->size > 8))) {
+              active_field->type->size > 8)) ||
+            (active_is_floating &&
+             ((active_field->type->kind == TYPE_FLOAT &&
+               active_field->type->size != (int)sizeof(float)) ||
+              (active_field->type->kind == TYPE_DOUBLE &&
+               active_field->type->size != (int)sizeof(double))))) {
             return false;
         }
         if (initializer) {
@@ -3703,9 +3713,42 @@ static bool cxx_structural_class_collect_member_values(
             field_initializer->kind != EXPR_COMPOUND) {
             return false;
         }
-        if (!active_is_class && field_initializer &&
-            !expr_eval_integer_constant(field_initializer, &field_value)) {
-            return false;
+        if (!active_is_class && field_initializer) {
+            if (active_is_floating) {
+                double floating_value;
+                if (!eval_template_floating_expression(
+                        field_initializer, NULL, NULL, NULL,
+                        &floating_value)) {
+                    return false;
+                }
+                if (!cxx_structural_floating_member_conversion_is_valid(
+                        field_initializer, active_field->type,
+                        floating_value)) {
+                    rcc_error(field_initializer->loc,
+                              "narrowing conversion in structural class non-type template argument");
+                    return false;
+                }
+                if (active_field->type->kind == TYPE_FLOAT) {
+                    float narrowed = (float)floating_value;
+                    uint32_t bits;
+                    if (active_field->type->size != (int)sizeof(narrowed)) {
+                        return false;
+                    }
+                    memcpy(&bits, &narrowed, sizeof(bits));
+                    field_value = (int64_t)bits;
+                } else {
+                    uint64_t bits;
+                    if (active_field->type->size !=
+                        (int)sizeof(floating_value)) {
+                        return false;
+                    }
+                    memcpy(&bits, &floating_value, sizeof(bits));
+                    memcpy(&field_value, &bits, sizeof(field_value));
+                }
+            } else if (!expr_eval_integer_constant(
+                           field_initializer, &field_value)) {
+                return false;
+            }
         }
         if (!member_values || !member_count || *member_count < 0 ||
             (size_t)*member_count > member_capacity ||
@@ -4122,6 +4165,14 @@ static bool cxx_structural_class_count_member_values(
                 alternative_count = 0u;
                 if (!cxx_structural_class_count_member_values(
                         field->type, &alternative_count)) {
+                    return false;
+                }
+            } else if (field->type->kind == TYPE_FLOAT ||
+                       field->type->kind == TYPE_DOUBLE) {
+                if ((field->type->kind == TYPE_FLOAT &&
+                     field->type->size != (int)sizeof(float)) ||
+                    (field->type->kind == TYPE_DOUBLE &&
+                     field->type->size != (int)sizeof(double))) {
                     return false;
                 }
             } else if ((!type_is_integer(field->type) &&

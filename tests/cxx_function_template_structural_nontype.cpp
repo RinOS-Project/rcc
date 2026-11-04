@@ -17,6 +17,11 @@ union FunctionTemplateStructuralNestedUnion {
     unsigned char tag;
 };
 
+union FunctionTemplateStructuralFloatingUnion {
+    float single;
+    double wide;
+};
+
 struct FunctionTemplateStructuralUnionContainer {
     unsigned char prefix;
     FunctionTemplateStructuralNestedUnion payload;
@@ -95,6 +100,9 @@ struct FunctionTemplateStructuralPairTag {};
 
 template<FunctionTemplateStructuralUnion Value>
 struct FunctionTemplateStructuralUnionTag {};
+
+template<FunctionTemplateStructuralFloatingUnion Value>
+struct FunctionTemplateStructuralFloatingUnionTag {};
 
 template<FunctionTemplateStructuralUnionContainer Value>
 struct FunctionTemplateStructuralUnionContainerTag {};
@@ -256,6 +264,17 @@ constexpr int function_template_structural_union_tensor_deduced(
            Value.payloads[0][1][0].tag * 10 + Value.suffix;
 }
 
+template<FunctionTemplateStructuralFloatingUnion Value>
+constexpr int function_template_structural_union_float_explicit() {
+    return Value.single == 1.5f ? 15 : 0;
+}
+
+template<FunctionTemplateStructuralFloatingUnion Value>
+constexpr int function_template_structural_union_double_deduced(
+    FunctionTemplateStructuralFloatingUnionTag<Value>) {
+    return Value.wide == 2.25 ? 22 : 0;
+}
+
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_explicit() {
     return Value.payload.object.code * 100 +
@@ -389,6 +408,13 @@ static_assert(function_template_structural_union_tensor_deduced(
                             {{.tag = 4}, {.tag = 5}}},
                            {{{.tag = 6}, {.value = 7}},
                            {{.tag = 8}, {.value = 9}}}}, 1}>{}) == 741);
+static_assert(function_template_structural_union_float_explicit<
+                  FunctionTemplateStructuralFloatingUnion{
+                      .single = 1.5f}>() == 15);
+static_assert(function_template_structural_union_double_deduced(
+                  FunctionTemplateStructuralFloatingUnionTag<
+                      FunctionTemplateStructuralFloatingUnion{
+                          .wide = 2.25}>{}) == 22);
 static_assert(function_template_structural_mixed_union_object_explicit<
                   FunctionTemplateStructuralMixedUnionContainer{
                       {.object = {4, 7}}, 2}>() == 472);
@@ -516,6 +542,13 @@ int main() {
                       {{.tag = 4}, {.tag = 5}}},
                      {{{.tag = 6}, {.value = 7}},
                      {{.tag = 8}, {.value = 9}}}}, 1}>{}) != 741 ||
+        function_template_structural_union_float_explicit<
+            FunctionTemplateStructuralFloatingUnion{
+                .single = 1.5f}>() != 15 ||
+        function_template_structural_union_double_deduced(
+            FunctionTemplateStructuralFloatingUnionTag<
+                FunctionTemplateStructuralFloatingUnion{
+                    .wide = 2.25}>{}) != 22 ||
         function_template_structural_mixed_union_object_explicit<
             FunctionTemplateStructuralMixedUnionContainer{
                 {.object = {4, 7}}, 2}>() != 472 ||
