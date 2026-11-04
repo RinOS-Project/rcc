@@ -7569,6 +7569,25 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
         emit_add_reg_imm(mod, ESP, 4);
         return true;
     }
+    if (strcmp(name, "pslldqi128") == 0 ||
+        strcmp(name, "psrldqi128") == 0) {
+        int group = strcmp(name, "pslldqi128") == 0 ? 7 : 3;
+        gen_sse_vector_argument32(mod, call_argument(expr, 0), 0);
+        if (!expr_eval_integer_constant(call_argument(expr, 1), &immediate) ||
+            immediate < 0 || immediate > 2040 || (immediate & 7) != 0) {
+            rcc_error(expr->loc,
+                      "SSE2 byte shift requires an immediate byte count from 0 to 255");
+            return true;
+        }
+        if (immediate >= 128) {
+            emit_sse128_reg(mod, 0, 0, 0x66, 0xEF);
+        } else {
+            emit_sse128_immediate_group(mod, group, 0, 0x66, 0x73,
+                                        (uint8_t)(immediate / 8));
+        }
+        gen_sse_store_result32(mod, expr, 0);
+        return true;
+    }
     if (strncmp(name, "psll", 4) == 0 || strncmp(name, "psrl", 4) == 0 ||
         strncmp(name, "psra", 4) == 0) {
         gen_sse_vector_argument32(mod, call_argument(expr, 0), 0);

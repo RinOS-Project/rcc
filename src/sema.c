@@ -34220,6 +34220,20 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
             rcc_error(call->loc, "%s immediate must be between 0 and 255",
                       name);
         }
+    } else if (strcmp(suffix, "pslldqi128") == 0 ||
+               strcmp(suffix, "psrldqi128") == 0) {
+        sema_sse_require_vector(call, name, 0);
+        sema_sse_require_integer(call, name, 1);
+        if (!expr_eval_integer_constant(sema_sse_argument(call, 1),
+                                        &immediate)) {
+            rcc_error(call->loc, "%s requires an integer constant immediate",
+                      name);
+        } else if (immediate < 0 || immediate > 2040 ||
+                   (immediate & 7) != 0) {
+            rcc_error(call->loc,
+                      "%s immediate must be a byte count from 0 to 255",
+                      name);
+        }
     } else if (strncmp(suffix, "psll", 4) == 0 ||
                strncmp(suffix, "psrl", 4) == 0 ||
                strncmp(suffix, "psra", 4) == 0) {

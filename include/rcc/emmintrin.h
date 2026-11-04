@@ -512,6 +512,15 @@ static __inline __m128i _mm_srl_epi64(__m128i __a, __m128i __count) {
     return (__m128i)__builtin_ia32_psrlq128((__v2di)__a, (__v2di)__count);
 }
 
+#define _mm_bslli_si128(__a, __count) \
+    ((__m128i)__builtin_ia32_pslldqi128( \
+        (__m128i)(__a), (int)(__count) * 8))
+#define _mm_bsrli_si128(__a, __count) \
+    ((__m128i)__builtin_ia32_psrldqi128( \
+        (__m128i)(__a), (int)(__count) * 8))
+#define _mm_slli_si128(__a, __count) _mm_bslli_si128((__a), (__count))
+#define _mm_srli_si128(__a, __count) _mm_bsrli_si128((__a), (__count))
+
 /* Comparison */
 static __inline __m128i _mm_cmpeq_epi8(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_ia32_pcmpeqb128((__v16qi)__a, (__v16qi)__b);
