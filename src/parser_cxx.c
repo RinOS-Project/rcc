@@ -13712,9 +13712,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             }
             if (!width_expression ||
                 !expr_eval_integer_constant(width_expression, &width_value) ||
-                width_value < 0 ||
-                (type && type->size > 0 &&
-                 (uint64_t)width_value > (uint64_t)type->size * 8u)) {
+                width_value < 0 || (uint64_t)width_value > UINT_MAX) {
                 rcc_error(width_expression ? width_expression->loc : loc,
                           "C++ bit-field width is not a valid storage-unit constant");
             } else {

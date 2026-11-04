@@ -9122,15 +9122,28 @@ static uint32_t codegen_bitfield_mask(const TypeField* field) {
     return (UINT32_C(1) << field->bit_width) - 1u;
 }
 
+static unsigned codegen_bitfield_value_width(const TypeField* field) {
+    unsigned width = field ? field->bit_width : 0u;
+    if (field && field->type && field->type->size > 0 &&
+        field->type->size <= 8 &&
+        width > (unsigned)field->type->size * 8u) {
+        width = (unsigned)field->type->size * 8u;
+    }
+    return width;
+}
+
 /* EAX contains the unsigned storage unit loaded from a bit-field address. */
 static void emit_bitfield_extract32(Module* mod, const TypeField* field) {
-    uint32_t mask = codegen_bitfield_mask(field);
+    unsigned value_width = codegen_bitfield_value_width(field);
+    uint32_t mask = value_width >= 32u
+        ? UINT32_MAX
+        : (UINT32_C(1) << value_width) - 1u;
     if (field->bit_offset != 0u) {
         emit_shr_reg_imm(mod, EAX, (uint8_t)field->bit_offset);
     }
-    if (field->bit_width < 32u) emit_and_reg_imm(mod, EAX, mask);
-    if (field->type && !field->type->is_unsigned && field->bit_width < 32u) {
-        uint8_t extension = (uint8_t)(32u - field->bit_width);
+    if (value_width < 32u) emit_and_reg_imm(mod, EAX, mask);
+    if (field->type && !field->type->is_unsigned && value_width < 32u) {
+        uint8_t extension = (uint8_t)(32u - value_width);
         emit_shl_reg_imm(mod, EAX, extension);
         emit_sar_reg_imm(mod, EAX, extension);
     }
@@ -9305,6 +9318,7 @@ static void emit_bitfield_store32(Module* mod, const TypeField* field) {
     const Type* storage_type = codegen_bitfield_storage_type(field);
     uint32_t field_mask = codegen_bitfield_mask(field);
     uint32_t shifted_mask = field_mask << field->bit_offset;
+    unsigned value_width = codegen_bitfield_value_width(field);
 
     emit_normalize_atomic_value(mod, ECX, field->type);
     emit_mov_reg_imm(mod, EAX, field_mask);
@@ -9323,8 +9337,8 @@ static void emit_bitfield_store32(Module* mod, const TypeField* field) {
         emit_shr_reg_imm(mod, ECX, (uint8_t)field->bit_offset);
     }
     emit_mov_reg_reg(mod, EAX, ECX);
-    if (field->type && !field->type->is_unsigned && field->bit_width < 32u) {
-        uint8_t extension = (uint8_t)(32u - field->bit_width);
+    if (field->type && !field->type->is_unsigned && value_width < 32u) {
+        uint8_t extension = (uint8_t)(32u - value_width);
         emit_shl_reg_imm(mod, EAX, extension);
         emit_sar_reg_imm(mod, EAX, extension);
     }

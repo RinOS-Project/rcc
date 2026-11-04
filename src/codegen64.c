@@ -5252,9 +5252,20 @@ static uint64_t gen64_bitfield_mask(const TypeField* field) {
     return (UINT64_C(1) << field->bit_width) - 1u;
 }
 
+static unsigned gen64_bitfield_value_width(const TypeField* field) {
+    unsigned width = field ? field->bit_width : 0u;
+    if (field && field->type && field->type->size > 0 &&
+        field->type->size <= 8 &&
+        width > (unsigned)field->type->size * 8u) {
+        width = (unsigned)field->type->size * 8u;
+    }
+    return width;
+}
+
 /* RAX contains the unsigned storage unit loaded from a bit-field address. */
 static void emit64_bitfield_extract(Module* mod, const TypeField* field) {
     uint64_t mask = gen64_bitfield_mask(field);
+    unsigned value_width = gen64_bitfield_value_width(field);
     if (field->bit_offset != 0u) {
         emit64_shr_reg_imm(mod, RAX, (uint8_t)field->bit_offset);
     }
@@ -5262,8 +5273,8 @@ static void emit64_bitfield_extract(Module* mod, const TypeField* field) {
         emit64_mov_reg_imm64(mod, RCX, mask);
         emit64_and_reg_reg(mod, RAX, RCX);
     }
-    if (field->type && !field->type->is_unsigned && field->bit_width < 64u) {
-        uint8_t extension = (uint8_t)(64u - field->bit_width);
+    if (field->type && !field->type->is_unsigned && value_width < 64u) {
+        uint8_t extension = (uint8_t)(64u - value_width);
         emit64_shl_reg_imm(mod, RAX, extension);
         emit64_sar_reg_imm(mod, RAX, extension);
     }
@@ -5282,6 +5293,7 @@ static void emit64_bitfield_store(Module* mod, const TypeField* field) {
     const Type* storage_type = gen64_bitfield_storage_type(field);
     uint64_t field_mask = gen64_bitfield_mask(field);
     uint64_t shifted_mask = field_mask << field->bit_offset;
+    unsigned value_width = gen64_bitfield_value_width(field);
 
     emit64_normalize_atomic_value(mod, RCX, field->type);
     emit64_mov_reg_imm64(mod, RAX, field_mask);
@@ -5300,8 +5312,8 @@ static void emit64_bitfield_store(Module* mod, const TypeField* field) {
         emit64_shr_reg_imm(mod, RCX, (uint8_t)field->bit_offset);
     }
     emit64_mov_reg_reg(mod, RAX, RCX);
-    if (field->type && !field->type->is_unsigned && field->bit_width < 64u) {
-        uint8_t extension = (uint8_t)(64u - field->bit_width);
+    if (field->type && !field->type->is_unsigned && value_width < 64u) {
+        uint8_t extension = (uint8_t)(64u - value_width);
         emit64_shl_reg_imm(mod, RAX, extension);
         emit64_sar_reg_imm(mod, RAX, extension);
     }

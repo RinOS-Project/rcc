@@ -4994,11 +4994,13 @@ static bool cxx_structural_class_measure_fields(
             if ((!type_is_integer(field->type) &&
                  field->type->kind != TYPE_ENUM) ||
                 field->type->size <= 0 || field->type->size > 8 ||
-                field->bit_width == 0u ||
-                field->bit_width > (unsigned)field->type->size * 8u) {
+                field->bit_width == 0u) {
                 return false;
             }
-            field_bits = field->bit_width;
+            field_bits = field->bit_width <
+                    (unsigned)field->type->size * 8u
+                ? field->bit_width
+                : (unsigned)field->type->size * 8u;
         } else if (field->type->kind == TYPE_STRUCT ||
                    field->type->kind == TYPE_UNION) {
             if (!cxx_structural_class_measure_fields(
@@ -5081,8 +5083,7 @@ static bool cxx_structural_union_member_measure(
         if ((!type_is_integer(field->type) &&
              field->type->kind != TYPE_ENUM) ||
             field->type->size <= 0 || field->type->size > 8 ||
-            field->bit_width == 0u ||
-            field->bit_width > (unsigned)field->type->size * 8u) {
+            field->bit_width == 0u) {
             return false;
         }
         if (member_bits) {
@@ -5298,11 +5299,12 @@ static unsigned cxx_structural_field_value_bits(const TypeParam* field) {
         if ((!type_is_integer(field->type) &&
              field->type->kind != TYPE_ENUM) ||
             field->type->size <= 0 || field->type->size > 8 ||
-            field->bit_width == 0u ||
-            field->bit_width > (unsigned)field->type->size * 8u) {
+            field->bit_width == 0u) {
             return 0u;
         }
-        return field->bit_width;
+        return field->bit_width < (unsigned)field->type->size * 8u
+            ? field->bit_width
+            : (unsigned)field->type->size * 8u;
     }
     return cxx_structural_type_value_bits(field->type);
 }
@@ -5318,6 +5320,10 @@ static Type* cxx_structural_field_mangled_type(
         return field_type;
     }
     bit_width = field->bit_width;
+    if (field_type->size > 0 &&
+        bit_width > (unsigned)field_type->size * 8u) {
+        return field_type;
+    }
     if (bit_width <= (unsigned)type_uchar->size * 8u) {
         return field_type->is_unsigned ? type_uchar : type_schar;
     }
@@ -6398,6 +6404,25 @@ static int cxx_nonvirtual_base_storage_size(
     return base ? base->nonvirtual_size : 0;
 }
 
+static bool cxx_bitfield_storage_size(
+    int type_size, unsigned bit_width, int* storage_size) {
+    unsigned storage_bits;
+    unsigned storage_units;
+    if (type_size <= 0 || type_size > 8 || bit_width == 0u ||
+        !storage_size) {
+        return false;
+    }
+    storage_bits = (unsigned)type_size * 8u;
+    storage_units = bit_width / storage_bits +
+        (bit_width % storage_bits != 0u ? 1u : 0u);
+    if (storage_units == 0u ||
+        storage_units > (unsigned)(INT_MAX / type_size)) {
+        return false;
+    }
+    *storage_size = (int)storage_units * type_size;
+    return true;
+}
+
 /* Keep the first no_unique_address implementation deliberately narrow.  An
  * empty, trivial class has no storage that construction or destruction could
  * observe, so its data member can share the current offset. */
@@ -6483,8 +6508,17 @@ void cxx_class_compute_layout(CxxClass* cls) {
                 continue;
             }
             align = cxx_class_member_alignment(cls, type->align);
-            size = member->is_bitfield && member->bit_width == 0u
-                ? 0 : type->size;
+            if (member->is_bitfield && member->bit_width == 0u) {
+                size = 0;
+            } else if (member->is_bitfield) {
+                if (!cxx_bitfield_storage_size(
+                        type->size, member->bit_width, &size)) {
+                    layout_complete = false;
+                    continue;
+                }
+            } else {
+                size = type->size;
+            }
             if (size < 0) {
                 layout_complete = false;
                 continue;
@@ -6646,15 +6680,35 @@ void cxx_class_compute_layout(CxxClass* cls) {
 
         if (f->is_bitfield) {
             unsigned storage_bits = (unsigned)size * 8u;
+            bool overwide;
             if (f->bit_width == 0u) {
                 bitfield_active = false;
                 offset = (offset + align - 1) & ~(align - 1);
                 if (align > max_align) max_align = align;
                 continue;
             }
-            if (!bitfield_active || bitfield_size != size ||
-                bitfield_alignment != align ||
-                bitfield_used + f->bit_width > storage_bits) {
+            overwide = f->bit_width > storage_bits;
+            if (overwide) {
+                int allocation_size;
+                if (!cxx_bitfield_storage_size(
+                        size, f->bit_width, &allocation_size) ||
+                    offset > INT_MAX - (align - 1)) {
+                    layout_complete = false;
+                    continue;
+                }
+                bitfield_active = false;
+                bitfield_offset = (offset + align - 1) & ~(align - 1);
+                if (bitfield_offset > INT_MAX - allocation_size) {
+                    layout_complete = false;
+                    continue;
+                }
+                offset = bitfield_offset + allocation_size;
+                bitfield_size = size;
+                bitfield_alignment = align;
+                bitfield_used = 0u;
+            } else if (!bitfield_active || bitfield_size != size ||
+                       bitfield_alignment != align ||
+                       bitfield_used + f->bit_width > storage_bits) {
                 bitfield_active = true;
                 bitfield_offset = (offset + align - 1) & ~(align - 1);
                 bitfield_size = size;
@@ -6683,7 +6737,11 @@ void cxx_class_compute_layout(CxxClass* cls) {
                 *field_tail = field;
                 field_tail = &field->next;
             }
-            bitfield_used += f->bit_width;
+            if (overwide) {
+                bitfield_active = false;
+            } else {
+                bitfield_used += f->bit_width;
+            }
             if (align > max_align) max_align = align;
             continue;
         }

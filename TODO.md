@@ -14392,7 +14392,10 @@ remains a separate open item.
       strict GCC C++20, host execution, i686/AMD64 output, and all three
       verified-backend functions with zero fallback at `-O0`/`-O2` in both
       Windows and POSIX `test-cxx-function-template-structural-nontype` gates.
-- [ ] Support standard-valid bit-field widths larger than the declared
-      integral type and give those fields correct storage layout and access.
-      The current parser and structural-value path reject them; the C++20
-      wording permits excess width as padding bits ([class.bit](https://eel.is/c++draft/class.bit)).
+- [x] Support standard-valid bit-field widths larger than the declared
+      integral type. Preserve excess width as padding in struct/union layout,
+      retain the declared type's value range and signedness for access and
+      structural NTTP values, and match GCC's exact Itanium symbols. Strict
+      C++20 checks, GCC host execution, RCC-generated x64 runtime, i686/AMD64
+      output, and all four verified-backend functions with zero fallback at
+      `-O0`/`-O2` pass in the Windows and POSIX structural NTTP gates.
