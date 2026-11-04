@@ -13640,12 +13640,20 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         cxx_class_add_method(cls, method);
     } else {
         /* Field */
+        typedef struct {
+            int length;
+            Expr* bound_expression;
+            SourceLoc loc;
+        } CxxMemberArrayDimension;
+        /* Keep ordinary ranks on the stack without a fixed depth ceiling. */
+        CxxMemberArrayDimension inline_array_dimensions[8];
+        CxxMemberArrayDimension* array_dimensions =
+            inline_array_dimensions;
+        size_t array_capacity = sizeof(inline_array_dimensions) /
+                                sizeof(inline_array_dimensions[0]);
+        size_t array_count = 0u;
         bool is_bitfield = false;
         unsigned bit_width = 0u;
-        int array_lengths[64];
-        Expr* array_bounds[64];
-        SourceLoc array_locs[64];
-        int array_count = 0;
         /* Array suffixes bind from the member name outward. Keep the source
          * order and construct the nested array type inside-out after parsing
          * all dimensions (for example, `T matrix[2][3]` is [2] of [3] T). */
@@ -13673,29 +13681,41 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                 }
             }
             expect(TOK_RBRACKET, "]");
-            if (array_count >= (int)(sizeof(array_lengths) /
-                                     sizeof(array_lengths[0]))) {
-                rcc_error(previous()->loc,
-                          "C++ member array declarator is too deep");
-            } else {
-                array_lengths[array_count] = len;
-                array_bounds[array_count] = bound_expression;
-                array_locs[array_count] = previous()->loc;
-                ++array_count;
+            if (array_count == array_capacity) {
+                size_t new_capacity;
+                CxxMemberArrayDimension* grown_dimensions;
+                if (array_capacity > SIZE_MAX / 2u) {
+                    rcc_fatal("C++ member array declarator is too large");
+                }
+                new_capacity = array_capacity ? array_capacity * 2u : 8u;
+                grown_dimensions = cxx_grow_zeroed_array(
+                    array_dimensions, sizeof(*array_dimensions),
+                    array_capacity, new_capacity);
+                if (!grown_dimensions) {
+                    rcc_fatal("C++ member array declarator is too large");
+                }
+                array_dimensions = grown_dimensions;
+                array_capacity = new_capacity;
             }
+            array_dimensions[array_count].length = len;
+            array_dimensions[array_count].bound_expression =
+                bound_expression;
+            array_dimensions[array_count].loc = previous()->loc;
+            ++array_count;
         }
-        while (array_count > 0) {
-            int index = --array_count;
-            int len = array_lengths[index];
+        while (array_count > 0u) {
+            size_t index = --array_count;
+            int len = array_dimensions[index].length;
             if (len > 0 && type->size > 0 &&
                 len > INT_MAX / type->size) {
-                rcc_error(array_locs[index],
+                rcc_error(array_dimensions[index].loc,
                           "C++ member array bound is too large for its "
                           "complete element type");
                 len = -1;
             }
             type = type_array(type, len);
-            type->array_bound = array_bounds[index];
+            type->array_bound =
+                array_dimensions[index].bound_expression;
         }
 
         if (has_explicit_alignment) {

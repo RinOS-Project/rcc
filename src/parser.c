@@ -6584,17 +6584,24 @@ static Type* apply_pointer_levels(Type* type,
 
 static Type* parse_declarator(Type* base_type, const char** name,
                               DeclList** parameters) {
+    typedef struct {
+        int length;
+        Expr* bound_expression;
+        SourceLoc loc;
+        bool unspecified_bound;
+        bool parameter_static;
+        bool parameter_const;
+        bool parameter_volatile;
+        bool parameter_restrict;
+    } ParsedArrayDimension;
+    /* Keep ordinary ranks on the stack; grow only for deeper declarators. */
+    ParsedArrayDimension inline_array_dimensions[8];
+    ParsedArrayDimension* array_dimensions = inline_array_dimensions;
+    size_t array_capacity = sizeof(inline_array_dimensions) /
+                            sizeof(inline_array_dimensions[0]);
+    size_t array_count = 0u;
     Type* type = base_type;
     ParsedPointerLevel* leading_pointers;
-    int array_lengths[32];
-    Expr* array_bounds[32];
-    SourceLoc array_locs[32];
-    bool array_unspecified[32];
-    bool array_statics[32];
-    bool array_consts[32];
-    bool array_volatiles[32];
-    bool array_restricts[32];
-    int array_count = 0;
     ParsedPointerLevel* parenthesized_pointers = NULL;
     bool parenthesized_pointer = false;
     bool declarator_parameter_pack = false;
@@ -6721,20 +6728,32 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 }
             }
             expect(TOK_RBRACKET, "]");
-            if (array_count >= (int)(sizeof(array_lengths) /
-                                     sizeof(array_lengths[0]))) {
-                rcc_error(previous()->loc, "array declarator is too deep");
-            } else {
-                array_lengths[array_count] = length;
-                array_bounds[array_count] = bound_expression;
-                array_locs[array_count] = previous()->loc;
-                array_unspecified[array_count] = unspecified_bound;
-                array_statics[array_count] = parameter_static;
-                array_consts[array_count] = parameter_const;
-                array_volatiles[array_count] = parameter_volatile;
-                array_restricts[array_count] = parameter_restrict;
-                ++array_count;
+            if (array_count == array_capacity) {
+                size_t new_capacity;
+                if (array_capacity > SIZE_MAX / 2u) {
+                    rcc_fatal("array declarator is too large");
+                }
+                new_capacity = array_capacity * 2u;
+                if (new_capacity > SIZE_MAX /
+                                      sizeof(*array_dimensions)) {
+                    rcc_fatal("array declarator is too large");
+                }
+                array_dimensions = ast_arena_grow(
+                    array_dimensions,
+                    sizeof(*array_dimensions) * array_count,
+                    sizeof(*array_dimensions) * new_capacity);
+                array_capacity = new_capacity;
             }
+            array_dimensions[array_count++] = (ParsedArrayDimension){
+                .length = length,
+                .bound_expression = bound_expression,
+                .loc = previous()->loc,
+                .unspecified_bound = unspecified_bound,
+                .parameter_static = parameter_static,
+                .parameter_const = parameter_const,
+                .parameter_volatile = parameter_volatile,
+                .parameter_restrict = parameter_restrict,
+            };
         }
         expect(TOK_RPAREN, ")");
         expect(TOK_LPAREN, "(");
@@ -6780,24 +6799,27 @@ static Type* parse_declarator(Type* base_type, const char** name,
             }
         }
         type = apply_pointer_levels(type, nested_pointers);
-        while (array_count > 0) {
-            int length = array_lengths[--array_count];
+        while (array_count > 0u) {
+            size_t index = --array_count;
+            int length = array_dimensions[index].length;
             if (length > 0 && type->size > 0 &&
                 length > INT_MAX / type->size) {
-                rcc_error(array_locs[array_count],
+                rcc_error(array_dimensions[index].loc,
                           "array bound is too large for the complete element type");
                 length = -1;
             }
             type = type_array(type, length);
-            type->array_bound = array_bounds[array_count];
+            type->array_bound = array_dimensions[index].bound_expression;
             type->array_unspecified_bound =
-                array_unspecified[array_count];
-            type->array_parameter_static = array_statics[array_count];
-            type->array_parameter_const = array_consts[array_count];
+                array_dimensions[index].unspecified_bound;
+            type->array_parameter_static =
+                array_dimensions[index].parameter_static;
+            type->array_parameter_const =
+                array_dimensions[index].parameter_const;
             type->array_parameter_volatile =
-                array_volatiles[array_count];
+                array_dimensions[index].parameter_volatile;
             type->array_parameter_restrict =
-                array_restricts[array_count];
+                array_dimensions[index].parameter_restrict;
         }
         if (parameters) *parameters = function_parameters;
         parser_last_declarator_parameter_pack = declarator_parameter_pack;
@@ -6885,20 +6907,32 @@ static Type* parse_declarator(Type* base_type, const char** name,
                 }
             }
             expect(TOK_RBRACKET, "]");
-            if (array_count >= (int)(sizeof(array_lengths) /
-                                     sizeof(array_lengths[0]))) {
-                rcc_error(previous()->loc, "array declarator is too deep");
-            } else {
-                array_lengths[array_count] = length;
-                array_bounds[array_count] = bound_expression;
-                array_locs[array_count] = previous()->loc;
-                array_unspecified[array_count] = unspecified_bound;
-                array_statics[array_count] = parameter_static;
-                array_consts[array_count] = parameter_const;
-                array_volatiles[array_count] = parameter_volatile;
-                array_restricts[array_count] = parameter_restrict;
-                ++array_count;
+            if (array_count == array_capacity) {
+                size_t new_capacity;
+                if (array_capacity > SIZE_MAX / 2u) {
+                    rcc_fatal("array declarator is too large");
+                }
+                new_capacity = array_capacity * 2u;
+                if (new_capacity > SIZE_MAX /
+                                      sizeof(*array_dimensions)) {
+                    rcc_fatal("array declarator is too large");
+                }
+                array_dimensions = ast_arena_grow(
+                    array_dimensions,
+                    sizeof(*array_dimensions) * array_count,
+                    sizeof(*array_dimensions) * new_capacity);
+                array_capacity = new_capacity;
             }
+            array_dimensions[array_count++] = (ParsedArrayDimension){
+                .length = length,
+                .bound_expression = bound_expression,
+                .loc = previous()->loc,
+                .unspecified_bound = unspecified_bound,
+                .parameter_static = parameter_static,
+                .parameter_const = parameter_const,
+                .parameter_volatile = parameter_volatile,
+                .parameter_restrict = parameter_restrict,
+            };
         } else if (parser_cxx_mode && !parenthesized_pointer &&
                    array_count > 0 && check(TOK_LPAREN)) {
             /* C++20 permits an array aggregate initializer directly after
@@ -6952,21 +6986,27 @@ static Type* parse_declarator(Type* base_type, const char** name,
     /* Array declarator suffixes bind from the identifier outward.  Applying
      * them in source order reverses `int a[2][3]` into [3][2]; retain the
      * parsed suffixes and construct the type from the inside out instead. */
-    while (array_count > 0) {
-        int length = array_lengths[--array_count];
+    while (array_count > 0u) {
+        size_t index = --array_count;
+        int length = array_dimensions[index].length;
         if (length > 0 && type->size > 0 &&
             length > INT_MAX / type->size) {
-            rcc_error(array_locs[array_count],
+            rcc_error(array_dimensions[index].loc,
                       "array bound is too large for the complete element type");
             length = -1;
         }
         type = type_array(type, length);
-        type->array_bound = array_bounds[array_count];
-        type->array_unspecified_bound = array_unspecified[array_count];
-        type->array_parameter_static = array_statics[array_count];
-        type->array_parameter_const = array_consts[array_count];
-        type->array_parameter_volatile = array_volatiles[array_count];
-        type->array_parameter_restrict = array_restricts[array_count];
+        type->array_bound = array_dimensions[index].bound_expression;
+        type->array_unspecified_bound =
+            array_dimensions[index].unspecified_bound;
+        type->array_parameter_static =
+            array_dimensions[index].parameter_static;
+        type->array_parameter_const =
+            array_dimensions[index].parameter_const;
+        type->array_parameter_volatile =
+            array_dimensions[index].parameter_volatile;
+        type->array_parameter_restrict =
+            array_dimensions[index].parameter_restrict;
     }
     if (parenthesized_pointers) {
         type = apply_pointer_levels(type, parenthesized_pointers);

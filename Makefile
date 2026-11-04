@@ -778,6 +778,12 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS = \
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL = \
 	_Z41structural_eleven_dimensional_array_valueIXtl27ElevenDimensionalArrayUniondi6valuestlA2_A1_A1_A1_A1_A1_A1_A1_A1_A1_A2_itlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li5ELi6EEEEEEEEEEEtlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li7ELi8EEEEEEEEEEEEEEEiv
 
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_REQUIRED_SYMBOLS = \
+	_Z24structural_array65_valueIXtl7Array65di6valuestlA2_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A2_itlS1S_tlS1R_tlS1Q_tlS1P_tlS1O_tlS1N_tlS1M_tlS1L_tlS1K_tlS1J_tlS1I_tlS1H_tlS1G_tlS1F_tlS1E_tlS1D_tlS1C_tlS1B_tlS1A_tlS19_tlS18_tlS17_tlS16_tlS15_tlS14_tlS13_tlS12_tlS11_tlS10_tlSZ_tlSY_tlSX_tlSW_tlSV_tlSU_tlST_tlSS_tlSR_tlSQ_tlSP_tlSO_tlSN_tlSM_tlSL_tlSK_tlSJ_tlSI_tlSH_tlSG_tlSF_tlSE_tlSD_tlSC_tlSB_tlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li1ELi2EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEtlS1S_tlS1R_tlS1Q_tlS1P_tlS1O_tlS1N_tlS1M_tlS1L_tlS1K_tlS1J_tlS1I_tlS1H_tlS1G_tlS1F_tlS1E_tlS1D_tlS1C_tlS1B_tlS1A_tlS19_tlS18_tlS17_tlS16_tlS15_tlS14_tlS13_tlS12_tlS11_tlS10_tlSZ_tlSY_tlSX_tlSW_tlSV_tlSU_tlST_tlSS_tlSR_tlSQ_tlSP_tlSO_tlSN_tlSM_tlSL_tlSK_tlSJ_tlSI_tlSH_tlSG_tlSF_tlSE_tlSD_tlSC_tlSB_tlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li3ELi4EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEiv \
+	_Z26structural_array65_deducedIXtl7Array65di6valuestlA2_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A2_itlS1S_tlS1R_tlS1Q_tlS1P_tlS1O_tlS1N_tlS1M_tlS1L_tlS1K_tlS1J_tlS1I_tlS1H_tlS1G_tlS1F_tlS1E_tlS1D_tlS1C_tlS1B_tlS1A_tlS19_tlS18_tlS17_tlS16_tlS15_tlS14_tlS13_tlS12_tlS11_tlS10_tlSZ_tlSY_tlSX_tlSW_tlSV_tlSU_tlST_tlSS_tlSR_tlSQ_tlSP_tlSO_tlSN_tlSM_tlSL_tlSK_tlSJ_tlSI_tlSH_tlSG_tlSF_tlSE_tlSD_tlSC_tlSB_tlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li5ELi6EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEtlS1S_tlS1R_tlS1Q_tlS1P_tlS1O_tlS1N_tlS1M_tlS1L_tlS1K_tlS1J_tlS1I_tlS1H_tlS1G_tlS1F_tlS1E_tlS1D_tlS1C_tlS1B_tlS1A_tlS19_tlS18_tlS17_tlS16_tlS15_tlS14_tlS13_tlS12_tlS11_tlS10_tlSZ_tlSY_tlSX_tlSW_tlSV_tlSU_tlST_tlSS_tlSR_tlSQ_tlSP_tlSO_tlSN_tlSM_tlSL_tlSK_tlSJ_tlSI_tlSH_tlSG_tlSF_tlSE_tlSD_tlSC_tlSB_tlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li7ELi8EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEi10Array65TagIXT_EE
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL = \
+	_Z24structural_array65_valueIXtl7Array65di6valuestlA2_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A1_A2_itlS1S_tlS1R_tlS1Q_tlS1P_tlS1O_tlS1N_tlS1M_tlS1L_tlS1K_tlS1J_tlS1I_tlS1H_tlS1G_tlS1F_tlS1E_tlS1D_tlS1C_tlS1B_tlS1A_tlS19_tlS18_tlS17_tlS16_tlS15_tlS14_tlS13_tlS12_tlS11_tlS10_tlSZ_tlSY_tlSX_tlSW_tlSV_tlSU_tlST_tlSS_tlSR_tlSQ_tlSP_tlSO_tlSN_tlSM_tlSL_tlSK_tlSJ_tlSI_tlSH_tlSG_tlSF_tlSE_tlSD_tlSC_tlSB_tlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li5ELi6EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEtlS1S_tlS1R_tlS1Q_tlS1P_tlS1O_tlS1N_tlS1M_tlS1L_tlS1K_tlS1J_tlS1I_tlS1H_tlS1G_tlS1F_tlS1E_tlS1D_tlS1C_tlS1B_tlS1A_tlS19_tlS18_tlS17_tlS16_tlS15_tlS14_tlS13_tlS12_tlS11_tlS10_tlSZ_tlSY_tlSX_tlSW_tlSV_tlSU_tlST_tlSS_tlSR_tlSQ_tlSP_tlSO_tlSN_tlSM_tlSL_tlSK_tlSJ_tlSI_tlSH_tlSG_tlSF_tlSE_tlSD_tlSC_tlSB_tlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li7ELi8EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEiv
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_ARRAY_SYMBOLS = \
 	_Z51function_template_structural_pointer_array_explicitIXtl38FunctionTemplateStructuralPointerArraytlA2_PKiadL_Z48function_template_structural_pointer_array_firstEadL_Z49function_template_structural_pointer_array_secondEELi7EEEEiv \
 	_Z50function_template_structural_pointer_array_deducedIXtl38FunctionTemplateStructuralPointerArraytlA2_PKiadL_Z49function_template_structural_pointer_array_secondEadL_Z48function_template_structural_pointer_array_firstEELi5EEEEi41FunctionTemplateStructuralPointerArrayTagIXT_EE
@@ -6092,6 +6098,8 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-ten-dim-array,cxx_function_template_structural_ten_dim_array.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-eleven-dim-array,cxx_function_template_structural_eleven_dim_array.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-sixty-five-dim-array,cxx_function_template_structural_sixty_five_dim_array.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-host \
 		tests/cxx_function_template_structural_six_dim_array.cpp
@@ -6164,6 +6172,18 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-symbols.s)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-eleven-dim-array,cxx_function_template_structural_eleven_dim_array.cpp,3)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-host \
+		tests/cxx_function_template_structural_sixty_five_dim_array.cpp
+	$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-host
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-symbols.s \
+		tests/cxx_function_template_structural_sixty_five_dim_array.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-symbols.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-sixty-five-dim-array,cxx_function_template_structural_sixty_five_dim_array.cpp,3)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.ro tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.log)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/gcc.log)
@@ -8037,6 +8057,8 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-ten-dim-array,cxx_function_template_structural_ten_dim_array.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-eleven-dim-array,cxx_function_template_structural_eleven_dim_array.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-sixty-five-dim-array,cxx_function_template_structural_sixty_five_dim_array.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-host.exe \
 		tests/cxx_function_template_structural_six_dim_array.cpp
@@ -8109,6 +8131,18 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-symbols.s)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-eleven-dim-array,cxx_function_template_structural_eleven_dim_array.cpp,3)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-host.exe \
+		tests/cxx_function_template_structural_sixty_five_dim_array.cpp
+	$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-host.exe
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-symbols.s \
+		tests/cxx_function_template_structural_sixty_five_dim_array.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_SIXTY_FIVE_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-sixty-five-dim-array/gcc-symbols.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-sixty-five-dim-array,cxx_function_template_structural_sixty_five_dim_array.cpp,3)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.ro tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.log)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/gcc.log)
@@ -26564,7 +26598,7 @@ test-verified-backend: test-verified-cxx-value-initialized-aggregate
 .PHONY: test-verified-cxx-default-member-initializer-abi
 test-verified-backend: test-verified-cxx-default-member-initializer-abi
 
-test-verified-cxx-default-member-initializer-abi: $(RCXX_SHELL_TARGET)
+test-verified-cxx-default-member-initializer-abi: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-default-member-initializer-abi)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/verified-cxx-default-member-initializer-abi/gcc-host$(EXE_SUFFIX) \
@@ -26597,7 +26631,7 @@ test-verified-cxx-default-member-initializer-abi: $(RCXX_SHELL_TARGET)
 .PHONY: test-verified-cxx-default-member-initializer-variadic-abi
 test-verified-backend: test-verified-cxx-default-member-initializer-variadic-abi
 
-test-verified-cxx-default-member-initializer-variadic-abi: $(RCXX_SHELL_TARGET)
+test-verified-cxx-default-member-initializer-variadic-abi: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/gcc-host$(EXE_SUFFIX) \
@@ -26641,7 +26675,7 @@ test-verified-cxx-default-member-initializer-variadic-abi: $(RCXX_SHELL_TARGET)
 		--entry $(TEST_OUT)/verified-cxx-default-member-initializer-variadic-abi/verified-x64-o2.ro
 	@echo "Verified C++ default-initializer variadic ABI tests completed"
 
-test-verified-cxx-value-initialized-aggregate: $(RCXX_SHELL_TARGET)
+test-verified-cxx-value-initialized-aggregate: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-value-initialized-aggregate)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,verified-cxx-value-initialized-aggregate,cxx_value_initialized_aggregate_constructor.cpp,10)
 	@echo "Verified C++ aggregate and union member value-initialization constructor tests completed"

@@ -14464,3 +14464,14 @@ remains a separate open item.
       Strict GCC C++20, exact required symbols, RCC/GCC host execution,
       i686/AMD64 output, and all three verified-backend functions with zero
       fallback at `-O0`/`-O2` pass in both Windows and POSIX structural NTTP gates.
+
+## RCC continuation (2026-11-04, dynamically growing array declarators)
+
+- [x] Remove the fixed 32-dimension generic and 64-dimension C++ member array
+      declarator limits. Keep common ranks in small inline buffers and grow the
+      parsed-dimension storage in the AST arena as needed. Verify both parser
+      paths with a 65-dimensional ordinary array and a 65-dimensional active
+      structural-union array NTTP. Strict GCC C++20, GCC/RCC host execution,
+      exact Itanium symbols, i686/AMD64 output, and all three verified-backend
+      functions with zero fallback at `-O0`/`-O2` pass in Windows and POSIX
+      structural NTTP gates.
