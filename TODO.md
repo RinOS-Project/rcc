@@ -14291,7 +14291,13 @@ remains a separate open item.
       strict C++20 checks, RCC/GCC host execution, and all 31 verified-backend
       functions with zero fallback at `-O0`/`-O2` pass in the focused
       `test-cxx-nested-class-template-owner-structural-value-pack` gate.
-- [ ] Extend union-active structural-class arrays to additional nested and
-      multidimensional layouts, mixed union alternatives, and structural class
-      elements that themselves contain unions; compare all accepted forms with
-      GCC and add verified-backend coverage.
+- [x] Exercise the same union-active structural-class array through both
+      dimensions of a fixed 2x2 matrix. Verify distinct weighted reads from all
+      eight scalar leaves, the adjacent scalar, and the empty-pack identity.
+      Exact GCC Itanium symbols match for non-empty and empty packs; RCC/GCC
+      host execution, i686/AMD64 assembly, and all 33 verified-backend functions
+      with zero fallback at `-O0`/`-O2` pass in
+      `test-cxx-nested-class-template-owner-structural-value-pack`.
+- [ ] Add coverage for structural-class array elements that themselves contain
+      active unions, including indexed member reads and multiple active
+      alternatives; compare accepted cases with GCC and verify both backends.

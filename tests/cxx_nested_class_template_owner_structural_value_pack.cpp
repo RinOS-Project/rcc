@@ -62,8 +62,18 @@ union NestedStructuralPackClassArrayUnion {
     int scalar;
 };
 
+union NestedStructuralPackClassMatrixUnion {
+    NestedStructuralUnionArrayLeafKey values[2][2];
+    int scalar;
+};
+
 struct NestedStructuralUnionClassArrayKey {
     NestedStructuralPackClassArrayUnion payload;
+    unsigned char suffix;
+};
+
+struct NestedStructuralUnionClassMatrixKey {
+    NestedStructuralPackClassMatrixUnion payload;
     unsigned char suffix;
 };
 
@@ -200,6 +210,21 @@ struct NestedStructuralUnionClassArrayOwnerPack {
                   Values.payload.values[0].marker * 100 +
                   Values.payload.values[1].code * 10 +
                   Values.payload.values[1].marker + Values.suffix) + ... + 0));
+    }
+};
+
+template <NestedStructuralUnionClassMatrixKey... Values>
+struct NestedStructuralUnionClassMatrixOwnerPack {
+    static constexpr int combined() {
+        return (((Values.payload.values[0][0].code +
+                  2 * Values.payload.values[0][0].marker +
+                  3 * Values.payload.values[0][1].code +
+                  4 * Values.payload.values[0][1].marker +
+                  5 * Values.payload.values[1][0].code +
+                  6 * Values.payload.values[1][0].marker +
+                  7 * Values.payload.values[1][1].code +
+                  8 * Values.payload.values[1][1].marker +
+                  9 * Values.suffix) + ... + 0));
     }
 };
 
@@ -418,6 +443,17 @@ int main() {
     }
     if (NestedStructuralUnionClassArrayOwnerPack<>::combined() != 0) {
         return 30;
+    }
+    if (NestedStructuralUnionClassMatrixOwnerPack<
+            NestedStructuralUnionClassMatrixKey{
+                {.values = {{{1, 2}, {3, 4}}, {{5, 6}, {7, 8}}}}, 9},
+            NestedStructuralUnionClassMatrixKey{
+                {.values = {{{11, 12}, {13, 14}}, {{15, 16}, {17, 18}}}},
+                19}>::combined() != 1020) {
+        return 31;
+    }
+    if (NestedStructuralUnionClassMatrixOwnerPack<>::combined() != 0) {
+        return 32;
     }
     return NestedStructuralNullptrRecordOwnerPack<>::combined() == 0 ? 0 : 24;
 }
