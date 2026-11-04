@@ -874,6 +874,7 @@ CXX_NESTED_STRUCTURAL_UNION_ARRAY_MEMBER_PACK_SYMBOLS = \
 .PHONY: test-sse2-movntdq-feature-lowering test-sse2-movdqu-load
 .PHONY: test-sse2-conversion-result-types test-sse2-move-epi64
 .PHONY: test-sse2-stream-si64
+.PHONY: test-sse2-partial-load-store
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -21262,7 +21263,7 @@ test-noreturn: $(RCC_TARGET)
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
-test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering test-sse2-movdqu-load test-sse2-conversion-result-types test-sse2-move-epi64 test-sse2-stream-si64
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering test-sse2-movdqu-load test-sse2-conversion-result-types test-sse2-move-epi64 test-sse2-stream-si64 test-sse2-partial-load-store
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
@@ -21781,6 +21782,50 @@ test-sse2-stream-si64: $(RCC_TARGET)
 	$(GREP) -F -q "__builtin_ia32_movnti64 requires an x86_64 target" $(TEST_OUT)/compiler-builtins/invalid-sse2-stream-si64-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-stream-si64-x86.ro)
 	@echo "SSE2 _mm_stream_si64 lowering tests completed"
+
+test-sse2-partial-load-store: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors -msse2 -Iinclude \
+		-o $(TEST_OUT)/compiler-builtins/sse2-partial-load-store-gcc \
+		tests/sse2_partial_load_store.c
+	$(TEST_OUT)/compiler-builtins/sse2-partial-load-store-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-partial-load-store-x86.s \
+		tests/sse2_partial_load_store.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse2-partial-load-store-x86,$(TEST_OUT)/compiler-builtins/sse2-partial-load-store-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-partial-load-store-x64.s \
+		tests/sse2_partial_load_store.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse2-partial-load-store-x64,$(TEST_OUT)/compiler-builtins/sse2-partial-load-store-x64.s)
+	@echo "SSE2 partial-width load/store tests completed"
+
+ifneq ($(OS),Windows_NT)
+.PHONY: test-sse2-partial-load-store-page-boundary
+test-sse2-partial-load-store: test-sse2-partial-load-store-page-boundary
+
+test-sse2-partial-load-store-page-boundary: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse2 \
+		-DRCC_PARTIAL_LOAD_STORE_NO_MAIN -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-partial-guard-x86.s \
+		tests/sse2_partial_load_store.c
+	$(CC) -m32 -std=c17 -Wall -Wextra -Werror -pedantic-errors -no-pie \
+		-Wl,-z,noexecstack \
+		-o $(TEST_OUT)/compiler-builtins/sse2-partial-guard-x86 \
+		tests/sse2_partial_load_store_guard_posix.c \
+		$(TEST_OUT)/compiler-builtins/sse2-partial-guard-x86.s
+	$(TEST_OUT)/compiler-builtins/sse2-partial-guard-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse2 \
+		-DRCC_PARTIAL_LOAD_STORE_NO_MAIN -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-partial-guard-x64.s \
+		tests/sse2_partial_load_store.c
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors -no-pie \
+		-Wl,-z,noexecstack \
+		-o $(TEST_OUT)/compiler-builtins/sse2-partial-guard-x64 \
+		tests/sse2_partial_load_store_guard_posix.c \
+		$(TEST_OUT)/compiler-builtins/sse2-partial-guard-x64.s
+	$(TEST_OUT)/compiler-builtins/sse2-partial-guard-x64
+endif
 
 ifeq ($(OS),Windows_NT)
 FLOATING_MATH_X86_LINK = $(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main'

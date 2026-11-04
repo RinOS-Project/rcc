@@ -8,6 +8,17 @@
 
 #include <xmmintrin.h>
 
+typedef long long __m128i_u __attribute__((__vector_size__(16),
+                                           __may_alias__, __aligned__(1)));
+typedef unsigned long long __rcc_v2du
+    __attribute__((__vector_size__(16), __may_alias__));
+typedef unsigned short __rcc_unaligned_u16
+    __attribute__((__may_alias__, __aligned__(1)));
+typedef unsigned int __rcc_unaligned_u32
+    __attribute__((__may_alias__, __aligned__(1)));
+typedef unsigned long long __rcc_unaligned_u64
+    __attribute__((__may_alias__, __aligned__(1)));
+
 #define _mm_castpd_ps(__a) ((__m128)(__a))
 #define _mm_castpd_si128(__a) ((__m128i)(__a))
 #define _mm_castps_pd(__a) ((__m128d)(__a))
@@ -744,6 +755,43 @@ static __inline void _mm_store_si128(__m128i* __p, __m128i __a) {
 
 static __inline void _mm_storeu_si128(__m128i* __p, __m128i __a) {
     __builtin_ia32_storedqu((char*)__p, (__v16qi)__a);
+}
+
+static __inline __m128i _mm_loadu_si16(const void* __p) {
+    unsigned long long __low = (unsigned long long)
+        *(const __rcc_unaligned_u16*)__p;
+    return (__m128i)(__rcc_v2du){ __low, 0ULL };
+}
+
+static __inline __m128i _mm_loadu_si32(const void* __p) {
+    unsigned long long __low = (unsigned long long)
+        *(const __rcc_unaligned_u32*)__p;
+    return (__m128i)(__rcc_v2du){ __low, 0ULL };
+}
+
+static __inline __m128i _mm_loadu_si64(const void* __p) {
+    unsigned long long __low = *(const __rcc_unaligned_u64*)__p;
+    return (__m128i)(__rcc_v2du){ __low, 0ULL };
+}
+
+static __inline __m128i _mm_loadl_epi64(const __m128i_u* __p) {
+    return _mm_loadu_si64((const void*)__p);
+}
+
+static __inline void _mm_storeu_si16(void* __p, __m128i __a) {
+    *(__rcc_unaligned_u16*)__p = (unsigned short)((__v8hi)__a)[0];
+}
+
+static __inline void _mm_storeu_si32(void* __p, __m128i __a) {
+    *(__rcc_unaligned_u32*)__p = (unsigned int)((__v4si)__a)[0];
+}
+
+static __inline void _mm_storeu_si64(void* __p, __m128i __a) {
+    *(__rcc_unaligned_u64*)__p = ((__rcc_v2du)__a)[0];
+}
+
+static __inline void _mm_storel_epi64(__m128i_u* __p, __m128i __a) {
+    _mm_storeu_si64((void*)__p, __a);
 }
 
 /* Movemask */

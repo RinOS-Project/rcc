@@ -3306,50 +3306,88 @@ static Expr* parse_cxx_user_literal_call(const char* suffix,
     return expr_call(function, arguments, loc);
 }
 
-/* Parse the GCC vector-size attribute used by the intrinsic headers.  The
- * ordinary attribute skipper intentionally discards metadata, but vector
- * size changes the object type and must reach semantic analysis and codegen.
+/* Parse GCC type attributes used by intrinsic headers.  The ordinary
+ * attribute skipper intentionally discards metadata, but vector size and
+ * alignment change the object type and must reach semantic analysis/codegen.
  * The 64-bit MMX spelling is retained as its scalar long-long ABI carrier;
  * 128-bit and larger vectors become first-class vector types. */
 static Type* parse_declarator_attributes(Type* type) {
     while (match(TOK___ATTRIBUTE__)) {
         int vector_size = 0;
+        int alignment = 0;
         bool weak_attribute = false;
         bool weak_arguments = false;
+        bool may_alias_attribute = false;
         SourceLoc attribute_loc = previous()->loc;
         if (!match(TOK_LPAREN)) continue;
+        if (!match(TOK_LPAREN)) {
+            int depth = 1;
+            while (!at_end() && depth > 0) {
+                if (match(TOK_LPAREN)) ++depth;
+                else if (match(TOK_RPAREN)) --depth;
+                else advance();
+            }
+            continue;
+        }
         while (!check(TOK_RPAREN) && !at_end()) {
-            if (match(TOK_LPAREN)) {
-                Token* name = check(TOK_IDENT) ? advance() : NULL;
-                bool is_vector_size = name &&
-                    (strcmp(name->value.str_val, "vector_size") == 0 ||
-                     strcmp(name->value.str_val, "__vector_size__") == 0);
-                if (name && strcmp(name->value.str_val, "weak") == 0) {
-                    weak_attribute = true;
-                }
-                if (match(TOK_LPAREN)) {
-                    if (weak_attribute && !is_vector_size) {
-                        weak_arguments = true;
-                    }
-                    Expr* size_expression = parse_assignment();
-                    int64_t value = 0;
-                    if (is_vector_size &&
-                        eval_integer_constant(size_expression, &value) &&
-                        value > 0 && value <= INT_MAX) {
-                        vector_size = (int)value;
-                    } else if (is_vector_size) {
-                        rcc_error(attribute_loc,
-                                  "vector_size attribute requires a positive integer constant");
-                    }
-                    expect(TOK_RPAREN, ") after vector_size argument");
-                }
-                while (!check(TOK_RPAREN) && !at_end()) advance();
-                match(TOK_RPAREN);
-            } else {
+            Token* name;
+            bool is_vector_size;
+            bool is_aligned;
+            bool is_weak;
+            if (match(TOK_COMMA)) continue;
+            if (!check(TOK_IDENT)) {
                 advance();
+                continue;
+            }
+            name = advance();
+            is_vector_size =
+                strcmp(name->value.str_val, "vector_size") == 0 ||
+                strcmp(name->value.str_val, "__vector_size__") == 0;
+            is_aligned = strcmp(name->value.str_val, "aligned") == 0 ||
+                         strcmp(name->value.str_val, "__aligned__") == 0;
+            if (strcmp(name->value.str_val, "may_alias") == 0 ||
+                strcmp(name->value.str_val, "__may_alias__") == 0) {
+                may_alias_attribute = true;
+            }
+            is_weak = strcmp(name->value.str_val, "weak") == 0 ||
+                      strcmp(name->value.str_val, "__weak__") == 0;
+            if (is_weak) weak_attribute = true;
+            if (match(TOK_LPAREN)) {
+                if (is_vector_size || is_aligned) {
+                    Expr* argument = check(TOK_RPAREN)
+                        ? NULL : parse_assignment();
+                    int64_t value = 0;
+                    if (!argument ||
+                        !eval_integer_constant(argument, &value) ||
+                        value <= 0 || value > INT_MAX ||
+                        (is_aligned &&
+                         (value > (int64_t)RCC_MAX_SUPPORTED_ALIGNMENT ||
+                          (value & (value - 1)) != 0))) {
+                        rcc_error(attribute_loc,
+                            is_vector_size
+                                ? "vector_size attribute requires a positive integer constant"
+                                : "aligned attribute requires a positive power-of-two constant no greater than 16384");
+                    } else if (is_vector_size) {
+                        vector_size = (int)value;
+                    } else {
+                        alignment = (int)value;
+                    }
+                    expect(TOK_RPAREN, "')' after type attribute argument");
+                } else {
+                    int depth = 1;
+                    if (is_weak) weak_arguments = true;
+                    while (!at_end() && depth > 0) {
+                        if (match(TOK_LPAREN)) ++depth;
+                        else if (match(TOK_RPAREN)) --depth;
+                        else advance();
+                    }
+                }
+            } else if (is_aligned) {
+                alignment = 16;
             }
         }
         expect(TOK_RPAREN, ") after attribute list");
+        expect(TOK_RPAREN, ") after __attribute__");
         if (weak_attribute) {
             if (weak_arguments) {
                 rcc_error(attribute_loc,
@@ -3368,6 +3406,22 @@ static Type* parse_declarator_attributes(Type* type) {
             } else {
                 type = type_vector(type, vector_size / type->size,
                                    vector_size);
+            }
+        }
+        if (type && (alignment != 0 || may_alias_attribute)) {
+            if (alignment != 0 && type->kind == TYPE_FUNC) {
+                rcc_error(attribute_loc,
+                          "aligned type attribute cannot apply to a function type");
+            } else {
+                Type* aligned = ast_arena_alloc(sizeof(*aligned));
+                *aligned = *type;
+                if (alignment != 0) {
+                    aligned->align = alignment;
+                    aligned->has_explicit_alignment = true;
+                }
+                aligned->may_alias = aligned->may_alias ||
+                                     may_alias_attribute;
+                type = aligned;
             }
         }
     }

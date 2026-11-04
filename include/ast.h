@@ -216,6 +216,9 @@ struct Type {
     bool is_long_double;
     Type* complex_component_type;
     bool has_explicit_alignment;
+    /* GCC __may_alias__ type attribute: accesses through this type may alias
+     * objects with otherwise incompatible effective types. */
+    bool may_alias;
     /* Deferred C++ alignas expression in a class-template field type. */
     Expr* cxx_dependent_alignment_expr;
     bool is_unsigned;
