@@ -771,6 +771,13 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_TEN_D_UNION_ARRAY_REQUIRED_SYMBOLS = \
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_TEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL = \
 	_Z38structural_ten_dimensional_array_valueIXtl24TenDimensionalArrayUniondi6valuestlA2_A1_A1_A1_A1_A1_A1_A1_A1_A2_itlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li5ELi6EEEEEEEEEEtlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li7ELi8EEEEEEEEEEEEEEiv
 
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS = \
+	_Z41structural_eleven_dimensional_array_valueIXtl27ElevenDimensionalArrayUniondi6valuestlA2_A1_A1_A1_A1_A1_A1_A1_A1_A1_A2_itlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li1ELi2EEEEEEEEEEEtlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li3ELi4EEEEEEEEEEEEEEEiv \
+	_Z43structural_eleven_dimensional_array_deducedIXtl27ElevenDimensionalArrayUniondi6valuestlA2_A1_A1_A1_A1_A1_A1_A1_A1_A1_A2_itlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li5ELi6EEEEEEEEEEEtlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li7ELi8EEEEEEEEEEEEEEEi25ElevenDimensionalArrayTagIXT_EE
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL = \
+	_Z41structural_eleven_dimensional_array_valueIXtl27ElevenDimensionalArrayUniondi6valuestlA2_A1_A1_A1_A1_A1_A1_A1_A1_A1_A2_itlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li5ELi6EEEEEEEEEEEtlSA_tlS9_tlS8_tlS7_tlS6_tlS5_tlS4_tlS3_tlS2_tlS1_Li7ELi8EEEEEEEEEEEEEEEiv
+
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_ARRAY_SYMBOLS = \
 	_Z51function_template_structural_pointer_array_explicitIXtl38FunctionTemplateStructuralPointerArraytlA2_PKiadL_Z48function_template_structural_pointer_array_firstEadL_Z49function_template_structural_pointer_array_secondEELi7EEEEiv \
 	_Z50function_template_structural_pointer_array_deducedIXtl38FunctionTemplateStructuralPointerArraytlA2_PKiadL_Z49function_template_structural_pointer_array_secondEadL_Z48function_template_structural_pointer_array_firstEELi5EEEEi41FunctionTemplateStructuralPointerArrayTagIXT_EE
@@ -6083,6 +6090,8 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-nine-dim-array,cxx_function_template_structural_nine_dim_array.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-ten-dim-array)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-ten-dim-array,cxx_function_template_structural_ten_dim_array.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-eleven-dim-array,cxx_function_template_structural_eleven_dim_array.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-host \
 		tests/cxx_function_template_structural_six_dim_array.cpp
@@ -6143,6 +6152,18 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_TEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-ten-dim-array/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_TEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-ten-dim-array/gcc-symbols.s)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-ten-dim-array,cxx_function_template_structural_ten_dim_array.cpp,3)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-host \
+		tests/cxx_function_template_structural_eleven_dim_array.cpp
+	$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-host
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-symbols.s \
+		tests/cxx_function_template_structural_eleven_dim_array.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-symbols.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-eleven-dim-array,cxx_function_template_structural_eleven_dim_array.cpp,3)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.ro tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.log)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/gcc.log)
@@ -8014,6 +8035,8 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-nine-dim-array,cxx_function_template_structural_nine_dim_array.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-ten-dim-array)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-ten-dim-array,cxx_function_template_structural_ten_dim_array.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-eleven-dim-array,cxx_function_template_structural_eleven_dim_array.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-six-dim-array/gcc-host.exe \
 		tests/cxx_function_template_structural_six_dim_array.cpp
@@ -8074,6 +8097,18 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_TEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-ten-dim-array/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_TEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-ten-dim-array/gcc-symbols.s)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-ten-dim-array,cxx_function_template_structural_ten_dim_array.cpp,3)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-host.exe \
+		tests/cxx_function_template_structural_eleven_dim_array.cpp
+	$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-host.exe
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-symbols.s \
+		tests/cxx_function_template_structural_eleven_dim_array.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_REQUIRED_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_ELEVEN_D_UNION_ARRAY_FORWARDED_VALUE_SYMBOL),$(TEST_OUT)/cxx-function-template-structural-eleven-dim-array/gcc-symbols.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-eleven-dim-array,cxx_function_template_structural_eleven_dim_array.cpp,3)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.ro tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/rcc.log)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_structural_forwarding_invalid.cpp,$(TEST_OUT)/cxx-function-template-structural-forwarding-invalid/gcc.log)
