@@ -34070,7 +34070,9 @@ static int sema_sse_builtin_arity(const char* name) {
     if (strcmp(suffix, "cvtsd2ss") == 0 ||
         strcmp(suffix, "cvtss2sd") == 0) return 2;
     if (strcmp(suffix, "cvtsi2ss") == 0 ||
-        strcmp(suffix, "cvtsi642ss") == 0) return 2;
+        strcmp(suffix, "cvtsi642ss") == 0 ||
+        strcmp(suffix, "cvtsi2sd") == 0 ||
+        strcmp(suffix, "cvtsi642sd") == 0) return 2;
     if (strcmp(suffix, "cvtsd2si") == 0 ||
         strcmp(suffix, "cvttsd2si") == 0) return 1;
     if (strcmp(suffix, "movmskps") == 0 ||
@@ -34178,8 +34180,11 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
         sema_sse_require_vector(call, name, 0);
         sema_sse_require_vector(call, name, 1);
     } else if (strcmp(suffix, "cvtsi2ss") == 0 ||
-               strcmp(suffix, "cvtsi642ss") == 0) {
-        if (strcmp(suffix, "cvtsi642ss") == 0 &&
+               strcmp(suffix, "cvtsi642ss") == 0 ||
+               strcmp(suffix, "cvtsi2sd") == 0 ||
+               strcmp(suffix, "cvtsi642sd") == 0) {
+        if ((strcmp(suffix, "cvtsi642ss") == 0 ||
+             strcmp(suffix, "cvtsi642sd") == 0) &&
             g_opts.target_arch != ARCH_X64) {
             rcc_error(call->loc,
                       "%s requires an x86_64 target", name);

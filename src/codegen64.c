@@ -3497,7 +3497,9 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
             return true;
         }
         if (strcmp(name, "cvtsi2ss") == 0 ||
-            strcmp(name, "cvtsi642ss") == 0) {
+            strcmp(name, "cvtsi642ss") == 0 ||
+            strcmp(name, "cvtsi2sd") == 0 ||
+            strcmp(name, "cvtsi642sd") == 0) {
             emit64_sub_reg_imm(mod, RSP, 16);
             gen64_expr(mod, call64_argument(expr, 1));
             emit64_mov_mem_reg(mod, RSP, 0, RAX);
@@ -3507,7 +3509,10 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
             emit64_sse128_memory(mod, 0, RCX, 0, 0, 0x10);
             emit64_mov_reg_mem(mod, RCX, RSP, 0);
             emit64_int_to_sse(mod, 0, RCX,
-                              strcmp(name, "cvtsi642ss") == 0 ? 8 : 4, 4);
+                              (strcmp(name, "cvtsi642ss") == 0 ||
+                               strcmp(name, "cvtsi642sd") == 0) ? 8 : 4,
+                              (strcmp(name, "cvtsi2sd") == 0 ||
+                               strcmp(name, "cvtsi642sd") == 0) ? 8 : 4);
             emit64_add_reg_imm(mod, RSP, 16);
             emit64_sse_store_result(mod, expr, 0);
             return true;
@@ -3515,7 +3520,9 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
         if (strcmp(name, "cvtss2si") == 0 || strcmp(name, "cvttss2si") == 0 ||
             strcmp(name, "cvtsd2si") == 0 || strcmp(name, "cvttsd2si") == 0 ||
             strcmp(name, "cvtss2si64") == 0 ||
-            strcmp(name, "cvttss2si64") == 0) {
+            strcmp(name, "cvttss2si64") == 0 ||
+            strcmp(name, "cvtsd2si64") == 0 ||
+            strcmp(name, "cvttsd2si64") == 0) {
             gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
             emit64_sse_to_int_opcode(
                 mod, RAX, 0, strstr(name, "sd2si") ? 8 : 4,

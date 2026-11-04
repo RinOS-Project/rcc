@@ -8,6 +8,13 @@
 
 #include <xmmintrin.h>
 
+#define _mm_castpd_ps(__a) ((__m128)(__a))
+#define _mm_castpd_si128(__a) ((__m128i)(__a))
+#define _mm_castps_pd(__a) ((__m128d)(__a))
+#define _mm_castps_si128(__a) ((__m128i)(__a))
+#define _mm_castsi128_pd(__a) ((__m128d)(__a))
+#define _mm_castsi128_ps(__a) ((__m128)(__a))
+
 /* Load operations - double */
 static __inline __m128d _mm_load_sd(const double* __p) {
     return __builtin_ia32_loadsd(__p);
@@ -221,6 +228,30 @@ static __inline int _mm_comige_sd(__m128d __a, __m128d __b) {
 
 static __inline int _mm_comineq_sd(__m128d __a, __m128d __b) {
     return __builtin_ia32_comisdneq(__a, __b);
+}
+
+static __inline int _mm_ucomieq_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_ucomisdeq(__a, __b);
+}
+
+static __inline int _mm_ucomilt_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_ucomisdlt(__a, __b);
+}
+
+static __inline int _mm_ucomile_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_ucomisdle(__a, __b);
+}
+
+static __inline int _mm_ucomigt_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_ucomisdgt(__a, __b);
+}
+
+static __inline int _mm_ucomige_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_ucomisdge(__a, __b);
+}
+
+static __inline int _mm_ucomineq_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_ucomisdneq(__a, __b);
 }
 
 /* Set operations - double */
@@ -586,6 +617,18 @@ static __inline __m128d _mm_cvtss_sd(__m128d __a, __m128 __b) {
     return (__m128d)__builtin_ia32_cvtss2sd((__v2df)__a, (__v4sf)__b);
 }
 
+static __inline __m128d _mm_cvtsi32_sd(__m128d __a, int __b) {
+    return __builtin_ia32_cvtsi2sd((__v2df)__a, __b);
+}
+
+#ifdef __x86_64__
+static __inline __m128d _mm_cvtsi64_sd(__m128d __a, long long __b) {
+    return __builtin_ia32_cvtsi642sd((__v2df)__a, __b);
+}
+
+#define _mm_cvtsi64x_sd _mm_cvtsi64_sd
+#endif
+
 static __inline double _mm_cvtsd_f64(__m128d __a) {
     return ((__v2df)__a)[0];
 }
@@ -597,6 +640,21 @@ static __inline int _mm_cvtsd_si32(__m128d __a) {
 static __inline int _mm_cvttsd_si32(__m128d __a) {
     return __builtin_ia32_cvttsd2si(__a);
 }
+
+#ifdef __x86_64__
+static __inline long long _mm_cvtsd_si64(__m128d __a) {
+    return __builtin_ia32_cvtsd2si64(__a);
+}
+
+static __inline long long _mm_cvttsd_si64(__m128d __a) {
+    return __builtin_ia32_cvttsd2si64(__a);
+}
+
+#define _mm_cvtsd_si64x _mm_cvtsd_si64
+#define _mm_cvttsd_si64x _mm_cvttsd_si64
+#define _mm_cvtsi128_si64x _mm_cvtsi128_si64
+#define _mm_cvtsi64x_si128 _mm_cvtsi64_si128
+#endif
 
 /* Memory fence */
 static __inline void _mm_lfence(void) {
