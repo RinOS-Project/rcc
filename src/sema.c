@@ -34039,7 +34039,8 @@ static bool sema_sse2_builtin_name(const char* name) {
     suffix = name + 15;
     if (strcmp(suffix, "pause") == 0 || strcmp(suffix, "clflush") == 0 ||
         strcmp(suffix, "lfence") == 0 || strcmp(suffix, "mfence") == 0 ||
-        strcmp(suffix, "movnti") == 0 || strcmp(suffix, "loaddqu") == 0 ||
+        strcmp(suffix, "movnti") == 0 || strcmp(suffix, "movntdq") == 0 ||
+        strcmp(suffix, "loaddqu") == 0 ||
         strcmp(suffix, "storedqu") == 0 ||
         strcmp(suffix, "vec_ext_v8hi") == 0 ||
         strcmp(suffix, "vec_set_v8hi") == 0) return true;

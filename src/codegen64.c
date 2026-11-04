@@ -3351,8 +3351,12 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
         emit64_sse128_memory(mod, 0, RAX, 0, 0, 0x10);
         emit64_mov_reg_mem(mod, RCX, RSP, 0);
         if (strstr(name, "movnt") == name) {
-            prefix = strstr(name, "pd") || strstr(name, "dq") ? 0x66 : 0;
-            emit64_sse128_memory(mod, 0, RCX, 0, prefix, 0x2B);
+            if (strcmp(name, "movntdq") == 0) {
+                emit64_sse128_memory(mod, 0, RCX, 0, 0x66, 0xE7);
+            } else {
+                prefix = strstr(name, "pd") ? 0x66 : 0;
+                emit64_sse128_memory(mod, 0, RCX, 0, prefix, 0x2B);
+            }
         } else if (strstr(name, "sd")) {
             emit64_sse128_memory(mod, 0, RCX, 0, 0xF2, 0x11);
         } else if (strstr(name, "ss")) {
