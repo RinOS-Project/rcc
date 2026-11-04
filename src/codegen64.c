@@ -3574,8 +3574,14 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
             emit64_sse128_immediate(mod, 0, group, 0x66, opcode,
                                     (uint8_t)immediate);
         } else {
-            gen64_expr(mod, call64_argument(expr, 1));
-            emit64_mov_xmm_from_gpr(mod, 1, RAX, 4);
+            Expr* shift_count = call64_argument(expr, 1);
+            if (shift_count && shift_count->type &&
+                type_is_vector(shift_count->type)) {
+                gen64_sse_vector_argument(mod, shift_count, 1);
+            } else {
+                gen64_expr(mod, shift_count);
+                emit64_mov_xmm_from_gpr(mod, 1, RAX, 4);
+            }
             opcode = strstr(name, "w") ? 0xF1 : strstr(name, "d") ? 0xF2 : 0xF3;
             emit64_sse128_reg(mod, 0, 1, 0x66, opcode);
         }

@@ -7578,8 +7578,14 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
             emit_sse128_immediate_group(mod, group, 0, 0x66, opcode,
                                         (uint8_t)immediate);
         } else {
-            gen_expr(mod, call_argument(expr, 1));
-            emit_int_to_sse32(mod, 1, EAX, 4, 4);
+            Expr* shift_count = call_argument(expr, 1);
+            if (shift_count && shift_count->type &&
+                type_is_vector(shift_count->type)) {
+                gen_sse_vector_argument32(mod, shift_count, 1);
+            } else {
+                gen_expr(mod, shift_count);
+                emit_int_to_sse32(mod, 1, EAX, 4, 4);
+            }
             opcode = strstr(name, "w") ? 0xF1 : strstr(name, "d") ? 0xF2 : 0xF3;
             emit_sse128_reg(mod, 0, 1, 0x66, opcode);
         }
