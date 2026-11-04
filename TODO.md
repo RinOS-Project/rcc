@@ -12840,6 +12840,11 @@ remains a separate open item.
         The full-width matrix passes for division and remainder in legacy and
         verified `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`.
+  - [x] Verify unsigned divmod over nested conditional frame-backed expression
+        trees in both dividend and divisor, including all four nested branch
+        combinations. The full-width matrix passes for division and remainder
+        in legacy and verified `-O1`/`-O2` objects through
+        `test-debug-info-inline-expression`.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
