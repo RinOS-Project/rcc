@@ -10890,7 +10890,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
         !expression_size ||
         (!has_variable_divisor &&
          (divisor == 0u ||
-          (!is_signed &&
+          (!is_signed && !source_value_expression &&
            (divisor <= (uint64_t)UINT32_MAX ||
             divisor > (uint64_t)INT64_MAX ||
             (divisor & (divisor - 1u)) == 0u)))) ||
@@ -11498,6 +11498,8 @@ static bool debug_inline_parameter_i686_u64_power_of_two_div_expression(
 static bool debug_inline_parameter_i686_signed_division_operand(
     const Expr* expression, const Type* parameter_type, bool is_signed,
     const Expr** value_expression, bool* negate);
+static bool debug_inline_parameter_i686_u64_frame_expression_tree(
+    const Module* mod, const Expr* expression, unsigned int depth);
 
 static bool debug_inline_parameter_i686_u64_div_constant_expression(
     const Module* mod, const Type* parameter_type, bool is_signed,
@@ -11516,12 +11518,38 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     unsigned int chunk_count;
     bool negate_dividend;
     bool is_remainder;
+    const Expr* simple_dividend_expression;
+    bool simple_negate_dividend;
     if (relocations) {
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
         tls_relocations.allow_volatile = true;
         tls_relocations.allow_atomic = true;
         relocations = &tls_relocations;
+    }
+    if (mod && parameter_type && parameter_type->size == 8 &&
+        parameter_type->is_unsigned == !is_signed && source_expression &&
+        (source_expression->kind == EXPR_DIV ||
+         source_expression->kind == EXPR_MOD) &&
+        source_expression->binary_lhs && source_expression->binary_rhs &&
+        debug_inline_integer_literal_bits(
+            source_expression->binary_rhs, &divisor, 0u) && divisor != 0u &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            source_expression->type, parameter_type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            source_expression->binary_lhs->type, parameter_type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            source_expression->binary_rhs->type, parameter_type, 0u) &&
+        !debug_inline_parameter_i686_signed_division_operand(
+            source_expression->binary_lhs, parameter_type, is_signed,
+            &simple_dividend_expression, &simple_negate_dividend) &&
+        debug_inline_parameter_i686_u64_frame_expression_tree(
+            mod, source_expression->binary_lhs, 0u)) {
+        return debug_inline_parameter_i686_u64_general_division_expression(
+            mod, NULL, 0, source_expression->binary_lhs, divisor, NULL, 0,
+            NULL, is_signed, false, false,
+            source_expression->kind == EXPR_MOD, expression, capacity,
+            expression_size, relocations);
     }
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || parameter_type->size != 8 ||

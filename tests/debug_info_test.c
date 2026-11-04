@@ -9965,6 +9965,7 @@ static uint64_t evaluate_inline_i686_u64_constant_division_with_signed_hint(
     int64_t source_frame_offset, int64_t divisor_frame_offset,
     uint64_t dividend, uint64_t divisor, bool remainder,
     bool has_dynamic_divisor, int signed_division_hint,
+    bool general_constant_division_hint,
     const ObjSection* info,
     const char* global_source_name, const char* global_divisor_name) {
     uint32_t stack[128];
@@ -9982,9 +9983,10 @@ static uint64_t evaluate_inline_i686_u64_constant_division_with_signed_hint(
         : 1u;
     unsigned int chunk_count = divisor <= UINT32_MAX
         ? (64u + chunk_width - 1u) / chunk_width : 1u;
-    bool two_word_divisor_algorithm = divisor > UINT32_MAX &&
+    bool two_word_divisor_algorithm = general_constant_division_hint ||
+        (divisor > UINT32_MAX &&
         divisor <= (uint64_t)INT64_MAX &&
-        (divisor & (divisor - 1u)) != 0u;
+        (divisor & (divisor - 1u)) != 0u);
     bool dynamic_divisor_algorithm = has_dynamic_divisor;
     bool signed_division_algorithm = signed_division_hint > 0;
     size_t expected_stack_size =
@@ -10280,7 +10282,7 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
     return evaluate_inline_i686_u64_constant_division_with_signed_hint(
         data, expression_end, expression_offset, source_frame_offset,
         divisor_frame_offset, dividend, divisor, remainder,
-        has_dynamic_divisor, -1, info, global_source_name,
+        has_dynamic_divisor, -1, false, info, global_source_name,
         global_divisor_name);
 }
 
@@ -10539,7 +10541,7 @@ static void verify_inline_i686_u64_variable_division_expression(
 
 static void verify_inline_i686_computed_division_expression(
     const char* path, const char* call_site_name, bool is_signed,
-    bool remainder) {
+    bool remainder, bool constant_divisor) {
     static const int64_t signed_dividends[] = {
         INT64_MIN + 100, INT64_MIN + 1, -INT64_C(1234567890123),
         -101, -1, 0, 1, 101, INT64_C(1234567890123), INT64_MAX - 100
@@ -10561,15 +10563,18 @@ static void verify_inline_i686_computed_division_expression(
         ? "debug_nonconstant_signed_long_long_parameter_inline"
         : "debug_nonconstant_unsigned_long_long_parameter_inline";
     const char* dividend_name = is_signed
-        ? "computed_division_dividend"
-        : "computed_unsigned_division_dividend";
+        ? (constant_divisor ? "computed_constant_division_dividend"
+                            : "computed_division_dividend")
+        : (constant_divisor
+               ? "computed_unsigned_constant_division_dividend"
+               : "computed_unsigned_division_dividend");
     const char* divisor_name = is_signed
         ? "computed_division_divisor"
         : "computed_unsigned_division_divisor";
     size_t dividend_count = is_signed
         ? sizeof(signed_dividends) / sizeof(signed_dividends[0])
         : sizeof(unsigned_dividends) / sizeof(unsigned_dividends[0]);
-    size_t divisor_count = is_signed
+    size_t divisor_count = constant_divisor ? 1u : is_signed
         ? sizeof(signed_divisors) / sizeof(signed_divisors[0])
         : sizeof(unsigned_divisors) / sizeof(unsigned_divisors[0]);
     ObjectFile* object = objfile_read(path);
@@ -10658,13 +10663,16 @@ static void verify_inline_i686_computed_division_expression(
         info, strings, locations, dividend_name, ARCH_X86,
         &has_dividend_location, &dividend_is_location_list,
         &dividend_frame_offset));
-    assert(find_variable_location(
-        info, strings, locations, divisor_name, ARCH_X86,
-        &has_divisor_location, &divisor_is_location_list,
-        &divisor_frame_offset));
-    assert(has_dividend_location && has_divisor_location &&
+    if (!constant_divisor) {
+        assert(find_variable_location(
+            info, strings, locations, divisor_name, ARCH_X86,
+            &has_divisor_location, &divisor_is_location_list,
+            &divisor_frame_offset));
+    }
+    assert(has_dividend_location &&
+           (constant_divisor || has_divisor_location) &&
            dividend_frame_offset <= INT64_MAX - 6 &&
-           divisor_frame_offset <= INT64_MAX - 6);
+           (constant_divisor || divisor_frame_offset <= INT64_MAX - 6));
     for (const ObjReloc* relocation = info->relocs; relocation;
          relocation = relocation->next) {
         assert(relocation->offset < expression_offset ||
@@ -10677,25 +10685,30 @@ static void verify_inline_i686_computed_division_expression(
             : unsigned_dividends[dividend_index];
         for (size_t divisor_index = 0u;
              divisor_index < divisor_count; ++divisor_index) {
-            uint64_t divisor_bits = is_signed
-                ? (uint64_t)signed_divisors[divisor_index]
-                : unsigned_divisors[divisor_index];
+            uint64_t divisor_bits = constant_divisor
+                ? (is_signed ? (uint64_t)-7 : 7u)
+                : (is_signed
+                       ? (uint64_t)signed_divisors[divisor_index]
+                       : unsigned_divisors[divisor_index]);
             uint64_t actual;
             uint64_t expected;
             actual = evaluate_inline_i686_u64_constant_division_with_signed_hint(
                 info->data, expression_offset + expression_size,
                 expression_offset, dividend_frame_offset,
-                divisor_frame_offset, dividend_bits, divisor_bits, remainder,
-                true, is_signed ? 1 : 0, info, NULL, NULL);
+                constant_divisor ? 0 : divisor_frame_offset, dividend_bits,
+                divisor_bits, remainder, !constant_divisor,
+                is_signed ? 1 : 0, constant_divisor, info, NULL, NULL);
             if (is_signed) {
                 int64_t dividend = signed_dividends[dividend_index] + 17;
-                int64_t divisor = signed_divisors[divisor_index] * 2 + 1;
+                int64_t divisor = constant_divisor
+                    ? -7 : signed_divisors[divisor_index] * 2 + 1;
                 if (dividend == INT64_MIN && divisor == -1) continue;
                 expected = (uint64_t)(remainder
                     ? dividend % divisor : dividend / divisor);
             } else {
                 uint64_t dividend = dividend_bits + 17u;
-                uint64_t divisor = divisor_bits * 2u + 1u;
+                uint64_t divisor = constant_divisor
+                    ? 7u : divisor_bits * 2u + 1u;
                 expected = remainder ? dividend % divisor : dividend / divisor;
             }
             if (actual != expected) {
@@ -10705,7 +10718,8 @@ static void verify_inline_i686_computed_division_expression(
                         is_signed ? "signed" : "unsigned",
                         remainder ? "remainder" : "division",
                         (unsigned long long)dividend_bits,
-                        (unsigned long long)divisor_bits,
+                        (unsigned long long)(constant_divisor
+                            ? divisor_bits : divisor_bits * 2u + 1u),
                         (unsigned long long)actual,
                         (unsigned long long)expected);
             }
@@ -19652,19 +19666,35 @@ static void verify_inline_integer_expression_cases(
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_signed_long_long_computed_divide_entry",
-            true, false);
+            true, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_signed_long_long_computed_remainder_entry",
-            true, true);
+            true, true, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_divide_entry",
-            false, false);
+            false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_remainder_entry",
-            false, true);
+            false, true, false);
+        verify_inline_i686_computed_division_expression(
+            path,
+            "debug_inline_nonconstant_signed_long_long_computed_constant_divide_entry",
+            true, false, true);
+        verify_inline_i686_computed_division_expression(
+            path,
+            "debug_inline_nonconstant_signed_long_long_computed_constant_remainder_entry",
+            true, true, true);
+        verify_inline_i686_computed_division_expression(
+            path,
+            "debug_inline_nonconstant_unsigned_long_long_computed_constant_divide_entry",
+            false, false, true);
+        verify_inline_i686_computed_division_expression(
+            path,
+            "debug_inline_nonconstant_unsigned_long_long_computed_constant_remainder_entry",
+            false, true, true);
     }
     verify_inline_indirect_pointer_parameter(
         path, architecture, "debug_inline_indirect_pointer_entry",

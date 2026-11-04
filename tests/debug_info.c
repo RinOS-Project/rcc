@@ -322,6 +322,34 @@ unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_remainde
         (computed_unsigned_division_divisor * 2ull + 1ull));
 }
 
+long long debug_inline_nonconstant_signed_long_long_computed_constant_divide_entry(
+    long long computed_constant_division_dividend)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (computed_constant_division_dividend + 17ll) / -7ll);
+}
+
+long long debug_inline_nonconstant_signed_long_long_computed_constant_remainder_entry(
+    long long computed_constant_division_dividend)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (computed_constant_division_dividend + 17ll) % -7ll);
+}
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_constant_divide_entry(
+    unsigned long long computed_unsigned_constant_division_dividend)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (computed_unsigned_constant_division_dividend + 17ull) / 7ull);
+}
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_constant_remainder_entry(
+    unsigned long long computed_unsigned_constant_division_dividend)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (computed_unsigned_constant_division_dividend + 17ull) % 7ull);
+}
+
 long long debug_inline_nonconstant_signed_long_long_negated_global_dividend_divide_entry(
     void)
 {

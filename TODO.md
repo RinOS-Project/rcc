@@ -12827,6 +12827,10 @@ remains a separate open item.
         frame-backed parameters, with a full-width expression evaluator matrix
         in normal and verified `-O1`/`-O2` objects. Atomic stores/RMW and
         volatile/reference/TLS combinations remain open.
+  - [x] Extend those frame-backed expression trees to signed and unsigned
+        constant-divisor division and remainder (`-7` and `7`). Check full-width
+        boundary matrices against emitted DWARF in legacy and verified `-O1`/
+        `-O2` objects with `test-debug-info-inline-expression`.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
