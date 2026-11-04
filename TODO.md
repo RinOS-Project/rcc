@@ -14298,6 +14298,10 @@ remains a separate open item.
       host execution, i686/AMD64 assembly, and all 33 verified-backend functions
       with zero fallback at `-O0`/`-O2` pass in
       `test-cxx-nested-class-template-owner-structural-value-pack`.
-- [ ] Add coverage for structural-class array elements that themselves contain
-      active unions, including indexed member reads and multiple active
-      alternatives; compare accepted cases with GCC and verify both backends.
+- [x] Cover a fixed-bound array of structural-class elements whose members
+      are active unions. Select different union alternatives in adjacent array
+      elements, read them through both array and class-member paths, and fold
+      the values in a structural-class NTTP pack. Exact non-empty/empty GCC
+      Itanium symbols match on i686 and AMD64; strict C++20, both host programs,
+      and all 35 verified-backend functions with zero fallback at `-O0`/`-O2`
+      pass in `test-cxx-nested-class-template-owner-structural-value-pack`.

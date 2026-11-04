@@ -77,6 +77,26 @@ struct NestedStructuralUnionClassMatrixKey {
     unsigned char suffix;
 };
 
+union NestedStructuralUnionArrayLeafUnion {
+    short code;
+    unsigned char marker;
+};
+
+struct NestedStructuralUnionArrayNestedUnionLeafKey {
+    NestedStructuralUnionArrayLeafUnion payload;
+    unsigned char bias;
+};
+
+union NestedStructuralPackNestedUnionClassArrayUnion {
+    NestedStructuralUnionArrayNestedUnionLeafKey values[2];
+    int scalar;
+};
+
+struct NestedStructuralUnionNestedUnionClassArrayKey {
+    NestedStructuralPackNestedUnionClassArrayUnion payload;
+    unsigned char suffix;
+};
+
 struct NestedStructuralEmptyKey {};
 
 struct NestedStructuralPairKey {
@@ -225,6 +245,16 @@ struct NestedStructuralUnionClassMatrixOwnerPack {
                   7 * Values.payload.values[1][1].code +
                   8 * Values.payload.values[1][1].marker +
                   9 * Values.suffix) + ... + 0));
+    }
+};
+
+template <NestedStructuralUnionNestedUnionClassArrayKey... Values>
+struct NestedStructuralUnionNestedUnionClassArrayOwnerPack {
+    static constexpr int combined() {
+        return (((Values.payload.values[0].payload.code * 1000 +
+                  Values.payload.values[0].bias * 100 +
+                  Values.payload.values[1].payload.marker * 10 +
+                  Values.payload.values[1].bias + Values.suffix) + ... + 0));
     }
 };
 
@@ -454,6 +484,21 @@ int main() {
     }
     if (NestedStructuralUnionClassMatrixOwnerPack<>::combined() != 0) {
         return 32;
+    }
+    if (NestedStructuralUnionNestedUnionClassArrayOwnerPack<
+            NestedStructuralUnionNestedUnionClassArrayKey{
+                {.values = {{.payload = {.code = 3}, .bias = 4},
+                            {.payload = {.marker = 5}, .bias = 6}}},
+                7},
+            NestedStructuralUnionNestedUnionClassArrayKey{
+                {.values = {{.payload = {.code = 8}, .bias = 9},
+                            {.payload = {.marker = 10}, .bias = 11}}},
+                12}>::combined() != 12486) {
+        return 33;
+    }
+    if (NestedStructuralUnionNestedUnionClassArrayOwnerPack<>::combined()
+        != 0) {
+        return 34;
     }
     return NestedStructuralNullptrRecordOwnerPack<>::combined() == 0 ? 0 : 24;
 }
