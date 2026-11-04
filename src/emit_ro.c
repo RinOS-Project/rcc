@@ -6559,12 +6559,52 @@ static bool debug_inline_parameter_i686_u64_append_narrow_word_expression(
              expression, capacity, expression_size, 0x1fu));
 }
 
+static bool debug_inline_parameter_i686_u64_atomic_store_value(
+    const Expr* expression) {
+    const Expr* destination;
+    const Expr* stored_value;
+    const Decl* declaration;
+    Type result_type;
+    if (!expression || expression->kind != EXPR_ASSIGN ||
+        !(destination = expression->binary_lhs) ||
+        destination->kind != EXPR_IDENT || !destination->ident_decl ||
+        !(stored_value = expression->binary_rhs) ||
+        !expression->type) {
+        return false;
+    }
+    result_type = *expression->type;
+    result_type.is_atomic = false;
+    if (!debug_inline_integer_expression_type(&result_type) ||
+        result_type.is_volatile || result_type.is_reference ||
+        result_type.size != 8 || !stored_value->type ||
+        stored_value->type->is_volatile || stored_value->type->is_reference ||
+        stored_value->type->is_atomic || stored_value->type->size != 8 ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            &result_type, stored_value->type, 0u)) {
+        return false;
+    }
+    declaration = destination->ident_decl;
+    return (declaration->kind == DECL_VAR ||
+            declaration->kind == DECL_PARAM) && declaration->type &&
+        declaration->type->is_atomic && !declaration->type->is_volatile &&
+        !declaration->type->is_reference && declaration->type->size == 8 &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            &result_type, declaration->type, 0u);
+}
+
 static bool debug_inline_parameter_i686_u64_append_word_expression(
     const Module* mod, const Expr* value, bool high_word, uint8_t* expression,
     size_t capacity, size_t* expression_size, unsigned int depth) {
     uint64_t literal_bits;
-    if (!mod || !value || !expression || !expression_size || depth >= 32u ||
-        !debug_inline_integer_expression_type(value->type) ||
+    if (!mod || !value || !expression || !expression_size || depth >= 32u) {
+        return false;
+    }
+    if (debug_inline_parameter_i686_u64_atomic_store_value(value)) {
+        return debug_inline_parameter_i686_u64_append_word_expression(
+            mod, value->binary_rhs, high_word, expression, capacity,
+            expression_size, depth + 1u);
+    }
+    if (!debug_inline_integer_expression_type(value->type) ||
         value->type->size <= 0 || value->type->size > 8) {
         return false;
     }
@@ -12000,8 +12040,14 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
     const Module* mod, const Expr* expression, unsigned int depth) {
     uint64_t literal_bits;
     const Type* type;
-    if (!mod || !expression || depth >= 32u || !(type = expression->type) ||
-        !debug_inline_integer_expression_type(type) || type->size <= 0 ||
+    if (!mod || !expression || depth >= 32u || !(type = expression->type)) {
+        return false;
+    }
+    if (debug_inline_parameter_i686_u64_atomic_store_value(expression)) {
+        return debug_inline_parameter_i686_u64_frame_expression_tree(
+            mod, expression->binary_rhs, depth + 1u);
+    }
+    if (!debug_inline_integer_expression_type(type) || type->size <= 0 ||
         type->size > 8 || type->is_volatile || type->is_atomic ||
         type->is_reference) {
         return false;
@@ -12035,6 +12081,11 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
             return expression->cast_expr &&
                 debug_inline_parameter_i686_u64_frame_expression_tree(
                     mod, expression->cast_expr, depth + 1u);
+        case EXPR_ASSIGN:
+            return debug_inline_parameter_i686_u64_atomic_store_value(
+                       expression) &&
+                debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, expression->binary_rhs, depth + 1u);
         case EXPR_POS:
         case EXPR_NEG:
         case EXPR_BITNOT:

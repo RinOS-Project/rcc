@@ -10588,7 +10588,7 @@ static void verify_inline_i686_computed_division_expression(
     const char* path, const char* call_site_name, bool is_signed,
     bool remainder, bool constant_divisor, bool bitwise_tree,
     bool conditional_tree, bool nested_conditional_tree,
-    bool dynamic_shift_tree) {
+    bool dynamic_shift_tree, bool atomic_store_tree) {
     static const int64_t signed_dividends[] = {
         INT64_MIN + 100, INT64_MIN + 1, -INT64_C(1234567890123),
         -101, -1, 0, 1, 101, INT64_C(1234567890123), INT64_MAX - 100
@@ -10612,6 +10612,8 @@ static void verify_inline_i686_computed_division_expression(
         : "debug_nonconstant_unsigned_long_long_parameter_inline";
     const char* dividend_name = bitwise_tree
         ? "computed_bitwise_division_dividend"
+        : atomic_store_tree
+              ? "computed_atomic_store_division_dividend"
         : dynamic_shift_tree
               ? "computed_shift_division_dividend"
         : nested_conditional_tree
@@ -10628,6 +10630,8 @@ static void verify_inline_i686_computed_division_expression(
                      : "computed_unsigned_division_dividend");
     const char* divisor_name = bitwise_tree
         ? "computed_bitwise_division_divisor"
+        : atomic_store_tree
+              ? "computed_atomic_store_division_divisor"
         : dynamic_shift_tree
               ? "computed_shift_division_factor"
         : nested_conditional_tree
@@ -10669,7 +10673,11 @@ static void verify_inline_i686_computed_division_expression(
              conditional_tree)) &&
            (!dynamic_shift_tree ||
             (!is_signed && !constant_divisor && !bitwise_tree &&
-             !conditional_tree && !nested_conditional_tree)));
+             !conditional_tree && !nested_conditional_tree)) &&
+           (!atomic_store_tree ||
+            (!is_signed && !constant_divisor && !bitwise_tree &&
+             !conditional_tree && !nested_conditional_tree &&
+             !dynamic_shift_tree)));
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
@@ -10792,7 +10800,9 @@ static void verify_inline_i686_computed_division_expression(
                 expected = (uint64_t)(remainder
                     ? dividend % divisor : dividend / divisor);
             } else {
-                uint64_t dividend = dynamic_shift_tree
+                uint64_t dividend = atomic_store_tree
+                    ? dividend_bits
+                    : dynamic_shift_tree
                     ? dividend_bits << (divisor_bits & 63u)
                     : nested_conditional_tree
                     ? ((dividend_bits & 1u)
@@ -10811,7 +10821,9 @@ static void verify_inline_i686_computed_division_expression(
                           ? dividend_bits ^
                                 UINT64_C(0x8000000000000001)
                           : dividend_bits + 17u;
-                uint64_t divisor = dynamic_shift_tree
+                uint64_t divisor = atomic_store_tree
+                    ? divisor_bits * 2u + 1u
+                    : dynamic_shift_tree
                     ? (divisor_bits & UINT64_C(0xff)) + 1u
                     : nested_conditional_tree
                     ? ((divisor_bits & 1u)
@@ -19786,75 +19798,75 @@ static void verify_inline_integer_expression_cases(
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_signed_long_long_computed_divide_entry",
-            true, false, false, false, false, false, false);
+            true, false, false, false, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_signed_long_long_computed_remainder_entry",
-            true, true, false, false, false, false, false);
+            true, true, false, false, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_divide_entry",
-            false, false, false, false, false, false, false);
+            false, false, false, false, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_remainder_entry",
-            false, true, false, false, false, false, false);
+            false, true, false, false, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_signed_long_long_computed_constant_divide_entry",
-            true, false, true, false, false, false, false);
+            true, false, true, false, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_signed_long_long_computed_constant_remainder_entry",
-            true, true, true, false, false, false, false);
+            true, true, true, false, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_constant_divide_entry",
-            false, false, true, false, false, false, false);
+            false, false, true, false, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_constant_remainder_entry",
-            false, true, true, false, false, false, false);
+            false, true, true, false, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_bitwise_divide_entry",
-            false, false, false, true, false, false, false);
+            false, false, false, true, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_bitwise_remainder_entry",
-            false, true, false, true, false, false, false);
+            false, true, false, true, false, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_conditional_divide_entry",
-            false, false, false, false, true, false, false);
+            false, false, false, false, true, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_conditional_remainder_entry",
-            false, true, false, false, true, false, false);
+            false, true, false, false, true, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_signed_long_long_computed_conditional_divide_entry",
-            true, false, false, false, true, false, false);
+            true, false, false, false, true, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_signed_long_long_computed_conditional_remainder_entry",
-            true, true, false, false, true, false, false);
+            true, true, false, false, true, false, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_nested_conditional_divide_entry",
-            false, false, false, false, true, true, false);
+            false, false, false, false, true, true, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_nested_conditional_remainder_entry",
-            false, true, false, false, true, true, false);
+            false, true, false, false, true, true, false, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_shift_divide_entry",
-            false, false, false, false, false, false, true);
+            false, false, false, false, false, false, true, false);
         verify_inline_i686_computed_division_expression(
             path,
             "debug_inline_nonconstant_unsigned_long_long_computed_shift_remainder_entry",
-            false, true, false, false, false, false, true);
+            false, true, false, false, false, false, true, false);
     }
     verify_inline_indirect_pointer_parameter(
         path, architecture, "debug_inline_indirect_pointer_entry",
@@ -20321,6 +20333,20 @@ int main(int argc, char** argv)
                 paths[index], architectures[index],
                 "debug_inline_volatile_reference_local_alias_entry",
                 "debug_inline_volatile_reference_local_alias", false);
+        }
+        return 0;
+    }
+    if (argc == 4 &&
+        strcmp(argv[1], "--verify-inline-atomic-store-expression") == 0) {
+        for (int index = 2; index < 4; ++index) {
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_store_divide_entry",
+                false, false, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_store_remainder_entry",
+                false, true, false, false, false, false, false, true);
         }
         return 0;
     }

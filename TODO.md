@@ -12821,8 +12821,9 @@ remains a separate open item.
       matching legacy and verified objects at both levels through
       `test-debug-info-inline-expression`.
 - [ ] Additional computed division/remainder trees beyond the current C
-      corpus, i686 64-bit atomic stores and read-modify-write operations, and
-      volatile/reference/TLS atomic operand combinations remain open.
+      corpus, remaining i686 64-bit atomic store shapes, atomic
+      read-modify-write operations, and volatile/reference/TLS atomic operand
+      combinations remain open.
   - [x] Add computed signed and unsigned i686 divmod trees over ordinary
         frame-backed parameters, with a full-width expression evaluator matrix
         in normal and verified `-O1`/`-O2` objects. Atomic stores/RMW and
@@ -12845,6 +12846,19 @@ remains a separate open item.
         combinations. The full-width matrix passes for division and remainder
         in legacy and verified `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`.
+  - [x] Preserve unsigned i686 divmod values when the dividend is the result
+        of a simple assignment to a nonvolatile `_Atomic unsigned long long`
+        identifier and the divisor is `2 * parameter + 1`. Extend safe inline
+        substitution to retain this one-parameter, one-use side effect exactly
+        once, and describe the value from its RHS frame slot. A dedicated
+        atomic-store fixture evaluates full-width division and remainder
+        matrices in legacy `-O1`/`-O2` objects through
+        `test-debug-info-inline-expression`. Its generated i686 assembly has
+        one global store reference and one locked `cmpxchg8b` sequence per
+        entry at both optimization levels; the existing verified corpus
+        continues to emit with zero fallback. Verified SSA lowering for this
+        atomic assignment, other atomic-store shapes, and atomic RMW remain
+        open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
         computed nonzero divisor. Cover shift counts 0, 1, 2, 7, 31, 32, 33,
         and 63, including a zero raw factor, across the full-width matrix in

@@ -2014,7 +2014,7 @@ static bool inline_scalar_expression_shape(
     }
 }
 
-static bool inline_scalar_argument_volatile_read_tree(
+static bool inline_scalar_argument_safe_evaluation_tree(
     const Expr* expression) {
     if (!expression) return false;
     switch (expression->kind) {
@@ -2047,7 +2047,7 @@ static bool inline_scalar_argument_volatile_read_tree(
         case EXPR_NOT:
         case EXPR_BITNOT:
         case EXPR_CAST:
-            return inline_scalar_argument_volatile_read_tree(
+            return inline_scalar_argument_safe_evaluation_tree(
                 expression->kind == EXPR_CAST
                     ? expression->cast_expr : expression->unary_operand);
         case EXPR_ADD:
@@ -2068,17 +2068,34 @@ static bool inline_scalar_argument_volatile_read_tree(
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
-            return inline_scalar_argument_volatile_read_tree(
+            return inline_scalar_argument_safe_evaluation_tree(
                        expression->binary_lhs) &&
-                inline_scalar_argument_volatile_read_tree(
+                inline_scalar_argument_safe_evaluation_tree(
                     expression->binary_rhs);
         case EXPR_COND:
-            return inline_scalar_argument_volatile_read_tree(
+            return inline_scalar_argument_safe_evaluation_tree(
                        expression->cond_test) &&
-                inline_scalar_argument_volatile_read_tree(
+                inline_scalar_argument_safe_evaluation_tree(
                     expression->cond_then) &&
-                inline_scalar_argument_volatile_read_tree(
+                inline_scalar_argument_safe_evaluation_tree(
                     expression->cond_else);
+        case EXPR_ASSIGN: {
+            const Expr* destination = expression->binary_lhs;
+            const Expr* stored_value = expression->binary_rhs;
+            const Decl* declaration = destination &&
+                    destination->kind == EXPR_IDENT
+                ? destination->ident_decl : NULL;
+            return declaration &&
+                (declaration->kind == DECL_VAR ||
+                 declaration->kind == DECL_PARAM) && declaration->type &&
+                declaration->type->is_atomic &&
+                type_is_scalar(declaration->type) &&
+                expression->type && type_is_scalar(expression->type) &&
+                stored_value && type_is_scalar(stored_value->type) &&
+                expression->type->size == stored_value->type->size &&
+                expression->type->size == declaration->type->size &&
+                inline_scalar_argument_safe_evaluation_tree(stored_value);
+        }
         default:
             return false;
     }
@@ -2319,6 +2336,17 @@ static Expr* clone_inline_scalar_expression(
             if (!left || !right) return NULL;
             clone = expr_binary(expression->kind, left, right,
                                 expression->loc);
+            clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
+            return clone;
+        }
+        case EXPR_ASSIGN: {
+            Expr* left = clone_inline_scalar_expression(
+                expression->binary_lhs, bindings, binding_count);
+            Expr* right = clone_inline_scalar_expression(
+                expression->binary_rhs, bindings, binding_count);
+            if (!left || !right) return NULL;
+            clone = expr_binary(EXPR_ASSIGN, left, right, expression->loc);
             clone->type = expression->type;
             inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
@@ -3496,7 +3524,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                             parameter->decl->type, argument->expr->type))) ||
                 (expression_has_side_effect(argument->expr) &&
                  (!g_opts.debug_info || parameter_count != 1u ||
-                  !inline_scalar_argument_volatile_read_tree(
+                 !inline_scalar_argument_safe_evaluation_tree(
                       argument->expr)))) {
                 return false;
             }
