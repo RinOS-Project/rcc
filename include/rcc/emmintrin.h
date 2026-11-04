@@ -197,12 +197,46 @@ static __inline __m128d _mm_cmpge_pd(__m128d __a, __m128d __b) {
     return __builtin_ia32_cmplepd(__b, __a);
 }
 
+static __inline __m128d _mm_cmpnge_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_movsd(
+        __a, __builtin_ia32_cmpnlesd(__b, __a));
+}
+
+static __inline __m128d _mm_cmpnge_pd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_cmpnlepd(__b, __a);
+}
+
+static __inline __m128d _mm_cmpngt_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_movsd(
+        __a, __builtin_ia32_cmpnltsd(__b, __a));
+}
+
+static __inline __m128d _mm_cmpngt_pd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_cmpnltpd(__b, __a);
+}
+
 static __inline __m128d _mm_cmpneq_sd(__m128d __a, __m128d __b) {
     return __builtin_ia32_cmpneqsd(__a, __b);
 }
 
 static __inline __m128d _mm_cmpneq_pd(__m128d __a, __m128d __b) {
     return __builtin_ia32_cmpneqpd(__a, __b);
+}
+
+static __inline __m128d _mm_cmpnlt_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_cmpnltsd(__a, __b);
+}
+
+static __inline __m128d _mm_cmpnlt_pd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_cmpnltpd(__a, __b);
+}
+
+static __inline __m128d _mm_cmpnle_sd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_cmpnlesd(__a, __b);
+}
+
+static __inline __m128d _mm_cmpnle_pd(__m128d __a, __m128d __b) {
+    return __builtin_ia32_cmpnlepd(__a, __b);
 }
 
 static __inline __m128d _mm_cmpord_sd(__m128d __a, __m128d __b) {
