@@ -777,6 +777,10 @@ static __inline __m128i _mm_cvtps_epi32(__m128 __a) {
     return (__m128i)__builtin_ia32_cvtps2dq(__a);
 }
 
+static __inline __m128i _mm_cvtpd_epi32(__m128d __a) {
+    return (__m128i)__builtin_ia32_cvtpd2dq(__a);
+}
+
 static __inline __m128i _mm_cvttpd_epi32(__m128d __a) {
     return (__m128i)__builtin_ia32_cvttpd2dq(__a);
 }

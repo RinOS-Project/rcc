@@ -3538,9 +3538,11 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
         prefix = strcmp(name, "cvtpd2ps") == 0 ? 0x66 :
                  strcmp(name, "cvtdq2pd") == 0 ? 0xF3 :
                  strcmp(name, "cvttps2dq") == 0 ? 0xF3 :
+                 strcmp(name, "cvtpd2dq") == 0 ? 0xF2 :
                  (strcmp(name, "cvtps2dq") == 0 ||
                   strcmp(name, "cvttpd2dq") == 0) ? 0x66 : 0;
         opcode = (strcmp(name, "cvtdq2pd") == 0 ||
+                  strcmp(name, "cvtpd2dq") == 0 ||
                   strcmp(name, "cvttpd2dq") == 0) ? 0xE6 :
                  (strcmp(name, "cvtdq2ps") == 0 ||
                   strcmp(name, "cvtps2dq") == 0 ||
