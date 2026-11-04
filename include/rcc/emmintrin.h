@@ -504,6 +504,27 @@ static __inline __m128i _mm_set_epi8(char __q15, char __q14, char __q13, char __
                                __q8, __q9, __q10, __q11, __q12, __q13, __q14, __q15 };
 }
 
+static __inline __m128i _mm_setr_epi32(int __q0, int __q1, int __q2, int __q3) {
+    return _mm_set_epi32(__q3, __q2, __q1, __q0);
+}
+
+static __inline __m128i _mm_setr_epi16(short __q0, short __q1, short __q2,
+                                       short __q3, short __q4, short __q5,
+                                       short __q6, short __q7) {
+    return _mm_set_epi16(__q7, __q6, __q5, __q4, __q3, __q2, __q1, __q0);
+}
+
+static __inline __m128i _mm_setr_epi8(char __q00, char __q01, char __q02,
+                                      char __q03, char __q04, char __q05,
+                                      char __q06, char __q07, char __q08,
+                                      char __q09, char __q10, char __q11,
+                                      char __q12, char __q13, char __q14,
+                                      char __q15) {
+    return _mm_set_epi8(__q15, __q14, __q13, __q12, __q11, __q10, __q09,
+                        __q08, __q07, __q06, __q05, __q04, __q03, __q02,
+                        __q01, __q00);
+}
+
 static __inline __m128i _mm_set1_epi64x(long long __q) {
     return _mm_set_epi64x(__q, __q);
 }
@@ -523,6 +544,14 @@ static __inline __m128i _mm_set1_epi8(char __q) {
 
 static __inline __m128i _mm_setzero_si128(void) {
     return (__m128i){ 0LL, 0LL };
+}
+
+static __inline __m128i _mm_undefined_si128(void) {
+    return _mm_setzero_si128();
+}
+
+static __inline __m128d _mm_undefined_pd(void) {
+    return _mm_setzero_pd();
 }
 
 static __inline __m128i _mm_cvtsi32_si128(int __a) {
