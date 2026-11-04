@@ -3375,8 +3375,8 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
                                  strcmp(name, "loadsd") == 0 ? 0xF2 : 0xF3,
                                  0x10);
         } else {
-            prefix = strcmp(name, "loadupd") == 0 ||
-                     strcmp(name, "loaddqu") == 0 ? 0x66 : 0;
+            prefix = strcmp(name, "loaddqu") == 0 ? 0xF3 :
+                     strcmp(name, "loadupd") == 0 ? 0x66 : 0;
             opcode = strcmp(name, "loaddqu") == 0 ? 0x6F : 0x10;
             emit64_sse128_memory(mod, 0, RAX, 0, prefix, opcode);
         }
