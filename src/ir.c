@@ -12,8 +12,10 @@ typedef struct {
     char* error;
     size_t error_size;
     RccIrBlock** blocks;
-    bool* predecessors;
-    bool* dominators;
+    RccIrBlockId* predecessors;
+    size_t* predecessor_offsets;
+    uint64_t* dominators;
+    size_t dominator_word_count;
     bool* parameters;
     const RccIrInstruction** definitions;
     size_t* definition_blocks;
@@ -1396,16 +1398,22 @@ static bool ir_collect_values(RccIrVerifier* verifier) {
 static bool ir_build_cfg(RccIrVerifier* verifier) {
     const RccIrFunction* function = verifier->function;
     size_t count = function->block_count;
+    size_t* predecessor_counts;
+    size_t* predecessor_cursor;
     bool* reachable;
     RccIrBlockId* queue;
+    size_t edge_count = 0u;
     size_t head = 0u;
     size_t tail = 0u;
-    if (count > SIZE_MAX / count ||
-        count * count > SIZE_MAX / sizeof(*verifier->predecessors)) {
-        return ir_verify_error(verifier, "CFG is too large");
+    if (count > SIZE_MAX / sizeof(*predecessor_counts) ||
+        count == SIZE_MAX ||
+        count + 1u > SIZE_MAX / sizeof(*verifier->predecessor_offsets) ||
+        count > SIZE_MAX / sizeof(*verifier->terminator_orders)) {
+        return ir_verify_error(verifier, "CFG block table is too large");
     }
-    verifier->predecessors = rcc_alloc(count * count *
-                                       sizeof(*verifier->predecessors));
+    predecessor_counts = rcc_alloc(count * sizeof(*predecessor_counts));
+    memset(predecessor_counts, 0,
+           count * sizeof(*predecessor_counts));
     verifier->terminator_orders = rcc_alloc(
         count * sizeof(*verifier->terminator_orders));
     for (size_t block_index = 0u; block_index < count; ++block_index) {
@@ -1414,6 +1422,7 @@ static bool ir_build_cfg(RccIrVerifier* verifier) {
         size_t order = 0u;
         bool saw_non_phi = false;
         if (!terminator || !ir_is_terminator(terminator->opcode)) {
+            rcc_free(predecessor_counts);
             return ir_verify_error(verifier,
                                    "block %zu ('%s') has no terminator",
                                    block_index,
@@ -1422,12 +1431,14 @@ static bool ir_build_cfg(RccIrVerifier* verifier) {
         for (RccIrInstruction* instruction = block->first; instruction;
              instruction = instruction->next, ++order) {
             if (ir_is_terminator(instruction->opcode) && instruction->next) {
+                rcc_free(predecessor_counts);
                 return ir_verify_error(verifier,
                                        "block %zu has instructions after terminator",
                                        block_index);
             }
             if (instruction->opcode == RCC_IR_PHI) {
                 if (saw_non_phi) {
+                    rcc_free(predecessor_counts);
                     return ir_verify_error(verifier,
                                            "phi is not at start of block %zu",
                                            block_index);
@@ -1440,21 +1451,85 @@ static bool ir_build_cfg(RccIrVerifier* verifier) {
         for (size_t target_index = 0u;
              target_index < terminator->target_count; ++target_index) {
             RccIrBlockId target = terminator->targets[target_index];
+            bool duplicate_target = false;
             if (target >= count) {
+                rcc_free(predecessor_counts);
                 return ir_verify_error(verifier,
                                        "block %zu branches to invalid block %u",
                                        block_index, target);
             }
-            verifier->predecessors[(size_t)target * count + block_index] =
-                true;
+            for (size_t earlier = 0u; earlier < target_index; ++earlier) {
+                if (terminator->targets[earlier] == target) {
+                    duplicate_target = true;
+                    break;
+                }
+            }
+            if (duplicate_target) continue;
+            if (edge_count == SIZE_MAX) {
+                rcc_free(predecessor_counts);
+                return ir_verify_error(verifier, "CFG edge table is too large");
+            }
+            ++edge_count;
+            if (predecessor_counts[target] == SIZE_MAX) {
+                rcc_free(predecessor_counts);
+                return ir_verify_error(verifier,
+                                       "block %u has too many predecessors",
+                                       target);
+            }
+            ++predecessor_counts[target];
         }
     }
-    for (size_t source = 0u; source < count; ++source) {
-        if (verifier->predecessors[source]) {
+    if (predecessor_counts[0] != 0u) {
+        rcc_free(predecessor_counts);
+        return ir_verify_error(verifier,
+                               "entry block has a predecessor");
+    }
+    verifier->predecessor_offsets = rcc_alloc(
+        (count + 1u) * sizeof(*verifier->predecessor_offsets));
+    verifier->predecessor_offsets[0] = 0u;
+    for (size_t block = 0u; block < count; ++block) {
+        if (predecessor_counts[block] >
+            SIZE_MAX - verifier->predecessor_offsets[block]) {
+            rcc_free(predecessor_counts);
             return ir_verify_error(verifier,
-                                   "entry block has a predecessor");
+                                   "CFG predecessor table is too large");
+        }
+        verifier->predecessor_offsets[block + 1u] =
+            verifier->predecessor_offsets[block] +
+            predecessor_counts[block];
+    }
+    if (verifier->predecessor_offsets[count] != edge_count ||
+        edge_count > SIZE_MAX / sizeof(*verifier->predecessors) ||
+        count > SIZE_MAX / sizeof(*predecessor_cursor)) {
+        rcc_free(predecessor_counts);
+        return ir_verify_error(verifier, "CFG predecessor table is too large");
+    }
+    if (edge_count != 0u) {
+        verifier->predecessors = rcc_alloc(
+            edge_count * sizeof(*verifier->predecessors));
+    }
+    predecessor_cursor = rcc_alloc(count * sizeof(*predecessor_cursor));
+    memcpy(predecessor_cursor, verifier->predecessor_offsets,
+           count * sizeof(*predecessor_cursor));
+    for (size_t block_index = 0u; block_index < count; ++block_index) {
+        RccIrInstruction* terminator = verifier->blocks[block_index]->last;
+        for (size_t target_index = 0u;
+             target_index < terminator->target_count; ++target_index) {
+            RccIrBlockId target = terminator->targets[target_index];
+            bool duplicate_target = false;
+            for (size_t earlier = 0u; earlier < target_index; ++earlier) {
+                if (terminator->targets[earlier] == target) {
+                    duplicate_target = true;
+                    break;
+                }
+            }
+            if (duplicate_target) continue;
+            verifier->predecessors[predecessor_cursor[target]++] =
+                (RccIrBlockId)block_index;
         }
     }
+    rcc_free(predecessor_cursor);
+    rcc_free(predecessor_counts);
     reachable = rcc_alloc(count * sizeof(*reachable));
     queue = rcc_alloc(count * sizeof(*queue));
     reachable[0] = true;
@@ -1486,58 +1561,91 @@ static bool ir_build_cfg(RccIrVerifier* verifier) {
 static bool ir_compute_dominators(RccIrVerifier* verifier) {
     size_t count = verifier->function->block_count;
     bool changed = true;
-    bool* next = rcc_alloc(count * sizeof(*next));
-    verifier->dominators = rcc_alloc(count * count *
-                                     sizeof(*verifier->dominators));
-    verifier->dominators[0] = true;
+    size_t word_count;
+    size_t matrix_words;
+    size_t row_bytes;
+    uint64_t* next;
+    uint64_t last_word_mask;
+    if (count > SIZE_MAX - 63u) {
+        return ir_verify_error(verifier, "dominator table is too large");
+    }
+    word_count = (count + 63u) / 64u;
+    if (!word_count || count > SIZE_MAX / word_count) {
+        return ir_verify_error(verifier, "dominator table is too large");
+    }
+    matrix_words = count * word_count;
+    if (matrix_words > SIZE_MAX / sizeof(*verifier->dominators) ||
+        word_count > SIZE_MAX / sizeof(*next)) {
+        return ir_verify_error(verifier, "dominator table is too large");
+    }
+    row_bytes = word_count * sizeof(*next);
+    verifier->dominator_word_count = word_count;
+    verifier->dominators = rcc_alloc(
+        matrix_words * sizeof(*verifier->dominators));
+    next = rcc_alloc(row_bytes);
+    memset(verifier->dominators, 0,
+           matrix_words * sizeof(*verifier->dominators));
+    verifier->dominators[0] = UINT64_C(1);
+    last_word_mask = (count % 64u) == 0u
+        ? UINT64_MAX
+        : (UINT64_C(1) << (count % 64u)) - UINT64_C(1);
     for (size_t block = 1u; block < count; ++block) {
-        for (size_t candidate = 0u; candidate < count; ++candidate) {
-            verifier->dominators[block * count + candidate] = true;
+        uint64_t* row = &verifier->dominators[block * word_count];
+        for (size_t word = 0u; word < word_count; ++word) {
+            row[word] = UINT64_MAX;
         }
+        row[word_count - 1u] &= last_word_mask;
     }
     while (changed) {
         changed = false;
         for (size_t block = 1u; block < count; ++block) {
-            bool have_predecessor = false;
-            for (size_t candidate = 0u; candidate < count; ++candidate) {
-                next[candidate] = true;
-            }
-            for (size_t predecessor = 0u; predecessor < count;
-                 ++predecessor) {
-                if (!verifier->predecessors[block * count + predecessor]) {
-                    continue;
-                }
-                if (!have_predecessor) {
-                    memcpy(next,
-                           &verifier->dominators[predecessor * count],
-                           count * sizeof(*next));
-                    have_predecessor = true;
-                } else {
-                    for (size_t candidate = 0u; candidate < count;
-                         ++candidate) {
-                        next[candidate] = next[candidate] &&
-                            verifier->dominators[predecessor * count +
-                                                 candidate];
-                    }
-                }
-            }
-            if (!have_predecessor) {
+            size_t predecessor_begin =
+                verifier->predecessor_offsets[block];
+            size_t predecessor_end =
+                verifier->predecessor_offsets[block + 1u];
+            uint64_t* row =
+                &verifier->dominators[block * word_count];
+            if (predecessor_begin == predecessor_end) {
                 rcc_free(next);
                 return ir_verify_error(verifier,
                                        "block %zu has no predecessor", block);
             }
-            next[block] = true;
-            for (size_t candidate = 0u; candidate < count; ++candidate) {
-                size_t offset = block * count + candidate;
-                if (verifier->dominators[offset] != next[candidate]) {
-                    verifier->dominators[offset] = next[candidate];
-                    changed = true;
+            memcpy(next, &verifier->dominators[
+                              (size_t)verifier->predecessors[
+                                  predecessor_begin] * word_count],
+                   row_bytes);
+            for (size_t predecessor_index = predecessor_begin + 1u;
+                 predecessor_index < predecessor_end; ++predecessor_index) {
+                const uint64_t* predecessor_row =
+                    &verifier->dominators[
+                        (size_t)verifier->predecessors[predecessor_index] *
+                        word_count];
+                for (size_t word = 0u; word < word_count; ++word) {
+                    next[word] &= predecessor_row[word];
                 }
+            }
+            next[block / 64u] |= UINT64_C(1) << (block % 64u);
+            if (memcmp(row, next, row_bytes) != 0) {
+                memcpy(row, next, row_bytes);
+                changed = true;
             }
         }
     }
     rcc_free(next);
     return true;
+}
+
+static bool ir_dominator_contains(const RccIrVerifier* verifier,
+                                  size_t block, size_t candidate) {
+    size_t word_count;
+    if (!verifier || !verifier->dominators ||
+        block >= verifier->function->block_count ||
+        candidate >= verifier->function->block_count) {
+        return false;
+    }
+    word_count = verifier->dominator_word_count;
+    return (verifier->dominators[block * word_count + candidate / 64u] &
+            (UINT64_C(1) << (candidate % 64u))) != 0u;
 }
 
 static bool ir_value_dominates_use(RccIrVerifier* verifier,
@@ -1558,8 +1666,7 @@ static bool ir_value_dominates_use(RccIrVerifier* verifier,
         }
         return true;
     }
-    if (!verifier->dominators[use_block * verifier->function->block_count +
-                              definition_block]) {
+    if (!ir_dominator_contains(verifier, use_block, definition_block)) {
         return ir_verify_error(verifier,
                                "SSA value %u does not dominate its use",
                                value);
@@ -1586,9 +1693,7 @@ static bool ir_value_dominates_edge(RccIrVerifier* verifier,
         }
         return true;
     }
-    if (!verifier->dominators[(size_t)predecessor *
-                                  verifier->function->block_count +
-                              definition_block]) {
+    if (!ir_dominator_contains(verifier, predecessor, definition_block)) {
         return ir_verify_error(verifier,
                                "phi in block %u (%s) has incoming value %u from block %zu (%s) that does not dominate edge from block %u (%s)",
                                phi_block,
@@ -1605,20 +1710,26 @@ static bool ir_verify_phi_predecessors(
     RccIrVerifier* verifier, const RccIrInstruction* instruction) {
     size_t count = verifier->function->block_count;
     size_t block = instruction->block->id;
-    size_t predecessor_count = 0u;
-    for (size_t predecessor = 0u; predecessor < count; ++predecessor) {
-        if (verifier->predecessors[block * count + predecessor]) {
-            ++predecessor_count;
-        }
-    }
+    size_t begin = verifier->predecessor_offsets[block];
+    size_t end = verifier->predecessor_offsets[block + 1u];
+    size_t predecessor_count = end - begin;
     if (predecessor_count != instruction->target_count) {
         return ir_verify_error(verifier,
                                "phi incoming blocks do not match predecessors");
     }
     for (size_t index = 0u; index < instruction->target_count; ++index) {
         RccIrBlockId incoming = instruction->targets[index];
-        if (incoming >= count ||
-            !verifier->predecessors[block * count + incoming]) {
+        bool is_predecessor = false;
+        if (incoming < count) {
+            for (size_t predecessor_index = begin;
+                 predecessor_index < end; ++predecessor_index) {
+                if (verifier->predecessors[predecessor_index] == incoming) {
+                    is_predecessor = true;
+                    break;
+                }
+            }
+        }
+        if (!is_predecessor) {
             return ir_verify_error(verifier,
                                    "phi names a non-predecessor block");
         }
@@ -1673,6 +1784,7 @@ static bool ir_verify_uses(RccIrVerifier* verifier) {
 static void ir_verifier_release(RccIrVerifier* verifier) {
     rcc_free(verifier->blocks);
     rcc_free(verifier->predecessors);
+    rcc_free(verifier->predecessor_offsets);
     rcc_free(verifier->dominators);
     rcc_free(verifier->parameters);
     rcc_free(verifier->definitions);

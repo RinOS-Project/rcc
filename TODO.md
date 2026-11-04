@@ -14560,10 +14560,23 @@ remains a separate open item.
       `test-verified-cxx-conditional-xvalue` target passes: IA-32/AMD64 verified
       output has 12 functions and zero fallback at `-O0` and `-O2`; legacy
       runtime checks pass as well.
-- [ ] Replace or justify the plan's fixed recursion-depth (64) and leaf-count
-      (4096) limits so valid deeply nested conditional expressions do not
-      require a semantic error solely due to these implementation caps. Add
-      boundary and beyond-boundary tests for both typed IR and legacy codegen.
+- [x] Remove the fixed depth-64 and leaf-count-4096 caps from conditional
+      xvalue source discovery and plan construction. Build cleanup dispatch as
+      a balanced tag-range tree so large plans do not create quadratic nested
+      alternate bodies. The regression covers depth 65 and 4097 leaves;
+      `test-verified-cxx-conditional-xvalue` passes legacy i686/AMD64 emission,
+      verified i686/AMD64 emission with zero fallback, and the existing
+      conditional runtime checks.
+- [x] Scale IR/MIR CFG verification and MIR liveness for large functions.
+      Store predecessors sparsely, compute dominators with bitsets, use bitset
+      liveness, and validate physical register overlap after sorting intervals.
+      For liveness state above 64 MiB, assign conservative full-function
+      intervals so linear scan spills without rejecting compilation. Fix the
+      bit scan to visit every live register in each word and keep zero-register
+      functions on the normal allocation path. `test-ir`,
+      `test-ir-lowering`, the 4097-leaf verified test, reference-local runtime,
+      atomic private-access, aggregate atomic, floating atomic, and optimizer
+      gates pass on Windows.
 - [ ] Verify exception cleanup for a selected temporary when later
       initialization throws, including exact destruction count/order on both
       targets and lowering paths.

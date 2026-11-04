@@ -10,8 +10,10 @@
 typedef struct {
     const RccMirFunction* function;
     RccMirBlock** blocks;
-    bool* predecessors;
-    bool* dominators;
+    RccMirBlockId* predecessors;
+    size_t* predecessor_offsets;
+    uint64_t* dominators;
+    size_t dominator_word_count;
     bool* parameters;
     const RccMirInstruction** definitions;
     size_t* definition_blocks;
@@ -738,11 +740,23 @@ static bool mir_collect_definitions(RccMirVerifier* verifier) {
 
 static bool mir_build_cfg(RccMirVerifier* verifier) {
     size_t count = verifier->function->block_count;
-    if (count != 0u && count > SIZE_MAX / count) {
-        return mir_error(verifier, "MIR CFG is too large");
+    size_t* predecessor_counts;
+    size_t* predecessor_cursor;
+    bool* reachable;
+    RccMirBlockId* queue;
+    size_t edge_count = 0u;
+    size_t head = 0u;
+    size_t tail = 0u;
+    if (count == SIZE_MAX ||
+        count > SIZE_MAX / sizeof(*predecessor_counts) ||
+        count + 1u > SIZE_MAX / sizeof(*verifier->predecessor_offsets) ||
+        count > SIZE_MAX / sizeof(*verifier->terminator_orders) ||
+        count > SIZE_MAX / sizeof(*queue)) {
+        return mir_error(verifier, "MIR CFG block table is too large");
     }
-    verifier->predecessors = rcc_alloc(count * count *
-                                       sizeof(*verifier->predecessors));
+    predecessor_counts = rcc_alloc(count * sizeof(*predecessor_counts));
+    memset(predecessor_counts, 0,
+           count * sizeof(*predecessor_counts));
     verifier->terminator_orders = rcc_alloc(
         count * sizeof(*verifier->terminator_orders));
     for (size_t block = 0u; block < count; ++block) {
@@ -752,92 +766,233 @@ static bool mir_build_cfg(RccMirVerifier* verifier) {
         for (instruction = verifier->blocks[block]->first; instruction;
              instruction = instruction->next, ++order) {
             if (instruction->opcode == RCC_MIR_PHI && saw_non_phi) {
+                rcc_free(predecessor_counts);
                 return mir_error(verifier,
                                  "MIR phi follows a non-phi instruction");
             }
             if (instruction->opcode != RCC_MIR_PHI) saw_non_phi = true;
             if (mir_is_terminator(instruction->opcode) &&
                 instruction->next) {
+                rcc_free(predecessor_counts);
                 return mir_error(verifier,
                                  "MIR block has instructions after terminator");
             }
         }
         instruction = verifier->blocks[block]->last;
         if (!instruction || !mir_is_terminator(instruction->opcode)) {
+            rcc_free(predecessor_counts);
             return mir_error(verifier,
                              "MIR block does not end in a terminator");
         }
         verifier->terminator_orders[block] = order - 1u;
         for (size_t index = 0u; index < instruction->target_count; ++index) {
             RccMirBlockId target = instruction->targets[index];
+            bool duplicate = false;
             if (target >= count) {
+                rcc_free(predecessor_counts);
                 return mir_error(verifier, "MIR branch target is invalid");
             }
-            verifier->predecessors[(size_t)target * count + block] = true;
+            for (size_t earlier = 0u; earlier < index; ++earlier) {
+                if (instruction->targets[earlier] == target) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            if (edge_count == SIZE_MAX ||
+                predecessor_counts[target] == SIZE_MAX) {
+                rcc_free(predecessor_counts);
+                return mir_error(verifier, "MIR CFG edge table is too large");
+            }
+            ++edge_count;
+            ++predecessor_counts[target];
         }
     }
-    for (size_t source = 0u; source < count; ++source) {
-        if (verifier->predecessors[source]) {
-            return mir_error(verifier, "MIR entry has a predecessor");
+    if (predecessor_counts[0] != 0u) {
+        rcc_free(predecessor_counts);
+        return mir_error(verifier, "MIR entry has a predecessor");
+    }
+    verifier->predecessor_offsets = rcc_alloc(
+        (count + 1u) * sizeof(*verifier->predecessor_offsets));
+    verifier->predecessor_offsets[0] = 0u;
+    for (size_t block = 0u; block < count; ++block) {
+        if (predecessor_counts[block] >
+            SIZE_MAX - verifier->predecessor_offsets[block]) {
+            rcc_free(predecessor_counts);
+            return mir_error(verifier,
+                             "MIR CFG predecessor table is too large");
+        }
+        verifier->predecessor_offsets[block + 1u] =
+            verifier->predecessor_offsets[block] +
+            predecessor_counts[block];
+    }
+    if (verifier->predecessor_offsets[count] != edge_count ||
+        edge_count > SIZE_MAX / sizeof(*verifier->predecessors) ||
+        count > SIZE_MAX / sizeof(*predecessor_cursor)) {
+        rcc_free(predecessor_counts);
+        return mir_error(verifier,
+                         "MIR CFG predecessor table is too large");
+    }
+    if (edge_count != 0u) {
+        verifier->predecessors = rcc_alloc(
+            edge_count * sizeof(*verifier->predecessors));
+    }
+    predecessor_cursor = rcc_alloc(count * sizeof(*predecessor_cursor));
+    memcpy(predecessor_cursor, verifier->predecessor_offsets,
+           count * sizeof(*predecessor_cursor));
+    for (size_t block = 0u; block < count; ++block) {
+        RccMirInstruction* terminator = verifier->blocks[block]->last;
+        for (size_t index = 0u; index < terminator->target_count; ++index) {
+            RccMirBlockId target = terminator->targets[index];
+            bool duplicate = false;
+            for (size_t earlier = 0u; earlier < index; ++earlier) {
+                if (terminator->targets[earlier] == target) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                verifier->predecessors[predecessor_cursor[target]++] =
+                    (RccMirBlockId)block;
+            }
         }
     }
+    rcc_free(predecessor_cursor);
+    rcc_free(predecessor_counts);
+
+    reachable = rcc_alloc(count * sizeof(*reachable));
+    queue = rcc_alloc(count * sizeof(*queue));
+    reachable[0] = true;
+    queue[tail++] = 0u;
+    while (head < tail) {
+        RccMirBlockId block = queue[head++];
+        RccMirInstruction* terminator = verifier->blocks[block]->last;
+        for (size_t index = 0u; index < terminator->target_count; ++index) {
+            RccMirBlockId target = terminator->targets[index];
+            if (!reachable[target]) {
+                reachable[target] = true;
+                queue[tail++] = target;
+            }
+        }
+    }
+    rcc_free(queue);
+    for (size_t block = 0u; block < count; ++block) {
+        if (!reachable[block]) {
+            rcc_free(reachable);
+            return mir_error(verifier, "MIR block is unreachable");
+        }
+    }
+    rcc_free(reachable);
     return true;
 }
 
 static bool mir_compute_dominators(RccMirVerifier* verifier) {
     size_t count = verifier->function->block_count;
-    bool* next = rcc_alloc(count * sizeof(*next));
+    size_t word_count;
+    size_t matrix_words;
+    size_t row_bytes;
+    uint64_t* next;
+    uint64_t last_word_mask;
     bool changed = true;
-    verifier->dominators = rcc_alloc(count * count *
-                                     sizeof(*verifier->dominators));
-    verifier->dominators[0] = true;
+    if (count > SIZE_MAX - 63u) {
+        return mir_error(verifier, "MIR dominator table is too large");
+    }
+    word_count = (count + 63u) / 64u;
+    if (word_count == 0u || count > SIZE_MAX / word_count) {
+        return mir_error(verifier, "MIR dominator table is too large");
+    }
+    matrix_words = count * word_count;
+    if (matrix_words > SIZE_MAX / sizeof(*verifier->dominators) ||
+        word_count > SIZE_MAX / sizeof(*next)) {
+        return mir_error(verifier, "MIR dominator table is too large");
+    }
+    row_bytes = word_count * sizeof(*next);
+    verifier->dominator_word_count = word_count;
+    verifier->dominators = rcc_alloc(
+        matrix_words * sizeof(*verifier->dominators));
+    next = rcc_alloc(row_bytes);
+    memset(verifier->dominators, 0,
+           matrix_words * sizeof(*verifier->dominators));
+    verifier->dominators[0] = UINT64_C(1);
+    last_word_mask = (count % 64u) == 0u
+        ? UINT64_MAX
+        : (UINT64_C(1) << (count % 64u)) - UINT64_C(1);
     for (size_t block = 1u; block < count; ++block) {
-        for (size_t candidate = 0u; candidate < count; ++candidate) {
-            verifier->dominators[block * count + candidate] = true;
+        uint64_t* row = &verifier->dominators[block * word_count];
+        for (size_t word = 0u; word < word_count; ++word) {
+            row[word] = UINT64_MAX;
         }
+        row[word_count - 1u] &= last_word_mask;
     }
     while (changed) {
         changed = false;
         for (size_t block = 1u; block < count; ++block) {
-            bool have_predecessor = false;
-            for (size_t candidate = 0u; candidate < count; ++candidate) {
-                next[candidate] = true;
-            }
-            for (size_t predecessor = 0u; predecessor < count;
-                 ++predecessor) {
-                if (!verifier->predecessors[block * count + predecessor]) {
-                    continue;
-                }
-                if (!have_predecessor) {
-                    memcpy(next,
-                           &verifier->dominators[predecessor * count],
-                           count * sizeof(*next));
-                    have_predecessor = true;
-                } else {
-                    for (size_t candidate = 0u; candidate < count;
-                         ++candidate) {
-                        next[candidate] = next[candidate] &&
-                            verifier->dominators[predecessor * count +
-                                                 candidate];
-                    }
-                }
-            }
-            if (!have_predecessor) {
+            size_t predecessor_begin =
+                verifier->predecessor_offsets[block];
+            size_t predecessor_end =
+                verifier->predecessor_offsets[block + 1u];
+            uint64_t* row = &verifier->dominators[block * word_count];
+            if (predecessor_begin == predecessor_end) {
                 rcc_free(next);
                 return mir_error(verifier, "MIR block is unreachable");
             }
-            next[block] = true;
-            for (size_t candidate = 0u; candidate < count; ++candidate) {
-                size_t offset = block * count + candidate;
-                if (verifier->dominators[offset] != next[candidate]) {
-                    verifier->dominators[offset] = next[candidate];
-                    changed = true;
+            memcpy(next, &verifier->dominators[
+                              (size_t)verifier->predecessors[
+                                  predecessor_begin] * word_count],
+                   row_bytes);
+            for (size_t predecessor = predecessor_begin + 1u;
+                 predecessor < predecessor_end; ++predecessor) {
+                const uint64_t* predecessor_row =
+                    &verifier->dominators[
+                        (size_t)verifier->predecessors[predecessor] *
+                        word_count];
+                for (size_t word = 0u; word < word_count; ++word) {
+                    next[word] &= predecessor_row[word];
                 }
+            }
+            next[block / 64u] |= UINT64_C(1) << (block % 64u);
+            if (memcmp(row, next, row_bytes) != 0) {
+                memcpy(row, next, row_bytes);
+                    changed = true;
             }
         }
     }
     rcc_free(next);
     return true;
+}
+
+static bool mir_dominator_contains(const RccMirVerifier* verifier,
+                                   size_t block, size_t candidate) {
+    size_t word_count;
+    if (!verifier || !verifier->dominators ||
+        block >= verifier->function->block_count ||
+        candidate >= verifier->function->block_count) {
+        return false;
+    }
+    word_count = verifier->dominator_word_count;
+    return (verifier->dominators[block * word_count + candidate / 64u] &
+            (UINT64_C(1) << (candidate % 64u))) != 0u;
+}
+
+static bool mir_is_predecessor(const RccMirVerifier* verifier,
+                               size_t block, size_t candidate) {
+    size_t begin;
+    size_t end;
+    if (!verifier || !verifier->predecessor_offsets ||
+        block >= verifier->function->block_count ||
+        candidate >= verifier->function->block_count) {
+        return false;
+    }
+    begin = verifier->predecessor_offsets[block];
+    end = verifier->predecessor_offsets[block + 1u];
+    while (begin < end) {
+        size_t middle = begin + (end - begin) / 2u;
+        size_t predecessor = verifier->predecessors[middle];
+        if (predecessor == candidate) return true;
+        if (predecessor < candidate) begin = middle + 1u;
+        else end = middle;
+    }
+    return false;
 }
 
 static bool mir_definition_dominates(
@@ -857,9 +1012,8 @@ static bool mir_definition_dominates(
             return definition_order <
                 verifier->terminator_orders[predecessor];
         }
-        if (!verifier->dominators[(size_t)predecessor *
-                                  verifier->function->block_count +
-                                  definition_block]) {
+        if (!mir_dominator_contains(
+                verifier, predecessor, definition_block)) {
             return mir_error(verifier,
                              "MIR phi input does not dominate its edge");
         }
@@ -871,9 +1025,7 @@ static bool mir_definition_dominates(
         }
         return true;
     }
-    if (!verifier->dominators[use_block *
-                              verifier->function->block_count +
-                              definition_block]) {
+    if (!mir_dominator_contains(verifier, use_block, definition_block)) {
         return mir_error(verifier,
                          "MIR definition does not dominate its use");
     }
@@ -891,13 +1043,9 @@ static bool mir_verify_uses(RccMirVerifier* verifier) {
                 return false;
             }
             if (instruction->opcode == RCC_MIR_PHI) {
-                size_t predecessor_count = 0u;
-                for (size_t predecessor = 0u; predecessor < count;
-                     ++predecessor) {
-                    if (verifier->predecessors[block * count + predecessor]) {
-                        ++predecessor_count;
-                    }
-                }
+                size_t predecessor_count =
+                    verifier->predecessor_offsets[block + 1u] -
+                    verifier->predecessor_offsets[block];
                 if (predecessor_count != instruction->target_count) {
                     return mir_error(verifier,
                                      "MIR phi inputs do not match CFG");
@@ -906,7 +1054,7 @@ static bool mir_verify_uses(RccMirVerifier* verifier) {
                      index < instruction->operand_count; ++index) {
                     RccMirBlockId predecessor = instruction->targets[index];
                     if (predecessor >= count ||
-                        !verifier->predecessors[block * count + predecessor]) {
+                        !mir_is_predecessor(verifier, block, predecessor)) {
                         return mir_error(verifier,
                                          "MIR phi names a non-predecessor block");
                     }
@@ -940,6 +1088,7 @@ static bool mir_verify_uses(RccMirVerifier* verifier) {
 static void mir_verifier_release(RccMirVerifier* verifier) {
     rcc_free(verifier->blocks);
     rcc_free(verifier->predecessors);
+    rcc_free(verifier->predecessor_offsets);
     rcc_free(verifier->dominators);
     rcc_free(verifier->parameters);
     rcc_free(verifier->definitions);

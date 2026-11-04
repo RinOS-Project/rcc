@@ -25301,7 +25301,34 @@ endif
 
 .PHONY: test-verified-cxx-conditional-xvalue
 .PHONY: test-cxx-conditional-static-xvalue
-test-verified-cxx-conditional-xvalue: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) test-verified-cxx-reference-local test-cxx-conditional-static-xvalue
+.PHONY: test-cxx-conditional-xvalue-large-leaf-tree
+test-cxx-conditional-xvalue-large-leaf-tree: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-4097-x86.ro \
+		tests/cxx_reference_conditional_4097_leaves.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-4097-x64.ro \
+		tests/cxx_reference_conditional_4097_leaves.cpp
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-4097-verified-x86.ro \
+		tests/cxx_reference_conditional_4097_leaves.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-4097-verified-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-4097-verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-4097-verified-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-4097-verified-x64.ro \
+		tests/cxx_reference_conditional_4097_leaves.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-4097-verified-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-4097-verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-4097-verified-x64.log,0)
+	@echo "RCC C++ conditional xvalue plan passes with 4097 leaves"
+
+test-verified-cxx-conditional-xvalue: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) test-verified-cxx-reference-local test-cxx-conditional-static-xvalue test-cxx-conditional-xvalue-large-leaf-tree
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
 		-fverified-backend -v -c \

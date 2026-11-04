@@ -8,6 +8,7 @@
 #include <stdarg.h>
 
 #define MIR_ALLOC_GRAPH_MAX_BYTES ((size_t)64u * 1024u * 1024u)
+#define MIR_ALLOC_LIVENESS_MAX_BYTES ((size_t)64u * 1024u * 1024u)
 
 typedef struct {
     RccMirVReg reg;
@@ -359,36 +360,137 @@ static bool mir_alloc_collect_positions(
     return true;
 }
 
+static bool mir_alloc_liveness_test(const uint64_t* matrix,
+                                    size_t words_per_row, size_t block,
+                                    size_t reg) {
+    return (matrix[block * words_per_row + reg / 64u] &
+            (UINT64_C(1) << (reg % 64u))) != 0u;
+}
+
+static void mir_alloc_liveness_set(uint64_t* matrix, size_t words_per_row,
+                                   size_t block, size_t reg) {
+    matrix[block * words_per_row + reg / 64u] |=
+        UINT64_C(1) << (reg % 64u);
+}
+
+static bool mir_alloc_liveness_out(
+    const RccMirFunction* function, const RccMirBlock* const* blocks,
+    const uint64_t* live_in, size_t words_per_row,
+    const RccMirBlock* block, uint64_t* live_out) {
+    const RccMirInstruction* terminator = block->last;
+    size_t successor;
+    memset(live_out, 0, words_per_row * sizeof(*live_out));
+    for (successor = 0u; successor < terminator->target_count; ++successor) {
+        RccMirBlockId target_id = terminator->targets[successor];
+        const RccMirBlock* target;
+        const RccMirInstruction* instruction;
+        size_t word;
+        if ((size_t)target_id >= function->block_count ||
+            !(target = blocks[target_id])) {
+            return false;
+        }
+        for (word = 0u; word < words_per_row; ++word) {
+            live_out[word] |=
+                live_in[(size_t)target_id * words_per_row + word];
+        }
+        for (instruction = target->first;
+             instruction && instruction->opcode == RCC_MIR_PHI;
+             instruction = instruction->next) {
+            size_t incoming;
+            for (incoming = 0u; incoming < instruction->operand_count;
+                 ++incoming) {
+                RccMirVReg reg;
+                if (instruction->targets[incoming] != block->id) continue;
+                reg = instruction->operands[incoming];
+                if ((size_t)reg >= function->register_count) return false;
+                live_out[reg / 64u] |=
+                    UINT64_C(1) << (reg % 64u);
+            }
+        }
+    }
+    return true;
+}
+
 static bool mir_alloc_extend_cfg_liveness(
     const RccMirFunction* function, const size_t* block_starts,
     const size_t* block_ends, RccMirLiveInterval* intervals,
     char* error, size_t error_size) {
-    bool* definitions = NULL;
-    bool* uses = NULL;
-    bool* edge_uses = NULL;
-    bool* live_in = NULL;
-    bool* live_out = NULL;
+    uint64_t* definitions = NULL;
+    uint64_t* uses = NULL;
+    uint64_t* live_in = NULL;
+    uint64_t* live_out = NULL;
+    RccMirBlock** blocks = NULL;
+    size_t words_per_row;
     size_t cells;
+    size_t matrix_bytes;
+    size_t row_bytes;
     const RccMirBlock* block;
     bool changed = true;
-    if (function->register_count != 0u &&
-        function->block_count > SIZE_MAX / function->register_count) {
+    bool success = false;
+    if (function->register_count == 0u) return true;
+    if (function->register_count > SIZE_MAX - 63u) {
         return mir_alloc_error(error, error_size,
-                               "MIR liveness matrix is too large");
+                               "MIR liveness bitset is too large");
     }
-    cells = function->block_count * function->register_count;
-    if (cells > SIZE_MAX / sizeof(*definitions)) {
+    words_per_row = (function->register_count + 63u) / 64u;
+    if (words_per_row == 0u ||
+        function->block_count > SIZE_MAX / words_per_row ||
+        function->block_count > SIZE_MAX / sizeof(*blocks)) {
         return mir_alloc_error(error, error_size,
-                               "MIR liveness matrix is too large");
+                               "MIR liveness table is too large");
     }
-    definitions = rcc_alloc(cells * sizeof(*definitions));
-    uses = rcc_alloc(cells * sizeof(*uses));
-    edge_uses = rcc_alloc(cells * sizeof(*edge_uses));
-    live_in = rcc_alloc(cells * sizeof(*live_in));
-    live_out = rcc_alloc(cells * sizeof(*live_out));
+    cells = function->block_count * words_per_row;
+    if (cells > SIZE_MAX / sizeof(*definitions) ||
+        words_per_row > SIZE_MAX / sizeof(*live_out)) {
+        return mir_alloc_error(error, error_size,
+                               "MIR liveness bitset is too large");
+    }
+    if (cells > MIR_ALLOC_LIVENESS_MAX_BYTES /
+                    (3u * sizeof(*definitions))) {
+        size_t full_end = 0u;
+        size_t block_index;
+        size_t reg;
+        /* A full-function interval is conservative for every CFG shape. It
+         * avoids materializing a block-by-register liveness matrix when a
+         * single generated function is exceptionally large; linear scan will
+         * spill values that cannot be proven disjoint. */
+        for (block_index = 0u; block_index < function->block_count;
+             ++block_index) {
+            if (block_ends[block_index] > full_end) {
+                full_end = block_ends[block_index];
+            }
+        }
+        for (reg = 0u; reg < function->register_count; ++reg) {
+            intervals[reg].start = 0u;
+            intervals[reg].end = full_end;
+        }
+        return true;
+    }
+    matrix_bytes = cells * sizeof(*definitions);
+    row_bytes = words_per_row * sizeof(*live_out);
+    blocks = rcc_alloc(function->block_count * sizeof(*blocks));
+    definitions = rcc_alloc(matrix_bytes);
+    uses = rcc_alloc(matrix_bytes);
+    live_in = rcc_alloc(matrix_bytes);
+    live_out = rcc_alloc(row_bytes);
+    if (!blocks || !definitions || !uses || !live_in || !live_out) {
+        mir_alloc_error(error, error_size,
+                        "unable to allocate MIR liveness bitsets");
+        goto cleanup;
+    }
+    memset(blocks, 0, function->block_count * sizeof(*blocks));
+    memset(definitions, 0, matrix_bytes);
+    memset(uses, 0, matrix_bytes);
+    memset(live_in, 0, matrix_bytes);
     for (block = function->first_block; block; block = block->next) {
         const RccMirInstruction* instruction;
-        size_t base = (size_t)block->id * function->register_count;
+        size_t block_id = (size_t)block->id;
+        if (block_id >= function->block_count || blocks[block_id]) {
+            mir_alloc_error(error, error_size,
+                            "MIR liveness has an invalid block ID");
+            goto cleanup;
+        }
+        blocks[block_id] = (RccMirBlock*)block;
         for (instruction = block->first; instruction;
              instruction = instruction->next) {
             size_t operand;
@@ -396,86 +498,126 @@ static bool mir_alloc_extend_cfg_liveness(
                 for (operand = 0u; operand < instruction->operand_count;
                      ++operand) {
                     RccMirVReg reg = instruction->operands[operand];
-                    if (!definitions[base + reg]) uses[base + reg] = true;
+                    if ((size_t)reg >= function->register_count) {
+                        mir_alloc_error(error, error_size,
+                                        "MIR liveness has an invalid operand");
+                        goto cleanup;
+                    }
+                    if (!mir_alloc_liveness_test(
+                            definitions, words_per_row, block_id, reg)) {
+                        mir_alloc_liveness_set(
+                            uses, words_per_row, block_id, reg);
+                    }
                 }
             }
             if (instruction->opcode == RCC_MIR_CALL &&
-                instruction->callee_value != RCC_MIR_VREG_NONE &&
-                !definitions[base + instruction->callee_value]) {
-                uses[base + instruction->callee_value] = true;
+                instruction->callee_value != RCC_MIR_VREG_NONE) {
+                RccMirVReg reg = instruction->callee_value;
+                if ((size_t)reg >= function->register_count) {
+                    mir_alloc_error(error, error_size,
+                                    "MIR liveness has an invalid call target");
+                    goto cleanup;
+                }
+                if (!mir_alloc_liveness_test(
+                        definitions, words_per_row, block_id, reg)) {
+                    mir_alloc_liveness_set(uses, words_per_row, block_id, reg);
+                }
             }
             if (instruction->definition != RCC_MIR_VREG_NONE) {
-                definitions[base + instruction->definition] = true;
-            }
-        }
-    }
-    for (block = function->first_block; block; block = block->next) {
-        const RccMirInstruction* instruction;
-        for (instruction = block->first;
-             instruction && instruction->opcode == RCC_MIR_PHI;
-             instruction = instruction->next) {
-            size_t incoming;
-            for (incoming = 0u; incoming < instruction->operand_count;
-                 ++incoming) {
-                size_t predecessor = instruction->targets[incoming];
-                RccMirVReg reg = instruction->operands[incoming];
-                edge_uses[predecessor * function->register_count + reg] =
-                    true;
+                if ((size_t)instruction->definition >=
+                    function->register_count) {
+                    mir_alloc_error(error, error_size,
+                                    "MIR liveness has an invalid definition");
+                    goto cleanup;
+                }
+                mir_alloc_liveness_set(
+                    definitions, words_per_row, block_id,
+                    instruction->definition);
             }
         }
     }
     while (changed) {
         changed = false;
         for (block = function->first_block; block; block = block->next) {
-            const RccMirInstruction* terminator = block->last;
-            size_t base = (size_t)block->id * function->register_count;
-            size_t reg;
-            for (reg = 0u; reg < function->register_count; ++reg) {
-                bool out = edge_uses[base + reg];
-                size_t successor;
-                for (successor = 0u;
-                     !out && successor < terminator->target_count;
-                     ++successor) {
-                    size_t target = terminator->targets[successor];
-                    out = live_in[target * function->register_count + reg];
-                }
-                if (out && !live_out[base + reg]) {
-                    live_out[base + reg] = true;
-                    changed = true;
-                }
-                if ((uses[base + reg] ||
-                     (live_out[base + reg] && !definitions[base + reg])) &&
-                    !live_in[base + reg]) {
-                    live_in[base + reg] = true;
+            size_t block_id = (size_t)block->id;
+            size_t base = block_id * words_per_row;
+            size_t word;
+            if (!mir_alloc_liveness_out(
+                    function, (const RccMirBlock* const*)blocks,
+                    live_in, words_per_row, block, live_out)) {
+                mir_alloc_error(error, error_size,
+                                "MIR liveness found an invalid CFG edge");
+                goto cleanup;
+            }
+            for (word = 0u; word < words_per_row; ++word) {
+                uint64_t next = uses[base + word] |
+                    (live_out[word] & ~definitions[base + word]);
+                uint64_t added = next & ~live_in[base + word];
+                if (added != 0u) {
+                    live_in[base + word] |= added;
                     changed = true;
                 }
             }
         }
     }
     for (block = function->first_block; block; block = block->next) {
-        size_t base = (size_t)block->id * function->register_count;
-        size_t reg;
-        for (reg = 0u; reg < function->register_count; ++reg) {
-            if (live_in[base + reg]) {
-                if (block_starts[block->id] < intervals[reg].start) {
-                    intervals[reg].start = block_starts[block->id];
+        size_t block_id = (size_t)block->id;
+        size_t base = block_id * words_per_row;
+        size_t word;
+        if (!mir_alloc_liveness_out(
+                function, (const RccMirBlock* const*)blocks,
+                live_in, words_per_row, block, live_out)) {
+            mir_alloc_error(error, error_size,
+                            "MIR liveness found an invalid CFG edge");
+            goto cleanup;
+        }
+        for (word = 0u; word < words_per_row; ++word) {
+            uint64_t live = live_in[base + word];
+            while (live != 0u) {
+                uint64_t scan = live;
+                size_t bit = 0u;
+                size_t reg;
+                while ((scan & UINT64_C(1)) == 0u) {
+                    scan >>= 1u;
+                    ++bit;
                 }
-                if (block_starts[block->id] > intervals[reg].end) {
-                    intervals[reg].end = block_starts[block->id];
+                reg = word * 64u + bit;
+                if (reg < function->register_count) {
+                    if (block_starts[block_id] < intervals[reg].start) {
+                        intervals[reg].start = block_starts[block_id];
+                    }
+                    if (block_starts[block_id] > intervals[reg].end) {
+                        intervals[reg].end = block_starts[block_id];
+                    }
                 }
+                live &= live - UINT64_C(1);
             }
-            if (live_out[base + reg] &&
-                block_ends[block->id] > intervals[reg].end) {
-                intervals[reg].end = block_ends[block->id];
+            live = live_out[word];
+            while (live != 0u) {
+                uint64_t scan = live;
+                size_t bit = 0u;
+                size_t reg;
+                while ((scan & UINT64_C(1)) == 0u) {
+                    scan >>= 1u;
+                    ++bit;
+                }
+                reg = word * 64u + bit;
+                if (reg < function->register_count &&
+                    block_ends[block_id] > intervals[reg].end) {
+                    intervals[reg].end = block_ends[block_id];
+                }
+                live &= live - UINT64_C(1);
             }
         }
     }
+    success = true;
+cleanup:
+    rcc_free(blocks);
     rcc_free(definitions);
     rcc_free(uses);
-    rcc_free(edge_uses);
     rcc_free(live_in);
     rcc_free(live_out);
-    return true;
+    return success;
 }
 
 static int mir_alloc_compare_intervals(const void* left_pointer,
@@ -913,6 +1055,11 @@ bool rcc_mir_verify_allocation(
     const RccMirFunction* function, const RccMirRegisterPolicy* policy,
     const RccMirAllocation* allocation, char* error, size_t error_size) {
     size_t left;
+    size_t physical_count = 0u;
+    size_t order_index = 0u;
+    RccMirIntervalOrder* physical_order = NULL;
+    bool seen_physical[2][64] = {{false}};
+    size_t latest_physical_end[2][64] = {{0u}};
     if (error && error_size != 0u) error[0] = '\0';
     if (!function || !mir_alloc_policy_valid(policy) || !allocation ||
         allocation->register_count != function->register_count ||
@@ -931,7 +1078,9 @@ bool rcc_mir_verify_allocation(
         uint64_t allowed_mask = mir_alloc_type_mask(
             policy, interval.register_class, function->register_types[left]);
         if (interval.start > interval.end ||
-            location.register_class != interval.register_class) {
+            location.register_class != interval.register_class ||
+            interval.register_class !=
+                mir_alloc_register_class(function->register_types[left])) {
             return mir_alloc_error(error, error_size,
                                    "MIR interval %zu is invalid", left);
         }
@@ -951,6 +1100,7 @@ bool rcc_mir_verify_allocation(
                     error, error_size,
                     "MIR physical register violates target/fixed policy");
             }
+            ++physical_count;
         } else if (location.kind == RCC_MIR_LOCATION_SPILL) {
             if (location.spill_size == 0u ||
                 location.spill_alignment == 0u ||
@@ -965,20 +1115,46 @@ bool rcc_mir_verify_allocation(
             return mir_alloc_error(error, error_size,
                                    "MIR location kind is invalid");
         }
-        for (size_t right = 0u; right < left; ++right) {
-            RccMirLocation other = allocation->locations[right];
-            if (location.kind == RCC_MIR_LOCATION_PHYSICAL &&
-                other.kind == RCC_MIR_LOCATION_PHYSICAL &&
-                location.register_class == other.register_class &&
-                location.physical_register == other.physical_register &&
-                mir_alloc_intervals_overlap(interval,
-                    allocation->intervals[right])) {
-                return mir_alloc_error(
-                    error, error_size,
-                    "overlapping MIR intervals share a physical register");
-            }
-        }
     }
+    if (physical_count == 0u) return true;
+    if (physical_count > SIZE_MAX / sizeof(*physical_order)) {
+        return mir_alloc_error(error, error_size,
+                               "MIR physical interval table is too large");
+    }
+    physical_order = rcc_alloc(physical_count * sizeof(*physical_order));
+    for (left = 0u; left < allocation->register_count; ++left) {
+        RccMirLocation location = allocation->locations[left];
+        if (location.kind != RCC_MIR_LOCATION_PHYSICAL) continue;
+        physical_order[order_index].reg = (RccMirVReg)left;
+        physical_order[order_index].start = allocation->intervals[left].start;
+        physical_order[order_index].end = allocation->intervals[left].end;
+        ++order_index;
+    }
+    qsort(physical_order, physical_count, sizeof(*physical_order),
+          mir_alloc_compare_intervals);
+    for (order_index = 0u; order_index < physical_count; ++order_index) {
+        RccMirIntervalOrder interval = physical_order[order_index];
+        RccMirLocation location = allocation->locations[interval.reg];
+        size_t register_class = (size_t)location.register_class;
+        uint16_t physical_register = location.physical_register;
+        if (register_class >= 2u || physical_register >= 64u) {
+            rcc_free(physical_order);
+            return mir_alloc_error(error, error_size,
+                                   "MIR physical register key is invalid");
+        }
+        if (seen_physical[register_class][physical_register] &&
+            interval.start <=
+                latest_physical_end[register_class][physical_register]) {
+            rcc_free(physical_order);
+            return mir_alloc_error(
+                error, error_size,
+                "overlapping MIR intervals share a physical register");
+        }
+        seen_physical[register_class][physical_register] = true;
+        latest_physical_end[register_class][physical_register] =
+            interval.end;
+    }
+    rcc_free(physical_order);
     return true;
 }
 

@@ -120,6 +120,33 @@ static void verify_ir_to_mir_diamond(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_zero_register_liveness(void)
+{
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "zero_register_liveness", rcc_ir_type_void(), NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation;
+    char error[256];
+
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         NULL, 0u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    assert(mir != NULL && mir->register_count == 0u);
+    assert(rcc_mir_verify_function(mir, error, sizeof(error)));
+    rcc_mir_register_policy_i686(&policy);
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation, error, sizeof(error)));
+    assert(allocation.register_count == 0u);
+    assert(rcc_mir_verify_allocation(
+        mir, &policy, &allocation, error, sizeof(error)));
+    rcc_mir_allocation_release(&allocation);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_volatile_access_metadata_reaches_mir(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -1149,6 +1176,7 @@ int main(void)
 {
     verify_x86_abi_mapping();
     verify_ir_to_mir_diamond();
+    verify_zero_register_liveness();
     verify_volatile_access_metadata_reaches_mir();
     verify_ir_to_mir_call();
     verify_call_crossing_pressure();

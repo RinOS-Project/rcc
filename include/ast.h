@@ -713,11 +713,9 @@ struct CxxCleanupPlan {
     CxxCleanupPlan* next;
 };
 
-/* Semantic analysis assigns one bounded branch/leaf plan for a conditional
- * xvalue lifetime extension.  Cleanup generation, typed IR, and both native
- * code generators consume these same selected sources and variant tags. */
-#define RCC_CXX_CONDITIONAL_XVALUE_MAX_DEPTH 64u
-#define RCC_CXX_CONDITIONAL_XVALUE_MAX_LEAVES 4096u
+/* Semantic analysis assigns one branch/leaf plan for a conditional xvalue
+ * lifetime extension. Cleanup generation, typed IR, and both native code
+ * generators consume these same selected sources and variant tags. */
 typedef enum {
     CXX_CONDITIONAL_XVALUE_PLAN_LEAF,
     CXX_CONDITIONAL_XVALUE_PLAN_BRANCH,
