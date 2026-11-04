@@ -3662,6 +3662,7 @@ static bool cxx_structural_class_collect_member_values(
         bool active_is_class;
         bool active_is_floating;
         bool active_is_array;
+        bool active_is_pointer;
         for (field = type->cxx_class->fields; field; field = field->next) {
             if (field->is_static) continue;
             if (!active_field ||
@@ -3682,13 +3683,16 @@ static bool cxx_structural_class_collect_member_values(
              active_field->type->kind == TYPE_DOUBLE);
         active_is_array = active_field && active_field->type &&
             active_field->type->kind == TYPE_ARRAY;
+        active_is_pointer = active_field && active_field->type &&
+            active_field->type->kind == TYPE_PTR;
         if (!active_field || active_field->is_bitfield ||
             !active_field->name || !active_field->type ||
             (!active_is_class && !active_is_array &&
-             !type_is_integer(active_field->type) &&
+             !active_is_pointer && !type_is_integer(active_field->type) &&
              active_field->type->kind != TYPE_ENUM &&
              !active_is_floating) ||
             (!active_is_class && !active_is_array && !active_is_floating &&
+             !active_is_pointer &&
              (active_field->type->size <= 0 ||
               active_field->type->size > 8)) ||
             (active_is_floating &&
@@ -3722,7 +3726,8 @@ static bool cxx_structural_class_collect_member_values(
             field_initializer->kind != EXPR_COMPOUND) {
             return false;
         }
-        if (!active_is_class && !active_is_array && field_initializer) {
+        if (!active_is_class && !active_is_array && !active_is_pointer &&
+            field_initializer) {
             if (active_is_floating) {
                 double floating_value;
                 if (!eval_template_floating_expression(
@@ -3757,6 +3762,17 @@ static bool cxx_structural_class_collect_member_values(
             } else if (!expr_eval_integer_constant(
                            field_initializer, &field_value)) {
                 return false;
+            }
+        }
+        if (active_is_pointer) {
+            if (field_initializer) {
+                if (!cxx_structural_pointer_member_value(
+                        field_initializer, active_field->type,
+                        &field_value)) {
+                    return false;
+                }
+            } else if (active_field->type->cxx_is_member_pointer) {
+                field_value = -1;
             }
         }
         if (!member_values || !member_count || *member_count < 0 ||
@@ -4199,6 +4215,11 @@ static bool cxx_structural_class_count_member_values(
                      field->type->size != (int)sizeof(float)) ||
                     (field->type->kind == TYPE_DOUBLE &&
                      field->type->size != (int)sizeof(double))) {
+                    return false;
+                }
+            } else if (field->type->kind == TYPE_PTR) {
+                if (field->type->cxx_is_member_pointer &&
+                    !field->type->base) {
                     return false;
                 }
             } else if ((!type_is_integer(field->type) &&
