@@ -3641,6 +3641,60 @@ static bool cxx_structural_class_collect_member_values(
             return false;
         }
     }
+    if (type->cxx_class->is_union) {
+        TypeParam* active_field = NULL;
+        Expr* field_initializer = NULL;
+        int active_index = 0;
+        int64_t field_value = 0;
+        int field_index = 0;
+        for (field = type->cxx_class->fields; field; field = field->next) {
+            if (field->is_static) continue;
+            if (!active_field ||
+                (initializer &&
+                 initializer->designator_kind == INIT_DESIGNATOR_FIELD &&
+                 initializer->designator_field && field->name &&
+                 strcmp(initializer->designator_field, field->name) == 0)) {
+                active_field = field;
+                active_index = field_index;
+            }
+            ++field_index;
+        }
+        if (!active_field || active_field->is_bitfield ||
+            !active_field->name || !active_field->type ||
+            (!type_is_integer(active_field->type) &&
+             active_field->type->kind != TYPE_ENUM) ||
+            active_field->type->size <= 0 || active_field->type->size > 8) {
+            return false;
+        }
+        if (initializer) {
+            if (initializer->next || !initializer->expr ||
+                (initializer->designator_kind != INIT_DESIGNATOR_NONE &&
+                 initializer->designator_kind != INIT_DESIGNATOR_FIELD) ||
+                (initializer->designator_kind == INIT_DESIGNATOR_FIELD &&
+                 (!initializer->designator_field ||
+                  strcmp(initializer->designator_field,
+                         active_field->name) != 0))) {
+                return false;
+            }
+            field_initializer = initializer->expr;
+        } else if (active_field->initializer) {
+            field_initializer = active_field->initializer;
+        } else if (!value_init) {
+            return false;
+        }
+        if (field_initializer &&
+            !expr_eval_integer_constant(field_initializer, &field_value)) {
+            return false;
+        }
+        if (!member_values || !member_count || *member_count < 0 ||
+            (size_t)*member_count > member_capacity ||
+            member_capacity - (size_t)*member_count < 2u) {
+            return false;
+        }
+        member_values[(*member_count)++] = active_index;
+        member_values[(*member_count)++] = field_value;
+        return true;
+    }
     for (field = type->cxx_class->fields; field; field = field->next) {
         if (!field->is_static) {
             has_nonstatic_field = true;
@@ -3976,9 +4030,19 @@ static bool cxx_structural_array_count_member_values(
 static bool cxx_structural_class_count_member_values(
     const Type* type, size_t* member_count) {
     const TypeParam* field;
-    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
+    if (!type ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        !type->cxx_class ||
         !member_count) {
         return false;
+    }
+    if (type->cxx_class->is_union) {
+        if (type->kind != TYPE_UNION ||
+            *member_count > (size_t)INT_MAX - 2u) {
+            return false;
+        }
+        *member_count += 2u;
+        return true;
     }
     for (int index = 0; index < type->cxx_class->base_count; ++index) {
         CxxClass* base = type->cxx_class->bases[index].base;

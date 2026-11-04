@@ -664,6 +664,10 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS = \
 	_Z46function_template_structural_reference_deducedIXtl35FunctionTemplateStructuralReferenceadL_Z39function_template_structural_target_twoEEEEi38FunctionTemplateStructuralReferenceTagIXT_EE \
 	_Z42function_template_structural_pair_explicitIXtl30FunctionTemplateStructuralPairLt12ELh5EEEEiv \
 	_Z41function_template_structural_pair_deducedIXtl30FunctionTemplateStructuralPairLt8ELh3EEEEi33FunctionTemplateStructuralPairTagIXT_EE \
+	_Z49function_template_structural_union_value_explicitIXtl31FunctionTemplateStructuralUniondi5valueLi17EEEEiv \
+	_Z48function_template_structural_union_value_deducedIXtl31FunctionTemplateStructuralUniondi5valueLi19EEEEi34FunctionTemplateStructuralUnionTagIXT_EE \
+	_Z47function_template_structural_union_tag_explicitIXtl31FunctionTemplateStructuralUniondi3tagLh5EEEEiv \
+	_Z46function_template_structural_union_tag_deducedIXtl31FunctionTemplateStructuralUniondi3tagLh7EEEEi34FunctionTemplateStructuralUnionTagIXT_EE \
 	_Z45function_template_structural_derived_explicitIXtl33FunctionTemplateStructuralDerivedtl30FunctionTemplateStructuralBasetlA2_tLt11ELt23EEEtl33FunctionTemplateStructuralTagBaseLh2EEtl37FunctionTemplateStructuralEmptyMemberEtlA2_S4_ELh7EEEEiv \
 	_Z44function_template_structural_derived_deducedIXtl33FunctionTemplateStructuralDerivedtl30FunctionTemplateStructuralBasetlA2_tLt4ELt9EEEtl33FunctionTemplateStructuralTagBaseLh3EEtl37FunctionTemplateStructuralEmptyMemberEtlA2_S4_ELh4EEEEi36FunctionTemplateStructuralDerivedTagIXT_EE
 .PHONY: test-cxx-braced-argument-overload
@@ -5870,7 +5874,7 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,11)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,15)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -7656,7 +7660,7 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,11)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,15)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)

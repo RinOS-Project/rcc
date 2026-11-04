@@ -14085,10 +14085,19 @@ remains a separate open item.
       from both data bases; calls with equivalent arithmetic initializers reuse
       the same specialization. Verify GCC C++20 Itanium symbol parity and host
       execution, plus i686/AMD64 assembly and verified-backend emission of all
-      11 functions at `-O0` and `-O2` with zero fallback through
+      15 functions at `-O0` and `-O2` with zero fallback through
       `test-cxx-function-template-structural-nontype`.
+- [x] Support structural union NTTPs with public, named, non-bit-field integer
+      or enum alternatives up to 64 bits. Collect positional first-member and
+      designated active-member initializers, preserve the active field in the
+      Itanium `di` encoding, and substitute reads of the active member. Verify
+      explicit and deduced function-template arguments for both alternatives,
+      positional/designated equivalence, exact GCC symbols, host execution,
+      i686/AMD64 output, and all 15 verified-backend functions at `-O0` and
+      `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
-      layouts, structural packs, and unsupported C++20 forms remain open.
+      layouts, structural packs, non-scalar union alternatives, unions nested
+      within structural aggregates, and unsupported C++20 forms remain open.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)
 

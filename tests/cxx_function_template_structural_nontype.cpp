@@ -7,6 +7,11 @@ struct FunctionTemplateStructuralPair {
     unsigned char low;
 };
 
+union FunctionTemplateStructuralUnion {
+    int value;
+    unsigned char tag;
+};
+
 struct FunctionTemplateStructuralBase {
     unsigned short prefix[2];
 };
@@ -47,6 +52,9 @@ struct FunctionTemplateStructuralReferenceTag {};
 template<FunctionTemplateStructuralPair Value>
 struct FunctionTemplateStructuralPairTag {};
 
+template<FunctionTemplateStructuralUnion Value>
+struct FunctionTemplateStructuralUnionTag {};
+
 template<FunctionTemplateStructuralDerived Value>
 struct FunctionTemplateStructuralDerivedTag {};
 
@@ -81,6 +89,28 @@ template<FunctionTemplateStructuralPair Value>
 constexpr int function_template_structural_pair_deduced(
     FunctionTemplateStructuralPairTag<Value>) {
     return Value.high * 100 + Value.low;
+}
+
+template<FunctionTemplateStructuralUnion Value>
+constexpr int function_template_structural_union_value_explicit() {
+    return Value.value;
+}
+
+template<FunctionTemplateStructuralUnion Value>
+constexpr int function_template_structural_union_value_deduced(
+    FunctionTemplateStructuralUnionTag<Value>) {
+    return Value.value;
+}
+
+template<FunctionTemplateStructuralUnion Value>
+constexpr int function_template_structural_union_tag_explicit() {
+    return Value.tag;
+}
+
+template<FunctionTemplateStructuralUnion Value>
+constexpr int function_template_structural_union_tag_deduced(
+    FunctionTemplateStructuralUnionTag<Value>) {
+    return Value.tag;
 }
 
 template<FunctionTemplateStructuralDerived Value>
@@ -118,6 +148,18 @@ static_assert(function_template_structural_pair_explicit<
 static_assert(function_template_structural_pair_deduced(
                   FunctionTemplateStructuralPairTag<
                       FunctionTemplateStructuralPair{8, 3}>{}) == 803);
+static_assert(function_template_structural_union_value_explicit<
+                  FunctionTemplateStructuralUnion{.value = 17}>() == 17);
+static_assert(function_template_structural_union_value_explicit<
+                  FunctionTemplateStructuralUnion{17}>() == 17);
+static_assert(function_template_structural_union_value_deduced(
+                  FunctionTemplateStructuralUnionTag<
+                      FunctionTemplateStructuralUnion{.value = 19}>{}) == 19);
+static_assert(function_template_structural_union_tag_explicit<
+                  FunctionTemplateStructuralUnion{.tag = 5}>() == 5);
+static_assert(function_template_structural_union_tag_deduced(
+                  FunctionTemplateStructuralUnionTag<
+                      FunctionTemplateStructuralUnion{.tag = 7}>{}) == 7);
 static_assert(function_template_structural_derived_explicit<
                   FunctionTemplateStructuralDerived{
                       {}, {{11, 23}}, {2}, {}, {{}, {}}, 7, {},
@@ -152,6 +194,18 @@ int main() {
         function_template_structural_pair_deduced(
             FunctionTemplateStructuralPairTag<
                 FunctionTemplateStructuralPair{8, 3}>{}) != 803 ||
+        function_template_structural_union_value_explicit<
+            FunctionTemplateStructuralUnion{.value = 17}>() != 17 ||
+        function_template_structural_union_value_explicit<
+            FunctionTemplateStructuralUnion{17}>() != 17 ||
+        function_template_structural_union_value_deduced(
+            FunctionTemplateStructuralUnionTag<
+                FunctionTemplateStructuralUnion{.value = 19}>{}) != 19 ||
+        function_template_structural_union_tag_explicit<
+            FunctionTemplateStructuralUnion{.tag = 5}>() != 5 ||
+        function_template_structural_union_tag_deduced(
+            FunctionTemplateStructuralUnionTag<
+                FunctionTemplateStructuralUnion{.tag = 7}>{}) != 7 ||
         function_template_structural_derived_explicit<
             FunctionTemplateStructuralDerived{
                 {}, {{11, 23}}, {2}, {}, {{}, {}}, 7, {},
