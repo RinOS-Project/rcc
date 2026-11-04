@@ -1,5 +1,14 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-11-05, Windows atomic test gate)
+
+- [x] Keep the Linux futex host-runtime checks in `test-atomic-wait` on
+      non-Windows hosts and skip only those host executions on Windows, while
+      retaining RinOS-target runtime compilation, standard-library syntax,
+      and value-representation checks. The complete `test-atomic-builtins`
+      target passes on Windows; Linux host-runtime execution remains for the
+      Linux CI runner.
+
 ## RCC continuation (2026-11-03, trailing concept-id requires-clause)
 
 - [x] Stop variable-template-specialization lookahead at a trailing-return
@@ -14596,5 +14605,6 @@ remains a separate open item.
       `test-cxx-atomic-aggregate-concurrency` pass. The verified floating
       runtime fixture also passes float `std::atomic` and double
       `std::atomic_ref` fetch/compound RMW at `-O0` and `-O2`; verified output
-      has zero fallback for both targets. The Windows host execution of the
-      Linux-specific `test-atomic-wait` prerequisite remains unverified.
+      has zero fallback for both targets. The Windows `test-atomic-builtins`
+      gate passes; its Linux futex host-runtime executions remain assigned to
+      Linux CI.

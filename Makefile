@@ -20804,6 +20804,10 @@ test-atomic-wait: $(RCC_TARGET) $(RCXX_TARGET) test-clear-padding
 		$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -DRCC_STDLIB_REFERENCE \
 		-fsyntax-only tests/atomic_wait.cpp
+
+ifeq ($(OS),Windows_NT)
+	@echo "Skipping Linux futex host-runtime execution on Windows"
+else
 	$(CC) -std=c11 -Wall -Wextra -Werror -Wno-unused-but-set-variable \
 		-DRIN_ATOMIC_WAIT_RUNTIME_TEST_HOOKS \
 		-DRIN_USERSPACE -DRIN_HOST_LINUX_FUTEX_TEST \
@@ -20821,6 +20825,8 @@ test-atomic-wait: $(RCC_TARGET) $(RCXX_TARGET) test-clear-padding
 		$(TEST_OUT)/atomic-wait/runtime-host.o \
 		-o $(TEST_OUT)/atomic-wait/wrapper-host-runtime$(EXE_SUFFIX)
 	$(TEST_OUT)/atomic-wait/wrapper-host-runtime$(EXE_SUFFIX)
+endif
+
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/atomic-wait/value-representation-x86.s \
 		tests/atomic_wait_value_representation.cpp
