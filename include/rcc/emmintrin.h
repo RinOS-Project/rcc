@@ -562,6 +562,14 @@ static __inline __m128 _mm_cvtpd_ps(__m128d __a) {
     return __builtin_ia32_cvtpd2ps(__a);
 }
 
+static __inline __m128 _mm_cvtsd_ss(__m128 __a, __m128d __b) {
+    return (__m128)__builtin_ia32_cvtsd2ss((__v4sf)__a, (__v2df)__b);
+}
+
+static __inline __m128d _mm_cvtss_sd(__m128d __a, __m128 __b) {
+    return (__m128d)__builtin_ia32_cvtss2sd((__v2df)__a, (__v4sf)__b);
+}
+
 /* Memory fence */
 static __inline void _mm_lfence(void) {
     __builtin_ia32_lfence();

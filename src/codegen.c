@@ -7494,6 +7494,14 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
         return true;
     }
     if (strstr(name, "cvt") == name) {
+        if (strcmp(name, "cvtsd2ss") == 0 ||
+            strcmp(name, "cvtss2sd") == 0) {
+            if (!gen_sse_two_vectors32(mod, expr)) return true;
+            prefix = strcmp(name, "cvtsd2ss") == 0 ? 0xF2 : 0xF3;
+            emit_sse128_reg(mod, 0, 1, prefix, 0x5A);
+            gen_sse_store_result32(mod, expr, 0);
+            return true;
+        }
         if (strcmp(name, "cvtsi2ss") == 0 ||
             strcmp(name, "cvtsi642ss") == 0) {
             gen_expr(mod, call_argument(expr, 0));

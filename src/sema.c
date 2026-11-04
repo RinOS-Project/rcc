@@ -34061,6 +34061,8 @@ static int sema_sse_builtin_arity(const char* name) {
         return 0;
     }
     if (strcmp(suffix, "vec_set_v8hi") == 0) return 9;
+    if (strcmp(suffix, "cvtsd2ss") == 0 ||
+        strcmp(suffix, "cvtss2sd") == 0) return 2;
     if (strcmp(suffix, "cvtsi2ss") == 0 ||
         strcmp(suffix, "cvtsi642ss") == 0) return 2;
     if (strcmp(suffix, "movmskps") == 0 ||
@@ -34163,6 +34165,10 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
         for (int index = 0; index < expected_count; ++index) {
             sema_sse_require_integer(call, name, index);
         }
+    } else if (strcmp(suffix, "cvtsd2ss") == 0 ||
+               strcmp(suffix, "cvtss2sd") == 0) {
+        sema_sse_require_vector(call, name, 0);
+        sema_sse_require_vector(call, name, 1);
     } else if (strcmp(suffix, "cvtsi2ss") == 0 ||
                strcmp(suffix, "cvtsi642ss") == 0) {
         sema_sse_require_vector(call, name, 0);
@@ -34209,6 +34215,9 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
 
 static Type* sema_sse_builtin_vector(const char* name) {
     if (!name) return NULL;
+    if (strstr(name, "cvtsd2ss")) {
+        return rcc_parser_lookup_type("__v4sf");
+    }
     if (strstr(name, "cvtpd2ps")) {
         return rcc_parser_lookup_type("__v4sf");
     }
