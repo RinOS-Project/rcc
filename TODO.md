@@ -12803,8 +12803,19 @@ remains a separate open item.
       conditional and two-source locations. All ten functions per target emit
       with zero fallback, and the existing location-list evaluator validates
       their values.
-- [ ] Extend optimized location coverage to additional computed
-      division/remainder trees and atomic operands.
+- [x] Route i686 64-bit atomic lvalue reads through the production
+      `__atomic_load_8` ABI, lower initialized local atomic pairs and nested
+      atomic arithmetic as explicit wide values, and convert computed wide
+      values to narrow scalar locals and pointer-width array indices. Preserve
+      optimized inline call DIEs when a pure expansion folds to an existing
+      SSA value by using the containing statement's encoded PC range. The full
+      C debug-info corpus emits i686/AMD64 verified objects at `-O1` and `-O2`
+      with zero fallback; the DWARF expression interpreter passes against
+      matching legacy and verified objects at both levels through
+      `test-debug-info-inline-expression`.
+- [ ] Additional computed division/remainder trees beyond the current C
+      corpus, i686 64-bit atomic stores and read-modify-write operations, and
+      volatile/reference/TLS atomic operand combinations remain open.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 

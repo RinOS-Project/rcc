@@ -282,6 +282,9 @@ static bool lower_copy_scalar_storage(
     RccIrValue source, const Type* type);
 static RccIrLowerValue lower_inline_method_address(
     RccIrLowerContext* context, const Expr* expression);
+static bool lower_i686_wide_atomic_scalar_type(const Type* type);
+static bool lower_i686_wide_scalar_expression_type(
+    const Expr* expression);
 static RccIrLowerValue lower_inline_method_call(
     RccIrLowerContext* context, const Expr* expression);
 static bool lower_zero_scalar_storage(
@@ -2526,12 +2529,28 @@ static RccIrLowerValue lower_pointer_gep(
     const Expr* index_expression, bool subtract_index) {
     RccIrLowerValue pointer;
     RccIrLowerValue index;
+    RccIrLowerWideValue wide_index;
     if (!pointer_expression || !index_expression) {
         context->unsupported = true;
         return lower_invalid_value();
     }
     pointer = lower_expression(context, pointer_expression);
-    index = lower_expression(context, index_expression);
+    if (g_opts.target_arch == ARCH_X86 && index_expression->type &&
+        type_is_integer(index_expression->type) &&
+        index_expression->type->size == 8 &&
+        (lower_i686_wide_scalar_expression_type(index_expression) ||
+         lower_i686_wide_atomic_scalar_type(index_expression->type))) {
+        if (!lower_wide_scalar_expression(
+                context, index_expression, &wide_index)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        index = lower_value(
+            wide_index.low.value, rcc_ir_type_integer(32u),
+            wide_index.is_unsigned);
+    } else {
+        index = lower_expression(context, index_expression);
+    }
     return lower_pointer_offset(context, pointer, index,
                                 pointer_expression->type,
                                 subtract_index,
@@ -4311,6 +4330,36 @@ static bool lower_i686_wide_scalar_type(const Type* type) {
         !type->is_atomic && type_is_integer((Type*)type) && type->size == 8;
 }
 
+static bool lower_i686_wide_atomic_scalar_type(const Type* type) {
+    return g_opts.target_arch == ARCH_X86 && type && type->is_atomic &&
+        type_is_integer((Type*)type) && type->size == 8;
+}
+
+static bool lower_i686_wide_scalar_expression_type(const Expr* expression) {
+    if (!expression || !expression->type) return false;
+    if (lower_i686_wide_scalar_type(expression->type)) return true;
+    if (!lower_i686_wide_atomic_scalar_type(expression->type)) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_NEG:
+        case EXPR_BITNOT:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static bool lower_wide_scalar_constant(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
@@ -4351,6 +4400,53 @@ static bool lower_wide_scalar_load(
     result->is_unsigned = is_unsigned;
     result->valid = result->low.valid && result->high.valid;
     return result->valid;
+}
+
+static bool lower_i686_wide_atomic_scalar_load(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    RccIrLowerValue object_address;
+    RccIrLowerValue result_address;
+    RccIrLowerValue memory_order;
+    RccIrInstruction* allocation;
+    RccIrInstruction* call;
+    RccIrInstruction* capture;
+    RccIrValue operands[2];
+    if (!context || !expression || !expression->type || !result ||
+        g_opts.target_arch != ARCH_X86 ||
+        !expression->type->is_atomic ||
+        !type_is_integer(expression->type) || expression->type->size != 8) {
+        return false;
+    }
+    object_address = lower_lvalue_address(context, expression);
+    memory_order = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 5u);
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !memory_order.valid) {
+        return false;
+    }
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return false;
+    rcc_ir_set_immediate(allocation, 8u);
+    result_address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    operands[0] = object_address.value;
+    operands[1] = memory_order.value;
+    call = lower_append(
+        context, RCC_IR_CALL, rcc_ir_type_void(),
+        operands, 2u, NULL, 0u);
+    if (!call) return false;
+    rcc_ir_set_callee(call, "__atomic_load_8");
+    capture = lower_append(
+        context, RCC_IR_CAPTURE_RETURN_PAIR, rcc_ir_type_void(),
+        &result_address.value, 1u, NULL, 0u);
+    if (!capture) return false;
+    rcc_ir_set_immediate(capture, 8u);
+    return lower_wide_scalar_load(
+        context, result_address, expression->type->is_unsigned, result);
 }
 
 static bool lower_wide_scalar_store(
@@ -7298,7 +7394,16 @@ static bool lower_wide_scalar_expression_impl(
         lower_inline_method_wide_value(context, expression, result)) {
         return true;
     }
-    if (!lower_i686_wide_scalar_type(expression->type)) {
+    if (expression->type->is_atomic && expression->type->size == 8 &&
+        (expression->kind == EXPR_IDENT ||
+         expression->kind == EXPR_DEREF ||
+         expression->kind == EXPR_INDEX ||
+         expression->kind == EXPR_MEMBER ||
+         expression->kind == EXPR_PTR_MEMBER)) {
+        return lower_i686_wide_atomic_scalar_load(
+            context, expression, result);
+    }
+    if (!lower_i686_wide_scalar_expression_type(expression)) {
         scalar = lower_expression(context, expression);
         return lower_scalar_to_wide_value(
             context, scalar, expression->type->is_unsigned, result);
@@ -7647,7 +7752,7 @@ static bool lower_wide_scalar_expression_impl(
         return lower_wide_scalar_call(context, expression, result);
     }
     if (expression->kind == EXPR_MUL &&
-        lower_i686_wide_scalar_type(expression->type) &&
+        lower_i686_wide_scalar_expression_type(expression) &&
         lower_wide_scalar_expression(
             context, expression->binary_lhs, &left) &&
         lower_wide_scalar_expression(
@@ -7656,7 +7761,7 @@ static bool lower_wide_scalar_expression_impl(
             context, left, right, expression->type->is_unsigned, result);
     }
     if ((expression->kind == EXPR_DIV || expression->kind == EXPR_MOD) &&
-        lower_i686_wide_scalar_type(expression->type) &&
+        lower_i686_wide_scalar_expression_type(expression) &&
         lower_wide_scalar_expression(
             context, expression->binary_lhs, &left) &&
         lower_wide_scalar_expression(
@@ -7668,7 +7773,7 @@ static bool lower_wide_scalar_expression_impl(
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
          expression->kind == EXPR_BITAND || expression->kind == EXPR_BITOR ||
          expression->kind == EXPR_BITXOR) &&
-        lower_i686_wide_scalar_type(expression->type) &&
+        lower_i686_wide_scalar_expression_type(expression) &&
         lower_wide_scalar_expression(
             context, expression->binary_lhs, &left) &&
         lower_wide_scalar_expression(
@@ -7679,7 +7784,7 @@ static bool lower_wide_scalar_expression_impl(
     }
     if ((expression->kind == EXPR_LSHIFT ||
          expression->kind == EXPR_RSHIFT) &&
-        lower_i686_wide_scalar_type(expression->type) &&
+        lower_i686_wide_scalar_expression_type(expression) &&
         lower_wide_scalar_expression(
             context, expression->binary_lhs, &left) &&
         lower_wide_scalar_expression(
@@ -7689,7 +7794,7 @@ static bool lower_wide_scalar_expression_impl(
             expression->type->is_unsigned, result);
     }
     if (expression->kind == EXPR_NEG &&
-        lower_i686_wide_scalar_type(expression->type) &&
+        lower_i686_wide_scalar_expression_type(expression) &&
         lower_wide_scalar_expression(
             context, expression->unary_operand, &right)) {
         left.low = lower_integer_constant(
@@ -7703,7 +7808,7 @@ static bool lower_wide_scalar_expression_impl(
             expression->type->is_unsigned, result);
     }
     if (expression->kind == EXPR_BITNOT &&
-        lower_i686_wide_scalar_type(expression->type) &&
+        lower_i686_wide_scalar_expression_type(expression) &&
         lower_wide_scalar_expression(
             context, expression->unary_operand, &right)) {
         left.low = lower_integer_constant(
@@ -19003,6 +19108,43 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                  strcmp(expression->call_func->ident_name,
                         "__builtin_bswap64") == 0)) {
                 return lower_builtin_call(context, expression);
+            }
+            if (g_opts.target_arch == ARCH_X86 && expression->type &&
+                type_is_integer(expression->type) &&
+                expression->type->size > 0 &&
+                expression->type->size <= 4 &&
+                expression->call_func && !expression->cxx_close_call) {
+                Type* function_type = expression->call_abi_function_type;
+                if (expression->call_func->kind == EXPR_IDENT &&
+                    expression->call_func->ident_decl &&
+                    expression->call_func->ident_decl->kind == DECL_FUNC) {
+                    function_type =
+                        expression->call_func->ident_decl->type;
+                } else if (!function_type) {
+                    function_type = expression->call_func->type;
+                    if (function_type && function_type->kind == TYPE_PTR) {
+                        function_type = function_type->base;
+                    }
+                }
+                if (function_type && function_type->kind == TYPE_FUNC &&
+                    function_type->ret_type &&
+                    lower_i686_wide_scalar_type(
+                        function_type->ret_type)) {
+                    Expr wide_call = *expression;
+                    RccIrLowerWideValue wide_result;
+                    RccIrLowerValue low_word;
+                    wide_call.type = function_type->ret_type;
+                    if (!lower_wide_scalar_call(
+                            context, &wide_call, &wide_result)) {
+                        context->unsupported = true;
+                        return lower_invalid_value();
+                    }
+                    low_word = lower_value(
+                        wide_result.low.value,
+                        rcc_ir_type_integer(32u),
+                        wide_result.is_unsigned);
+                    return lower_cast(context, low_word, expression->type);
+                }
             }
             return lower_call(context, expression);
         case EXPR_SIZEOF:
@@ -30547,6 +30689,9 @@ static bool lower_declaration(RccIrLowerContext* context,
         lower_volatile_local_aggregate_supported(declaration);
     bool wide_scalar = declaration->type &&
         lower_i686_wide_scalar_type(declaration->type);
+    bool wide_atomic_scalar = declaration->type &&
+        lower_i686_wide_atomic_scalar_type(declaration->type);
+    bool wide_storage = wide_scalar || wide_atomic_scalar;
     bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
         declaration->var_init != NULL;
     bool cxx_constructed_volatile_object_supported =
@@ -30623,9 +30768,9 @@ static bool lower_declaration(RccIrLowerContext* context,
                 (is_member_function_pointer &&
                  !lower_storage_type_supported_internal(
                      declaration->type, 0u)))
-             : (!wide_scalar && !lower_type(declaration->type, &type))) ||
+             : (!wide_storage && !lower_type(declaration->type, &type))) ||
         (!is_aggregate &&
-         !wide_scalar && type.kind == RCC_IR_TYPE_VOID)) {
+         !wide_storage && type.kind == RCC_IR_TYPE_VOID)) {
         context->unsupported = true;
         return false;
     }
@@ -30692,7 +30837,7 @@ static bool lower_declaration(RccIrLowerContext* context,
             ? (uint32_t)declaration->type->align : 0u;
     }
     allocation->source_declaration = declaration;
-    if (is_aggregate || wide_scalar) {
+    if (is_aggregate || wide_storage) {
         type = rcc_ir_type_pointer(0u);
     }
     if (!lower_add_local(context, declaration, allocation->result, type)) {
@@ -30778,7 +30923,7 @@ static bool lower_declaration(RccIrLowerContext* context,
             context, allocation->result,
             declaration->type, declaration->var_init);
     }
-    if (wide_scalar && declaration->var_init) {
+    if (wide_storage && declaration->var_init) {
         RccIrLowerWideValue initializer;
         if (!lower_wide_scalar_expression(
                 context, declaration->var_init, &initializer) ||
@@ -31018,7 +31163,27 @@ static bool lower_declaration(RccIrLowerContext* context,
                 lower_push_scope_cleanup_plan(
                     context, declaration->var_cleanups);
         }
-        initializer = lower_expression(context, declaration->var_init);
+        if (g_opts.target_arch == ARCH_X86 && declaration->type &&
+            type_is_integer(declaration->type) &&
+            declaration->type->size > 0 && declaration->type->size <= 4 &&
+            lower_i686_wide_scalar_expression_type(
+                declaration->var_init)) {
+            RccIrLowerWideValue wide_initializer;
+            RccIrLowerValue low_word;
+            if (!lower_wide_scalar_expression(
+                    context, declaration->var_init, &wide_initializer)) {
+                context->unsupported = true;
+                return false;
+            }
+            low_word = lower_value(
+                wide_initializer.low.value,
+                rcc_ir_type_integer(32u),
+                wide_initializer.is_unsigned);
+            initializer = lower_cast(
+                context, low_word, declaration->type);
+        } else {
+            initializer = lower_expression(context, declaration->var_init);
+        }
         if (!initializer.valid) return false;
         initializer = lower_cast(context, initializer, declaration->type);
         memset(&target, 0, sizeof(target));

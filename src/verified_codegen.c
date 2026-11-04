@@ -1273,7 +1273,8 @@ static bool verified_append_debug_inline_calls(
     VerifiedInlineScopePath* scope_paths = NULL;
     if (!destination || !source || !encoded || !function_symbol ||
         (source->inline_call_count != 0u && !source->inline_calls) ||
-        (encoded->inline_range_count != 0u && !encoded->inline_ranges)) {
+        (encoded->inline_range_count != 0u && !encoded->inline_ranges) ||
+        (encoded->source_range_count != 0u && !encoded->source_ranges)) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
                      "verified inline debug metadata is incomplete");
@@ -1327,6 +1328,39 @@ static bool verified_append_debug_inline_calls(
             range_end = range->offset + range->size;
             if (range->offset < local_start) local_start = range->offset;
             if (range_end > local_end) local_end = range_end;
+        }
+        if (local_start == UINT32_MAX && call->caller_statement) {
+            /* A pure inline expansion can disappear into an existing SSA
+             * value and produce no instruction carrying its own inline-call
+             * index. Preserve its abstract call DIE at the enclosing source
+             * statement's PC range, within the same parent inline scope. */
+            for (size_t range_index = 0u;
+                 range_index < encoded->source_range_count; ++range_index) {
+                const RccX86CodeSourceRange* range =
+                    &encoded->source_ranges[range_index];
+                uint32_t range_end;
+                if (range->source_statement != call->caller_statement ||
+                    range->source_inline_call_index_plus_one !=
+                        call->parent_index_plus_one) {
+                    continue;
+                }
+                if (range->size == 0u ||
+                    range->offset > function_symbol->size ||
+                    range->size > function_symbol->size - range->offset ||
+                    range->offset > UINT32_MAX - range->size) {
+                    if (error && error_size != 0u) {
+                        snprintf(error, error_size,
+                                 "verified inline statement range is invalid");
+                    }
+                    rcc_free(global_index_plus_one);
+                    return false;
+                }
+                range_end = range->offset + range->size;
+                if (range->offset < local_start) {
+                    local_start = range->offset;
+                }
+                if (range_end > local_end) local_end = range_end;
+            }
         }
         if (local_start == UINT32_MAX) continue;
         if (local_end <= local_start ||

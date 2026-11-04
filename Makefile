@@ -2948,12 +2948,32 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -g -O1 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/x64-inline-g.ro \
 		tests/debug_info.c
-	$(RCC_TARGET) --target i686-unknown-rinos -g -O1 -fverified-backend -c \
+	$(RCC_TARGET) --target i686-unknown-rinos -g -O2 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/x86-inline-o2-g.ro \
+		tests/debug_info.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -O2 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/x64-inline-o2-g.ro \
+		tests/debug_info.c
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -g -O1 -fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.ro \
-		tests/debug_info.c
-	$(RCC_TARGET) --target x86_64-unknown-rinos -g -O1 -fverified-backend -c \
+		tests/debug_info.c \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.log,0)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -g -O1 -fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.ro \
-		tests/debug_info.c
+		tests/debug_info.c \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.log,0)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -g -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-o2.ro \
+		tests/debug_info.c \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-o2.log,0)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -g -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-o2.ro \
+		tests/debug_info.c \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-o2.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/cxx-enum-x86-inline-g.ro \
 		tests/debug_info_inline_integer.cpp
@@ -3063,6 +3083,16 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/debug-info-inline-expression/x64-inline-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/cxx-enum-x86-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/cxx-enum-x64-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x86-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x64-inline-g.ro
+	$(TEST_OUT)/debug-info-inline-expression/verify \
+		--verify-inline-integer-expression \
+		$(TEST_OUT)/debug-info-inline-expression/x86-inline-o2-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/x64-inline-o2-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-o2.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-o2.ro \
 		$(TEST_OUT)/debug-info-inline-expression/cxx-enum-x86-inline-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/cxx-enum-x64-inline-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x86-inline-g.ro \
