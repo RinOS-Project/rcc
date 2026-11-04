@@ -34209,6 +34209,13 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
 
 static Type* sema_sse_builtin_vector(const char* name) {
     if (!name) return NULL;
+    if (strstr(name, "cvtpd2ps")) {
+        return rcc_parser_lookup_type("__v4sf");
+    }
+    if (strstr(name, "cvtps2dq") || strstr(name, "cvttpd2dq") ||
+        strstr(name, "cvttps2dq")) {
+        return rcc_parser_lookup_type("__v4si");
+    }
     if (strstr(name, "pd") || strstr(name, "sd") ||
         strstr(name, "cvtps2pd") || strstr(name, "cvtdq2pd")) {
         return rcc_parser_lookup_type("__v2df");
@@ -34216,13 +34223,6 @@ static Type* sema_sse_builtin_vector(const char* name) {
     if (strstr(name, "128") || strstr(name, "loaddqu") ||
         strstr(name, "storedqu")) {
         return rcc_parser_lookup_type("__v2di");
-    }
-    if (strstr(name, "cvtps2dq") || strstr(name, "cvttpd2dq") ||
-        strstr(name, "cvttps2dq")) {
-        return rcc_parser_lookup_type("__v4si");
-    }
-    if (strstr(name, "cvtpd2ps")) {
-        return rcc_parser_lookup_type("__v4sf");
     }
     if (strstr(name, "vec_set_v8hi")) {
         return rcc_parser_lookup_type("__v8hi");
