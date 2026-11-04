@@ -494,6 +494,14 @@ static __inline __m128i _mm_setzero_si128(void) {
     return (__m128i){ 0LL, 0LL };
 }
 
+static __inline __m128i _mm_cvtsi32_si128(int __a) {
+    return _mm_set_epi32(0, 0, 0, __a);
+}
+
+static __inline int _mm_cvtsi128_si32(__m128i __a) {
+    return ((__v4si)__a)[0];
+}
+
 /* Load/Store - integer */
 static __inline __m128i _mm_load_si128(const __m128i* __p) {
     return *__p;
@@ -568,6 +576,10 @@ static __inline __m128 _mm_cvtsd_ss(__m128 __a, __m128d __b) {
 
 static __inline __m128d _mm_cvtss_sd(__m128d __a, __m128 __b) {
     return (__m128d)__builtin_ia32_cvtss2sd((__v2df)__a, (__v4sf)__b);
+}
+
+static __inline double _mm_cvtsd_f64(__m128d __a) {
+    return ((__v2df)__a)[0];
 }
 
 static __inline int _mm_cvtsd_si32(__m128d __a) {
