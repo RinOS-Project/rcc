@@ -12852,16 +12852,15 @@ remains a separate open item.
         pointer-indirect targets, and volatile pointer-indirect targets. Use a
         parameter RHS for each; also cover a computed
         `parameter + 0x123456789abcdef0` RHS for a nonvolatile global target.
-        Use divisor `2 * parameter + 1`. Restrict safe inline
-        substitution to this supported integer width and retain the
-        one-parameter, one-use side effect exactly once. Describe each
-        assignment value from its RHS frame expression. A dedicated fixture
-        evaluates full-width division and remainder matrices in legacy
-        `-O1`/`-O2` objects through `test-debug-info-inline-expression`. Its
-        generated i686 assembly has six global store references and twelve
-        locked `cmpxchg8b` sequences, one per entry function, at both
-        optimization levels; the existing verified corpus continues to emit
-        with zero fallback.
+        Use divisor `2 * parameter + 1`. Restrict safe inline substitution to
+        this supported integer width. Retain the one-parameter, one-use side
+        effect exactly once. Describe each assignment value from its RHS frame
+        expression. The dedicated fixture evaluates full-width division and
+        remainder matrices in legacy `-O1`/`-O2` objects through
+        `test-debug-info-inline-expression`. Its generated i686 assembly has
+        six global store references and twelve locked `cmpxchg8b` sequences,
+        one per entry function, at both optimization levels. The existing
+        verified corpus continues to emit with zero fallback.
         Verified SSA lowering for this atomic assignment, other atomic-store
         shapes, and atomic RMW remain open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
