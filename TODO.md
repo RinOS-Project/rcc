@@ -14474,3 +14474,14 @@ remains a separate open item.
       exact Itanium symbols, i686/AMD64 output, and all three verified-backend
       functions with zero fallback at `-O0`/`-O2` pass in Windows and POSIX
       structural NTTP gates.
+
+## RCC continuation (2026-11-04, optimized const-scalar DWARF storage)
+
+- [x] Permit verified typed-SSA promotion of automatic const integral, enum,
+      float, and double locals only when the source value has a valid
+      `DW_AT_const_value` representation. Keep volatile, atomic, reference,
+      static/TLS, and unsupported declarations ineligible. The C fixture uses
+      const float/double locals as return values; i686 and x86_64 verified
+      `-g -O2` objects preserve their exact IEEE values without frame locations.
+      `make -j4 RCXX_TARGET=./rcc++.exe test-debug-info` passes, including the
+      inline-expression verifier and zero-fallback checks.
