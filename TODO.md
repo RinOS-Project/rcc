@@ -14125,7 +14125,7 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, direct array layouts beyond the tested
-      eight-dimensional fixed-bound integer active-union alternative,
+      nine-dimensional fixed-bound integer active-union alternative,
       structural union-array element layouts beyond the tested four-dimensional
       2x2x2x2 case, and unsupported C++20 forms remain open.
   - [x] Collect pointer values from direct and nested pointer-bearing active
@@ -14433,6 +14433,15 @@ remains a separate open item.
 - [x] Support an eight-dimensional `[2][1][1][1][1][1][1][2]` integer array as
       an active structural union alternative. Substitute reads through all
       eight indices in explicit and deduced NTTPs, preserve GCC Itanium mangling,
+      and forward the deduced value through a function-template call. Strict GCC
+      C++20, exact required symbols, RCC/GCC host execution, i686/AMD64 output,
+      and all three verified-backend functions with zero fallback at `-O0`/`-O2`
+      pass in both Windows and POSIX structural NTTP gates.
+## RCC continuation (2026-11-04, nine-dimensional structural NTTP arrays)
+
+- [x] Support a nine-dimensional `[2][1][1][1][1][1][1][2]` integer array as
+      an active structural union alternative. Substitute reads through all
+      nine indices in explicit and deduced NTTPs, preserve GCC Itanium mangling,
       and forward the deduced value through a function-template call. Strict GCC
       C++20, exact required symbols, RCC/GCC host execution, i686/AMD64 output,
       and all three verified-backend functions with zero fallback at `-O0`/`-O2`
