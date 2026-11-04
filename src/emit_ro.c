@@ -6564,12 +6564,43 @@ static bool debug_inline_parameter_i686_u64_atomic_store_value(
     const Expr* destination;
     const Expr* stored_value;
     const Decl* declaration;
+    const Type* target_type;
     Type result_type;
     if (!expression || expression->kind != EXPR_ASSIGN ||
         !(destination = expression->binary_lhs) ||
-        destination->kind != EXPR_IDENT || !destination->ident_decl ||
         !(stored_value = expression->binary_rhs) ||
         !expression->type) {
+        return false;
+    }
+    if (destination->kind == EXPR_IDENT) {
+        declaration = destination->ident_decl;
+        target_type = declaration ? declaration->type : NULL;
+    } else if (destination->kind == EXPR_DEREF &&
+               destination->unary_operand &&
+               destination->unary_operand->kind == EXPR_IDENT) {
+        const Expr* pointer = destination->unary_operand;
+        const Type* pointer_type = pointer->type;
+        declaration = pointer->ident_decl;
+        target_type = destination->type;
+        if (!declaration ||
+            (declaration->kind != DECL_VAR &&
+             declaration->kind != DECL_PARAM) ||
+            !declaration->type || declaration->type->kind != TYPE_PTR ||
+            declaration->type->is_atomic ||
+            declaration->type->is_volatile ||
+            declaration->type->is_reference || !declaration->type->base ||
+            !declaration->type->base->is_atomic || !pointer_type ||
+            pointer_type->kind != TYPE_PTR || pointer_type->is_atomic ||
+            pointer_type->is_volatile || pointer_type->is_reference ||
+            !pointer_type->base || !pointer_type->base->is_atomic ||
+            !target_type ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+                declaration->type->base, pointer_type->base, 0u) ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+                pointer_type->base, target_type, 0u)) {
+            return false;
+        }
+    } else {
         return false;
     }
     result_type = *expression->type;
@@ -6583,13 +6614,13 @@ static bool debug_inline_parameter_i686_u64_atomic_store_value(
             &result_type, stored_value->type, 0u)) {
         return false;
     }
-    declaration = destination->ident_decl;
-    return (declaration->kind == DECL_VAR ||
+    return declaration &&
+        (declaration->kind == DECL_VAR ||
             declaration->kind == DECL_PARAM) && declaration->type &&
-        declaration->type->is_atomic && !declaration->type->is_volatile &&
-        !declaration->type->is_reference && declaration->type->size == 8 &&
+        target_type && target_type->is_atomic && !target_type->is_volatile &&
+        !target_type->is_reference && target_type->size == 8 &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
-            &result_type, declaration->type, 0u);
+            &result_type, target_type, 0u);
 }
 
 static bool debug_inline_parameter_i686_u64_append_word_expression(

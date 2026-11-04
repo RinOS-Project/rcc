@@ -10610,10 +10610,14 @@ static void verify_inline_i686_computed_division_expression(
     const char* inline_name = is_signed
         ? "debug_nonconstant_signed_long_long_parameter_inline"
         : "debug_nonconstant_unsigned_long_long_parameter_inline";
+    bool atomic_store_pointer_tree = atomic_store_tree && call_site_name &&
+        strstr(call_site_name, "_atomic_store_pointer_") != NULL;
     const char* dividend_name = bitwise_tree
         ? "computed_bitwise_division_dividend"
         : atomic_store_tree
-              ? "computed_atomic_store_division_dividend"
+              ? (atomic_store_pointer_tree
+                     ? "computed_atomic_store_pointer_division_dividend"
+                     : "computed_atomic_store_division_dividend")
         : dynamic_shift_tree
               ? "computed_shift_division_dividend"
         : nested_conditional_tree
@@ -10631,7 +10635,9 @@ static void verify_inline_i686_computed_division_expression(
     const char* divisor_name = bitwise_tree
         ? "computed_bitwise_division_divisor"
         : atomic_store_tree
-              ? "computed_atomic_store_division_divisor"
+              ? (atomic_store_pointer_tree
+                     ? "computed_atomic_store_pointer_division_divisor"
+                     : "computed_atomic_store_division_divisor")
         : dynamic_shift_tree
               ? "computed_shift_division_factor"
         : nested_conditional_tree
@@ -20367,6 +20373,14 @@ int main(int argc, char** argv)
             verify_inline_i686_computed_division_expression(
                 argv[index],
                 "debug_inline_nonconstant_unsigned_long_long_atomic_store_local_remainder_entry",
+                false, true, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_store_pointer_divide_entry",
+                false, false, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_store_pointer_remainder_entry",
                 false, true, false, false, false, false, false, true);
         }
         return 0;

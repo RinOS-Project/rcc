@@ -12847,18 +12847,19 @@ remains a separate open item.
         in legacy and verified `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`.
   - [x] Preserve unsigned i686 divmod values when the dividend is the result
-        of assignment to a nonvolatile `_Atomic unsigned long long`, for both
-        global and automatic-local destinations, a parameter RHS, and a
-        computed `parameter + 0x123456789abcdef0` RHS, with divisor
-        `2 * parameter + 1`. Restrict safe inline substitution to this
-        supported integer width and retain the one-parameter, one-use side
-        effect exactly once. Describe each assignment value from its RHS frame
-        expression. A dedicated fixture evaluates full-width division and
-        remainder matrices in legacy `-O1`/`-O2` objects through
+        of assignment to a nonvolatile `_Atomic unsigned long long`, with a
+        parameter RHS for global, automatic-local, and pointer-indirect
+        destinations, plus a computed `parameter + 0x123456789abcdef0` RHS for
+        the global destination. Use divisor `2 * parameter + 1`. Restrict safe
+        inline substitution to this supported integer width and retain the
+        one-parameter, one-use side effect exactly once. Describe each
+        assignment value from its RHS frame expression. A dedicated fixture
+        evaluates full-width division and remainder matrices in legacy
+        `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`. Its generated i686 assembly has
-        four global store references and six locked `cmpxchg8b` sequences, one
-        per entry function, at both optimization levels; the existing verified
-        corpus continues to emit with zero fallback.
+        four global store references and eight locked `cmpxchg8b` sequences,
+        one per entry function, at both optimization levels; the existing
+        verified corpus continues to emit with zero fallback.
         Verified SSA lowering for this atomic assignment, other atomic-store
         shapes, and atomic RMW remain open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and

@@ -2082,17 +2082,49 @@ static bool inline_scalar_argument_safe_evaluation_tree(
         case EXPR_ASSIGN: {
             const Expr* destination = expression->binary_lhs;
             const Expr* stored_value = expression->binary_rhs;
-            const Decl* declaration = destination &&
-                    destination->kind == EXPR_IDENT
-                ? destination->ident_decl : NULL;
+            const Decl* declaration = NULL;
+            const Type* target_type = NULL;
+            if (destination && destination->kind == EXPR_IDENT) {
+                declaration = destination->ident_decl;
+                target_type = declaration ? declaration->type : NULL;
+            } else if (destination && destination->kind == EXPR_DEREF &&
+                       destination->unary_operand &&
+                       destination->unary_operand->kind == EXPR_IDENT) {
+                const Expr* pointer = destination->unary_operand;
+                const Type* pointer_type = pointer->type;
+                declaration = pointer->ident_decl;
+                const Type* pointer_decl_type = declaration
+                    ? declaration->type : NULL;
+                target_type = destination->type;
+                if (!declaration ||
+                    (declaration->kind != DECL_VAR &&
+                     declaration->kind != DECL_PARAM) ||
+                    !pointer_decl_type ||
+                    pointer_decl_type->kind != TYPE_PTR ||
+                    pointer_decl_type->is_atomic ||
+                    pointer_decl_type->is_volatile ||
+                    pointer_decl_type->is_reference ||
+                    !pointer_decl_type->base ||
+                    !pointer_decl_type->base->is_atomic || !pointer_type ||
+                    pointer_type->kind != TYPE_PTR ||
+                    pointer_type->is_atomic || pointer_type->is_volatile ||
+                    pointer_type->is_reference || !pointer_type->base ||
+                    !pointer_type->base->is_atomic ||
+                    !target_type ||
+                    !type_is_compatible(pointer_decl_type->base,
+                                        pointer_type->base) ||
+                    !type_is_compatible(pointer_type->base,
+                                        (Type*)target_type)) {
+                    return false;
+                }
+            }
             return declaration &&
                 (declaration->kind == DECL_VAR ||
                  declaration->kind == DECL_PARAM) && declaration->type &&
-                declaration->type->is_atomic &&
-                !declaration->type->is_volatile &&
-                !declaration->type->is_reference &&
-                type_is_integer(declaration->type) &&
-                declaration->type->size == 8 &&
+                target_type && target_type->is_atomic &&
+                !target_type->is_volatile && !target_type->is_reference &&
+                type_is_integer((Type*)target_type) &&
+                target_type->size == 8 &&
                 expression->type && type_is_integer(expression->type) &&
                 expression->type->size == 8 && stored_value &&
                 stored_value->type &&
@@ -2102,7 +2134,7 @@ static bool inline_scalar_argument_safe_evaluation_tree(
                 type_is_integer(stored_value->type) &&
                 stored_value->type->size == 8 &&
                 expression->type->size == stored_value->type->size &&
-                expression->type->size == declaration->type->size &&
+                expression->type->size == target_type->size &&
                 inline_scalar_argument_safe_evaluation_tree(stored_value);
         }
         default:
