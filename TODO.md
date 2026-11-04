@@ -14124,10 +14124,9 @@ remains a separate open item.
       i686/AMD64 output, and all 15 verified-backend functions at `-O0` and
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
-      layouts, structural packs, direct array layouts beyond the tested
-      eleven-dimensional fixed-bound integer active-union alternative,
-      structural union-array element layouts beyond the tested four-dimensional
-      2x2x2x2 case, and unsupported C++20 forms remain open.
+      layouts, structural packs, structural union-array element layouts beyond
+      the tested four-dimensional 2x2x2x2 case, and unsupported C++20 forms
+      remain open. Direct array rank coverage is tracked below.
   - [x] Collect pointer values from direct and nested pointer-bearing active
         union alternatives into fixed-width structural value records, preserve
         pointer identity in typeinfo keys, and match GCC Itanium mangling for
