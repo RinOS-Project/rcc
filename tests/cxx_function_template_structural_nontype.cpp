@@ -28,6 +28,11 @@ struct FunctionTemplateStructuralUnionArray {
     unsigned char suffix;
 };
 
+struct FunctionTemplateStructuralUnionMatrix {
+    FunctionTemplateStructuralNestedUnion payloads[2][2];
+    unsigned char suffix;
+};
+
 struct FunctionTemplateStructuralBase {
     unsigned short prefix[2];
 };
@@ -76,6 +81,9 @@ struct FunctionTemplateStructuralUnionContainerTag {};
 
 template<FunctionTemplateStructuralUnionArray Value>
 struct FunctionTemplateStructuralUnionArrayTag {};
+
+template<FunctionTemplateStructuralUnionMatrix Value>
+struct FunctionTemplateStructuralUnionMatrixTag {};
 
 template<FunctionTemplateStructuralDerived Value>
 struct FunctionTemplateStructuralDerivedTag {};
@@ -183,6 +191,32 @@ constexpr int function_template_structural_union_array_tag_deduced(
            Value.payloads[0].tag * 10 + Value.suffix;
 }
 
+template<FunctionTemplateStructuralUnionMatrix Value>
+constexpr int function_template_structural_union_matrix_value_explicit() {
+    return Value.payloads[1][0].value * 100 +
+           Value.payloads[0][1].value * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionMatrix Value>
+constexpr int function_template_structural_union_matrix_value_deduced(
+    FunctionTemplateStructuralUnionMatrixTag<Value>) {
+    return Value.payloads[1][0].value * 100 +
+           Value.payloads[0][1].value * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionMatrix Value>
+constexpr int function_template_structural_union_matrix_tag_explicit() {
+    return Value.payloads[1][0].tag * 100 +
+           Value.payloads[0][1].tag * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionMatrix Value>
+constexpr int function_template_structural_union_matrix_tag_deduced(
+    FunctionTemplateStructuralUnionMatrixTag<Value>) {
+    return Value.payloads[1][0].tag * 100 +
+           Value.payloads[0][1].tag * 10 + Value.suffix;
+}
+
 template<FunctionTemplateStructuralDerived Value>
 constexpr int function_template_structural_derived_explicit() {
     return Value.tag * 10000 + Value.prefix[1] * 100 + Value.suffix;
@@ -264,6 +298,27 @@ static_assert(function_template_structural_union_array_tag_deduced(
                   FunctionTemplateStructuralUnionArrayTag<
                       FunctionTemplateStructuralUnionArray{
                           {{.tag = 1}, {.tag = 4}}, 2}>{}) == 412);
+static_assert(function_template_structural_union_matrix_value_explicit<
+                  FunctionTemplateStructuralUnionMatrix{
+                      {{{.value = 1}, {.value = 2}},
+                       {{.value = 3}, {.value = 4}}}, 5}>() == 325);
+static_assert(function_template_structural_union_matrix_value_explicit<
+                  FunctionTemplateStructuralUnionMatrix{
+                      {{{1}, {2}}, {{3}, {4}}}, 5}>() == 325);
+static_assert(function_template_structural_union_matrix_value_deduced(
+                  FunctionTemplateStructuralUnionMatrixTag<
+                      FunctionTemplateStructuralUnionMatrix{
+                          {{{1}, {.value = 5}},
+                           {{.value = 6}, {7}}}, 8}>{}) == 658);
+static_assert(function_template_structural_union_matrix_tag_explicit<
+                  FunctionTemplateStructuralUnionMatrix{
+                      {{{.tag = 1}, {.tag = 2}},
+                       {{.tag = 3}, {.tag = 4}}}, 5}>() == 325);
+static_assert(function_template_structural_union_matrix_tag_deduced(
+                  FunctionTemplateStructuralUnionMatrixTag<
+                      FunctionTemplateStructuralUnionMatrix{
+                          {{{.tag = 5}, {.tag = 6}},
+                           {{.tag = 7}, {.tag = 8}}}, 9}>{}) == 769);
 static_assert(function_template_structural_derived_explicit<
                   FunctionTemplateStructuralDerived{
                       {}, {{11, 23}}, {2}, {}, {{}, {}}, 7, {},
@@ -344,6 +399,27 @@ int main() {
             FunctionTemplateStructuralUnionArrayTag<
                 FunctionTemplateStructuralUnionArray{
                     {{.tag = 1}, {.tag = 4}}, 2}>{}) != 412 ||
+        function_template_structural_union_matrix_value_explicit<
+            FunctionTemplateStructuralUnionMatrix{
+                {{{.value = 1}, {.value = 2}},
+                 {{.value = 3}, {.value = 4}}}, 5}>() != 325 ||
+        function_template_structural_union_matrix_value_explicit<
+            FunctionTemplateStructuralUnionMatrix{
+                {{{1}, {2}}, {{3}, {4}}}, 5}>() != 325 ||
+        function_template_structural_union_matrix_value_deduced(
+            FunctionTemplateStructuralUnionMatrixTag<
+                FunctionTemplateStructuralUnionMatrix{
+                    {{{1}, {.value = 5}},
+                     {{.value = 6}, {7}}}, 8}>{}) != 658 ||
+        function_template_structural_union_matrix_tag_explicit<
+            FunctionTemplateStructuralUnionMatrix{
+                {{{.tag = 1}, {.tag = 2}},
+                 {{.tag = 3}, {.tag = 4}}}, 5}>() != 325 ||
+        function_template_structural_union_matrix_tag_deduced(
+            FunctionTemplateStructuralUnionMatrixTag<
+                FunctionTemplateStructuralUnionMatrix{
+                    {{{.tag = 5}, {.tag = 6}},
+                     {{.tag = 7}, {.tag = 8}}}, 9}>{}) != 769 ||
         function_template_structural_derived_explicit<
             FunctionTemplateStructuralDerived{
                 {}, {{11, 23}}, {2}, {}, {{}, {}}, 7, {},

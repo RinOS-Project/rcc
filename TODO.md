@@ -14125,7 +14125,8 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, non-scalar union alternatives, multidimensional
-      union-array layouts, and unsupported C++20 forms remain open.
+      union-array layouts beyond the tested two-dimensional case, and
+      unsupported C++20 forms remain open.
   - [x] Preserve the active scalar union member when it is a direct public
         subobject of a structural class. Recurse through explicit/deduced
         template arguments, Itanium value mangling, typeinfo identity, and
@@ -14134,11 +14135,12 @@ remains a separate open item.
         execution, and 19 fallback-free verified functions at `-O0`/`-O2` for
         i686/AMD64.
   - [x] Collect active scalar union alternatives from each element of a
-        one-dimensional fixed-bound array member in a structural class. Preserve
-        array indexing through member substitution, packed-value layout,
+        fixed-bound array member in a structural class, including a
+        two-dimensional array. Preserve every array index through member
+        substitution, packed-value layout,
         typeinfo identity, and Itanium mangling. Explicit/deduced calls, both
         active alternatives, positional/designated initialization, exact GCC
-        symbols, host execution, and 23 fallback-free verified functions at
+        symbols, host execution, and 27 fallback-free verified functions at
         `-O0`/`-O2` for i686/AMD64 pass in
         `test-cxx-function-template-structural-nontype`.
 
