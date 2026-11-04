@@ -35,6 +35,7 @@ struct FunctionTemplateStructuralUnionMatrix {
 
 struct FunctionTemplateStructuralUnionPayload {
     int code;
+    int extra;
 };
 
 union FunctionTemplateStructuralMixedUnion {
@@ -236,13 +237,20 @@ constexpr int function_template_structural_union_matrix_tag_deduced(
 
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_explicit() {
-    return Value.payload.object.code * 10 + Value.suffix;
+    return Value.payload.object.code * 100 +
+           Value.payload.object.extra * 10 + Value.suffix;
 }
 
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_deduced(
     FunctionTemplateStructuralMixedUnionTag<Value>) {
-    return Value.payload.object.code * 10 + Value.suffix;
+    return Value.payload.object.code * 100 +
+           Value.payload.object.extra * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralMixedUnionContainer Value>
+constexpr int function_template_structural_mixed_union_scalar_explicit() {
+    return Value.payload.scalar * 10 + Value.suffix;
 }
 
 template<FunctionTemplateStructuralDerived Value>
@@ -349,14 +357,17 @@ static_assert(function_template_structural_union_matrix_tag_deduced(
                            {{.tag = 7}, {.tag = 8}}}, 9}>{}) == 769);
 static_assert(function_template_structural_mixed_union_object_explicit<
                   FunctionTemplateStructuralMixedUnionContainer{
-                      {.object = {4}}, 2}>() == 42);
+                      {.object = {4, 7}}, 2}>() == 472);
 static_assert(function_template_structural_mixed_union_object_explicit<
                   FunctionTemplateStructuralMixedUnionContainer{
-                      {.object = {.code = 4}}, 2}>() == 42);
+                      {.object = {.code = 4, .extra = 7}}, 2}>() == 472);
 static_assert(function_template_structural_mixed_union_object_deduced(
                   FunctionTemplateStructuralMixedUnionTag<
                       FunctionTemplateStructuralMixedUnionContainer{
-                          {.object = {5}}, 3}>{}) == 53);
+                          {.object = {5, 6}}, 3}>{}) == 563);
+static_assert(function_template_structural_mixed_union_scalar_explicit<
+                  FunctionTemplateStructuralMixedUnionContainer{
+                      {.scalar = 4}, 2}>() == 42);
 static_assert(function_template_structural_derived_explicit<
                   FunctionTemplateStructuralDerived{
                       {}, {{11, 23}}, {2}, {}, {{}, {}}, 7, {},
@@ -460,14 +471,17 @@ int main() {
                      {{.tag = 7}, {.tag = 8}}}, 9}>{}) != 769 ||
         function_template_structural_mixed_union_object_explicit<
             FunctionTemplateStructuralMixedUnionContainer{
-                {.object = {4}}, 2}>() != 42 ||
+                {.object = {4, 7}}, 2}>() != 472 ||
         function_template_structural_mixed_union_object_explicit<
             FunctionTemplateStructuralMixedUnionContainer{
-                {.object = {.code = 4}}, 2}>() != 42 ||
+                {.object = {.code = 4, .extra = 7}}, 2}>() != 472 ||
         function_template_structural_mixed_union_object_deduced(
             FunctionTemplateStructuralMixedUnionTag<
                 FunctionTemplateStructuralMixedUnionContainer{
-                    {.object = {5}}, 3}>{}) != 53 ||
+                    {.object = {5, 6}}, 3}>{}) != 563 ||
+        function_template_structural_mixed_union_scalar_explicit<
+            FunctionTemplateStructuralMixedUnionContainer{
+                {.scalar = 4}, 2}>() != 42 ||
         function_template_structural_derived_explicit<
             FunctionTemplateStructuralDerived{
                 {}, {{11, 23}}, {2}, {}, {{}, {}}, 7, {},

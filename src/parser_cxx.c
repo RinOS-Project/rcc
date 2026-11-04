@@ -3450,6 +3450,8 @@ static bool cxx_structural_select_function_template_pointer(
 static bool cxx_structural_class_collect_member_values(
     Type* type, ExprList* initializer, bool value_init,
     int64_t* member_values, size_t member_capacity, int* member_count);
+static bool cxx_structural_class_count_member_values(
+    const Type* type, size_t* member_count);
 
 static bool cxx_structural_array_collect_scalar_values(
     Type* array_type, Expr* initializer, int64_t* member_values,
@@ -3652,6 +3654,9 @@ static bool cxx_structural_class_collect_member_values(
         int active_index = 0;
         int64_t field_value = 0;
         int field_index = 0;
+        size_t union_value_count = 0u;
+        size_t active_value_count = 0u;
+        int union_value_start;
         bool active_is_class;
         for (field = type->cxx_class->fields; field; field = field->next) {
             if (field->is_static) continue;
@@ -3666,7 +3671,8 @@ static bool cxx_structural_class_collect_member_values(
             ++field_index;
         }
         active_is_class = active_field && active_field->type &&
-            active_field->type->kind == TYPE_STRUCT;
+            (active_field->type->kind == TYPE_STRUCT ||
+             active_field->type->kind == TYPE_UNION);
         if (!active_field || active_field->is_bitfield ||
             !active_field->name || !active_field->type ||
             (!active_is_class &&
@@ -3703,9 +3709,15 @@ static bool cxx_structural_class_collect_member_values(
         }
         if (!member_values || !member_count || *member_count < 0 ||
             (size_t)*member_count > member_capacity ||
-            member_capacity - (size_t)*member_count < 2u) {
+            !cxx_structural_class_count_member_values(
+                type, &union_value_count) ||
+            union_value_count == 0u ||
+            union_value_count > (size_t)INT_MAX ||
+            union_value_count >
+                member_capacity - (size_t)*member_count) {
             return false;
         }
+        union_value_start = *member_count;
         member_values[(*member_count)++] = active_index;
         if (active_is_class) {
             ExprList* nested_initializer = field_initializer
@@ -3719,13 +3731,26 @@ static bool cxx_structural_class_collect_member_values(
                 !type_is_compatible(active_field->type, nested_type)) {
                 return false;
             }
-            return cxx_structural_class_collect_member_values(
+            if (!cxx_structural_class_count_member_values(
+                    active_field->type, &active_value_count) ||
+                !cxx_structural_class_collect_member_values(
                 active_field->type, nested_initializer,
                 !field_initializer ||
                     field_initializer->compound_value_init,
-                member_values, member_capacity, member_count);
+                member_values, member_capacity, member_count) ||
+                (size_t)(*member_count - union_value_start - 1) !=
+                    active_value_count) {
+                return false;
+            }
+        } else {
+            active_value_count = 1u;
+            member_values[(*member_count)++] = field_value;
         }
-        member_values[(*member_count)++] = field_value;
+        if (active_value_count + 1u > union_value_count) return false;
+        while ((size_t)(*member_count - union_value_start) <
+               union_value_count) {
+            member_values[(*member_count)++] = 0;
+        }
         return true;
     }
     for (field = type->cxx_class->fields; field; field = field->next) {
@@ -4054,9 +4079,6 @@ static bool cxx_structural_class_collect_member_values(
     return initializer == NULL;
 }
 
-static bool cxx_structural_class_count_member_values(
-    const Type* type, size_t* member_count);
-
 static bool cxx_structural_array_count_member_values(
     const Type* type, size_t* member_count) {
     size_t element_count = 1u;
@@ -4090,11 +4112,33 @@ static bool cxx_structural_class_count_member_values(
         return false;
     }
     if (type->cxx_class->is_union) {
-        if (type->kind != TYPE_UNION ||
-            *member_count > (size_t)INT_MAX - 2u) {
+        size_t maximum_alternative_count = 0u;
+        if (type->kind != TYPE_UNION) return false;
+        for (field = type->cxx_class->fields; field; field = field->next) {
+            size_t alternative_count = 1u;
+            if (field->is_static) continue;
+            if (field->type->kind == TYPE_STRUCT ||
+                field->type->kind == TYPE_UNION) {
+                alternative_count = 0u;
+                if (!cxx_structural_class_count_member_values(
+                        field->type, &alternative_count)) {
+                    return false;
+                }
+            } else if ((!type_is_integer(field->type) &&
+                        field->type->kind != TYPE_ENUM) ||
+                       field->type->size <= 0 || field->type->size > 8) {
+                return false;
+            }
+            if (alternative_count > maximum_alternative_count) {
+                maximum_alternative_count = alternative_count;
+            }
+        }
+        if (maximum_alternative_count >= (size_t)INT_MAX ||
+            1u + maximum_alternative_count >
+                (size_t)INT_MAX - *member_count) {
             return false;
         }
-        *member_count += 2u;
+        *member_count += 1u + maximum_alternative_count;
         return true;
     }
     for (int index = 0; index < type->cxx_class->base_count; ++index) {

@@ -809,7 +809,8 @@ static bool cxx_structural_array_element_layout(
     const Type* type, unsigned* value_bits, unsigned* leaf_count,
     unsigned* pointer_count);
 static bool cxx_structural_union_member_measure(
-    const TypeParam* field, unsigned* member_bits);
+    const TypeParam* field, unsigned* member_bits,
+    unsigned* member_leaves);
 static bool cxx_structural_class_decode_leaf(
     const TypeParam* field, uint64_t packed_value, unsigned bit_offset,
     int64_t* member_value);
@@ -1474,10 +1475,19 @@ static bool cxx_mangle_structural_value_body(
         value_type->cxx_class->is_union) {
         const TypeParam* active_field = NULL;
         int64_t active_index;
-        unsigned member_bits;
+        unsigned active_member_bits;
+        unsigned active_member_leaves;
+        unsigned union_bits = 0u;
+        unsigned union_leaf_count = 0u;
+        unsigned union_pointer_count = 0u;
         if (!recorded_values || !recorded_index || *recorded_index < 0 ||
             *recorded_index > recorded_count ||
-            2 > recorded_count - *recorded_index) {
+            !cxx_structural_class_measure_fields(
+                value_type, &union_bits, &union_leaf_count,
+                &union_pointer_count) ||
+            union_leaf_count == 0u ||
+            union_leaf_count >
+                (unsigned)(recorded_count - *recorded_index)) {
             return false;
         }
         active_index = recorded_values[(*recorded_index)++];
@@ -1486,11 +1496,14 @@ static bool cxx_mangle_structural_value_body(
                   value_type, (int)active_index)) ||
             !active_field->name ||
             !cxx_structural_union_member_measure(
-                active_field, &member_bits)) {
+                active_field, &active_member_bits,
+                &active_member_leaves) ||
+            active_member_leaves > union_leaf_count - 1u) {
             return false;
         }
         cxx_mangle_type_char(buf, pos, 'd');
-        if (active_field->type->kind == TYPE_STRUCT) {
+        if (active_field->type->kind == TYPE_STRUCT ||
+            active_field->type->kind == TYPE_UNION) {
             cxx_mangle_type_char(buf, pos, 'i');
             mangle_name(buf, pos, active_field->name);
             if (!cxx_mangle_structural_value_body(
@@ -1499,6 +1512,8 @@ static bool cxx_mangle_structural_value_body(
                 recorded_index)) {
                 return false;
             }
+            *recorded_index += (int)(union_leaf_count - 1u -
+                                     active_member_leaves);
             cxx_mangle_type_char(buf, pos, 'E');
             return true;
         }
@@ -1510,6 +1525,8 @@ static bool cxx_mangle_structural_value_body(
         cxx_mangle_template_value_suffix(
             buf, pos, active_field->type,
             recorded_values[(*recorded_index)++]);
+        *recorded_index += (int)(union_leaf_count - 1u -
+                                 active_member_leaves);
         cxx_mangle_type_char(buf, pos, 'E');
         return true;
     }
@@ -4822,26 +4839,33 @@ static bool cxx_structural_class_measure_fields(
     }
     if (cls->is_union) {
         unsigned maximum_member_bits = 0u;
+        unsigned maximum_member_leaves = 0u;
         bool has_member = false;
         if (type->kind != TYPE_UNION || cls->base_count != 0) return false;
         for (field = cls->fields; field; field = field->next) {
             unsigned field_bits;
+            unsigned field_leaves;
             if (field->is_static) continue;
             if (field->cxx_access != ACCESS_PUBLIC || !field->name ||
-                !cxx_structural_union_member_measure(field, &field_bits)) {
+                !cxx_structural_union_member_measure(
+                    field, &field_bits, &field_leaves)) {
                 return false;
             }
             if (field_bits > maximum_member_bits) {
                 maximum_member_bits = field_bits;
             }
+            if (field_leaves > maximum_member_leaves) {
+                maximum_member_leaves = field_leaves;
+            }
             has_member = true;
         }
         if (!has_member || maximum_member_bits > UINT_MAX - *total_bits ||
-            2u > UINT_MAX - *leaf_count) {
+            maximum_member_leaves == UINT_MAX ||
+            maximum_member_leaves + 1u > UINT_MAX - *leaf_count) {
             return false;
         }
         *total_bits += maximum_member_bits;
-        *leaf_count += 2u;
+        *leaf_count += maximum_member_leaves + 1u;
         return true;
     }
     if (type->kind != TYPE_STRUCT) return false;
@@ -4955,7 +4979,8 @@ static bool cxx_structural_class_measure_fields(
 }
 
 static bool cxx_structural_union_member_measure(
-    const TypeParam* field, unsigned* member_bits) {
+    const TypeParam* field, unsigned* member_bits,
+    unsigned* member_leaves) {
     if (!field || !field->type || field->is_bitfield) {
         return false;
     }
@@ -4964,18 +4989,21 @@ static bool cxx_structural_union_member_measure(
         if (member_bits) {
             *member_bits = (unsigned)field->type->size * 8u;
         }
+        if (member_leaves) *member_leaves = 1u;
         return true;
     }
-    if (field->type->kind == TYPE_STRUCT) {
+    if (field->type->kind == TYPE_STRUCT ||
+        field->type->kind == TYPE_UNION) {
         unsigned leaf_count = 0u;
         unsigned pointer_count = 0u;
         unsigned value_bits = 0u;
         if (!cxx_structural_class_measure_fields(
                 field->type, &value_bits, &leaf_count, &pointer_count) ||
-            leaf_count != 1u || pointer_count != 0u) {
+            pointer_count != 0u) {
             return false;
         }
         if (member_bits) *member_bits = value_bits;
+        if (member_leaves) *member_leaves = leaf_count;
         return true;
     }
     return false;
@@ -5352,12 +5380,14 @@ bool cxx_structural_class_pack_member_values(
     if (type->kind == TYPE_UNION && type->cxx_class->is_union) {
         const TypeParam* active_field;
         unsigned member_bits;
-        if (!member_values || member_count != 2 || member_values[0] < 0 ||
+        unsigned member_leaves;
+        if (!member_values || member_count != (int)leaf_count ||
+            member_values[0] < 0 ||
             member_values[0] > INT_MAX ||
             !(active_field = cxx_structural_union_field_at(
                   type, (int)member_values[0])) ||
             !cxx_structural_union_member_measure(
-                active_field, &member_bits)) {
+                active_field, &member_bits, &member_leaves)) {
             return false;
         }
         return cxx_structural_class_value_record_register(
@@ -5434,9 +5464,17 @@ static bool cxx_structural_class_find_member_path(
     if (type->kind == TYPE_UNION && type->cxx_class->is_union) {
         const TypeParam* active_field;
         int64_t active_index;
+        unsigned union_bits = 0u;
+        unsigned union_leaf_count = 0u;
+        unsigned union_pointer_count = 0u;
         if (!recorded_values || !value_index || *value_index < 0 ||
             *value_index > recorded_count ||
-            2 > recorded_count - *value_index ||
+            !cxx_structural_class_measure_fields(
+                type, &union_bits, &union_leaf_count,
+                &union_pointer_count) ||
+            union_leaf_count == 0u ||
+            union_leaf_count >
+                (unsigned)(recorded_count - *value_index) ||
             array_element_index >= 0) {
             return false;
         }
@@ -5448,7 +5486,8 @@ static bool cxx_structural_class_find_member_path(
             return false;
         }
         if (active_field->type &&
-            active_field->type->kind == TYPE_STRUCT) {
+            (active_field->type->kind == TYPE_STRUCT ||
+             active_field->type->kind == TYPE_UNION)) {
             if (path_index + 1 >= member_name_count) return false;
             return cxx_structural_class_find_member_path(
                 active_field->type, packed_value, member_names,
@@ -7218,22 +7257,34 @@ static void cxx_typeinfo_identity_append_structural_values(
         type->cxx_class->is_union) {
         const TypeParam* active_field = NULL;
         int64_t active_index;
+        unsigned active_member_leaves = 0u;
+        unsigned union_bits = 0u;
+        unsigned union_leaf_count = 0u;
+        unsigned union_pointer_count = 0u;
         if (!value_index || *value_index < 0 ||
             *value_index > value_count ||
-            2 > value_count - *value_index) {
+            !cxx_structural_class_measure_fields(
+                type, &union_bits, &union_leaf_count,
+                &union_pointer_count) ||
+            union_leaf_count == 0u ||
+            union_leaf_count >
+                (unsigned)(value_count - *value_index)) {
             rcc_fatal("C++ typeinfo structural union value is incomplete");
         }
         active_index = values[(*value_index)++];
         if (active_index < 0 || active_index > INT_MAX ||
             !(active_field = cxx_structural_union_field_at(
                   type, (int)active_index)) || !active_field->name ||
-            !cxx_structural_union_member_measure(active_field, NULL)) {
+            !cxx_structural_union_member_measure(
+                active_field, NULL, &active_member_leaves) ||
+            active_member_leaves > union_leaf_count - 1u) {
             rcc_fatal("C++ typeinfo structural union member is invalid");
         }
         cxx_typeinfo_identity_append_char(builder, 'U');
         cxx_typeinfo_identity_append_text(builder, active_field->name);
         cxx_typeinfo_identity_append_type(builder, active_field->type);
-        if (active_field->type->kind == TYPE_STRUCT) {
+        if (active_field->type->kind == TYPE_STRUCT ||
+            active_field->type->kind == TYPE_UNION) {
             cxx_typeinfo_identity_append_structural_values(
                 builder, active_field->type, values, value_count,
                 value_index);
@@ -7241,6 +7292,8 @@ static void cxx_typeinfo_identity_append_structural_values(
             cxx_typeinfo_identity_append_signed(
                 builder, values[(*value_index)++]);
         }
+        *value_index += (int)(union_leaf_count - 1u -
+                              active_member_leaves);
         return;
     }
     for (field = type->cxx_class->fields; field; field = field->next) {

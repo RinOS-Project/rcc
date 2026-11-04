@@ -14125,8 +14125,9 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, multi-field or pointer-bearing structural
-      union alternatives, union-array layouts beyond the tested two-dimensional
-      case, and unsupported C++20 forms remain open.
+      union alternatives containing pointers, direct floating/array union
+      alternatives, union-array layouts beyond the tested two-dimensional case,
+      and unsupported C++20 forms remain open.
   - [x] Preserve the active scalar union member when it is a direct public
         subobject of a structural class. Recurse through explicit/deduced
         template arguments, Itanium value mangling, typeinfo identity, and
@@ -14143,13 +14144,15 @@ remains a separate open item.
         symbols, host execution, and 27 fallback-free verified functions at
         `-O0`/`-O2` for i686/AMD64 pass in
         `test-cxx-function-template-structural-nontype`.
-  - [x] Accept a union's active alternative when it is a public structural
-        class containing one pointer-free scalar leaf. Recursively collect the
-        nested value, substitute member reads, preserve typeinfo identity, and
-        match GCC's Itanium union-member encoding. Verify positional and
-        designated initialization at the nested class level, explicit/deduced
-        arguments, strict GCC C++20, exact symbols, host execution, and 29
-        fallback-free verified functions at `-O0`/`-O2` for i686/AMD64 in
+  - [x] Accept active union alternatives that are public structural classes
+        containing one or more pointer-free scalar leaves. Store a fixed-width
+        value record based on the largest alternative, pad smaller active
+        alternatives, recursively collect and read nested fields, preserve
+        typeinfo identity, and match GCC's Itanium union-member encoding. Verify
+        a two-leaf class alternative and a smaller scalar alternative, positional
+        and designated nested initialization, explicit/deduced arguments, strict
+        GCC C++20, exact symbols, host execution, and 30 fallback-free verified
+        functions at `-O0`/`-O2` for i686/AMD64 in
         `test-cxx-function-template-structural-nontype`.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)
