@@ -14242,6 +14242,12 @@ remains a separate open item.
         symbols. Strict C++20, RCC/GCC host execution, i686/AMD64 output, and
         all 56 verified-backend functions with zero fallback at `-O0`/`-O2`
         pass in `test-cxx-function-template-structural-nontype`.
+  - [x] Preserve binary64 `long double` values in direct structural-class
+        members, not only active union alternatives. Verify explicit and
+        deduced NTTP member reads, strict GCC C++20, exact `-mlong-double-64`
+        and RCC Itanium symbols, host execution, i686/AMD64 output, and all 58
+        verified-backend functions with zero fallback at `-O0`/`-O2` in
+        `test-cxx-function-template-structural-nontype`.
   - [x] Preserve RinOS binary64 `long double` as a distinct active structural
         union value. Verify explicit/deduced member reads and exact Itanium
         floating-value symbols against GCC's `-mlong-double-64` ABI oracle.
