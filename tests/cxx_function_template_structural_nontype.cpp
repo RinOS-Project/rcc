@@ -103,6 +103,8 @@ struct FunctionTemplateStructuralConstexprConstructor {
 
     constexpr explicit FunctionTemplateStructuralConstexprConstructor(
         int input) : value(input + 1) {}
+
+    constexpr ~FunctionTemplateStructuralConstexprConstructor() {}
 };
 
 inline constexpr int function_template_structural_pointer_array_first = 13;

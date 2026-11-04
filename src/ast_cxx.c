@@ -4862,10 +4862,48 @@ bool cxx_method_override_signature_matches(const CxxMethod* derived,
                               base->decl->type->ret_type);
 }
 
-static bool cxx_structural_class_has_destructor(const CxxClass* cls) {
+static bool cxx_structural_class_constructor_is_copy_or_move(
+    const CxxClass* cls, const CxxConstructorInfo* constructor) {
+    const TypeParam* parameter = constructor ? constructor->parameters : NULL;
+    if (!cls || !parameter || !parameter->type ||
+        parameter->type->kind != TYPE_PTR ||
+        !parameter->type->is_reference || !parameter->type->base ||
+        parameter->type->base->cxx_class != cls) {
+        return false;
+    }
+    for (parameter = parameter->next; parameter; parameter = parameter->next) {
+        if (!parameter->initializer) return false;
+    }
+    return true;
+}
+
+static bool cxx_structural_class_has_literal_constructor(
+    const CxxClass* cls) {
+    for (const CxxConstructorInfo* constructor =
+             cls ? cls->constructors : NULL;
+         constructor; constructor = constructor->next) {
+        const CxxMethod* method = constructor->method;
+        if (!method || (!method->is_constexpr && !method->is_defaulted) ||
+            method->is_deleted || constructor->is_deleted ||
+            cxx_structural_class_constructor_is_copy_or_move(
+                cls, constructor)) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool cxx_structural_class_has_nonconstexpr_destructor(
+    const CxxClass* cls) {
     const struct CxxMember* member;
     for (member = cls ? cls->members : NULL; member; member = member->next) {
-        if (member->method && member->method->is_destructor) return true;
+        const CxxMethod* method = member->method;
+        if (method && method->is_destructor &&
+            (method->is_deleted ||
+             (!method->is_constexpr && !method->is_defaulted))) {
+            return true;
+        }
     }
     return false;
 }
@@ -4879,8 +4917,10 @@ static bool cxx_structural_class_measure_fields(
         (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
         !(cls = type->cxx_class) ||
         cls->has_nonpublic_field ||
+        (cls->has_user_constructor &&
+         !cxx_structural_class_has_literal_constructor(cls)) ||
         cls->vtable_size != 0 || cls->is_abstract ||
-        cxx_structural_class_has_destructor(cls)) {
+        cxx_structural_class_has_nonconstexpr_destructor(cls)) {
         return false;
     }
     if (cls->is_union) {

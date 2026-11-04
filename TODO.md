@@ -14371,3 +14371,15 @@ remains a separate open item.
       strict C++20, both host programs, and all 37 verified-backend functions
       with zero fallback at `-O0`/`-O2` pass in
       `test-cxx-nested-class-template-owner-structural-value-pack`.
+
+## RCC continuation (2026-11-04, constexpr destructors in structural NTTPs)
+
+- [x] Permit C++20 structural classes with a `constexpr` destructor, while
+      continuing to reject deleted or non-`constexpr` user-declared
+      destructors. For classes with user-declared constructors, require an
+      available non-copy/move `constexpr` or defaulted constructor. Extend the
+      structural function-template NTTP fixture with a user-provided
+      `constexpr` destructor and verify strict GCC C++20, exact Itanium symbols,
+      RCC/GCC host execution, i686/AMD64 output, and 68 verified-backend
+      functions with zero fallback at `-O0`/`-O2` in the Windows and POSIX
+      `test-cxx-function-template-structural-nontype` gates.
