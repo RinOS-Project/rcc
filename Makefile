@@ -870,7 +870,7 @@ CXX_NESTED_STRUCTURAL_UNION_ARRAY_MEMBER_PACK_SYMBOLS = \
 .PHONY: test-c-wide-literals test-wide-literal-rin-format \
 	test-c-numeric-escape-ranges test-cxx-numeric-escape-ranges
 .PHONY: test-utf16-utf32-rin-format
-.PHONY: test-compiler-builtins
+.PHONY: test-compiler-builtins test-sse1-cvtsi2ss
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -21259,7 +21259,7 @@ test-noreturn: $(RCC_TARGET)
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
-test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
@@ -21406,6 +21406,46 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins
 	$(GREP) -F -q "__builtin_add_overflow operands and result must have the same integer width and signedness" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	@echo "C/C++ compiler builtin intrinsic tests completed"
+
+test-sse1-cvtsi2ss: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors \
+		-msse -mno-sse2 -DRCC_EXPECT_SSE1 \
+		-o $(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-gcc \
+		tests/sse1_cvtsi2ss.c
+	$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 \
+		-DRCC_EXPECT_SSE1 \
+		-Iinclude -S -o $(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x86.s \
+		tests/sse1_cvtsi2ss.c
+	$(CC) -m32 -c -o $(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x86.o \
+		$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x86.s
+	$(OBJDUMP) -d -M att $(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x86-disassembly.log
+	$(GREP) -F -q "cvtsi2ss" \
+		$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x86-disassembly.log
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x86,$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse -mno-sse2 \
+		-DRCC_EXPECT_SSE1 \
+		-Iinclude -S -o $(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x64.s \
+		tests/sse1_cvtsi2ss.c
+	$(CC) -c -o $(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x64.o \
+		$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x64.s
+	$(OBJDUMP) -d -M att $(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x64-disassembly.log
+	$(GREP) -F -q "cvtsi2ss" \
+		$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x64-disassembly.log
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x64,$(TEST_OUT)/compiler-builtins/sse1-cvtsi2ss-x64.s)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse1-cvtsi642ss-x86.ro tests/invalid_sse1_cvtsi642ss.c,$(TEST_OUT)/compiler-builtins/invalid-sse1-cvtsi642ss-x86.log)
+	$(GREP) -F -q "requires an x86_64 target" $(TEST_OUT)/compiler-builtins/invalid-sse1-cvtsi642ss-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse1-cvtsi642ss-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -mno-sse -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x86.ro tests/sse1_cvtsi2ss.c,$(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x86.log)
+	$(GREP) -F -q "requires SSE; enable it with -msse" $(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -mno-sse -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x64.ro tests/sse1_cvtsi2ss.c,$(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x64.log)
+	$(GREP) -F -q "requires SSE; enable it with -msse" $(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse1-disabled-x64.ro)
+	@echo "SSE1 integer-to-scalar conversion tests completed"
 
 ifeq ($(OS),Windows_NT)
 FLOATING_MATH_X86_LINK = $(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main'
