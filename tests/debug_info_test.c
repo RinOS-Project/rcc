@@ -10642,6 +10642,8 @@ static void verify_inline_i686_computed_division_expression(
                      : "computed_conditional_division_divisor")
               : (is_signed ? "computed_division_divisor"
                            : "computed_unsigned_division_divisor");
+    bool atomic_store_computed_tree = atomic_store_tree &&
+        strstr(call_site_name, "_atomic_store_computed_") != NULL;
     size_t dividend_count = is_signed
         ? sizeof(signed_dividends) / sizeof(signed_dividends[0])
         : sizeof(unsigned_dividends) / sizeof(unsigned_dividends[0]);
@@ -10801,7 +10803,10 @@ static void verify_inline_i686_computed_division_expression(
                     ? dividend % divisor : dividend / divisor);
             } else {
                 uint64_t dividend = atomic_store_tree
-                    ? dividend_bits
+                    ? (atomic_store_computed_tree
+                           ? dividend_bits +
+                                 UINT64_C(0x123456789abcdef0)
+                           : dividend_bits)
                     : dynamic_shift_tree
                     ? dividend_bits << (divisor_bits & 63u)
                     : nested_conditional_tree
@@ -20346,6 +20351,14 @@ int main(int argc, char** argv)
             verify_inline_i686_computed_division_expression(
                 argv[index],
                 "debug_inline_nonconstant_unsigned_long_long_atomic_store_remainder_entry",
+                false, true, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_store_computed_divide_entry",
+                false, false, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_store_computed_remainder_entry",
                 false, true, false, false, false, false, false, true);
         }
         return 0;

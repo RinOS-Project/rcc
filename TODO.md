@@ -12847,18 +12847,19 @@ remains a separate open item.
         in legacy and verified `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`.
   - [x] Preserve unsigned i686 divmod values when the dividend is the result
-        of a simple assignment to a nonvolatile `_Atomic unsigned long long`
-        identifier and the divisor is `2 * parameter + 1`. Extend safe inline
-        substitution to retain this one-parameter, one-use side effect exactly
-        once, and describe the value from its RHS frame slot. A dedicated
-        atomic-store fixture evaluates full-width division and remainder
-        matrices in legacy `-O1`/`-O2` objects through
-        `test-debug-info-inline-expression`. Its generated i686 assembly has
-        one global store reference and one locked `cmpxchg8b` sequence per
-        entry at both optimization levels; the existing verified corpus
-        continues to emit with zero fallback. Verified SSA lowering for this
-        atomic assignment, other atomic-store shapes, and atomic RMW remain
-        open.
+        of assignment to a nonvolatile `_Atomic unsigned long long`
+        identifier, for both a parameter RHS and a computed `parameter +
+        0x123456789abcdef0` RHS, with divisor `2 * parameter + 1`. Restrict
+        safe inline substitution to this supported integer width and retain
+        the one-parameter, one-use side effect exactly once. Describe each
+        assignment value from its RHS frame expression. A dedicated fixture
+        evaluates full-width division and remainder matrices in legacy
+        `-O1`/`-O2` objects through `test-debug-info-inline-expression`. Its
+        generated i686 assembly has one global store reference and one locked
+        `cmpxchg8b` sequence per entry at both optimization levels; the
+        existing verified corpus continues to emit with zero fallback.
+        Verified SSA lowering for this atomic assignment, other atomic-store
+        shapes, and atomic RMW remain open.
   - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
         computed nonzero divisor. Cover shift counts 0, 1, 2, 7, 31, 32, 33,
         and 63, including a zero raw factor, across the full-width matrix in

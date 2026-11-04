@@ -2089,9 +2089,18 @@ static bool inline_scalar_argument_safe_evaluation_tree(
                 (declaration->kind == DECL_VAR ||
                  declaration->kind == DECL_PARAM) && declaration->type &&
                 declaration->type->is_atomic &&
-                type_is_scalar(declaration->type) &&
-                expression->type && type_is_scalar(expression->type) &&
-                stored_value && type_is_scalar(stored_value->type) &&
+                !declaration->type->is_volatile &&
+                !declaration->type->is_reference &&
+                type_is_integer(declaration->type) &&
+                declaration->type->size == 8 &&
+                expression->type && type_is_integer(expression->type) &&
+                expression->type->size == 8 && stored_value &&
+                stored_value->type &&
+                !stored_value->type->is_volatile &&
+                !stored_value->type->is_atomic &&
+                !stored_value->type->is_reference &&
+                type_is_integer(stored_value->type) &&
+                stored_value->type->size == 8 &&
                 expression->type->size == stored_value->type->size &&
                 expression->type->size == declaration->type->size &&
                 inline_scalar_argument_safe_evaluation_tree(stored_value);
