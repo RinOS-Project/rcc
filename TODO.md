@@ -14383,3 +14383,16 @@ remains a separate open item.
       RCC/GCC host execution, i686/AMD64 output, and 68 verified-backend
       functions with zero fallback at `-O0`/`-O2` in the Windows and POSIX
       `test-cxx-function-template-structural-nontype` gates.
+
+## RCC continuation (2026-11-04, bit-field union NTTPs)
+
+- [x] Accept public named integer and enum bit-fields as active alternatives
+      of structural unions. Preserve signed and unsigned values in explicit
+      function-template NTTPs, match GCC's exact Itanium symbols, and verify
+      strict GCC C++20, host execution, i686/AMD64 output, and all three
+      verified-backend functions with zero fallback at `-O0`/`-O2` in both
+      Windows and POSIX `test-cxx-function-template-structural-nontype` gates.
+- [ ] Support standard-valid bit-field widths larger than the declared
+      integral type and give those fields correct storage layout and access.
+      The current parser and structural-value path reject them; the C++20
+      wording permits excess width as padding bits ([class.bit](https://eel.is/c++draft/class.bit)).

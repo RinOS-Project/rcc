@@ -3685,8 +3685,7 @@ static bool cxx_structural_class_collect_member_values(
             active_field->type->kind == TYPE_ARRAY;
         active_is_pointer = active_field && active_field->type &&
             active_field->type->kind == TYPE_PTR;
-        if (!active_field || active_field->is_bitfield ||
-            !active_field->name || !active_field->type ||
+        if (!active_field || !active_field->name || !active_field->type ||
             (!active_is_class && !active_is_array &&
              !active_is_pointer && !type_is_integer(active_field->type) &&
              active_field->type->kind != TYPE_ENUM &&

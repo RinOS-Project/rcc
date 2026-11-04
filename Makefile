@@ -655,6 +655,10 @@ endif
 .PHONY: test-cxx-nullptr-bool-conversion
 .PHONY: test-cxx-function-template-structural-nontype test-cxx-function-template-structural-nontype-posix
 
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNION_BITFIELD_SYMBOLS = \
+	_Z31structural_bitfield_union_valueIXtl23StructuralBitFieldUniondi3lowLh17EEEEiv \
+	_Z38structural_bitfield_union_signed_valueIXtl23StructuralBitFieldUniondi4highLan7EEEEiv
+
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS = \
 	_Z43function_template_structural_value_explicitIXtl32FunctionTemplateStructuralTargetLi37EEEEiv \
 	_Z42function_template_structural_value_deducedIXtl32FunctionTemplateStructuralTargetLi41EEEEi34FunctionTemplateStructuralValueTagIXT_EE \
@@ -6020,7 +6024,20 @@ test-cxx-array-function-bool-reference-invalid: $(RCXX_TARGET)
 
 test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-nontype)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-union-bitfield)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-structural-union-bitfield,cxx_function_template_structural_union_bitfield.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-host \
+		tests/cxx_function_template_structural_union_bitfield.cpp
+	$(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-host
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-symbols.s \
+		tests/cxx_function_template_structural_union_bitfield.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNION_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNION_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-union-bitfield/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNION_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-union-bitfield/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-union-bitfield,cxx_function_template_structural_union_bitfield.cpp,3)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-host \
 		tests/cxx_function_template_structural_nontype.cpp
@@ -7839,7 +7856,20 @@ test-cxx-adl-function-template-specialization: $(RCXX_TARGET)
 
 test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-nontype)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-structural-union-bitfield)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-structural-union-bitfield,cxx_function_template_structural_union_bitfield.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-host.exe \
+		tests/cxx_function_template_structural_union_bitfield.cpp
+	$(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-host.exe
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-symbols.s \
+		tests/cxx_function_template_structural_union_bitfield.cpp
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNION_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-union-bitfield/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNION_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-union-bitfield/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_UNION_BITFIELD_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-union-bitfield/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-union-bitfield,cxx_function_template_structural_union_bitfield.cpp,3)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-function-template-structural-nontype/gcc-host.exe \
 		tests/cxx_function_template_structural_nontype.cpp

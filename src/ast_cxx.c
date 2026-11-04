@@ -1566,10 +1566,12 @@ static bool cxx_mangle_structural_value_body(
         cxx_mangle_type_char(buf, pos, 'i');
         mangle_name(buf, pos, active_field->name);
         cxx_mangle_type_char(buf, pos, 'L');
-        cxx_mangle_type_append_context(
-            buf, pos, active_field->type, context);
+        Type* active_mangled_type =
+            cxx_structural_field_mangled_type(active_field);
+        cxx_mangle_type_append_context(buf, pos, active_mangled_type,
+                                       context);
         cxx_mangle_template_value_suffix(
-            buf, pos, active_field->type,
+            buf, pos, active_mangled_type,
             recorded_values[(*recorded_index)++]);
         *recorded_index += (int)(union_leaf_count - 1u -
                                  active_member_leaves);
@@ -5074,8 +5076,21 @@ static bool cxx_structural_class_measure_fields(
 static bool cxx_structural_union_member_measure(
     const TypeParam* field, unsigned* member_bits,
     unsigned* member_leaves, unsigned* member_pointers) {
-    if (!field || !field->type || field->is_bitfield) {
-        return false;
+    if (!field || !field->type) return false;
+    if (field->is_bitfield) {
+        if ((!type_is_integer(field->type) &&
+             field->type->kind != TYPE_ENUM) ||
+            field->type->size <= 0 || field->type->size > 8 ||
+            field->bit_width == 0u ||
+            field->bit_width > (unsigned)field->type->size * 8u) {
+            return false;
+        }
+        if (member_bits) {
+            *member_bits = (unsigned)field->type->size * 8u;
+        }
+        if (member_leaves) *member_leaves = 1u;
+        if (member_pointers) *member_pointers = 0u;
+        return true;
     }
     if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
         if (field->type->size <= 0 || field->type->size > 8) return false;
