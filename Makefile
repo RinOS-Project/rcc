@@ -871,6 +871,7 @@ CXX_NESTED_STRUCTURAL_UNION_ARRAY_MEMBER_PACK_SYMBOLS = \
 	test-c-numeric-escape-ranges test-cxx-numeric-escape-ranges
 .PHONY: test-utf16-utf32-rin-format
 .PHONY: test-compiler-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate
+.PHONY: test-sse2-movntdq-feature-lowering
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
 .PHONY: test-cxx-shared-virtual-base
@@ -21259,7 +21260,7 @@ test-noreturn: $(RCC_TARGET)
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
-test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins test-sse1-cvtsi2ss test-sse1-comi-feature-gate test-sse2-movntdq-feature-lowering
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
@@ -21530,6 +21531,86 @@ test-sse1-comi-feature-gate: $(RCC_TARGET)
 	$(GREP) -F -q "__builtin_ia32_ucomisdeq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse1-comisd-x64.ro)
 	@echo "SSE1/SSE2 COMI feature-gate and opcode tests completed"
+
+test-sse2-movntdq-feature-lowering: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors \
+		-msse -mno-sse2 -DRCC_EXPECT_SSE1 \
+		-o $(TEST_OUT)/compiler-builtins/sse1-movntps-gcc \
+		tests/sse1_movntps.c
+	$(TEST_OUT)/compiler-builtins/sse1-movntps-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 \
+		-DRCC_EXPECT_SSE1 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse1-movntps-x86.s \
+		tests/sse1_movntps.c
+	$(CC) -m32 -c -o $(TEST_OUT)/compiler-builtins/sse1-movntps-x86.o \
+		$(TEST_OUT)/compiler-builtins/sse1-movntps-x86.s
+	$(OBJDUMP) -d -M att --disassemble=store_ntps \
+		$(TEST_OUT)/compiler-builtins/sse1-movntps-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-movntps-x86-opcode.log
+	$(GREP) -F -q "0f 2b" \
+		$(TEST_OUT)/compiler-builtins/sse1-movntps-x86-opcode.log
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse1-movntps-x86,$(TEST_OUT)/compiler-builtins/sse1-movntps-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse -mno-sse2 \
+		-DRCC_EXPECT_SSE1 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse1-movntps-x64.s \
+		tests/sse1_movntps.c
+	$(CC) -c -o $(TEST_OUT)/compiler-builtins/sse1-movntps-x64.o \
+		$(TEST_OUT)/compiler-builtins/sse1-movntps-x64.s
+	$(OBJDUMP) -d -M att --disassemble=store_ntps \
+		$(TEST_OUT)/compiler-builtins/sse1-movntps-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse1-movntps-x64-opcode.log
+	$(GREP) -F -q "0f 2b" \
+		$(TEST_OUT)/compiler-builtins/sse1-movntps-x64-opcode.log
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse1-movntps-x64,$(TEST_OUT)/compiler-builtins/sse1-movntps-x64.s)
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors \
+		-msse2 -DRCC_EXPECT_SSE2 \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movnt-gcc \
+		tests/sse2_movnt.c
+	$(TEST_OUT)/compiler-builtins/sse2-movnt-gcc
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse2 \
+		-DRCC_EXPECT_SSE2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movnt-x86.s \
+		tests/sse2_movnt.c
+	$(CC) -m32 -c -o $(TEST_OUT)/compiler-builtins/sse2-movnt-x86.o \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x86.s
+	$(OBJDUMP) -d -M att --disassemble=store_ntpd \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x86-pd-opcode.log
+	$(GREP) -F -q "66 0f 2b" \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x86-pd-opcode.log
+	$(OBJDUMP) -d -M att --disassemble=store_ntdq \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x86.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x86-dq-opcode.log
+	$(GREP) -F -q "66 0f e7" \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x86-dq-opcode.log
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compiler-builtins/sse2-movnt-x86,$(TEST_OUT)/compiler-builtins/sse2-movnt-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse2 \
+		-DRCC_EXPECT_SSE2 -Iinclude -S \
+		-o $(TEST_OUT)/compiler-builtins/sse2-movnt-x64.s \
+		tests/sse2_movnt.c
+	$(CC) -c -o $(TEST_OUT)/compiler-builtins/sse2-movnt-x64.o \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x64.s
+	$(OBJDUMP) -d -M att --disassemble=store_ntpd \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x64-pd-opcode.log
+	$(GREP) -F -q "66 0f 2b" \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x64-pd-opcode.log
+	$(OBJDUMP) -d -M att --disassemble=store_ntdq \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x64.o > \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x64-dq-opcode.log
+	$(GREP) -F -q "66 0f e7" \
+		$(TEST_OUT)/compiler-builtins/sse2-movnt-x64-dq-opcode.log
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/compiler-builtins/sse2-movnt-x64,$(TEST_OUT)/compiler-builtins/sse2-movnt-x64.s)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -msse -mno-sse2 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x86.ro tests/sse2_movnt.c,$(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x86.log)
+	$(GREP) -F -q "__builtin_ia32_movntdq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x86.log
+	$(GREP) -F -q "__builtin_ia32_movntpd requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -msse -mno-sse2 -Iinclude -c -o $(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x64.ro tests/sse2_movnt.c,$(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x64.log)
+	$(GREP) -F -q "__builtin_ia32_movntdq requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x64.log
+	$(GREP) -F -q "__builtin_ia32_movntpd requires SSE2; enable it with -msse2" $(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/compiler-builtins/invalid-sse2-movnt-x64.ro)
+	@echo "SSE2 non-temporal store tests completed"
 
 ifeq ($(OS),Windows_NT)
 FLOATING_MATH_X86_LINK = $(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main'
