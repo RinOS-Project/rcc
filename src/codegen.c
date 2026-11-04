@@ -7502,11 +7502,17 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
             gen_sse_store_result32(mod, expr, 0);
             return true;
         }
-        if (strcmp(name, "cvtsi2ss") == 0 ||
-            strcmp(name, "cvtsi642ss") == 0) {
+        if (strcmp(name, "cvtsi2ss") == 0) {
+            emit_sub_reg_imm(mod, ESP, 8);
+            gen_expr(mod, call_argument(expr, 1));
+            emit_mov_mem_reg(mod, ESP, 0, EAX);
             gen_expr(mod, call_argument(expr, 0));
-            emit_int_to_sse32(mod, 0, EAX,
-                              strcmp(name, "cvtsi642ss") == 0 ? 8 : 4, 4);
+            emit_mov_mem_reg(mod, ESP, 4, EAX);
+            emit_mov_reg_mem(mod, ECX, ESP, 4);
+            emit_sse128_memory(mod, 0, ECX, 0, 0, 0x10);
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            emit_int_to_sse32(mod, 0, ECX, 4, 4);
+            emit_add_reg_imm(mod, ESP, 8);
             gen_sse_store_result32(mod, expr, 0);
             return true;
         }

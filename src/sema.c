@@ -34037,6 +34037,12 @@ static bool sema_sse2_builtin_name(const char* name) {
     const char* suffix;
     if (!sema_sse_builtin_name(name)) return false;
     suffix = name + 15;
+    if (strcmp(suffix, "cvtsi2ss") == 0 ||
+        strcmp(suffix, "cvtsi642ss") == 0 ||
+        strcmp(suffix, "cvtss2si") == 0 ||
+        strcmp(suffix, "cvttss2si") == 0 ||
+        strcmp(suffix, "cvtss2si64") == 0 ||
+        strcmp(suffix, "cvttss2si64") == 0) return false;
     if (strcmp(suffix, "pause") == 0 || strcmp(suffix, "clflush") == 0 ||
         strcmp(suffix, "lfence") == 0 || strcmp(suffix, "mfence") == 0 ||
         strcmp(suffix, "movnti") == 0 || strcmp(suffix, "movntdq") == 0 ||
@@ -34173,6 +34179,11 @@ static void sema_validate_sse_operands(Expr* call, const char* name,
         sema_sse_require_vector(call, name, 1);
     } else if (strcmp(suffix, "cvtsi2ss") == 0 ||
                strcmp(suffix, "cvtsi642ss") == 0) {
+        if (strcmp(suffix, "cvtsi642ss") == 0 &&
+            g_opts.target_arch != ARCH_X64) {
+            rcc_error(call->loc,
+                      "%s requires an x86_64 target", name);
+        }
         sema_sse_require_vector(call, name, 0);
         sema_sse_require_integer(call, name, 1);
     } else if (strncmp(suffix, "cvt", 3) == 0 ||

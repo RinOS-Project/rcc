@@ -3498,9 +3498,17 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
         }
         if (strcmp(name, "cvtsi2ss") == 0 ||
             strcmp(name, "cvtsi642ss") == 0) {
+            emit64_sub_reg_imm(mod, RSP, 16);
+            gen64_expr(mod, call64_argument(expr, 1));
+            emit64_mov_mem_reg(mod, RSP, 0, RAX);
             gen64_expr(mod, call64_argument(expr, 0));
-            emit64_int_to_sse(mod, 0, RAX,
+            emit64_mov_mem_reg(mod, RSP, 8, RAX);
+            emit64_mov_reg_mem(mod, RCX, RSP, 8);
+            emit64_sse128_memory(mod, 0, RCX, 0, 0, 0x10);
+            emit64_mov_reg_mem(mod, RCX, RSP, 0);
+            emit64_int_to_sse(mod, 0, RCX,
                               strcmp(name, "cvtsi642ss") == 0 ? 8 : 4, 4);
+            emit64_add_reg_imm(mod, RSP, 16);
             emit64_sse_store_result(mod, expr, 0);
             return true;
         }
