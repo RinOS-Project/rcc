@@ -14273,3 +14273,13 @@ remains a separate open item.
       x64 `-O0`/`-O2` runtime with zero fallback. Full `test-verified-backend`
       passes after demoting an existing `libs/libc/time.h` unused-parameter
       warning in its host-only GCC command.
+
+## RCC continuation (2026-11-04, union-valued structural NTTP packs)
+
+- [x] Include a named active scalar union member in each structural-class
+      non-type parameter pack value, fold over the active member and adjacent
+      scalar, and verify the empty-pack identity. Exact GCC Itanium symbols match
+      RCC on i686 and AMD64; the RCC and GCC host programs pass, and the focused
+      `test-cxx-nested-class-template-owner-structural-value-pack` gate emits all
+      29 functions with zero verified-backend fallback at `-O0` and `-O2` for
+      both architectures.

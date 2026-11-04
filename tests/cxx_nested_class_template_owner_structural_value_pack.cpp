@@ -42,6 +42,16 @@ struct NestedStructuralNullptrRecordKey {
     unsigned long long second;
 };
 
+union NestedStructuralPackUnion {
+    int value;
+    unsigned char tag;
+};
+
+struct NestedStructuralUnionValueKey {
+    NestedStructuralPackUnion payload;
+    unsigned char suffix;
+};
+
 struct NestedStructuralEmptyKey {};
 
 struct NestedStructuralPairKey {
@@ -158,6 +168,13 @@ struct NestedStructuralNullptrRecordOwnerPack {
                   Values.values[1] == nullptr)
                      ? static_cast<int>(Values.first + Values.second)
                      : -1) + ... + 0);
+    }
+};
+
+template <NestedStructuralUnionValueKey... Values>
+struct NestedStructuralUnionValueOwnerPack {
+    static constexpr int combined() {
+        return (((Values.payload.value * 100) + Values.suffix) + ... + 0);
     }
 };
 
@@ -361,5 +378,11 @@ int main() {
         != 108) {
         return 23;
     }
+    if (NestedStructuralUnionValueOwnerPack<
+            NestedStructuralUnionValueKey{{.value = 4}, 2},
+            NestedStructuralUnionValueKey{{.value = 7}, 3}>::combined() != 1105) {
+        return 27;
+    }
+    if (NestedStructuralUnionValueOwnerPack<>::combined() != 0) return 28;
     return NestedStructuralNullptrRecordOwnerPack<>::combined() == 0 ? 0 : 24;
 }

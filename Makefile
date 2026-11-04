@@ -713,6 +713,10 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_FOUR_D_UNION_SYMBOLS = \
 	_Z66function_template_structural_union_quad_array_alternative_explicitIXtl40FunctionTemplateStructuralQuadArrayUniondi6valuestlA2_A2_A2_A2_itlS3_tlS2_tlS1_Li1ELi2EEtlS1_Li3ELi4EEEtlS2_tlS1_Li5ELi6EEtlS1_Li7ELi8EEEEtlS3_tlS2_tlS1_Li9ELi10EEtlS1_Li11ELi12EEEtlS2_tlS1_Li13ELi14EEtlS1_Li15ELi16EEEEEEEEiv \
 	_Z65function_template_structural_union_quad_array_alternative_deducedIXtl40FunctionTemplateStructuralQuadArrayUniondi6valuestlA2_A2_A2_A2_itlS3_tlS2_tlS1_Li16ELi15EEtlS1_Li14ELi13EEEtlS2_tlS1_Li12ELi11EEtlS1_Li10ELi9EEEEtlS3_tlS2_tlS1_Li8ELi7EEtlS1_Li6ELi5EEEtlS2_tlS1_Li4ELi3EEtlS1_Li2ELi1EEEEEEEEi43FunctionTemplateStructuralQuadArrayUnionTagIXT_EE
 
+CXX_NESTED_STRUCTURAL_UNION_VALUE_PACK_SYMBOLS = \
+	_ZN35NestedStructuralUnionValueOwnerPackIJXtl29NestedStructuralUnionValueKeytl25NestedStructuralPackUniondi5valueLi4EELh2EEEXtlS0_tlS1_di5valueLi7EELh3EEEEE8combinedEv \
+	_ZN35NestedStructuralUnionValueOwnerPackIJEE8combinedEv
+
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-reference-list-initialization
 .PHONY: test-cxx-initializer-list
@@ -9366,6 +9370,9 @@ test-cxx-nested-class-template-owner-structural-value-pack: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-class-template-owner-structural-value-pack,cxx_nested_class_template_owner_structural_value_pack.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s tests/cxx_nested_class_template_owner_structural_value_pack.cpp
+	$(call CHECK_TEXTS,$(CXX_NESTED_STRUCTURAL_UNION_VALUE_PACK_SYMBOLS),$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s)
+	$(call CHECK_TEXTS,$(CXX_NESTED_STRUCTURAL_UNION_VALUE_PACK_SYMBOLS),$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s)
+	$(call CHECK_TEXTS,$(CXX_NESTED_STRUCTURAL_UNION_VALUE_PACK_SYMBOLS),$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s)
 	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
@@ -9440,6 +9447,7 @@ test-cxx-nested-class-template-owner-structural-value-pack: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe tests/cxx_nested_class_template_owner_structural_value_pack.cpp
 	$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-nested-class-template-owner-structural-value-pack,cxx_nested_class_template_owner_structural_value_pack.cpp,29)
 
 test-cxx-nested-class-template-owner: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner)
@@ -9507,6 +9515,9 @@ test-cxx-nested-class-template-owner-structural-value-pack-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-nested-class-template-owner-structural-value-pack,cxx_nested_class_template_owner_structural_value_pack.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s tests/cxx_nested_class_template_owner_structural_value_pack.cpp
+	$(call CHECK_TEXTS,$(CXX_NESTED_STRUCTURAL_UNION_VALUE_PACK_SYMBOLS),$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s)
+	$(call CHECK_TEXTS,$(CXX_NESTED_STRUCTURAL_UNION_VALUE_PACK_SYMBOLS),$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s)
+	$(call CHECK_TEXTS,$(CXX_NESTED_STRUCTURAL_UNION_VALUE_PACK_SYMBOLS),$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s)
 	$(GREP) -F -q "_ZN34NestedStructuralNonfiniteOwnerPackIJXtl28NestedStructuralNonfiniteKeyLf7f800000ELd7ff0000000000000EEEXtlS0_Lf7fc00000ELd7ff8000000000000EEEXtlS0_Lf7fc00123ELd7ff8000000000123EEEXtlS0_Lfff800000ELdfff0000000000000EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZN34NestedStructuralNonfiniteOwnerPackIJXtl28NestedStructuralNonfiniteKeyLf7f800000ELd7ff0000000000000EEEXtlS0_Lf7fc00000ELd7ff8000000000000EEEXtlS0_Lf7fc00123ELd7ff8000000000123EEEXtlS0_Lfff800000ELdfff0000000000000EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZN34NestedStructuralNonfiniteOwnerPackIJXtl28NestedStructuralNonfiniteKeyLf7f800000ELd7ff0000000000000EEEXtlS0_Lf7fc00000ELd7ff8000000000000EEEXtlS0_Lf7fc00123ELd7ff8000000000123EEEXtlS0_Lfff800000ELdfff0000000000000EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
@@ -9575,6 +9586,7 @@ test-cxx-nested-class-template-owner-structural-value-pack-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK25NestedStructuralPairOwnerIXtl23NestedStructuralPairKeyLin3ELi4EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe tests/cxx_nested_class_template_owner_structural_value_pack.cpp
 	$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-nested-class-template-owner-structural-value-pack,cxx_nested_class_template_owner_structural_value_pack.cpp,29)
 
 test-cxx-nested-class-template-owner-structural-value-pack-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack)
