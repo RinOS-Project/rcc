@@ -3477,7 +3477,8 @@ static bool cxx_structural_array_collect_scalar_values(
         if (element_type->array_len <= 0 || element_type->array_bound) {
             return false;
         }
-    } else if (element_type->kind == TYPE_STRUCT) {
+    } else if (element_type->kind == TYPE_STRUCT ||
+               element_type->kind == TYPE_UNION) {
         if (!cxx_structural_class_value_supported_subset(element_type)) {
             return false;
         }
@@ -3516,7 +3517,8 @@ static bool cxx_structural_array_collect_scalar_values(
             }
             continue;
         }
-        if (element_type->kind == TYPE_STRUCT) {
+        if (element_type->kind == TYPE_STRUCT ||
+            element_type->kind == TYPE_UNION) {
             ExprList* nested_initializer = NULL;
             Type* nested_type = NULL;
             if (element_initializer) {
@@ -3751,7 +3753,8 @@ static bool cxx_structural_class_collect_member_values(
                 field->type->array_bound) {
                 return false;
             }
-            if (element_type->kind == TYPE_STRUCT) {
+            if (element_type->kind == TYPE_STRUCT ||
+                element_type->kind == TYPE_UNION) {
                 if (!cxx_structural_class_value_supported_subset(
                         element_type)) {
                     return false;
@@ -3797,7 +3800,8 @@ static bool cxx_structural_class_collect_member_values(
                     }
                     array_initializer = array_initializer->next;
                 }
-                if (element_type->kind == TYPE_STRUCT) {
+                if (element_type->kind == TYPE_STRUCT ||
+                    element_type->kind == TYPE_UNION) {
                     ExprList* nested_initializer = NULL;
                     Type* nested_type = NULL;
                     if (element_initializer) {

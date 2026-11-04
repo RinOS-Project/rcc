@@ -673,7 +673,11 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS = \
 	_Z56function_template_structural_nested_union_value_explicitIXtl40FunctionTemplateStructuralUnionContainerLh2Etl37FunctionTemplateStructuralNestedUniondi5valueLi19EELt3EEEEiv \
 	_Z55function_template_structural_nested_union_value_deducedIXtl40FunctionTemplateStructuralUnionContainerLh2Etl37FunctionTemplateStructuralNestedUniondi5valueLi19EELt4EEEEi43FunctionTemplateStructuralUnionContainerTagIXT_EE \
 	_Z54function_template_structural_nested_union_tag_explicitIXtl40FunctionTemplateStructuralUnionContainerLh5Etl37FunctionTemplateStructuralNestedUniondi3tagLh7EELt6EEEEiv \
-	_Z53function_template_structural_nested_union_tag_deducedIXtl40FunctionTemplateStructuralUnionContainerLh5Etl37FunctionTemplateStructuralNestedUniondi3tagLh8EELt9EEEEi43FunctionTemplateStructuralUnionContainerTagIXT_EE
+	_Z53function_template_structural_nested_union_tag_deducedIXtl40FunctionTemplateStructuralUnionContainerLh5Etl37FunctionTemplateStructuralNestedUniondi3tagLh8EELt9EEEEi43FunctionTemplateStructuralUnionContainerTagIXT_EE \
+	_Z55function_template_structural_union_array_value_explicitIXtl36FunctionTemplateStructuralUnionArraytlA2_37FunctionTemplateStructuralNestedUniontlS1_di5valueLi2EEtlS1_di5valueLi3EEELh4EEEEiv \
+	_Z54function_template_structural_union_array_value_deducedIXtl36FunctionTemplateStructuralUnionArraytlA2_37FunctionTemplateStructuralNestedUniontlS1_di5valueLi2EEtlS1_di5valueLi5EEELh6EEEEi39FunctionTemplateStructuralUnionArrayTagIXT_EE \
+	_Z53function_template_structural_union_array_tag_explicitIXtl36FunctionTemplateStructuralUnionArraytlA2_37FunctionTemplateStructuralNestedUniontlS1_di3tagLh7EEtlS1_di3tagLh8EEELh9EEEEiv \
+	_Z52function_template_structural_union_array_tag_deducedIXtl36FunctionTemplateStructuralUnionArraytlA2_37FunctionTemplateStructuralNestedUniontlS1_di3tagLh1EEtlS1_di3tagLh4EEELh2EEEEi39FunctionTemplateStructuralUnionArrayTagIXT_EE
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-reference-list-initialization
 .PHONY: test-cxx-initializer-list
@@ -5948,7 +5952,7 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,19)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,23)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -7734,7 +7738,7 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,19)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,23)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)

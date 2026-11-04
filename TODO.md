@@ -14124,9 +14124,8 @@ remains a separate open item.
       i686/AMD64 output, and all 15 verified-backend functions at `-O0` and
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
-      layouts, structural packs, non-scalar union alternatives, unions used
-      directly as structural array elements, and unsupported C++20 forms remain
-      open.
+      layouts, structural packs, non-scalar union alternatives, multidimensional
+      union-array layouts, and unsupported C++20 forms remain open.
   - [x] Preserve the active scalar union member when it is a direct public
         subobject of a structural class. Recurse through explicit/deduced
         template arguments, Itanium value mangling, typeinfo identity, and
@@ -14134,6 +14133,14 @@ remains a separate open item.
         equivalence, both active alternatives, exact GCC symbols, host
         execution, and 19 fallback-free verified functions at `-O0`/`-O2` for
         i686/AMD64.
+  - [x] Collect active scalar union alternatives from each element of a
+        one-dimensional fixed-bound array member in a structural class. Preserve
+        array indexing through member substitution, packed-value layout,
+        typeinfo identity, and Itanium mangling. Explicit/deduced calls, both
+        active alternatives, positional/designated initialization, exact GCC
+        symbols, host execution, and 23 fallback-free verified functions at
+        `-O0`/`-O2` for i686/AMD64 pass in
+        `test-cxx-function-template-structural-nontype`.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)
 

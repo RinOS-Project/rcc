@@ -1383,7 +1383,8 @@ static bool cxx_mangle_structural_scalar_array_body(
         }
         cxx_mangle_type_char(buf, pos, 'E');
         return true;
-    } else if (element_type->kind == TYPE_STRUCT) {
+    } else if (element_type->kind == TYPE_STRUCT ||
+               element_type->kind == TYPE_UNION) {
         for (unsigned index = 0u; index < element_count; ++index) {
             if (!cxx_mangle_structural_value_body(
                     buf, pos, (Type*)element_type, packed_value, bit_offset,
@@ -1580,7 +1581,8 @@ static bool cxx_mangle_structural_value_body(
                 }
                 continue;
             }
-            if (element_type->kind == TYPE_STRUCT) {
+            if (element_type->kind == TYPE_STRUCT ||
+                element_type->kind == TYPE_UNION) {
                 for (unsigned element_index = 0u;
                      element_index < element_count; ++element_index) {
                     if (!cxx_mangle_structural_value_body(
@@ -4985,7 +4987,7 @@ static bool cxx_structural_array_element_layout(
         bits = element_count * element_bits;
         leaves = element_count * element_leaves;
         pointers = element_count * element_pointers;
-    } else if (type->kind == TYPE_STRUCT) {
+    } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
         if (!cxx_structural_class_measure_fields(
                 type, &bits, &leaves, &pointers)) {
             return false;
@@ -5468,7 +5470,8 @@ static bool cxx_structural_class_find_member_path(
                         &element_pointers)) {
                     return false;
                 }
-                if (element_type->kind == TYPE_STRUCT) {
+                if (element_type->kind == TYPE_STRUCT ||
+                    element_type->kind == TYPE_UNION) {
                     unsigned element_bit_offset;
                     unsigned leaf_offset;
                     if (path_index + 1 >= member_name_count ||
@@ -5690,7 +5693,7 @@ static bool cxx_structural_type_value_leaves(
     unsigned leaves = 0u;
     unsigned pointers = 0u;
     if (!type || !leaf_count) return false;
-    if (type->kind == TYPE_STRUCT) {
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
         if (!cxx_structural_class_measure_fields(
                 type, &bits, &leaves, &pointers)) {
             return false;
@@ -5806,7 +5809,8 @@ bool cxx_structural_class_unpack_multidimensional_array_path(
         selected_bits += index * element_bits;
         selected_type = element_type;
     }
-    if (selected_type->kind == TYPE_STRUCT) {
+    if (selected_type->kind == TYPE_STRUCT ||
+        selected_type->kind == TYPE_UNION) {
         int value_index;
         int suffix_index = array_member_name_index + 1;
         unsigned selected_bits_offset;
@@ -6777,8 +6781,10 @@ static void cxx_typeinfo_identity_append_structural_scalar_array_values(
     } else {
         for (unsigned element_index = 0u;
              element_index < element_count; ++element_index) {
-            if (element_type->kind == TYPE_STRUCT) {
-                cxx_typeinfo_identity_append_char(builder, 'S');
+            if (element_type->kind == TYPE_STRUCT ||
+                element_type->kind == TYPE_UNION) {
+                cxx_typeinfo_identity_append_char(
+                    builder, element_type->kind == TYPE_UNION ? 'U' : 'S');
                 cxx_typeinfo_identity_append_type(builder, element_type);
                 cxx_typeinfo_identity_append_structural_values(
                     builder, element_type, values, value_count, value_index);
@@ -7195,7 +7201,8 @@ static void cxx_typeinfo_identity_append_structural_values(
         if (field->is_static) continue;
         if (field->type->kind == TYPE_STRUCT ||
             field->type->kind == TYPE_UNION) {
-            cxx_typeinfo_identity_append_char(builder, 'S');
+            cxx_typeinfo_identity_append_char(
+                builder, field->type->kind == TYPE_UNION ? 'U' : 'S');
             cxx_typeinfo_identity_append_type(builder, field->type);
             cxx_typeinfo_identity_append_structural_values(
                 builder, field->type, values, value_count, value_index);
@@ -7231,8 +7238,11 @@ static void cxx_typeinfo_identity_append_structural_values(
             }
             for (unsigned element_index = 0u;
                  element_index < element_count; ++element_index) {
-                if (element_type->kind == TYPE_STRUCT) {
-                    cxx_typeinfo_identity_append_char(builder, 'S');
+                if (element_type->kind == TYPE_STRUCT ||
+                    element_type->kind == TYPE_UNION) {
+                    cxx_typeinfo_identity_append_char(
+                        builder,
+                        element_type->kind == TYPE_UNION ? 'U' : 'S');
                     cxx_typeinfo_identity_append_type(builder, element_type);
                     cxx_typeinfo_identity_append_structural_values(
                         builder, element_type, values, value_count,
