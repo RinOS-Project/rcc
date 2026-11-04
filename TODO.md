@@ -14126,7 +14126,7 @@ remains a separate open item.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, multi-field or pointer-bearing structural
       union alternatives containing pointers, direct floating/array union
-      alternatives, union-array layouts beyond the tested two-dimensional case,
+      alternatives, union-array layouts beyond the tested three-dimensional case,
       and unsupported C++20 forms remain open.
   - [x] Preserve the active scalar union member when it is a direct public
         subobject of a structural class. Recurse through explicit/deduced
@@ -14153,6 +14153,12 @@ remains a separate open item.
         and designated nested initialization, explicit/deduced arguments, strict
         GCC C++20, exact symbols, host execution, and 30 fallback-free verified
         functions at `-O0`/`-O2` for i686/AMD64 in
+        `test-cxx-function-template-structural-nontype`.
+  - [x] Verify three-dimensional fixed-bound arrays of structural union
+        elements, including member reads through all three indices, mixed active
+        alternatives, explicit and deduced NTTPs, strict GCC C++20 checks, exact
+        Itanium symbols, host execution, and 32 fallback-free verified functions
+        at `-O0`/`-O2` for i686/AMD64 in
         `test-cxx-function-template-structural-nontype`.
 
 ## RCC continuation (2026-11-04, dependent member-template NTTP substitution)

@@ -33,6 +33,11 @@ struct FunctionTemplateStructuralUnionMatrix {
     unsigned char suffix;
 };
 
+struct FunctionTemplateStructuralUnionTensor {
+    FunctionTemplateStructuralNestedUnion payloads[2][2][2];
+    unsigned char suffix;
+};
+
 struct FunctionTemplateStructuralUnionPayload {
     int code;
     int extra;
@@ -99,6 +104,9 @@ struct FunctionTemplateStructuralUnionArrayTag {};
 
 template<FunctionTemplateStructuralUnionMatrix Value>
 struct FunctionTemplateStructuralUnionMatrixTag {};
+
+template<FunctionTemplateStructuralUnionTensor Value>
+struct FunctionTemplateStructuralUnionTensorTag {};
 
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 struct FunctionTemplateStructuralMixedUnionTag {};
@@ -235,6 +243,19 @@ constexpr int function_template_structural_union_matrix_tag_deduced(
            Value.payloads[0][1].tag * 10 + Value.suffix;
 }
 
+template<FunctionTemplateStructuralUnionTensor Value>
+constexpr int function_template_structural_union_tensor_explicit() {
+    return Value.payloads[1][0][1].value * 100 +
+           Value.payloads[0][1][0].tag * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionTensor Value>
+constexpr int function_template_structural_union_tensor_deduced(
+    FunctionTemplateStructuralUnionTensorTag<Value>) {
+    return Value.payloads[1][0][1].value * 100 +
+           Value.payloads[0][1][0].tag * 10 + Value.suffix;
+}
+
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 constexpr int function_template_structural_mixed_union_object_explicit() {
     return Value.payload.object.code * 100 +
@@ -355,6 +376,19 @@ static_assert(function_template_structural_union_matrix_tag_deduced(
                       FunctionTemplateStructuralUnionMatrix{
                           {{{.tag = 5}, {.tag = 6}},
                            {{.tag = 7}, {.tag = 8}}}, 9}>{}) == 769);
+static_assert(function_template_structural_union_tensor_explicit<
+                  FunctionTemplateStructuralUnionTensor{
+                      {{{{.value = 1}, {.tag = 2}},
+                        {{.tag = 3}, {.tag = 4}}},
+                       {{{.tag = 5}, {.value = 6}},
+                         {{.tag = 7}, {.value = 8}}}}, 9}>() == 639);
+static_assert(function_template_structural_union_tensor_deduced(
+                  FunctionTemplateStructuralUnionTensorTag<
+                      FunctionTemplateStructuralUnionTensor{
+                          {{{{.value = 2}, {.tag = 3}},
+                            {{.tag = 4}, {.tag = 5}}},
+                           {{{.tag = 6}, {.value = 7}},
+                           {{.tag = 8}, {.value = 9}}}}, 1}>{}) == 741);
 static_assert(function_template_structural_mixed_union_object_explicit<
                   FunctionTemplateStructuralMixedUnionContainer{
                       {.object = {4, 7}}, 2}>() == 472);
@@ -469,6 +503,19 @@ int main() {
                 FunctionTemplateStructuralUnionMatrix{
                     {{{.tag = 5}, {.tag = 6}},
                      {{.tag = 7}, {.tag = 8}}}, 9}>{}) != 769 ||
+        function_template_structural_union_tensor_explicit<
+            FunctionTemplateStructuralUnionTensor{
+                {{{{.value = 1}, {.tag = 2}},
+                  {{.tag = 3}, {.tag = 4}}},
+                 {{{.tag = 5}, {.value = 6}},
+                  {{.tag = 7}, {.value = 8}}}}, 9}>() != 639 ||
+        function_template_structural_union_tensor_deduced(
+            FunctionTemplateStructuralUnionTensorTag<
+                FunctionTemplateStructuralUnionTensor{
+                    {{{{.value = 2}, {.tag = 3}},
+                      {{.tag = 4}, {.tag = 5}}},
+                     {{{.tag = 6}, {.value = 7}},
+                     {{.tag = 8}, {.value = 9}}}}, 1}>{}) != 741 ||
         function_template_structural_mixed_union_object_explicit<
             FunctionTemplateStructuralMixedUnionContainer{
                 {.object = {4, 7}}, 2}>() != 472 ||
