@@ -34065,6 +34065,8 @@ static int sema_sse_builtin_arity(const char* name) {
         strcmp(suffix, "cvtss2sd") == 0) return 2;
     if (strcmp(suffix, "cvtsi2ss") == 0 ||
         strcmp(suffix, "cvtsi642ss") == 0) return 2;
+    if (strcmp(suffix, "cvtsd2si") == 0 ||
+        strcmp(suffix, "cvttsd2si") == 0) return 1;
     if (strcmp(suffix, "movmskps") == 0 ||
         strcmp(suffix, "movmskpd") == 0 ||
         strcmp(suffix, "pmovmskb128") == 0 ||
@@ -34243,7 +34245,8 @@ static Type* sema_sse_builtin_return_type(const char* name) {
     if (!name) return type_int;
     if (strstr(name, "comi") || strstr(name, "ucomi") ||
         strstr(name, "movmsk") || strstr(name, "cvtss2si") ||
-        strstr(name, "cvttss2si") ||
+        strstr(name, "cvttss2si") || strstr(name, "cvtsd2si") ||
+        strstr(name, "cvttsd2si") ||
         strstr(name, "vec_ext_v8hi")) {
         return (strstr(name, "64") || strstr(name, "si64"))
             ? type_llong : type_int;

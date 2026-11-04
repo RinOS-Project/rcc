@@ -7511,10 +7511,12 @@ static bool gen_sse_builtin32(Module* mod, Expr* expr) {
             return true;
         }
         if (strcmp(name, "cvtss2si") == 0 || strcmp(name, "cvttss2si") == 0 ||
+            strcmp(name, "cvtsd2si") == 0 || strcmp(name, "cvttsd2si") == 0 ||
             strcmp(name, "cvtss2si64") == 0 ||
             strcmp(name, "cvttss2si64") == 0) {
             gen_sse_vector_argument32(mod, call_argument(expr, 0), 0);
-            emit_sse_to_int_opcode32(mod, EAX, 0, 4,
+            emit_sse_to_int_opcode32(mod, EAX, 0,
+                                     strstr(name, "sd2si") ? 8 : 4,
                                      strstr(name, "cvtt") ? 0x2C : 0x2D);
             return true;
         }

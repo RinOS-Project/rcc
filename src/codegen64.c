@@ -3505,11 +3505,13 @@ static bool gen64_sse_builtin(Module* mod, Expr* expr) {
             return true;
         }
         if (strcmp(name, "cvtss2si") == 0 || strcmp(name, "cvttss2si") == 0 ||
+            strcmp(name, "cvtsd2si") == 0 || strcmp(name, "cvttsd2si") == 0 ||
             strcmp(name, "cvtss2si64") == 0 ||
             strcmp(name, "cvttss2si64") == 0) {
             gen64_sse_vector_argument(mod, call64_argument(expr, 0), 0);
             emit64_sse_to_int_opcode(
-                mod, RAX, 0, 4, strstr(name, "64") ? 8 : 4,
+                mod, RAX, 0, strstr(name, "sd2si") ? 8 : 4,
+                strstr(name, "64") ? 8 : 4,
                 strstr(name, "cvtt") ? 0x2C : 0x2D);
             return true;
         }
