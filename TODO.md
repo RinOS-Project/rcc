@@ -14551,3 +14551,33 @@ remains a separate open item.
       `test-debug-info-inline-expression` and the full `test-debug-info` gate
       pass; both verified objects emit 24 functions with zero fallback, and
       their 22 atomic stores resolve through `__rin_atomic_store_v1`.
+
+## RCC continuation (2026-11-05, nested conditional xvalue plan verification)
+
+- [x] Exercise nested conditional xvalue plans with named and materialized
+      arms, cast/comma wrappers, member-subobject projection, reference values,
+      comma evaluation counts, and destructor order. The complete
+      `test-verified-cxx-conditional-xvalue` target passes: IA-32/AMD64 verified
+      output has 12 functions and zero fallback at `-O0` and `-O2`; legacy
+      runtime checks pass as well.
+- [ ] Replace or justify the plan's fixed recursion-depth (64) and leaf-count
+      (4096) limits so valid deeply nested conditional expressions do not
+      require a semantic error solely due to these implementation caps. Add
+      boundary and beyond-boundary tests for both typed IR and legacy codegen.
+- [ ] Verify exception cleanup for a selected temporary when later
+      initialization throws, including exact destruction count/order on both
+      targets and lowering paths.
+
+## RCC continuation (2026-11-05, C++20 floating atomic RMW API)
+
+- [x] Provide floating `std::atomic` and `std::atomic_ref` `fetch_add`,
+      `fetch_sub`, `+=`, and `-=` only in C++20, while preserving integer
+      bitwise and increment APIs and rejecting floating bitwise/increment
+      forms. GCC/RCC C++17 rejection probes, C++20 API-availability checks,
+      storage size/alignment assertions, `test-atomic-builtins` recipe,
+      `test-atomic-private-access`, and
+      `test-cxx-atomic-aggregate-concurrency` pass. The verified floating
+      runtime fixture also passes float `std::atomic` and double
+      `std::atomic_ref` fetch/compound RMW at `-O0` and `-O2`; verified output
+      has zero fallback for both targets. The Windows host execution of the
+      Linux-specific `test-atomic-wait` prerequisite remains unverified.

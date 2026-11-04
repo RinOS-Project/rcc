@@ -4758,17 +4758,17 @@ static void verify_cxx_reference_local_object(const char* path,
     }
     assert(result == 0);
     if (verify_base_constructor) {
-        struct VerifiedBaseConstructorResult
-            (RINOS_ABI *make_base)(
-                const struct VerifiedConversionSource*);
+        void (RINOS_ABI *make_derived)(
+            struct VerifiedBaseConstructorResult*,
+            const struct VerifiedConversionSource*);
         struct VerifiedConversionSource source;
         struct VerifiedBaseConstructorResult constructed;
         int cleanup_order = 0;
         address = symbol_address(memory, base_constructor_symbol);
-        memcpy(&make_base, &address, sizeof(make_base));
+        memcpy(&make_derived, &address, sizeof(make_derived));
         source.cleanup_order = &cleanup_order;
         source.value = 47;
-        constructed = make_base(&source);
+        make_derived(&constructed, &source);
         assert(constructed.cleanup_order == &cleanup_order &&
                constructed.value == 47 && cleanup_order == 0);
     }

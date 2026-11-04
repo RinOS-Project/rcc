@@ -2918,6 +2918,12 @@ static bool sema_cxx_reference_subobject_path(Expr* expression,
 
 static bool sema_cxx_same_glvalue_type(Type* left, Type* right,
                                        unsigned depth) {
+    if (left && left->kind == TYPE_PTR && left->is_reference) {
+        left = left->base;
+    }
+    if (right && right->kind == TYPE_PTR && right->is_reference) {
+        right = right->base;
+    }
     if (!left || !right || depth > 64u ||
         !type_is_compatible(left, right) ||
         left->is_const != right->is_const ||

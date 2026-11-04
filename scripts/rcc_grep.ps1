@@ -1,6 +1,8 @@
 param(
     [Alias('F')]
     [switch] $Fixed,
+    [Alias('E')]
+    [switch] $ExtendedRegex,
     [Alias('q')]
     [switch] $Quiet,
     [Alias('x')]
@@ -81,7 +83,7 @@ if ($env:OS -eq 'Windows_NT' -and $Arguments.Count -gt 0) {
                 $beforePath = $beforePath.Substring(0, $beforePath.Length - 1)
             }
             $lastSwitchEnd = -1
-            foreach ($grepOption in @('-F', '-q', '-x', '-c')) {
+            foreach ($grepOption in @('-E', '-F', '-q', '-x', '-c')) {
                 $switchOffset = $beforePath.LastIndexOf(
                     " $grepOption ", [System.StringComparison]::OrdinalIgnoreCase)
                 if ($switchOffset -ge 0) {
