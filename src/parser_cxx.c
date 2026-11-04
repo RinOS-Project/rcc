@@ -3610,6 +3610,8 @@ static bool cxx_structural_class_collect_member_values(
     int64_t* member_values, size_t member_capacity, int* member_count) {
     TypeParam* field;
     bool has_nonstatic_field = false;
+    bool saw_positional_initializer = false;
+    bool saw_designated_initializer = false;
     for (int index = 0; index < type->cxx_class->base_count; ++index) {
         CxxClass* base = type->cxx_class->bases[index].base;
         Expr* base_initializer = NULL;
@@ -3627,6 +3629,7 @@ static bool cxx_structural_class_collect_member_values(
             }
             base_initializer = initializer->expr;
             initializer = initializer->next;
+            saw_positional_initializer = true;
             if (base_initializer->kind != EXPR_COMPOUND) return false;
             initializer_type = base_initializer->compound_type
                 ? base_initializer->compound_type : base_initializer->type;
@@ -3649,6 +3652,7 @@ static bool cxx_structural_class_collect_member_values(
         int active_index = 0;
         int64_t field_value = 0;
         int field_index = 0;
+        bool active_is_class;
         for (field = type->cxx_class->fields; field; field = field->next) {
             if (field->is_static) continue;
             if (!active_field ||
@@ -3661,11 +3665,16 @@ static bool cxx_structural_class_collect_member_values(
             }
             ++field_index;
         }
+        active_is_class = active_field && active_field->type &&
+            active_field->type->kind == TYPE_STRUCT;
         if (!active_field || active_field->is_bitfield ||
             !active_field->name || !active_field->type ||
-            (!type_is_integer(active_field->type) &&
+            (!active_is_class &&
+             !type_is_integer(active_field->type) &&
              active_field->type->kind != TYPE_ENUM) ||
-            active_field->type->size <= 0 || active_field->type->size > 8) {
+            (!active_is_class &&
+             (active_field->type->size <= 0 ||
+              active_field->type->size > 8))) {
             return false;
         }
         if (initializer) {
@@ -3684,7 +3693,11 @@ static bool cxx_structural_class_collect_member_values(
         } else if (!value_init) {
             return false;
         }
-        if (field_initializer &&
+        if (active_is_class && field_initializer &&
+            field_initializer->kind != EXPR_COMPOUND) {
+            return false;
+        }
+        if (!active_is_class && field_initializer &&
             !expr_eval_integer_constant(field_initializer, &field_value)) {
             return false;
         }
@@ -3694,6 +3707,24 @@ static bool cxx_structural_class_collect_member_values(
             return false;
         }
         member_values[(*member_count)++] = active_index;
+        if (active_is_class) {
+            ExprList* nested_initializer = field_initializer
+                ? field_initializer->compound_init : NULL;
+            Type* nested_type = field_initializer
+                ? (field_initializer->compound_type
+                       ? field_initializer->compound_type
+                       : field_initializer->type)
+                : NULL;
+            if (nested_type &&
+                !type_is_compatible(active_field->type, nested_type)) {
+                return false;
+            }
+            return cxx_structural_class_collect_member_values(
+                active_field->type, nested_initializer,
+                !field_initializer ||
+                    field_initializer->compound_value_init,
+                member_values, member_capacity, member_count);
+        }
         member_values[(*member_count)++] = field_value;
         return true;
     }
@@ -3717,12 +3748,29 @@ static bool cxx_structural_class_collect_member_values(
         int64_t member_value = 0;
         if (field->is_static) continue;
         if (initializer) {
-            if (initializer->designator_kind != INIT_DESIGNATOR_NONE ||
-                !initializer->expr) {
+            if (initializer->designator_kind == INIT_DESIGNATOR_FIELD &&
+                type->cxx_class->base_count == 0) {
+                if (!initializer->expr || !initializer->designator_field ||
+                    saw_positional_initializer) {
+                    return false;
+                }
+                if (field->name &&
+                    strcmp(initializer->designator_field, field->name) == 0) {
+                    field_initializer = initializer->expr;
+                    initializer = initializer->next;
+                    saw_designated_initializer = true;
+                } else {
+                    field_initializer = field->initializer;
+                }
+            } else if (initializer->designator_kind ==
+                           INIT_DESIGNATOR_NONE && initializer->expr) {
+                if (saw_designated_initializer) return false;
+                field_initializer = initializer->expr;
+                initializer = initializer->next;
+                saw_positional_initializer = true;
+            } else {
                 return false;
             }
-            field_initializer = initializer->expr;
-            initializer = initializer->next;
         } else {
             field_initializer = field->initializer;
         }
