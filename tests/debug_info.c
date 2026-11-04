@@ -466,6 +466,26 @@ unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_nested_c
                     : (computed_nested_conditional_division_divisor & 127ull) + 1ull)));
 }
 
+unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_shift_divide_entry(
+    unsigned long long computed_shift_division_dividend,
+    unsigned long long computed_shift_division_factor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (computed_shift_division_dividend <<
+         (computed_shift_division_factor & 63ull)) /
+        ((computed_shift_division_factor & 255ull) + 1ull));
+}
+
+unsigned long long debug_inline_nonconstant_unsigned_long_long_computed_shift_remainder_entry(
+    unsigned long long computed_shift_division_dividend,
+    unsigned long long computed_shift_division_factor)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (computed_shift_division_dividend <<
+         (computed_shift_division_factor & 63ull)) %
+        ((computed_shift_division_factor & 255ull) + 1ull));
+}
+
 long long debug_inline_nonconstant_signed_long_long_negated_global_dividend_divide_entry(
     void)
 {

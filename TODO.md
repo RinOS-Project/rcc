@@ -12845,6 +12845,11 @@ remains a separate open item.
         combinations. The full-width matrix passes for division and remainder
         in legacy and verified `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`.
+  - [x] Verify unsigned divmod with a dynamic 64-bit left-shift dividend and
+        computed nonzero divisor. Cover shift counts 0, 1, 2, 7, 31, 32, 33,
+        and 63, including a zero raw factor, across the full-width matrix in
+        legacy and verified `-O1`/`-O2` objects through
+        `test-debug-info-inline-expression`.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
