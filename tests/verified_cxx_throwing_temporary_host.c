@@ -13,6 +13,8 @@ extern int verified_cxx_throwing_argument_cleanup(int* cleanup_order)
 extern int verified_cxx_throwing_conditional_cleanup(
     int select_outer, int select_inner, int* cleanup_order)
     RINOS_TEST_ABI;
+extern int verified_cxx_conditional_xvalue_later_initializer_cleanup(
+    int select_first, int should_throw, int* cleanup_order) RINOS_TEST_ABI;
 extern int verified_cxx_local_reference_normal_cleanup(void) RINOS_TEST_ABI;
 extern int verified_cxx_base_conversion_receiver_cleanup(void)
     RINOS_TEST_ABI;
@@ -78,6 +80,38 @@ int main(void) {
                 "nested throwing conditional cleanup returned %d/order %d, expected 535/order 5\n",
                 result, cleanup_order);
         return 6;
+    }
+    result = verified_cxx_conditional_xvalue_later_initializer_cleanup(
+        1, 1, &cleanup_order);
+    if (result != 77019 || cleanup_order != 19) {
+        fprintf(stderr,
+                "throwing later initializer left first conditional xvalue at %d/order %d, expected 77019/order 19\n",
+                result, cleanup_order);
+        return 19;
+    }
+    result = verified_cxx_conditional_xvalue_later_initializer_cleanup(
+        0, 1, &cleanup_order);
+    if (result != 77029 || cleanup_order != 29) {
+        fprintf(stderr,
+                "throwing later initializer left second conditional xvalue at %d/order %d, expected 77029/order 29\n",
+                result, cleanup_order);
+        return 20;
+    }
+    result = verified_cxx_conditional_xvalue_later_initializer_cleanup(
+        1, 0, &cleanup_order);
+    if (result != 41719 || cleanup_order != 719) {
+        fprintf(stderr,
+                "normal first conditional xvalue cleanup returned %d/order %d, expected 41719/order 719\n",
+                result, cleanup_order);
+        return 21;
+    }
+    result = verified_cxx_conditional_xvalue_later_initializer_cleanup(
+        0, 0, &cleanup_order);
+    if (result != 42729 || cleanup_order != 729) {
+        fprintf(stderr,
+                "normal second conditional xvalue cleanup returned %d/order %d, expected 42729/order 729\n",
+                result, cleanup_order);
+        return 22;
     }
     result = verified_cxx_local_reference_normal_cleanup();
     if (result != 65716) {

@@ -24901,7 +24901,8 @@ test-verified-atomic-fetch-add: $(RCC_TARGET)
 
 .PHONY: test-verified-atomic-aggregate-widths
 test-verified-backend: test-verified-cxx-atomic-floating \
-	test-verified-atomic-aggregate-widths
+	test-verified-atomic-aggregate-widths \
+	test-verified-cxx-throwing-temporary
 
 test-verified-cxx-atomic-floating: $(RCXX_TARGET) \
 	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) \
@@ -25593,21 +25594,21 @@ test-verified-cxx-throwing-temporary: $(RCXX_TARGET) test-verified-cxx-reference
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
-	$(GREP) -F -q 'Verified backend: 61 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
+	$(GREP) -F -q 'Verified backend: 70 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
-	$(GREP) -F -q 'Verified backend: 61 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
+	$(GREP) -F -q 'Verified backend: 70 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
-	$(GREP) -F -q 'Verified backend: 61 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
+	$(GREP) -F -q 'Verified backend: 70 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log,0)
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro
@@ -25616,7 +25617,7 @@ test-verified-cxx-throwing-temporary: $(RCXX_TARGET) test-verified-cxx-reference
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
-	$(GREP) -F -q 'Verified backend: 61 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
+	$(GREP) -F -q 'Verified backend: 70 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log,0)
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro

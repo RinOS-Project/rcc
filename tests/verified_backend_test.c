@@ -5633,6 +5633,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSection* text;
     ObjSymbol* direct_throw_symbol;
     ObjSymbol* conditional_throw_symbol;
+    ObjSymbol* conditional_xvalue_later_initializer_symbol;
     ObjSymbol* normal_cleanup_symbol;
     ObjSymbol* base_conversion_receiver_symbol;
     ObjSymbol* virtual_base_conversion_receiver_symbol;
@@ -5653,6 +5654,9 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_throwing_argument_cleanup");
     conditional_throw_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_conditional_cleanup");
+    conditional_xvalue_later_initializer_symbol = objfile_find_symbol(
+        object,
+        "verified_cxx_conditional_xvalue_later_initializer_cleanup");
     normal_cleanup_symbol = objfile_find_symbol(
         object, "verified_cxx_local_reference_normal_cleanup");
     base_conversion_receiver_symbol = objfile_find_symbol(
@@ -5689,6 +5693,9 @@ static void verify_cxx_throwing_temporary_object(
            conditional_throw_symbol != NULL &&
            conditional_throw_symbol->binding == BIND_CODE &&
            conditional_throw_symbol->section == 0 &&
+           conditional_xvalue_later_initializer_symbol != NULL &&
+           conditional_xvalue_later_initializer_symbol->binding == BIND_CODE &&
+           conditional_xvalue_later_initializer_symbol->section == 0 &&
            normal_cleanup_symbol != NULL &&
            normal_cleanup_symbol->binding == BIND_CODE &&
            normal_cleanup_symbol->section == 0 &&
@@ -5742,6 +5749,8 @@ static void verify_cxx_throwing_temporary_object(
         int (RINOS_ABI *cleanup_order_argument)(int*);
         int (RINOS_ABI *partial_aggregate_arguments)(int*, int);
         int (RINOS_ABI *conditional_arguments)(int, int, int*);
+        int (RINOS_ABI *conditional_xvalue_later_initializer)(
+            int, int, int*);
         int result;
         int cleanup_order;
         assert(arch == ARCH_X64 && sizeof(void*) == 8u);
@@ -5808,6 +5817,26 @@ static void verify_cxx_throwing_temporary_object(
         cleanup_order = 0;
         assert(conditional_arguments(1, 0, &cleanup_order) == 535 &&
                cleanup_order == 5);
+        address = symbol_address(
+            memory, conditional_xvalue_later_initializer_symbol);
+        memcpy(&conditional_xvalue_later_initializer, &address,
+               sizeof(conditional_xvalue_later_initializer));
+        cleanup_order = 0;
+        assert(conditional_xvalue_later_initializer(
+                   1, 1, &cleanup_order) == 77019 &&
+               cleanup_order == 19);
+        cleanup_order = 0;
+        assert(conditional_xvalue_later_initializer(
+                   0, 1, &cleanup_order) == 77029 &&
+               cleanup_order == 29);
+        cleanup_order = 0;
+        assert(conditional_xvalue_later_initializer(
+                   1, 0, &cleanup_order) == 41719 &&
+               cleanup_order == 719);
+        cleanup_order = 0;
+        assert(conditional_xvalue_later_initializer(
+                   0, 0, &cleanup_order) == 42729 &&
+               cleanup_order == 729);
         address = symbol_address(memory, normal_cleanup_symbol);
         memcpy(&no_arguments, &address, sizeof(no_arguments));
         {

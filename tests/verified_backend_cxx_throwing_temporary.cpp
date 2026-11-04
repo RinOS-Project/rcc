@@ -2,6 +2,49 @@ struct VerifiedThrowingTemporaryNested {
     int value;
 };
 
+struct VerifiedConditionalLifetimeBase {
+    int* cleanup_order;
+    int value;
+
+    VerifiedConditionalLifetimeBase(int* cleanup_order, int value)
+        : cleanup_order(cleanup_order), value(value) {}
+
+    ~VerifiedConditionalLifetimeBase() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 9;
+    }
+};
+
+struct VerifiedConditionalLifetimeFirst : VerifiedConditionalLifetimeBase {
+    VerifiedConditionalLifetimeFirst(int* cleanup_order, int value)
+        : VerifiedConditionalLifetimeBase(cleanup_order, value) {}
+
+    ~VerifiedConditionalLifetimeFirst() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 1;
+    }
+};
+
+struct VerifiedConditionalLifetimeSecond : VerifiedConditionalLifetimeBase {
+    VerifiedConditionalLifetimeSecond(int* cleanup_order, int value)
+        : VerifiedConditionalLifetimeBase(cleanup_order, value) {}
+
+    ~VerifiedConditionalLifetimeSecond() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 2;
+    }
+};
+
+struct VerifiedThrowingLaterInitializer {
+    int* cleanup_order;
+
+    VerifiedThrowingLaterInitializer(int* cleanup_order, int should_throw)
+        : cleanup_order(cleanup_order) {
+        if (should_throw) throw 77;
+    }
+
+    ~VerifiedThrowingLaterInitializer() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 7;
+    }
+};
+
 struct VerifiedThrowingTemporary {
     int* cleanup_order;
     int cleanup_id;
@@ -500,6 +543,26 @@ extern "C" int verified_cxx_throwing_conditional_cleanup(
         result = value;
     }
     return result * 10 + *cleanup_order;
+}
+
+extern "C" int
+verified_cxx_conditional_xvalue_later_initializer_cleanup(
+    int select_first, int should_throw, int* cleanup_order) {
+    int result = 0;
+    *cleanup_order = 0;
+    try {
+        const VerifiedConditionalLifetimeBase&& value = select_first
+            ? static_cast<VerifiedConditionalLifetimeBase&&>(
+                  VerifiedConditionalLifetimeFirst{cleanup_order, 41})
+            : static_cast<VerifiedConditionalLifetimeBase&&>(
+                  VerifiedConditionalLifetimeSecond{cleanup_order, 42});
+        VerifiedThrowingLaterInitializer later(
+            cleanup_order, should_throw);
+        result = value.value;
+    } catch (int exception) {
+        result = exception;
+    }
+    return result * 1000 + *cleanup_order;
 }
 
 extern "C" int verified_cxx_local_reference_normal_cleanup() {

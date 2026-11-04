@@ -14577,9 +14577,13 @@ remains a separate open item.
       `test-ir-lowering`, the 4097-leaf verified test, reference-local runtime,
       atomic private-access, aggregate atomic, floating atomic, and optimizer
       gates pass on Windows.
-- [ ] Verify exception cleanup for a selected temporary when later
-      initialization throws, including exact destruction count/order on both
-      targets and lowering paths.
+- [x] Verify cleanup of the selected temporary from a different-derived
+      conditional xvalue when a later local object's constructor throws.
+      Cover both selected derived types, exactly-once derived/base cleanup,
+      later-object cleanup on normal exit, both i686/AMD64 verified objects at
+      `-O0`/`-O2` with zero fallback, verified x64 execution, and legacy x64
+      execution in `test-verified-cxx-throwing-temporary`. The regression is
+      part of `test-verified-backend`.
 
 ## RCC continuation (2026-11-05, C++20 floating atomic RMW API)
 
