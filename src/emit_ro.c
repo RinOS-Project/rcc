@@ -10783,32 +10783,118 @@ static bool debug_inline_parameter_i686_append_signed_u64_result_sign(
     return true;
 }
 
+static bool debug_inline_parameter_i686_append_signed_u64_expression_sign(
+    const Module* mod, const Expr* source_expression, uint8_t* expression,
+    size_t capacity, size_t* size) {
+    return mod && source_expression && source_expression->type &&
+        source_expression->type->size == 8 && expression && size &&
+        debug_inline_parameter_i686_u64_append_word_expression(
+            mod, source_expression, true, expression, capacity, size, 0u) &&
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 0u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x2du); /* signed high word < 0 */
+}
+
+static bool debug_inline_parameter_i686_append_signed_u64_expression_magnitude(
+    const Module* mod, const Expr* source_expression,
+    uint8_t* expression, size_t capacity, size_t* size) {
+    size_t negative_operand;
+    size_t positive_join_operand;
+    size_t negative_offset;
+    if (!mod || !source_expression || !expression || !size ||
+        !debug_inline_parameter_i686_u64_append_word_expression(
+            mod, source_expression, false, expression, capacity, size, 0u) ||
+        !debug_inline_parameter_i686_u64_append_word_expression(
+            mod, source_expression, true, expression, capacity, size, 0u) ||
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 0u) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x2du) || /* signed high < 0 */
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, size, 0x28u, &negative_operand) ||
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, size, 0x2fu, &positive_join_operand)) {
+        return false;
+    }
+
+    negative_offset = *size;
+    if (!debug_inline_integer_expression_patch_branch(
+            expression, *size, negative_operand, negative_offset) ||
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 1u) || /* original low */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x16u) || /* swap */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1cu) || /* negate low */
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 1u) || /* original high */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x16u) || /* swap */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1cu) || /* negate high */
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 1u) || /* abs(low) */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x2eu) || /* low != 0 */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1cu) || /* high -= borrow */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x17u) || /* rotate */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x17u) || /* rotate */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x13u) || /* drop original high */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x17u) || /* rotate */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x17u) || /* rotate */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x13u) || /* drop original low */
+        !debug_inline_integer_expression_patch_branch(
+            expression, *size, positive_join_operand, *size)) {
+        return false;
+    }
+    return true;
+}
+
 static bool debug_inline_parameter_i686_u64_general_division_expression(
     const Module* mod, const Decl* source, int64_t frame_offset,
-    uint64_t divisor, const Decl* divisor_source,
-    int64_t divisor_frame_offset, bool is_signed, bool negate_dividend,
+    const Expr* source_value_expression, uint64_t divisor,
+    const Decl* divisor_source, int64_t divisor_frame_offset,
+    const Expr* divisor_value_expression, bool is_signed, bool negate_dividend,
     bool negate_divisor, bool is_remainder,
     uint8_t* expression, size_t capacity, size_t* expression_size,
     DebugInlineI686ExpressionRelocations* relocations) {
-    bool constant_divisor_is_negative = is_signed && !divisor_source &&
+    bool has_variable_divisor = divisor_source || divisor_value_expression;
+    bool constant_divisor_is_negative = is_signed && !has_variable_divisor &&
         (divisor & (UINT64_C(1) << 63u)) != 0u;
     uint32_t divisor_high;
     uint32_t divisor_low;
-    unsigned int source_index_offset = divisor_source ? 2u : 0u;
+    unsigned int source_index_offset = has_variable_divisor ? 2u : 0u;
     unsigned int operand_index_offset =
         source_index_offset + (is_signed ? 2u : 0u);
     size_t size = 0u;
     if (constant_divisor_is_negative) divisor = 0u - divisor;
     divisor_high = (uint32_t)(divisor >> 32u);
     divisor_low = (uint32_t)divisor;
-    if (!mod || !source || !expression || !expression_size ||
-        (!divisor_source &&
+    if (!mod || (!source && !source_value_expression) || !expression ||
+        !expression_size ||
+        (!has_variable_divisor &&
          (divisor == 0u ||
           (!is_signed &&
            (divisor <= (uint64_t)UINT32_MAX ||
             divisor > (uint64_t)INT64_MAX ||
             (divisor & (divisor - 1u)) == 0u)))) ||
-        (divisor_source && divisor != 0u) ||
+        (has_variable_divisor && divisor != 0u) ||
         (!is_signed && (negate_dividend || negate_divisor)) ||
         (relocations && (!relocations->offsets || !relocations->symbols ||
                          !relocations->count))) {
@@ -10816,38 +10902,68 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
     }
     if (relocations) *relocations->count = 0u;
     if ((is_signed &&
-         (!debug_inline_parameter_i686_append_signed_u64_sign_adjusted(
-              mod, source, frame_offset, negate_dividend, expression,
-              capacity, &size, relocations) ||
-          (divisor_source
-               ? !debug_inline_parameter_i686_append_signed_u64_sign_adjusted(
-                     mod, divisor_source, divisor_frame_offset,
-                     negate_divisor, expression, capacity, &size,
-                     relocations)
-               : !debug_inline_integer_expression_append_constu(
-                     expression, capacity, &size,
-                     constant_divisor_is_negative ? 1u : 0u)))) ||
+         (source_value_expression
+              ? !debug_inline_parameter_i686_append_signed_u64_expression_sign(
+                    mod, source_value_expression, expression, capacity, &size)
+              : !debug_inline_parameter_i686_append_signed_u64_sign_adjusted(
+                    mod, source, frame_offset, negate_dividend, expression,
+                    capacity, &size, relocations))) ||
+        (is_signed && has_variable_divisor &&
+         (divisor_value_expression
+              ? !debug_inline_parameter_i686_append_signed_u64_expression_sign(
+                    mod, divisor_value_expression, expression, capacity,
+                    &size)
+              : !debug_inline_parameter_i686_append_signed_u64_sign_adjusted(
+                    mod, divisor_source, divisor_frame_offset,
+                    negate_divisor, expression, capacity, &size,
+                    relocations))) ||
+        (is_signed && !has_variable_divisor &&
+         !debug_inline_integer_expression_append_constu(
+             expression, capacity, &size,
+             constant_divisor_is_negative ? 1u : 0u)) ||
         (is_signed
-             ? !debug_inline_parameter_i686_append_signed_u64_magnitude(
-                   mod, source, frame_offset, expression, capacity, &size,
-                   relocations)
-             : (!debug_inline_parameter_i686_append_storage_u32(
-                    mod, source, frame_offset, false, expression, capacity,
-                    &size, relocations) ||
-                !debug_inline_parameter_i686_append_storage_u32(
-                    mod, source, frame_offset, true, expression, capacity,
-                    &size, relocations))) ||
-        (divisor_source &&
+             ? (source_value_expression
+                    ? !debug_inline_parameter_i686_append_signed_u64_expression_magnitude(
+                          mod, source_value_expression, expression, capacity,
+                          &size)
+                    : !debug_inline_parameter_i686_append_signed_u64_magnitude(
+                          mod, source, frame_offset, expression, capacity,
+                          &size, relocations))
+             : (source_value_expression
+                    ? (!debug_inline_parameter_i686_u64_append_word_expression(
+                           mod, source_value_expression, false, expression,
+                           capacity, &size, 0u) ||
+                       !debug_inline_parameter_i686_u64_append_word_expression(
+                           mod, source_value_expression, true, expression,
+                           capacity, &size, 0u))
+                    : (!debug_inline_parameter_i686_append_storage_u32(
+                           mod, source, frame_offset, false, expression,
+                           capacity, &size, relocations) ||
+                       !debug_inline_parameter_i686_append_storage_u32(
+                           mod, source, frame_offset, true, expression,
+                           capacity, &size, relocations)))) ||
+        (has_variable_divisor &&
          (is_signed
-              ? !debug_inline_parameter_i686_append_signed_u64_magnitude(
-                    mod, divisor_source, divisor_frame_offset, expression,
-                    capacity, &size, relocations)
-              : (!debug_inline_parameter_i686_append_storage_u32(
-                     mod, divisor_source, divisor_frame_offset, false,
-                     expression, capacity, &size, relocations) ||
-                 !debug_inline_parameter_i686_append_storage_u32(
-                     mod, divisor_source, divisor_frame_offset, true,
-                     expression, capacity, &size, relocations)))) ||
+              ? (divisor_value_expression
+                     ? !debug_inline_parameter_i686_append_signed_u64_expression_magnitude(
+                           mod, divisor_value_expression, expression,
+                           capacity, &size)
+                     : !debug_inline_parameter_i686_append_signed_u64_magnitude(
+                           mod, divisor_source, divisor_frame_offset,
+                           expression, capacity, &size, relocations))
+              : (divisor_value_expression
+                     ? (!debug_inline_parameter_i686_u64_append_word_expression(
+                            mod, divisor_value_expression, false, expression,
+                            capacity, &size, 0u) ||
+                        !debug_inline_parameter_i686_u64_append_word_expression(
+                            mod, divisor_value_expression, true, expression,
+                            capacity, &size, 0u))
+                     : (!debug_inline_parameter_i686_append_storage_u32(
+                            mod, divisor_source, divisor_frame_offset, false,
+                            expression, capacity, &size, relocations) ||
+                        !debug_inline_parameter_i686_append_storage_u32(
+                            mod, divisor_source, divisor_frame_offset, true,
+                            expression, capacity, &size, relocations))))) ||
         !debug_inline_integer_expression_append_constu(
             expression, capacity, &size, 0u) ||
         !debug_inline_integer_expression_append_constu(
@@ -10936,7 +11052,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
 
         /* Compare the 64-bit partial remainder and divisor lexicographically.
            Sign-biased DW_OP_ge implements each unsigned 32-bit comparison. */
-        if ((divisor_source
+        if ((has_variable_divisor
                  ? !debug_inline_parameter_i686_append_stack_u32_ge_stack(
                        expression, capacity, &size, 1u,
                        (uint8_t)(bit + 2u))
@@ -10951,7 +11067,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
             !debug_inline_integer_expression_append_branch(
                 expression, capacity, &size, 0x28u,
                 &no_subtract_operand) || /* high < divisor high */
-            (divisor_source
+            (has_variable_divisor
                  ? !debug_inline_parameter_i686_append_stack_u32_ge_stack(
                        expression, capacity, &size,
                        (uint8_t)(bit + 2u), 1u)
@@ -10968,7 +11084,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
 
         if (!debug_inline_integer_expression_patch_branch(
                 expression, size, equal_high_operand, size) ||
-            (divisor_source
+            (has_variable_divisor
                  ? !debug_inline_parameter_i686_append_stack_u32_ge_stack(
                        expression, capacity, &size, 0u,
                        (uint8_t)(bit + 3u))
@@ -11000,7 +11116,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
             !debug_inline_integer_expression_patch_branch(
                 expression, size, low_at_least_subtract_operand,
                 subtract_offset) ||
-            (divisor_source
+            (has_variable_divisor
                  ? !debug_inline_parameter_i686_append_stack_u32_ge_stack(
                        expression, capacity, &size, 0u,
                        (uint8_t)(bit + 3u))
@@ -11012,7 +11128,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
         }
 
         /* Low-word underflow subtracts one extra unit from the high word. */
-        if (divisor_source) {
+        if (has_variable_divisor) {
             if (!debug_inline_integer_expression_append_pick(
                     expression, capacity, &size, (uint8_t)(bit + 3u)) ||
                 !debug_inline_integer_expression_append_byte(
@@ -11078,7 +11194,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
                 expression, size, no_borrow_operand, no_borrow_offset)) {
             return false;
         }
-        if (divisor_source) {
+        if (has_variable_divisor) {
             if (!debug_inline_integer_expression_append_pick(
                     expression, capacity, &size, (uint8_t)(bit + 3u)) ||
                 !debug_inline_integer_expression_append_byte(
@@ -11461,7 +11577,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     is_remainder = source_expression->kind == EXPR_MOD;
     if (is_signed) {
         return debug_inline_parameter_i686_u64_general_division_expression(
-            mod, dividend, frame_offset, divisor, NULL, 0, true,
+            mod, dividend, frame_offset, NULL, divisor, NULL, 0, NULL, true,
             negate_dividend, false, is_remainder, expression, capacity,
             expression_size, relocations);
     }
@@ -11477,7 +11593,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
                 capacity, expression_size, relocations);
         }
         return debug_inline_parameter_i686_u64_general_division_expression(
-            mod, dividend, frame_offset, divisor, NULL, 0, false,
+            mod, dividend, frame_offset, NULL, divisor, NULL, 0, NULL, false,
             false, false, is_remainder,
             expression, capacity, expression_size, relocations);
     }
@@ -11852,6 +11968,117 @@ static bool debug_inline_parameter_i686_signed_division_operand(
     return true;
 }
 
+static bool debug_inline_parameter_i686_u64_frame_expression_tree(
+    const Module* mod, const Expr* expression, unsigned int depth) {
+    uint64_t literal_bits;
+    const Type* type;
+    if (!mod || !expression || depth >= 32u || !(type = expression->type) ||
+        !debug_inline_integer_expression_type(type) || type->size <= 0 ||
+        type->size > 8 || type->is_volatile || type->is_atomic ||
+        type->is_reference) {
+        return false;
+    }
+    if (debug_inline_integer_literal_bits(
+            expression, &literal_bits, 0u)) {
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_IDENT: {
+            const Decl* declaration = expression->ident_decl;
+            int64_t frame_offset;
+            return declaration &&
+                (declaration->kind == DECL_VAR ||
+                 declaration->kind == DECL_PARAM) &&
+                !declaration->var_is_global &&
+                !declaration->var_is_static_local &&
+                !declaration->var_is_thread_local &&
+                !declaration->var_is_vla && declaration->type &&
+                !declaration->type->is_volatile &&
+                !declaration->type->is_atomic &&
+                !declaration->type->is_reference &&
+                declaration->type->size > 0 &&
+                declaration->type->size <= 8 &&
+                debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    declaration->type, type, 0u) &&
+                debug_inline_parameter_frame_offset(
+                    mod, declaration, &frame_offset);
+        }
+        case EXPR_CAST:
+            return expression->cast_expr &&
+                debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, expression->cast_expr, depth + 1u);
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_BITNOT:
+            return expression->unary_operand &&
+                debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, expression->unary_operand, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+            return expression->binary_lhs && expression->binary_rhs &&
+                debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, expression->binary_lhs, depth + 1u) &&
+                debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, expression->binary_rhs, depth + 1u);
+        case EXPR_COND:
+            return expression->cond_test && expression->cond_then &&
+                expression->cond_else &&
+                debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, expression->cond_test, depth + 1u) &&
+                debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, expression->cond_then, depth + 1u) &&
+                debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, expression->cond_else, depth + 1u);
+        default:
+            return false;
+    }
+}
+
+static bool debug_inline_parameter_i686_u64_div_computed_expression(
+    const Module* mod, const Type* parameter_type, bool is_signed,
+    const Expr* source_expression, uint8_t* expression, size_t capacity,
+    size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    const Expr* dividend_expression;
+    const Expr* divisor_expression;
+    uint64_t literal_bits;
+    if (!mod || !parameter_type || parameter_type->size != 8 ||
+        parameter_type->is_unsigned != !is_signed || !source_expression ||
+        !expression || !expression_size ||
+        (source_expression->kind != EXPR_DIV &&
+         source_expression->kind != EXPR_MOD) ||
+        !(dividend_expression = source_expression->binary_lhs) ||
+        !(divisor_expression = source_expression->binary_rhs) ||
+        debug_inline_integer_literal_bits(
+            divisor_expression, &literal_bits, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            source_expression->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            dividend_expression->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            divisor_expression->type, parameter_type, 0u) ||
+        !debug_inline_parameter_i686_u64_frame_expression_tree(
+            mod, dividend_expression, 0u) ||
+        !debug_inline_parameter_i686_u64_frame_expression_tree(
+            mod, divisor_expression, 0u) ||
+        (relocations && (!relocations->offsets || !relocations->symbols ||
+                         !relocations->count))) {
+        return false;
+    }
+    if (relocations) *relocations->count = 0u;
+    return debug_inline_parameter_i686_u64_general_division_expression(
+        mod, NULL, 0, dividend_expression, 0u, NULL, 0,
+        divisor_expression, is_signed, false, false,
+        source_expression->kind == EXPR_MOD, expression, capacity,
+        expression_size, relocations);
+}
+
 static bool debug_inline_parameter_i686_u64_div_variable_expression(
     const Module* mod, const Type* parameter_type, bool is_signed,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
@@ -11872,6 +12099,8 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     bool negate_divisor;
     int64_t dividend_frame_offset = 0;
     int64_t divisor_frame_offset = 0;
+    const Expr* simple_operand;
+    bool simple_negate;
 
     if (relocations) {
         tls_relocations = *relocations;
@@ -11879,6 +12108,20 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         tls_relocations.allow_volatile = true;
         tls_relocations.allow_atomic = true;
         relocations = &tls_relocations;
+    }
+    if (mod && parameter_type && source_expression &&
+        (source_expression->kind == EXPR_DIV ||
+         source_expression->kind == EXPR_MOD) &&
+        source_expression->binary_lhs && source_expression->binary_rhs &&
+        (!debug_inline_parameter_i686_signed_division_operand(
+             source_expression->binary_lhs, parameter_type, is_signed,
+             &simple_operand, &simple_negate) ||
+         !debug_inline_parameter_i686_signed_division_operand(
+             source_expression->binary_rhs, parameter_type, is_signed,
+             &simple_operand, &simple_negate))) {
+        return debug_inline_parameter_i686_u64_div_computed_expression(
+            mod, parameter_type, is_signed, source_expression, expression,
+            capacity, expression_size, relocations);
     }
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || parameter_type->size != 8 ||
@@ -11965,8 +12208,8 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     }
     if (relocations) *relocations->count = 0u;
     return debug_inline_parameter_i686_u64_general_division_expression(
-        mod, dividend, dividend_frame_offset, 0u, divisor,
-        divisor_frame_offset, is_signed, negate_dividend, negate_divisor,
+        mod, dividend, dividend_frame_offset, NULL, 0u, divisor,
+        divisor_frame_offset, NULL, is_signed, negate_dividend, negate_divisor,
         source_expression->kind == EXPR_MOD,
         expression, capacity, expression_size, relocations);
 }

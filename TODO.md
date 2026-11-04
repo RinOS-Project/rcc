@@ -12762,6 +12762,13 @@ remains a separate open item.
       and atomic sources; cover additional optimized multi-piece expression
       shapes and widen atomic bitwise operands beyond the verified
       mixed-signedness pair.
+  - [x] Add recursive i686 64-bit division/remainder DWARF expressions for
+        signed and unsigned frame-backed operands built from supported integer
+        expression trees. Verify computed `dividend + 17` and `divisor * 2 + 1`
+        inputs over full-width boundary matrices in legacy and verified objects
+        at `-O1` and `-O2`; `test-debug-info-inline-expression` passes. The new
+        path excludes volatile, atomic, reference, static, global, and TLS
+        leaves; their remaining coverage stays open below.
   - [x] Extend i686 unsigned 64-bit constant-divisor division/remainder DWARF
         values to address-backed atomic global sources. Verify divisor 7,
         full-width values, and source relocations in legacy and verified
@@ -12816,6 +12823,10 @@ remains a separate open item.
 - [ ] Additional computed division/remainder trees beyond the current C
       corpus, i686 64-bit atomic stores and read-modify-write operations, and
       volatile/reference/TLS atomic operand combinations remain open.
+  - [x] Add computed signed and unsigned i686 divmod trees over ordinary
+        frame-backed parameters, with a full-width expression evaluator matrix
+        in normal and verified `-O1`/`-O2` objects. Atomic stores/RMW and
+        volatile/reference/TLS combinations remain open.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
