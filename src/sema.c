@@ -2629,19 +2629,20 @@ static Expr* sema_cxx_static_reference_temporary_source(Expr* expression) {
             expression->cond_then);
         Expr* else_source = sema_cxx_static_reference_temporary_source(
             expression->cond_else);
-        Type* then_type = then_source ? then_source->type : NULL;
-        Type* else_type = else_source ? else_source->type : NULL;
+        Type* then_type = then_source ? then_source->type
+                                      : expression->cond_then->type;
+        Type* else_type = else_source ? else_source->type
+                                      : expression->cond_else->type;
         if (then_type && then_type->kind == TYPE_PTR &&
             then_type->is_reference) then_type = then_type->base;
         if (else_type && else_type->kind == TYPE_PTR &&
             else_type->is_reference) else_type = else_type->base;
-        if (then_source && else_source && then_type && else_type &&
-            (type_is_compatible(then_type, else_type) ||
-             ((then_type->kind == TYPE_STRUCT ||
-               then_type->kind == TYPE_UNION) &&
-              (else_type->kind == TYPE_STRUCT ||
-               else_type->kind == TYPE_UNION) &&
-              then_type->is_complete && else_type->is_complete)) &&
+        if ((then_source || else_source) && then_type && else_type &&
+            (then_type->kind == TYPE_STRUCT ||
+             then_type->kind == TYPE_UNION) &&
+            (else_type->kind == TYPE_STRUCT ||
+             else_type->kind == TYPE_UNION) &&
+            then_type->is_complete && else_type->is_complete &&
             then_type->is_const == else_type->is_const &&
             then_type->is_volatile == else_type->is_volatile) {
             return expression;
@@ -2651,13 +2652,16 @@ static Expr* sema_cxx_static_reference_temporary_source(Expr* expression) {
 }
 
 static bool sema_cxx_conditional_temporary_types(
-    Expr* expression, Type** then_type_out, Type** else_type_out) {
+    Expr* expression, Type** then_type_out, Type** else_type_out,
+    bool* then_temporary_out, bool* else_temporary_out) {
     Expr* then_source;
     Expr* else_source;
     Type* then_type;
     Type* else_type;
     if (then_type_out) *then_type_out = NULL;
     if (else_type_out) *else_type_out = NULL;
+    if (then_temporary_out) *then_temporary_out = false;
+    if (else_temporary_out) *else_temporary_out = false;
     if (!expression || expression->kind != EXPR_COND ||
         !expression->cxx_conditional_xvalue) {
         return false;
@@ -2666,15 +2670,17 @@ static bool sema_cxx_conditional_temporary_types(
         expression->cond_then);
     else_source = sema_cxx_static_reference_temporary_source(
         expression->cond_else);
-    then_type = then_source ? then_source->type : NULL;
-    else_type = else_source ? else_source->type : NULL;
+    then_type = then_source ? then_source->type
+                            : expression->cond_then->type;
+    else_type = else_source ? else_source->type
+                            : expression->cond_else->type;
     if (then_type && then_type->kind == TYPE_PTR && then_type->is_reference) {
         then_type = then_type->base;
     }
     if (else_type && else_type->kind == TYPE_PTR && else_type->is_reference) {
         else_type = else_type->base;
     }
-    if (!then_source || !else_source || !then_type || !else_type ||
+    if ((!then_source && !else_source) || !then_type || !else_type ||
         (then_type->kind != TYPE_STRUCT && then_type->kind != TYPE_UNION) ||
         (else_type->kind != TYPE_STRUCT && else_type->kind != TYPE_UNION) ||
         !then_type->is_complete || !else_type->is_complete ||
@@ -2683,6 +2689,8 @@ static bool sema_cxx_conditional_temporary_types(
     }
     if (then_type_out) *then_type_out = then_type;
     if (else_type_out) *else_type_out = else_type;
+    if (then_temporary_out) *then_temporary_out = then_source != NULL;
+    if (else_temporary_out) *else_temporary_out = else_source != NULL;
     return true;
 }
 
@@ -17823,11 +17831,13 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Type* object_type;
     Type* conditional_then_type = NULL;
     Type* conditional_else_type = NULL;
+    bool conditional_then_temporary = false;
+    bool conditional_else_temporary = false;
     bool reference_temporary = false;
     bool static_reference_temporary = false;
     bool xvalue_has_temporary = false;
     bool conditional_xvalue_temporary = false;
-    bool conditional_xvalue_has_distinct_types = false;
+    bool conditional_xvalue_needs_variant = false;
     int cleanup_budget = 4096;
     if (rcc_parser_is_cxx_mode() && declaration && declaration->type &&
         declaration->var_init && declaration->var_is_static_local &&
@@ -17888,13 +17898,10 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                 xvalue_temporary_source &&
                 sema_cxx_conditional_temporary_types(
                     xvalue_temporary_source, &conditional_then_type,
-                    &conditional_else_type);
-            conditional_xvalue_has_distinct_types =
-                conditional_xvalue_temporary &&
-                (conditional_then_type->cxx_class !=
-                     conditional_else_type->cxx_class ||
-                 !type_is_compatible(conditional_then_type,
-                                     conditional_else_type));
+                    &conditional_else_type, &conditional_then_temporary,
+                    &conditional_else_temporary);
+            conditional_xvalue_needs_variant =
+                conditional_xvalue_temporary;
             if (xvalue_has_temporary && !xvalue_temporary_source) {
                 rcc_error(
                     declaration->loc,
@@ -17909,7 +17916,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         }
         prvalue_initializer = !is_lvalue(declaration->var_init) &&
                               !is_xvalue(declaration->var_init);
-        object_type = conditional_xvalue_has_distinct_types
+        object_type = conditional_xvalue_needs_variant
             ? conditional_then_type
             : xvalue_temporary_source
             ? xvalue_temporary_source->type
@@ -17996,13 +18003,13 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         return;
     }
     if (static_reference_temporary || reference_subobject_source ||
-        (conditional_xvalue_has_distinct_types &&
+        (conditional_xvalue_needs_variant &&
          reference_temporary) ||
         (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
          reference_temporary)) {
         Decl* owner = decl_var("__rcc_reference_temporary", object_type,
                                NULL, declaration->loc);
-        if (conditional_xvalue_has_distinct_types) {
+        if (conditional_xvalue_needs_variant) {
             int storage_size = conditional_then_type->size;
             int storage_align = conditional_then_type->align;
             int selector_align = type_int && type_int->align > 0
@@ -18088,7 +18095,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         object->ident_decl = declaration;
         object->type = object_type;
     }
-    if (conditional_xvalue_has_distinct_types &&
+    if (conditional_xvalue_needs_variant &&
         declaration->var_reference_temporary_owner) {
         Decl* owner = declaration->var_reference_temporary_owner;
         Expr* then_object = expr_ident(owner->name, declaration->loc);
@@ -18101,13 +18108,15 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         then_object->type = conditional_then_type;
         else_object->ident_decl = owner;
         else_object->type = conditional_else_type;
-        if ((sema_cxx_type_has_destructor_cleanup(
+        if ((conditional_then_temporary &&
+             sema_cxx_type_has_destructor_cleanup(
                  conditional_then_type, 0) &&
              !sema_cxx_append_object_cleanups(
                  declaration, conditional_then_type, then_object,
                  &then_cleanups, 0, &branch_cleanup_budget, true,
                  !declaration->var_is_thread_local)) ||
-            (sema_cxx_type_has_destructor_cleanup(
+            (conditional_else_temporary &&
+             sema_cxx_type_has_destructor_cleanup(
                  conditional_else_type, 0) &&
              !sema_cxx_append_object_cleanups(
                  declaration, conditional_else_type, else_object,

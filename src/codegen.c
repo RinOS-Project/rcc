@@ -23612,15 +23612,23 @@ static bool gen_conditional_reference_temporary_initializer32(
     sources[0] = gen_conditional_xvalue_complete_source32(arms[0], 0u);
     sources[1] = gen_conditional_xvalue_complete_source32(arms[1], 0u);
     for (size_t index = 0u; index < 2u; ++index) {
-        if (!sources[index] || !types[index] || types[index]->size <= 0 ||
+        Type* arm_type = arms[index] ? arms[index]->type : NULL;
+        if (arm_type && arm_type->kind == TYPE_PTR &&
+            arm_type->is_reference)
+            arm_type = arm_type->base;
+        if (!types[index] || types[index]->size <= 0 ||
             (types[index]->kind != TYPE_STRUCT &&
              types[index]->kind != TYPE_UNION) ||
-            !sources[index]->type ||
-            (sources[index]->type->kind != TYPE_STRUCT &&
-             sources[index]->type->kind != TYPE_UNION) ||
-            !type_is_compatible(types[index], sources[index]->type)) {
+            (sources[index]
+                 ? (!sources[index]->type ||
+                    (sources[index]->type->kind != TYPE_STRUCT &&
+                     sources[index]->type->kind != TYPE_UNION) ||
+                    !type_is_compatible(types[index], sources[index]->type))
+                 : (!arm_type ||
+                    (arm_type->kind != TYPE_STRUCT &&
+                     arm_type->kind != TYPE_UNION)))) {
             rcc_error(declaration->loc,
-                      "conditional reference temporary arm has no complete class source");
+                      "conditional reference temporary arm has no class source");
             return false;
         }
     }
@@ -23629,23 +23637,31 @@ static bool gen_conditional_reference_temporary_initializer32(
     gen_expr(mod, conditional->cond_test);
     emit_test_scalar_value(mod, conditional->cond_test->type);
     emit_jcc_label(mod, CC_E, else_label);
-    if (!gen_static_reference_aggregate_into_owner32(
-            mod, declaration, sources[0], types[0])) {
-        return false;
+    if (sources[0]) {
+        if (!gen_static_reference_aggregate_into_owner32(
+                mod, declaration, sources[0], types[0])) {
+            return false;
+        }
+        gen_static_reference_owner_vtable_init32(mod, types[0], owner);
+        gen_reference_temporary_owner_address32(mod, owner);
+        gen_cxx_reference_adjustment32_force(mod, arms[0]);
+    } else {
+        gen_lvalue(mod, arms[0]);
     }
-    gen_static_reference_owner_vtable_init32(mod, types[0], owner);
-    gen_reference_temporary_owner_address32(mod, owner);
-    gen_cxx_reference_adjustment32_force(mod, arms[0]);
     gen_conditional_reference_temporary_store_tag32(mod, owner, 0);
     emit_jmp_label(mod, done_label);
     emit_label(mod, else_label);
-    if (!gen_static_reference_aggregate_into_owner32(
-            mod, declaration, sources[1], types[1])) {
-        return false;
+    if (sources[1]) {
+        if (!gen_static_reference_aggregate_into_owner32(
+                mod, declaration, sources[1], types[1])) {
+            return false;
+        }
+        gen_static_reference_owner_vtable_init32(mod, types[1], owner);
+        gen_reference_temporary_owner_address32(mod, owner);
+        gen_cxx_reference_adjustment32_force(mod, arms[1]);
+    } else {
+        gen_lvalue(mod, arms[1]);
     }
-    gen_static_reference_owner_vtable_init32(mod, types[1], owner);
-    gen_reference_temporary_owner_address32(mod, owner);
-    gen_cxx_reference_adjustment32_force(mod, arms[1]);
     gen_conditional_reference_temporary_store_tag32(mod, owner, 1);
     emit_label(mod, done_label);
     return true;

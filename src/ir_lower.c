@@ -19515,10 +19515,6 @@ static RccIrLowerValue lower_conditional_expression(
             RccIrLowerValue previous_destination;
             const Decl* previous_owner;
             RccIrLowerValue tag;
-            if (!source) {
-                context->unsupported = true;
-                return lower_invalid_value();
-            }
             context->current = arm_blocks[index];
             context->terminated = false;
             tag = lower_integer_constant(
@@ -19532,8 +19528,8 @@ static RccIrLowerValue lower_conditional_expression(
             previous_destination = context->aggregate_result_destination;
             previous_owner = context->conditional_xvalue_owner;
             context->aggregate_result_destination_expression = source;
-            context->aggregate_result_destination =
-                previous_destination;
+            context->aggregate_result_destination = source
+                ? previous_destination : lower_invalid_value();
             context->conditional_xvalue_owner = NULL;
             values[index] = lower_expression(context, arms[index]);
             context->aggregate_result_destination_expression =
