@@ -326,16 +326,75 @@ static void macro_release_storage(Macro* macro, bool release_name) {
     macro->body = NULL;
 }
 
+static void macro_list_free(Macro* macros) {
+    while (macros) {
+        Macro* next = macros->next;
+        macro_release_storage(macros, true);
+        rcc_free(macros);
+        macros = next;
+    }
+}
+
+static Macro* macro_list_clone(const Macro* source) {
+    Macro* head = NULL;
+    Macro** tail = &head;
+    while (source) {
+        Macro* copy = rcc_alloc(sizeof(*copy));
+        if (!copy) goto fail;
+        memset(copy, 0, sizeof(*copy));
+        copy->name = rcc_strdup(source->name ? source->name : "");
+        copy->param_count = source->param_count;
+        copy->is_builtin = source->is_builtin;
+        if (source->param_count >= 0) {
+            if (source->param_count > 0) {
+                copy->params = rcc_alloc(sizeof(*copy->params) *
+                                         (size_t)source->param_count);
+                if (!copy->params) {
+                    macro_release_storage(copy, true);
+                    rcc_free(copy);
+                    goto fail;
+                }
+                memset((void*)copy->params, 0,
+                       sizeof(*copy->params) *
+                           (size_t)source->param_count);
+                for (int index = 0; index < source->param_count; ++index) {
+                    copy->params[index] = rcc_strdup(
+                        source->params[index] ? source->params[index] : "");
+                    if (!copy->params[index]) {
+                        macro_release_storage(copy, true);
+                        rcc_free(copy);
+                        goto fail;
+                    }
+                }
+            }
+            copy->body = rcc_strdup(source->body ? source->body : "");
+        } else {
+            copy->value = rcc_strdup(source->value ? source->value : "");
+        }
+        if (!copy->name ||
+            (source->param_count >= 0 && !copy->body) ||
+            (source->param_count < 0 && !copy->value)) {
+            macro_release_storage(copy, true);
+            rcc_free(copy);
+            goto fail;
+        }
+        *tail = copy;
+        tail = &copy->next;
+        source = source->next;
+    }
+    return head;
+fail:
+    macro_list_free(head);
+    return NULL;
+}
+
 void pp_free(Preprocessor* pp) {
     if (!pp) return;
-    /* Free macros */
-    Macro* m = pp->macros;
-    while (m) {
-        Macro* next = m->next;
-        macro_release_storage(m, true);
-        rcc_free(m);
-        m = next;
+    macro_list_free(pp->macros);
+    for (size_t index = 0; index < pp->module_macro_snapshot_count; ++index) {
+        macro_list_free(pp->module_macro_snapshots[index].macros);
     }
+    rcc_free(pp->module_macro_snapshots);
 
     /* Free include paths */
     if (pp->include_paths) {
@@ -3264,6 +3323,171 @@ static const char* process_directive(Preprocessor* pp, const char* p,
     return skip_to_eol(p);
 }
 
+#define PP_MAX_MODULE_MACRO_SNAPSHOTS 256u
+
+static const char* pp_skip_module_space(const char* cursor,
+                                       const char* end) {
+    while (cursor < end && isspace((unsigned char)*cursor)) ++cursor;
+    return cursor;
+}
+
+static const char* pp_read_module_word(const char* cursor, const char* end,
+                                       const char* word) {
+    size_t length = strlen(word);
+    if ((size_t)(end - cursor) < length ||
+        strncmp(cursor, word, length) != 0 ||
+        (cursor + length < end &&
+         (isalnum((unsigned char)cursor[length]) ||
+          cursor[length] == '_'))) return NULL;
+    return cursor + length;
+}
+
+static bool pp_line_starts_module_import(const char* begin,
+                                         const char* end,
+                                         const char* source_end) {
+    const char* cursor = pp_skip_module_space(begin, end);
+    const char* after = pp_read_module_word(cursor, end, "import");
+    if (after) return true;
+    after = pp_read_module_word(cursor, end, "export");
+    if (!after) return false;
+    cursor = pp_skip_module_space(after, source_end);
+    return pp_read_module_word(cursor, source_end, "import") != NULL;
+}
+
+static void pp_capture_module_macro_snapshot(Preprocessor* pp,
+                                             size_t output_offset) {
+    PPModuleMacroSnapshot* replacement;
+    size_t capacity;
+    if (!pp || pp->module_macro_snapshot_overflow) return;
+    for (size_t index = 0; index < pp->module_macro_snapshot_count; ++index) {
+        if (pp->module_macro_snapshots[index].output_offset == output_offset) {
+            return;
+        }
+    }
+    if (pp->module_macro_snapshot_count >=
+        PP_MAX_MODULE_MACRO_SNAPSHOTS) {
+        pp->module_macro_snapshot_overflow = true;
+        return;
+    }
+    if (pp->module_macro_snapshot_count ==
+        pp->module_macro_snapshot_capacity) {
+        capacity = pp->module_macro_snapshot_capacity
+            ? pp->module_macro_snapshot_capacity * 2u : 8u;
+        if (capacity > PP_MAX_MODULE_MACRO_SNAPSHOTS) {
+            capacity = PP_MAX_MODULE_MACRO_SNAPSHOTS;
+        }
+        replacement = rcc_realloc(
+            pp->module_macro_snapshots,
+            capacity * sizeof(pp->module_macro_snapshots[0]));
+        if (!replacement) {
+            pp->module_macro_snapshot_overflow = true;
+            return;
+        }
+        pp->module_macro_snapshots = replacement;
+        pp->module_macro_snapshot_capacity = capacity;
+    }
+    Macro* macros = macro_list_clone(pp->macros);
+    if (!macros) {
+        pp->module_macro_snapshot_overflow = true;
+        return;
+    }
+    pp->module_macro_snapshots[pp->module_macro_snapshot_count++] =
+        (PPModuleMacroSnapshot){output_offset, macros};
+}
+
+Preprocessor* pp_snapshot_module_import(const Preprocessor* pp,
+                                        size_t output_offset) {
+    const PPModuleMacroSnapshot* selected = NULL;
+    Preprocessor* snapshot;
+    Macro* macros;
+    if (!pp || pp->module_macro_snapshot_overflow) return NULL;
+    for (size_t index = 0; index < pp->module_macro_snapshot_count; ++index) {
+        const PPModuleMacroSnapshot* candidate =
+            &pp->module_macro_snapshots[index];
+        if (candidate->output_offset <= output_offset &&
+            (!selected || candidate->output_offset > selected->output_offset)) {
+            selected = candidate;
+        }
+    }
+    if (!selected) return NULL;
+    snapshot = pp_new();
+    if (!snapshot) return NULL;
+    macro_list_free(snapshot->macros);
+    snapshot->macros = NULL;
+    macros = macro_list_clone(selected->macros);
+    if (!macros) {
+        pp_free(snapshot);
+        return NULL;
+    }
+    snapshot->macros = macros;
+    snapshot->cxx_mode = pp->cxx_mode;
+    snapshot->cxx_standard = pp->cxx_standard;
+    for (int index = 0; index < pp->include_path_count; ++index) {
+        pp_add_include_path(snapshot, pp->include_paths[index]);
+    }
+    return snapshot;
+}
+
+static void pp_hash_state_bytes(uint64_t* hash, const void* bytes,
+                                size_t length) {
+    const unsigned char* cursor = bytes;
+    for (size_t index = 0; index < length; ++index) {
+        *hash ^= cursor[index];
+        *hash *= UINT64_C(1099511628211);
+    }
+    *hash ^= 0u;
+    *hash *= UINT64_C(1099511628211);
+}
+
+bool pp_module_import_state_hash(const Preprocessor* pp,
+                                 uint64_t* hash_out) {
+    uint64_t hash = UINT64_C(14695981039346656037);
+    if (!pp || !hash_out || pp->module_macro_snapshot_overflow) return false;
+    for (size_t index = 0; index < pp->module_macro_snapshot_count; ++index) {
+        const PPModuleMacroSnapshot* snapshot =
+            &pp->module_macro_snapshots[index];
+        uint64_t offset = (uint64_t)snapshot->output_offset;
+        for (size_t byte = 0; byte < sizeof(offset); ++byte) {
+            unsigned char value = (unsigned char)(offset >> (byte * 8u));
+            pp_hash_state_bytes(&hash, &value, sizeof(value));
+        }
+        for (const Macro* macro = snapshot->macros; macro;
+             macro = macro->next) {
+            if (macro->is_builtin && macro->name &&
+                (strcmp(macro->name, "__DATE__") == 0 ||
+                 strcmp(macro->name, "__TIME__") == 0 ||
+                 strcmp(macro->name, "__TIMESTAMP__") == 0)) {
+                continue;
+            }
+            pp_hash_state_bytes(&hash, macro->name ? macro->name : "",
+                                macro->name ? strlen(macro->name) : 0u);
+            {
+                uint32_t parameter_count = (uint32_t)macro->param_count;
+                for (size_t byte = 0; byte < sizeof(parameter_count); ++byte) {
+                    unsigned char value =
+                        (unsigned char)(parameter_count >> (byte * 8u));
+                    pp_hash_state_bytes(&hash, &value, sizeof(value));
+                }
+            }
+            if (macro->param_count < 0) {
+                pp_hash_state_bytes(&hash, macro->value ? macro->value : "",
+                                    macro->value ? strlen(macro->value) : 0u);
+            } else {
+                for (int parameter = 0; parameter < macro->param_count;
+                     ++parameter) {
+                    pp_hash_state_bytes(
+                        &hash, macro->params[parameter],
+                        strlen(macro->params[parameter]));
+                }
+                pp_hash_state_bytes(&hash, macro->body ? macro->body : "",
+                                    macro->body ? strlen(macro->body) : 0u);
+            }
+        }
+    }
+    *hash_out = hash;
+    return true;
+}
+
 /* Process source string */
 char* pp_process_string(Preprocessor* pp, const char* source, const char* filename) {
     PPBuffer output;
@@ -3282,6 +3506,8 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
     rcc_free(normalized_source);
     char* comment_free_source = strip_source_comments(spliced_source);
     const char* p = comment_free_source;
+    const char* source_end = comment_free_source +
+                             strlen(comment_free_source);
     int line = 1;
     int initial_cond_depth = pp->cond_depth;
 
@@ -3323,6 +3549,10 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
 
         /* Process normal line - expand macros */
         const char* eol = skip_to_eol(p);
+        if (pp->include_depth == 0 &&
+            pp_line_starts_module_import(line_start, eol, source_end)) {
+            pp_capture_module_macro_snapshot(pp, output.size);
+        }
         const char* chunk_end = pp_multiline_macro_extent(pp, line_start, eol);
         size_t line_len = chunk_end - line_start;
         char* line_buf = rcc_alloc(line_len + 1);

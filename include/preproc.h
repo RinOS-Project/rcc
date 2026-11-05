@@ -25,6 +25,11 @@ typedef struct Macro {
     struct Macro* next;
 } Macro;
 
+typedef struct PPModuleMacroSnapshot {
+    size_t output_offset;
+    Macro* macros;
+} PPModuleMacroSnapshot;
+
 /* Preprocessor state */
 typedef struct {
     Macro* macros;               /* Macro hash table head */
@@ -50,6 +55,10 @@ typedef struct {
     const char** once_files;
     int once_file_count;
     int once_file_capacity;
+    PPModuleMacroSnapshot* module_macro_snapshots;
+    size_t module_macro_snapshot_count;
+    size_t module_macro_snapshot_capacity;
+    bool module_macro_snapshot_overflow;
 } Preprocessor;
 
 /* Initialize preprocessor */
@@ -69,6 +78,9 @@ Macro* pp_get_macro(Preprocessor* pp, const char* name);
 /* Process source file - returns preprocessed source */
 char* pp_process_file(Preprocessor* pp, const char* filename);
 char* pp_process_string(Preprocessor* pp, const char* source, const char* filename);
+Preprocessor* pp_snapshot_module_import(const Preprocessor* pp,
+                                        size_t output_offset);
+bool pp_module_import_state_hash(const Preprocessor* pp, uint64_t* hash_out);
 bool pp_write_dependencies(Preprocessor* pp, const char* target,
                            const char* source, const char* dependency_file);
 void pp_record_dependency(Preprocessor* pp, const char* path);

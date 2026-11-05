@@ -81,9 +81,10 @@ typedef struct CxxModuleLoadContext {
 
 static bool cxx_module_preprocess_header_unit(
     CxxModuleLoadContext* context, const char* header_name,
-    char** expanded_out);
+    size_t source_offset, char** expanded_out);
 static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
                                           const char* header_name,
+                                          size_t source_offset,
                                           CxxModuleBuffer* imports);
 static uint64_t cxx_module_hash(const void* bytes, size_t length);
 
@@ -997,7 +998,7 @@ static bool cxx_module_artifact_path(const char* directory,
         slug_length += addition;
     }
     suffix_length = snprintf(suffix, sizeof(suffix),
-                             ".%s.cxx%d.a%u.m%016llx.v8.rmi",
+                             ".%s.cxx%d.a%u.m%016llx.v9.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
                              standard, (unsigned)abi,
                              (unsigned long long)macro_state_hash);
@@ -1077,6 +1078,7 @@ static bool cxx_module_artifact_bytes(const char* module_name,
                                       const CxxModuleNameList* reexports,
                                       const char* exports, size_t exports_size,
                                       const char* preprocessed_source,
+                                      uint64_t import_macro_state_hash,
                                       TargetArch target_arch, int standard,
                                       RccCxxItaniumAbi abi,
                                       uint64_t macro_state_hash,
@@ -1090,13 +1092,19 @@ static bool cxx_module_artifact_bytes(const char* module_name,
     unsigned target_bits = target_arch == ARCH_X64 ? 64u : 32u;
     uint64_t source_state_hash = cxx_module_hash(
         preprocessed_source, strlen(preprocessed_source));
+    for (size_t byte = 0; byte < sizeof(import_macro_state_hash); ++byte) {
+        unsigned char value =
+            (unsigned char)(import_macro_state_hash >> (byte * 8u));
+        source_state_hash ^= value;
+        source_state_hash *= UINT64_C(1099511628211);
+    }
     uint64_t artifact_checksum;
     bool ok = false;
     if (!cxx_module_build_payload(module_name, source_path, source_input_name,
                                   dependencies, reexports, exports,
                                   exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI8 %u %d %u %016llx %lu %lu %016llx %016llx ",
+                           "RCCBMI9 %u %d %u %016llx %lu %lu %016llx %016llx ",
                            target_bits, standard, (unsigned)abi,
                            (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
@@ -1256,6 +1264,7 @@ static bool cxx_module_source_state_matches(CxxModuleLoadContext* context,
     FILE* file;
     int saved_errors = g_error_count;
     int saved_warnings = g_warning_count;
+    uint64_t import_macro_state_hash = 0u;
     bool matches = false;
     if (!context || !context->argv || !source_path || !source_input_name) {
         return false;
@@ -1273,8 +1282,15 @@ static bool cxx_module_source_state_matches(CxxModuleLoadContext* context,
     }
     source = pp_process_file(pp, preprocessing_path);
     if (source && g_error_count == saved_errors &&
-        cxx_module_hash(source, strlen(source)) == expected_hash) {
-        matches = true;
+        pp_module_import_state_hash(pp, &import_macro_state_hash)) {
+        uint64_t source_state_hash = cxx_module_hash(source, strlen(source));
+        for (size_t byte = 0; byte < sizeof(import_macro_state_hash); ++byte) {
+            unsigned char value =
+                (unsigned char)(import_macro_state_hash >> (byte * 8u));
+            source_state_hash ^= value;
+            source_state_hash *= UINT64_C(1099511628211);
+        }
+        matches = source_state_hash == expected_hash;
     }
     rcc_free(source);
     pp_free(pp);
@@ -1402,7 +1418,7 @@ reload_artifact:
     }
     pp_record_dependency(context->preprocessor, artifact_path);
     if (sscanf(bytes,
-               "RCCBMI8 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
+               "RCCBMI9 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
                &standard, &abi, &macro_state_hash, &dependency_count_value,
                &payload_size_value, &source_state_hash,
                &dependency_state_hash, &expected_hash, &header_bytes) != 9 ||
@@ -1417,7 +1433,7 @@ reload_artifact:
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI8 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
+        "RCCBMI9 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
         standard, abi, macro_state_hash,
         dependency_count_value, payload_size_value, source_state_hash,
         dependency_state_hash);
@@ -1734,7 +1750,7 @@ reload_artifact:
                 bool expanded;
                 context->input_path = source_path;
                 expanded = cxx_module_preprocess_header_unit(
-                    context, header_name, &expanded_header);
+                    context, header_name, SIZE_MAX, &expanded_header);
                 context->input_path = saved_input_path;
                 if (!expanded) {
                     rcc_free(header_name);
@@ -1980,7 +1996,8 @@ static bool cxx_module_resolve_imports(const char* source,
                     if (module_interface && load_context) {
                         CxxModuleBuffer expanded_header = {0};
                         if (!cxx_module_import_header_unit(
-                                load_context, name, &expanded_header)) {
+                                load_context, name, event_begin,
+                                &expanded_header)) {
                             snprintf(error, error_capacity, "%s",
                                      load_context->error[0]
                                          ? load_context->error
@@ -2155,9 +2172,12 @@ fail:
 
 static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
                                               const char* header_name,
+                                              size_t source_offset,
                                               char** expanded_out) {
     char directive[RCC_MAX_PATH + 16u];
     char* expanded;
+    Preprocessor* preprocessing_state;
+    bool owns_preprocessing_state = false;
     int directive_length;
     int errors_before;
     if (expanded_out) *expanded_out = NULL;
@@ -2171,14 +2191,34 @@ static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
                  "header-unit import name is too long");
         return false;
     }
+    preprocessing_state = context->preprocessor;
+    if (source_offset != SIZE_MAX) {
+        preprocessing_state = pp_snapshot_module_import(
+            context->preprocessor, source_offset);
+        owns_preprocessing_state = true;
+        if (!preprocessing_state) {
+            snprintf(context->error, sizeof(context->error),
+                     "macro snapshot at header-unit import is unavailable");
+            return false;
+        }
+    }
     errors_before = g_error_count;
-    expanded = pp_process_string(context->preprocessor, directive,
+    expanded = pp_process_string(preprocessing_state, directive,
                                  context->input_path);
     if (!expanded || g_error_count != errors_before) {
         rcc_free(expanded);
+        if (owns_preprocessing_state) pp_free(preprocessing_state);
         snprintf(context->error, sizeof(context->error),
                  "could not preprocess header unit %s", header_name);
         return false;
+    }
+    if (owns_preprocessing_state) {
+        for (int index = 0; index < preprocessing_state->dependency_count;
+             ++index) {
+            pp_record_dependency(context->preprocessor,
+                                 preprocessing_state->dependencies[index]);
+        }
+        pp_free(preprocessing_state);
     }
     *expanded_out = expanded;
     return true;
@@ -2186,13 +2226,15 @@ static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
 
 static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
                                           const char* header_name,
+                                          size_t source_offset,
                                           CxxModuleBuffer* imports) {
     char* expanded = NULL;
     if (!context || !header_name || !imports) return false;
     if (cxx_module_name_list_contains(&context->loaded_headers, header_name)) {
         return true;
     }
-    if (!cxx_module_preprocess_header_unit(context, header_name, &expanded)) {
+    if (!cxx_module_preprocess_header_unit(context, header_name,
+                                           source_offset, &expanded)) {
         return false;
     }
     if (!cxx_module_buffer_text(imports, expanded) ||
@@ -2225,7 +2267,8 @@ static bool cxx_module_rewrite_source(const char* source,
             if (imports.data) imports.data[0] = '\0';
             bool imported = event->header_unit
                 ? cxx_module_import_header_unit(load_context,
-                                                event->import_name, &imports)
+                                                event->import_name,
+                                                event->begin, &imports)
                 : cxx_module_load_artifact(load_context, event->import_name,
                                            &imports, true);
             if (!imported) goto fail;
@@ -2316,6 +2359,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     char module_name[RCC_MAX_PATH] = {0};
     char error[512] = {0};
     uint64_t dependency_state_hash = 0u;
+    uint64_t import_macro_state_hash = 0u;
     bool has_interface = false;
     bool ok = false;
     if (!source || !input_path || !rewritten_out || !pending ||
@@ -2395,6 +2439,12 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
                      "could not fingerprint C++ module dependencies");
             goto done;
         }
+        if (!pp_module_import_state_hash(preprocessor,
+                                        &import_macro_state_hash)) {
+            snprintf(error, sizeof(error),
+                     "could not fingerprint C++ header-unit import macro state");
+            goto done;
+        }
         if (!cxx_module_artifact_path(source_directory, module_name,
                                       g_opts.target_arch, g_cxx_standard,
                                       g_opts.cxx_itanium_abi,
@@ -2407,6 +2457,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
                                        &reexports,
                                        exports.data ? exports.data : "",
                                        exports.length, source,
+                                       import_macro_state_hash,
                                        g_opts.target_arch,
                                        g_cxx_standard,
                                        g_opts.cxx_itanium_abi,
