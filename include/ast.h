@@ -409,6 +409,7 @@ void rcc_parser_set_cxx_standard(int standard);
 bool rcc_parser_cxx_standard_at_least(int standard);
 void rcc_parser_function_scope_push(const char* name);
 void rcc_parser_function_scope_pop(void);
+bool rcc_parser_in_function_scope(void);
 void rcc_parser_reset_type_scopes(void);
 const char* rcc_parser_new_local_type_identity(void);
 void rcc_parser_apply_pragma_pack(struct Token* directive);

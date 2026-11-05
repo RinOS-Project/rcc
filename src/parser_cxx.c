@@ -4279,6 +4279,38 @@ static bool cxx_structural_class_count_member_values(
     return true;
 }
 
+static void cxx_bind_template_constant_address_argument(Expr* expression) {
+    Expr* operand;
+    const char* name;
+    if (!expression) return;
+    while (expression->kind == EXPR_CAST && expression->cast_expr) {
+        expression = expression->cast_expr;
+    }
+    if (expression->kind != EXPR_ADDR ||
+        !(operand = expression->unary_operand) ||
+        operand->kind != EXPR_IDENT || operand->ident_decl ||
+        !(name = operand->ident_name)) {
+        return;
+    }
+    rcc_parser_cxx_bind_explicit_global_variable(operand);
+    if (operand->ident_decl || !active_ast) return;
+    if (rcc_parser_in_function_scope() && cxx_parser_value_type(name)) return;
+    for (DeclList* item = active_ast->decls; item; item = item->next) {
+        Decl* declaration = item->decl;
+        const char* candidate_name = declaration ? declaration->name : NULL;
+        const char* lookup_name = name[0] == ':' && name[1] == ':'
+            ? name + 2 : name;
+        if (!declaration || declaration->kind != DECL_VAR ||
+            !candidate_name || strcmp(candidate_name, lookup_name) != 0) {
+            continue;
+        }
+        operand->ident_decl = declaration;
+        operand->type = declaration->type;
+        declaration->var_is_global = true;
+        return;
+    }
+}
+
 static bool cxx_template_non_type_constant_value(
     const Expr* expression, int64_t* value_out) {
     if (!expression || !value_out) return false;
@@ -4342,6 +4374,12 @@ static bool cxx_template_non_type_constant_value(
            (expression->compound_paren_init &&
             aggregate_value_type->cxx_class &&
             aggregate_value_type->cxx_class->has_user_constructor))))) {
+        if (expression->kind == EXPR_CALL) {
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                cxx_bind_template_constant_address_argument(argument->expr);
+            }
+        }
         Expr* initialized = rcc_sema_eval_constexpr_aggregate_initializer(
             (Expr*)expression, aggregate_value_type);
         if (initialized) {

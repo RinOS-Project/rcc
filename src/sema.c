@@ -7693,6 +7693,24 @@ static bool sema_constexpr_address_target(Expr* expression, Decl** declaration,
             *offset = 0;
             return true;
         }
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        Symbol* symbol = g_symtab
+            ? sema_cxx_lookup_name(expression->ident_name, expression->loc)
+            : NULL;
+        Decl* target = symbol ? symbol->decl : NULL;
+        if (target &&
+            (target->kind == DECL_FUNC ||
+             (target->kind == DECL_VAR &&
+              (target->var_is_global || target->var_is_static_local ||
+               symbol->is_global)))) {
+            if (target->kind == DECL_VAR && symbol->is_global) {
+                target->var_is_global = true;
+            }
+            *declaration = target;
+            *offset = 0;
+            return true;
+        }
         return false;
     }
     if (expression->kind == EXPR_INDEX && expression->index_base &&

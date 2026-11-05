@@ -14630,3 +14630,15 @@ remains a separate open item.
       Itanium symbol comparison. The strict GCC C++20, Windows and POSIX
       structural-NTTP gates pass; i686/AMD64 assembly matches GCC, and all 79
       verified-backend functions pass at `-O0` and `-O2` with zero fallback.
+
+## RCC continuation (2026-11-05, pointer arguments in constexpr aggregate NTTP factories)
+
+- [x] Bind namespace-scope object identifiers in address arguments before
+      materializing constexpr aggregate-returning calls used as structural
+      NTTPs. Cover ordinary, explicitly parameterized, and type-deduced
+      constexpr factories returning a class with an active pointer-bearing
+      union. Strict GCC C++20, host execution, exact Itanium symbol comparison,
+      and i686/AMD64 assembly pass. All 85 verified-backend functions pass at
+      `-O0` and `-O2` with zero fallback.
+- [ ] Broader constexpr pointer-provenance, floating-point, and aggregate
+      cases remain open.

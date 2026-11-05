@@ -78,6 +78,33 @@ union FunctionTemplateStructuralDirectPointerUnion {
 
 inline constexpr int function_template_structural_union_pointer_target = 23;
 
+struct FunctionTemplateStructuralPointerFactoryValue {
+    FunctionTemplateStructuralPointerUnion payload;
+};
+
+template<FunctionTemplateStructuralPointerFactoryValue Value>
+struct FunctionTemplateStructuralPointerFactoryValueTag {};
+
+constexpr FunctionTemplateStructuralPointerFactoryValue
+function_template_make_structural_pointer_union_value(
+    const int* pointer, int bias) {
+    return {.payload = {.object = {pointer, bias}}};
+}
+
+template<int Adjustment>
+constexpr FunctionTemplateStructuralPointerFactoryValue
+function_template_make_structural_pointer_union_template_value(
+    const int* pointer, int bias) {
+    return {.payload = {.object = {pointer, bias + Adjustment}}};
+}
+
+template<typename PointerElement>
+constexpr FunctionTemplateStructuralPointerFactoryValue
+function_template_make_structural_pointer_union_deduced_value(
+    PointerElement* pointer, int bias) {
+    return {.payload = {.object = {pointer, bias}}};
+}
+
 struct FunctionTemplateStructuralPointerArray {
     const int* values[2];
     int bias;
@@ -502,6 +529,17 @@ constexpr int function_template_structural_union_nested_pointer_deduced(
     return *Value.object.pointer + Value.object.bias;
 }
 
+template<FunctionTemplateStructuralPointerFactoryValue Value>
+constexpr int function_template_structural_pointer_factory_explicit() {
+    return *Value.payload.object.pointer + Value.payload.object.bias;
+}
+
+template<FunctionTemplateStructuralPointerFactoryValue Value>
+constexpr int function_template_structural_pointer_factory_deduced(
+    FunctionTemplateStructuralPointerFactoryValueTag<Value>) {
+    return *Value.payload.object.pointer + Value.payload.object.bias;
+}
+
 template<FunctionTemplateStructuralDirectPointerUnion Value>
 constexpr int
 function_template_structural_union_direct_pointer_explicit() {
@@ -893,6 +931,20 @@ static_assert(function_template_structural_union_nested_pointer_deduced(
                           .object = {
                               &function_template_structural_union_pointer_target,
                               5}}>{}) == 28);
+static_assert(function_template_structural_pointer_factory_explicit<
+                  function_template_make_structural_pointer_union_value(
+                      &function_template_structural_union_pointer_target,
+                      8)>() == 31);
+static_assert(function_template_structural_pointer_factory_explicit<
+                  function_template_make_structural_pointer_union_template_value<
+                      2>(
+                      &function_template_structural_union_pointer_target,
+                      4)>() == 29);
+static_assert(function_template_structural_pointer_factory_deduced(
+                  FunctionTemplateStructuralPointerFactoryValueTag<
+                      function_template_make_structural_pointer_union_deduced_value(
+                          &function_template_structural_union_pointer_target,
+                          7)>{}) == 30);
 static_assert(function_template_structural_union_direct_pointer_explicit<
                   FunctionTemplateStructuralDirectPointerUnion{
                       .pointer =
@@ -1208,6 +1260,19 @@ int main() {
                         &function_template_structural_union_pointer_target,
                         5}}>{}) !=
             28 ||
+        function_template_structural_pointer_factory_explicit<
+            function_template_make_structural_pointer_union_value(
+                &function_template_structural_union_pointer_target,
+                8)>() != 31 ||
+        function_template_structural_pointer_factory_explicit<
+            function_template_make_structural_pointer_union_template_value<
+                2>(&function_template_structural_union_pointer_target,
+                   4)>() != 29 ||
+        function_template_structural_pointer_factory_deduced(
+            FunctionTemplateStructuralPointerFactoryValueTag<
+                function_template_make_structural_pointer_union_deduced_value(
+                    &function_template_structural_union_pointer_target,
+                    7)>{}) != 30 ||
         function_template_structural_union_direct_pointer_explicit<
             FunctionTemplateStructuralDirectPointerUnion{
                 .pointer =

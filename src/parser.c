@@ -293,6 +293,10 @@ void rcc_parser_function_scope_pop(void) {
         parser_function_enum_constants_stack[parser_function_scope_depth];
 }
 
+bool rcc_parser_in_function_scope(void) {
+    return parser_function_scope_depth > 0;
+}
+
 void rcc_parser_set_cxx_template_default_mode(bool enabled) {
     if (enabled) {
         if (parser_cxx_template_default_depth >=
