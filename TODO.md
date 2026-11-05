@@ -14642,3 +14642,13 @@ remains a separate open item.
       `-O0` and `-O2` with zero fallback.
 - [ ] Broader constexpr pointer-provenance, floating-point, and aggregate
       cases remain open.
+
+## RCC continuation (2026-11-05, array-element pointers in constexpr aggregate NTTP factories)
+
+- [x] Bind namespace-scope array bases inside address expressions such as
+      `&array[1]` before constexpr aggregate-factory evaluation, while retaining
+      function-scope shadowing rules. Verify strict GCC C++20 acceptance,
+      runtime behavior, exact ABI-specific Itanium symbols (Windows GCC,
+      Linux GCC, RCC i686, and RCC AMD64), and both Windows and POSIX
+      structural-NTTP gates. All 86 verified-backend functions pass at `-O0`
+      and `-O2` with zero fallback.

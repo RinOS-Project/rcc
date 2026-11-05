@@ -4279,19 +4279,10 @@ static bool cxx_structural_class_count_member_values(
     return true;
 }
 
-static void cxx_bind_template_constant_address_argument(Expr* expression) {
-    Expr* operand;
+static void cxx_bind_template_constant_address_identifier(Expr* operand) {
     const char* name;
-    if (!expression) return;
-    while (expression->kind == EXPR_CAST && expression->cast_expr) {
-        expression = expression->cast_expr;
-    }
-    if (expression->kind != EXPR_ADDR ||
-        !(operand = expression->unary_operand) ||
-        operand->kind != EXPR_IDENT || operand->ident_decl ||
-        !(name = operand->ident_name)) {
-        return;
-    }
+    if (!operand || operand->kind != EXPR_IDENT || operand->ident_decl ||
+        !(name = operand->ident_name)) return;
     rcc_parser_cxx_bind_explicit_global_variable(operand);
     if (operand->ident_decl || !active_ast) return;
     if (rcc_parser_in_function_scope() && cxx_parser_value_type(name)) return;
@@ -4308,6 +4299,44 @@ static void cxx_bind_template_constant_address_argument(Expr* expression) {
         operand->type = declaration->type;
         declaration->var_is_global = true;
         return;
+    }
+}
+
+static void cxx_bind_template_constant_address_target(Expr* expression) {
+    if (!expression) return;
+    while (expression->kind == EXPR_CAST && expression->cast_expr) {
+        expression = expression->cast_expr;
+    }
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            cxx_bind_template_constant_address_identifier(expression);
+            return;
+        case EXPR_INDEX:
+            cxx_bind_template_constant_address_target(
+                expression->index_base);
+            return;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            cxx_bind_template_constant_address_target(
+                expression->member_base);
+            return;
+        case EXPR_DEREF:
+            cxx_bind_template_constant_address_target(
+                expression->unary_operand);
+            return;
+        default:
+            return;
+    }
+}
+
+static void cxx_bind_template_constant_address_argument(Expr* expression) {
+    if (!expression) return;
+    while (expression->kind == EXPR_CAST && expression->cast_expr) {
+        expression = expression->cast_expr;
+    }
+    if (expression->kind == EXPR_ADDR) {
+        cxx_bind_template_constant_address_target(
+            expression->unary_operand);
     }
 }
 
