@@ -14829,3 +14829,15 @@ Continue in this order:
       comparisons and explicit diagnostics until each form is implemented.
 - [ ] Prepare reproducible native RinOS self-host bootstraps; keep actual
       target-system execution as separate hardware validation.
+
+## RCC continuation (2026-11-06, computed global i686 unsigned divmod DWARF)
+
+- [x] Thread relocation state through recursive i686 64-bit DWARF operand
+      emission so an ordinary global unsigned 64-bit value can participate in
+      a computed divmod tree. Cover `(global + 0x100000001ULL) / divisor` and
+      `% divisor` with global source and divisor in legacy and verified C++20
+      objects. Check six source relocations, two divisor relocations, and an
+      11-by-9 boundary-value matrix. `test-debug-info-inline-expression` and
+      the full `test-debug-info` gate pass. Static-local computed trees, signed
+      global trees, volatile/reference/atomic leaves, and broader optimized
+      multi-piece lifetime/CFI coverage remain open.

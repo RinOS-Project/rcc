@@ -11114,6 +11114,78 @@ static void verify_inline_i686_u64_global_variable_division_expression(
     }
 }
 
+static void verify_inline_i686_u64_global_add_variable_division_expression(
+    ObjectFile* object, const uint8_t* data, uint64_t expression_end,
+    uint64_t expression_start, const ObjSection* info,
+    const char* source_name, const char* divisor_name, bool remainder) {
+    static const uint64_t dividends[] = {
+        0u, 1u, 2u, 3u, 4u, UINT32_MAX, UINT64_C(0x100000000),
+        UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
+        UINT64_MAX, UINT64_C(0xfedcba9876543217)
+    };
+    static const uint64_t divisors[] = {
+        1u, 2u, 3u, UINT32_MAX, UINT64_C(0x100000001),
+        UINT64_C(0x4000000000000001), UINT64_C(0x7fffffffffffffff),
+        UINT64_C(0x8000000000000001), UINT64_MAX
+    };
+    size_t source_relocations = 0u;
+    size_t divisor_relocations = 0u;
+
+    assert(object && data && info && source_name && divisor_name &&
+           object->arch == ARCH_X86 &&
+           verify_inline_global_storage(
+               object, source_name, 8u) == UINT64_C(0x7ffffffffffffff0) &&
+           verify_inline_global_storage(
+               object, divisor_name, 8u) == UINT64_C(0x8000000100000003));
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset < expression_start ||
+            relocation->offset >= expression_end) {
+            continue;
+        }
+        assert(relocation->type == RELOC_ABS32U &&
+               relocation->symbol_name);
+        if (strcmp(relocation->symbol_name, source_name) == 0) {
+            ++source_relocations;
+        } else if (strcmp(relocation->symbol_name, divisor_name) == 0) {
+            ++divisor_relocations;
+        } else {
+            assert(!"unexpected relocation in computed global divmod");
+        }
+    }
+    assert(source_relocations == 6u && divisor_relocations == 2u);
+    for (size_t dividend_index = 0u;
+         dividend_index < sizeof(dividends) / sizeof(dividends[0]);
+         ++dividend_index) {
+        for (size_t divisor_index = 0u;
+             divisor_index < sizeof(divisors) / sizeof(divisors[0]);
+             ++divisor_index) {
+            uint64_t dividend = dividends[dividend_index];
+            uint64_t divisor = divisors[divisor_index];
+            uint64_t effective_dividend = dividend + UINT64_C(0x100000001);
+            uint64_t expected = remainder
+                ? effective_dividend % divisor
+                : effective_dividend / divisor;
+            uint64_t actual =
+                evaluate_inline_i686_u64_constant_division_with_signed_hint(
+                    data, expression_end, expression_start, 0, 0, dividend,
+                    divisor, remainder, true, 0, false, info, source_name,
+                    divisor_name);
+            if (actual != expected) {
+                fprintf(stderr,
+                        "i686 u64 computed-global %s mismatch: value=%#llx "
+                        "divisor=%#llx actual=%#llx expected=%#llx\n",
+                        remainder ? "remainder" : "division",
+                        (unsigned long long)dividend,
+                        (unsigned long long)divisor,
+                        (unsigned long long)actual,
+                        (unsigned long long)expected);
+            }
+            assert(actual == expected);
+        }
+    }
+}
+
 static void verify_inline_i686_s64_global_constant_division_expression(
     ObjectFile* object, const uint8_t* data, uint64_t expression_end,
     uint64_t expression_start, const ObjSection* info,
@@ -11344,8 +11416,14 @@ static void verify_inline_i686_static_local_division(
             }
             candidate = relocation->offset - 5u;
             if (candidate >= children_begin && candidate < children_end &&
+                candidate + 5u <= info->size &&
                 info->data[candidate] == 41u) {
-                children_end = candidate;
+                uint32_t candidate_origin = read_u32(
+                    info->data, candidate + 1u);
+                if (candidate_origin < info->size &&
+                    info->data[candidate_origin] == 40u) {
+                    children_end = candidate;
+                }
             }
         }
         for (uint64_t candidate = children_begin;
@@ -14334,6 +14412,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_unsigned_long_long_atomic_local_high_constant_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 64 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_global_add_runtime_div_entry";
+    } else if (expected_constant == INT64_MIN + 65 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_global_add_runtime_mod_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -14666,6 +14752,17 @@ static void verify_inline_integer_expression_parameter(
                 assert(right_shifted == values[index].right * 2u);
             }
         }
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
+        divisor_source_name &&
+        (expected_constant == INT64_MIN + 64 ||
+         expected_constant == INT64_MIN + 65) &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        verify_inline_i686_u64_global_add_variable_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            source_name, divisor_source_name, expected_operation == 0x1du);
         objfile_free(object);
         return;
     }
@@ -21160,6 +21257,30 @@ int main(int argc, char** argv)
         verify_inline_i686_global_bitwise_parameter(argv[8], 0x35u);
         verify_inline_i686_global_bitwise_parameter(argv[6], 0x36u);
         verify_inline_i686_global_bitwise_parameter(argv[8], 0x36u);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            true, 0x1bu, 8u, INT64_MIN + 64,
+            "debug_inline_nonconstant_unsigned_long_long_global_source", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            true, 0x1bu, 8u, INT64_MIN + 64,
+            "debug_inline_nonconstant_unsigned_long_long_global_source", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            true, 0x1du, 8u, INT64_MIN + 65,
+            "debug_inline_nonconstant_unsigned_long_long_global_source", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            true, 0x1du, 8u, INT64_MIN + 65,
+            "debug_inline_nonconstant_unsigned_long_long_global_source", false);
         verify_inline_i686_global_u64_constant_division_expression(
             argv[6],
             "debug_inline_nonconstant_unsigned_long_long_global_div7_entry",

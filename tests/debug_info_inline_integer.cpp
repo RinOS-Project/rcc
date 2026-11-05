@@ -989,6 +989,24 @@ debug_inline_nonconstant_unsigned_long_long_global_mod_entry(void)
 }
 
 extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_add_runtime_div_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_nonconstant_unsigned_long_long_global_add_source +
+         0x100000001ULL) /
+        debug_inline_nonconstant_unsigned_long_long_global_source);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_add_runtime_mod_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_nonconstant_unsigned_long_long_global_add_source +
+         0x100000001ULL) %
+        debug_inline_nonconstant_unsigned_long_long_global_source);
+}
+
+extern "C" unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_div7_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(
