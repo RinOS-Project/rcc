@@ -14896,7 +14896,11 @@ Continue in this order:
       an exported alias and are called by an exported inline function without
       becoming ordinary namespace names. A public class template is also
       promoted through direct import and remains hidden through the bridge.
-      `test-cxx-modules` links both namespace cases on i686 and x86_64.
+      Exported alias and function templates also promote on later direct import
+      while remaining hidden through a private bridge. The module test target
+      clears architecture-shared `.ro` outputs at target switches, so repeated
+      runs do not feed x86_64 objects into i686 links. `test-cxx-modules` links
+      these cases on i686 and x86_64.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate
       currently stops in `test-cxx-type-trait-builtins` on those assertions.

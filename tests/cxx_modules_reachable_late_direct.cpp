@@ -13,7 +13,11 @@ int main() {
     nested.value = 27;
     ReachablePublicTemplate<int> public_template{};
     public_template.value = 31;
+    ReachablePublicAliasTemplate<int> public_alias_template{};
+    public_alias_template.value = 37;
     return bridge_value(value) == 19 &&
             reachable_public_detail::public_namespace_function(5) == 75 &&
-            nested.value == 27 && public_template.value == 31 ? 0 : 1;
+            nested.value == 27 && public_template.value == 31 &&
+            public_alias_template.value == 37 &&
+            reachable_public_identity(41) == 41 ? 0 : 1;
 }

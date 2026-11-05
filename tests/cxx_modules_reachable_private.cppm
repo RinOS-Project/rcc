@@ -68,6 +68,14 @@ struct ReachablePublicTemplate {
     T value;
 };
 
+export template<class T>
+using ReachablePublicAliasTemplate = ReachablePublicTemplate<T>;
+
+export template<class T>
+int reachable_public_identity(T value) {
+    return value;
+}
+
 export using ReachableAlias = ReachablePrivate;
 export using ReachableEnumAlias = ReachablePrivateEnum;
 export using ReachableScopedAlias = reachable_detail::ReachableScoped;

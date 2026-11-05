@@ -148,6 +148,7 @@ CHECK_EXISTS = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPa
 COPY_FILE = $(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
 ASSERT_ABSENT = $(POWERSHELL) -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
 REMOVE_FILE = $(POWERSHELL) -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { Remove-Item -LiteralPath '$(1)' -Force }"
+REMOVE_MATCHING_FILES = $(POWERSHELL) -NoProfile -Command "Remove-Item -Path '$(1)' -Force -ErrorAction SilentlyContinue"
 CHECK_NO_SIGN_TEMP = $(POWERSHELL) -NoProfile -Command "$$bad=Get-ChildItem -LiteralPath '$(1)' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $$_.Name -like '*.rcc-unsigned-*' -or $$_.Name -like '*.rld-unsigned-*' -or $$_.Name -like '*.rcc-signed-*' }; if ($$bad) { exit 1 }"
 define PARALLEL_SIGNING
 $(POWERSHELL) -NoProfile -Command "$$a=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; $$b=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; Wait-Process -Id $$a.Id,$$b.Id; $$a.Refresh(); $$b.Refresh(); if ($$a.ExitCode -ne 0 -or $$b.ExitCode -ne 0) { exit 1 }"
@@ -178,6 +179,7 @@ COMPARE_FILES = cmp "$(1)" "$(2)"
 COPY_FILE = cp "$(1)" "$(2)"
 ASSERT_ABSENT = test ! -e "$(1)"
 REMOVE_FILE = rm -f "$(1)"
+REMOVE_MATCHING_FILES = rm -f $(1)
 CHECK_NO_SIGN_TEMP = test -z "$$(find "$(1)" -type f \( -name '*.rcc-unsigned-*' -o -name '*.rld-unsigned-*' -o -name '*.rcc-signed-*' \) -print -quit)"
 define PARALLEL_SIGNING
 $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & first=$$!; $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & second=$$!; wait $$first; wait $$second
@@ -28934,6 +28936,7 @@ test-cxx-header-unit-graph: $(RCXX_TARGET)
 .PHONY: test-cxx-modules
 test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-modules)
+	$(call REMOVE_MATCHING_FILES,$(TEST_OUT)/cxx-modules/*.ro)
 	$(call COPY_FILE,tests/cxx_modules_dep.cppm,$(TEST_OUT)/cxx-modules/dep.cppm)
 	$(call COPY_FILE,tests/cxx_modules_api.cppm,$(TEST_OUT)/cxx-modules/api.cppm)
 	$(call COPY_FILE,tests/cxx_modules_detail.cppm,$(TEST_OUT)/cxx-modules/detail.cppm)
@@ -28960,6 +28963,8 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_public_namespace_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-namespace-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_public_template_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-template-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_public_alias_template_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-alias-template-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_public_function_template_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-function-template-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_template_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-template-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_symbol_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-symbol-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_alias_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp)
@@ -28969,6 +28974,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call COPY_FILE,tests/cxx_modules_reachable_enum_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-enum-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_late_direct.cpp,$(TEST_OUT)/cxx-modules/reachable-late-direct.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_late_private_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-late-private-leak.cpp)
+	$(call REMOVE_MATCHING_FILES,$(TEST_OUT)/cxx-modules/*.ro)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/consumer.cpp \
 		$(TEST_OUT)/cxx-modules/app-impl.cpp \
@@ -28986,6 +28992,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/cxx-modules/detail.ro \
 		$(TEST_OUT)/cxx-modules/api.ro \
 		$(TEST_OUT)/cxx-modules/dep.ro
+	$(call REMOVE_MATCHING_FILES,$(TEST_OUT)/cxx-modules/*.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/consumer.cpp \
 		$(TEST_OUT)/cxx-modules/app-impl.cpp \
@@ -29017,6 +29024,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q 'only valid in a primary module interface unit' $(TEST_OUT)/cxx-modules/invalid-partition-private.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/duplicate-template.ro $(TEST_OUT)/cxx-modules/duplicate-template.cppm,$(TEST_OUT)/cxx-modules/duplicate-template.log)
 	$(GREP) -F -q "redefinition of function template 'duplicate_template_definition'" $(TEST_OUT)/cxx-modules/duplicate-template.log
+	$(call REMOVE_MATCHING_FILES,$(TEST_OUT)/cxx-modules/*.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/reachable-consumer.cpp \
 		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp \
@@ -29042,6 +29050,10 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-public-namespace-leak.ro $(TEST_OUT)/cxx-modules/reachable-public-namespace-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-namespace-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-public-template-leak.ro $(TEST_OUT)/cxx-modules/reachable-public-template-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-template-leak.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-public-alias-template-leak.ro $(TEST_OUT)/cxx-modules/reachable-public-alias-template-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-alias-template-leak.log)
+	$(GREP) -F -q "expected ;, got 'int'" $(TEST_OUT)/cxx-modules/reachable-public-alias-template-leak.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-public-function-template-leak.ro $(TEST_OUT)/cxx-modules/reachable-public-function-template-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-function-template-leak.log)
+	$(GREP) -F -q "undefined identifier 'reachable_public_identity'" $(TEST_OUT)/cxx-modules/reachable-public-function-template-leak.log
 	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-namespace-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-template-leak.ro $(TEST_OUT)/cxx-modules/reachable-template-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-template-leak.log)
 	$(GREP) -F -q "expected ;, got 'int'" $(TEST_OUT)/cxx-modules/reachable-template-leak.log
@@ -29054,6 +29066,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q "undefined identifier 'reachable_private_adl'" $(TEST_OUT)/cxx-modules/reachable-adl-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-enum-leak.ro $(TEST_OUT)/cxx-modules/reachable-enum-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-enum-leak.log)
 	$(GREP) -F -q "undefined identifier 'reachable_private_enum_value'" $(TEST_OUT)/cxx-modules/reachable-enum-leak.log
+	$(call REMOVE_MATCHING_FILES,$(TEST_OUT)/cxx-modules/*.ro)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/reachable-consumer.cpp \
 		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp \
