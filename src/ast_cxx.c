@@ -4855,6 +4855,12 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
                 }
                 continue;
             }
+            if (cxx_structural_class_value_supported_subset(value_type)) {
+                cxx_mangle_template_class_value_argument(
+                    buf, &pos, value_type, value_args[index],
+                    &argument_context);
+                continue;
+            }
             if (pos + 34u >= sizeof(buf)) {
                 rcc_fatal("C++ variable template name is too long");
             }

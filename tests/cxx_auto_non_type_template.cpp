@@ -97,6 +97,9 @@ template<auto Pointer>
 inline constexpr int
     auto_repeated_value_variable_category<Pointer, Pointer> = 1;
 
+template<auto Value>
+inline constexpr int auto_structural_member_pointer_variable = 41;
+
 const int* auto_member_pointer_variable_address() {
     return &auto_member_pointer_variable<
         &auto_member_pointer_target::field>;
@@ -111,6 +114,12 @@ const int* auto_repeated_value_variable_category_address() {
     return &auto_repeated_value_variable_category<
         &auto_member_pointer_target::field,
         &auto_member_pointer_target::field>;
+}
+
+const int* auto_structural_member_pointer_variable_address() {
+    return &auto_structural_member_pointer_variable<
+        auto_data_member_pointer_constant{
+            &auto_member_pointer_target::field}>;
 }
 
 template<auto Pointer>
@@ -350,6 +359,12 @@ extern "C" int main() {
                        &auto_member_pointer_target::get> == 0 &&
                    auto_repeated_value_variable_category<1, 1L> == 0 &&
                    *auto_repeated_value_variable_category_address() == 1 &&
+                   auto_structural_member_pointer_variable<
+                       auto_data_member_pointer_constant{
+                           &auto_member_pointer_target::field}> == 41 &&
+                   auto_structural_member_pointer_variable<
+                       auto_data_member_pointer_constant{nullptr}> == 41 &&
+                   *auto_structural_member_pointer_variable_address() == 41 &&
                    auto_member_pointer_read<
                        &auto_member_pointer_target::field>() == 5 &&
                    auto_member_pointer_read<
