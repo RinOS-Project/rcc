@@ -14741,3 +14741,13 @@ remains a separate open item.
       constant-expression diagnostics. Strict GCC C++20, i686/AMD64 output,
       Windows/POSIX host execution, and template-template positive/negative
       gates pass.
+
+## RCC continuation (2026-11-05, C++20 floating-point NTTPs)
+
+- [x] Support fixed `float`, `double`, RinOS binary64 `long double`, deduced
+      `auto`, defaults, function/class/variable template arguments, direct
+      deduction through `FloatBox<Value>`, and floating-point NTTP packs.
+      Preserve GCC Itanium encodings and reject mismatched converted argument
+      types and pre-C++20 declarations/uses. Strict GCC C++20, GCC/RCC symbol
+      parity, RCC i686/AMD64 output and x64 host execution, plus C++17 and
+      converted-argument rejection gates pass on Windows and POSIX.

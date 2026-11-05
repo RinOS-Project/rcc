@@ -1552,6 +1552,7 @@ CXX_REGRESSION_TARGETS += test-array-to-void-pointer
 CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
 CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
 CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
+CXX_REGRESSION_TARGETS += test-cxx-floating-nontype
 CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
 CXX_REGRESSION_TARGETS += test-cxx-reference-list-initialization
@@ -3459,6 +3460,72 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
+
+.PHONY: test-cxx-floating-nontype
+test-cxx-floating-nontype: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-floating-nontype)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-mlong-double-64 -o $(TEST_OUT)/cxx-floating-nontype/gcc-host \
+		tests/cxx_floating_nontype.cpp
+	$(TEST_OUT)/cxx-floating-nontype/gcc-host
+	$(CXX) -std=c++20 -pedantic-errors -mlong-double-64 -c \
+		-o $(TEST_OUT)/cxx-floating-nontype/gcc.o \
+		tests/cxx_floating_nontype.cpp
+	$(NM) -g --defined-only $(TEST_OUT)/cxx-floating-nontype/gcc.o \
+		>$(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-floating-nontype/x86.s \
+		tests/cxx_floating_nontype.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-floating-nontype/x86.o \
+		$(TEST_OUT)/cxx-floating-nontype/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-floating-nontype/x64.s \
+		tests/cxx_floating_nontype.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-floating-nontype/x64.o \
+		$(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z10float_nttpILf3fa00000EEiv" $(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z11double_nttpILd4004000000000000EEiv" $(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z16long_double_nttpILe4012000000000000EEiv" $(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z18deduced_float_nttpILf40500000EEiv" $(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z24deduced_float_class_nttpILf3fa00000EEi8FloatBoxIXT_EE" $(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z16float_pack_countIJLf3f800000ELf40200000EEEiv" $(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z18default_float_nttpILf3fc00000EEiv" $(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z26default_deduced_float_nttpILf3fa00000EEiv" $(TEST_OUT)/cxx-floating-nontype/x64.s
+	$(GREP) -F -q "_Z10float_nttpILf3fa00000EEiv" $(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q "_Z11double_nttpILd4004000000000000EEiv" $(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q "_Z16long_double_nttpILe4012000000000000EEiv" $(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q "_Z18deduced_float_nttpILf40500000EEiv" $(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q "_Z24deduced_float_class_nttpILf3fa00000EEi8FloatBoxIXT_EE" $(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q "_Z16float_pack_countIJLf3f800000ELf40200000EEEiv" $(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q "_Z18default_float_nttpILf3fc00000EEiv" $(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q "_Z26default_deduced_float_nttpILf3fa00000EEiv" $(TEST_OUT)/cxx-floating-nontype/gcc-symbols.txt
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-floating-nontype/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-floating-nontype/rcc-host \
+		tests/cxx_floating_nontype_run_test.c \
+		$(TEST_OUT)/cxx-floating-nontype/x64.o
+	$(TEST_OUT)/cxx-floating-nontype/rcc-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_floating_nontype_invalid.cpp,$(TEST_OUT)/cxx-floating-nontype/gcc-invalid.log)
+	$(call CHECK_COUNT,in a converted constant expression,$(TEST_OUT)/cxx-floating-nontype/gcc-invalid.log,4)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-floating-nontype/invalid.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-floating-nontype/invalid.ro \
+		tests/cxx_floating_nontype_invalid.cpp,$(TEST_OUT)/cxx-floating-nontype/rcc-invalid.log)
+	$(call CHECK_COUNT,class template floating non-type argument must have the parameter's floating type,$(TEST_OUT)/cxx-floating-nontype/rcc-invalid.log,3)
+	$(call CHECK_TEXT,explicit floating function-template argument must have the parameter's floating type,$(TEST_OUT)/cxx-floating-nontype/rcc-invalid.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-floating-nontype/invalid.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++17 -pedantic-errors -fsyntax-only \
+		tests/cxx_floating_nontype_pre20_invalid.cpp,$(TEST_OUT)/cxx-floating-nontype/gcc-pre20.log)
+	$(call CHECK_COUNT,is not a valid type for a template non-type parameter,$(TEST_OUT)/cxx-floating-nontype/gcc-pre20.log,3)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-floating-nontype/pre20.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++17 -c -o $(TEST_OUT)/cxx-floating-nontype/pre20.ro \
+		tests/cxx_floating_nontype_pre20_invalid.cpp,$(TEST_OUT)/cxx-floating-nontype/rcc-pre20.log)
+	$(call CHECK_TEXT,floating-point non-type template parameters require C++20 or newer,$(TEST_OUT)/cxx-floating-nontype/rcc-pre20.log)
+	$(call CHECK_TEXT,floating-point non-type arguments require C++20 or newer,$(TEST_OUT)/cxx-floating-nontype/rcc-pre20.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-floating-nontype/pre20.ro)
+	@echo "C++20 floating non-type template argument tests completed"
 
 test-cxx-list-narrowing: $(RCXX_TARGET) test-cxx-list-narrowing-bitfield-dr \
 	test-cxx-list-narrowing-nonfinite-dr

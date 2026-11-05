@@ -11084,7 +11084,15 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                      expanded_value_expression, tmpl,
                                      expanded_values,
                                      expanded_value_present,
-                                     &expanded_value))) {
+                                     &expanded_value) ||
+                                 (parameter->is_auto
+                                      ? rcc_parser_cxx_template_non_type_constant_value(
+                                            expanded_value_expression,
+                                            &expanded_value)
+                                      : rcc_parser_cxx_template_non_type_constant_value_as_type(
+                                            expanded_value_expression,
+                                            nested_arguments[nested_count],
+                                            &expanded_value)))) {
                                 nested_values[nested_count] = expanded_value;
                                 nested_value_expressions[nested_count] =
                                     expr_int(expanded_value,
@@ -11093,7 +11101,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                 rcc_error(
                                     pattern_value_expression->loc,
                                     "expanded non-type pack argument must be "
-                                    "an integer constant expression");
+                                    "a valid constant expression for its "
+                                    "parameter type");
                                 return NULL;
                             }
                         } else if (pending_value_present) {
@@ -11196,6 +11205,16 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                         rcc_parser_cxx_eval_template_integer_expression(
                             substituted_expression, tmpl, value_args,
                             value_present, &nested_values[nested_count]);
+                    if (!value_resolved) {
+                        value_resolved = parameter->is_auto
+                            ? rcc_parser_cxx_template_non_type_constant_value(
+                                  substituted_expression,
+                                  &nested_values[nested_count])
+                            : rcc_parser_cxx_template_non_type_constant_value_as_type(
+                                  substituted_expression,
+                                  non_type_argument_type,
+                                  &nested_values[nested_count]);
+                    }
                 }
                 if (!value_resolved && tmpl &&
                     tmpl->kind == TMPL_FUNCTION) {
@@ -11213,7 +11232,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 } else if (!value_resolved) {
                     rcc_error(value_expression->loc,
                               "dependent class-template non-type argument "
-                              "must be an integer constant expression");
+                              "must be a valid constant expression for its "
+                              "parameter type");
                     return NULL;
                 } else {
                     nested_value_expressions[nested_count] = expr_int(
@@ -14550,8 +14570,36 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 copy->type = value_type;
                 return copy;
             }
-            copy = expr_int(value_args[index], expression->loc);
-            copy->type = value_type;
+            if (value_type && type_is_floating(value_type)) {
+                double floating_value;
+                if (value_type->kind == TYPE_FLOAT) {
+                    uint32_t float_bits =
+                        (uint32_t)(uint64_t)value_args[index];
+                    float narrowed;
+                    if (value_type->size != (int)sizeof(narrowed)) {
+                        rcc_fatal(
+                            "C++ floating template argument has an unsupported float size");
+                    }
+                    memcpy(&narrowed, &float_bits, sizeof(float_bits));
+                    floating_value = narrowed;
+                } else if (value_type->kind == TYPE_DOUBLE) {
+                    uint64_t double_bits = (uint64_t)value_args[index];
+                    if (value_type->size != (int)sizeof(floating_value)) {
+                        rcc_fatal(
+                            "C++ floating template argument has an unsupported double size");
+                    }
+                    memcpy(&floating_value, &double_bits,
+                           sizeof(floating_value));
+                } else {
+                    rcc_fatal(
+                        "C++ floating template argument has an unsupported type");
+                }
+                copy = expr_float(floating_value, expression->loc);
+                copy->type = value_type;
+            } else {
+                copy = expr_int(value_args[index], expression->loc);
+                copy->type = value_type;
+            }
             return copy;
         }
     }
@@ -15700,9 +15748,19 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                 (value_args[index] == 0 ||
                  cxx_structural_member_pointer_value_resolve(
                      value_args[index], NULL, NULL, NULL, NULL));
+            if (value_present && value_present[index] && value_type &&
+                type_is_floating(value_type) &&
+                !rcc_parser_cxx_standard_at_least(20)) {
+                rcc_error(template_loc,
+                          "floating-point non-type arguments require C++20 or newer");
+                return NULL;
+            }
             if (!value_present || !value_present[index] || !value_args ||
                 !value_type ||
+                (type_is_floating(value_type) &&
+                 !rcc_parser_cxx_standard_at_least(20)) ||
                 (!type_is_integer(value_type) &&
+                 !type_is_floating(value_type) &&
                  value_type->kind != TYPE_ENUM &&
                  value_type->kind != TYPE_NULLPTR && !pointer_value &&
                  !member_pointer_value &&
@@ -15711,7 +15769,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                   !cxx_structural_class_value_supported_subset(value_type)))) {
                 rcc_error(template_loc,
                           "function template non-type argument %d requires "
-                          "an integer, pointer, member pointer, nullptr, or supported structural class constant",
+                          "a scalar, pointer, member pointer, nullptr, or supported structural class constant",
                           index + 1);
                 return NULL;
             }

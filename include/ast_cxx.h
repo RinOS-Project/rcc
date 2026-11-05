@@ -543,6 +543,8 @@ bool rcc_parser_cxx_eval_template_integer_expression(
     const bool* value_present, int64_t* result);
 bool rcc_parser_cxx_template_non_type_constant_value(
     const Expr* expression, int64_t* value_out);
+bool rcc_parser_cxx_template_non_type_constant_value_as_type(
+    Expr* expression, Type* target_type, int64_t* value_out);
 bool rcc_parser_cxx_expression_is_dependent(const Expr* expression);
 Type* rcc_parser_cxx_dependent_integer_expression_type(
     const Expr* expression);
