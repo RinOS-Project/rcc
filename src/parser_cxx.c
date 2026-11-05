@@ -25502,6 +25502,19 @@ static bool class_template_instance_matches(
                 tmpl->instances[instance_index].pack_values[index] != expected) {
                 return false;
             }
+            if (tmpl->params[pack_index].is_auto) {
+                Type* expected_type = tmpl->is_local_class_template &&
+                        tmpl->pending_pack_count >= 0
+                    ? tmpl->pending_pack_args[index]
+                    : arguments[pack_index + index];
+                if (!expected_type ||
+                    !tmpl->instances[instance_index].pack_args ||
+                    !type_is_same_template_argument(
+                        tmpl->instances[instance_index].pack_args[index],
+                        expected_type)) {
+                    return false;
+                }
+            }
         }
     }
     return true;
@@ -25835,7 +25848,8 @@ static Type* instantiate_class_template_for_owner(
                 (parameter->kind == TPARAM_NONTYPE &&
                  tmpl->pending_pack_count > 0 &&
                  (!tmpl->pending_pack_values ||
-                  !tmpl->pending_pack_value_present))) {
+                  !tmpl->pending_pack_value_present ||
+                  (parameter->is_auto && !tmpl->pending_pack_args)))) {
                 rcc_error(loc,
                           "local class template pack arguments are missing");
                 return NULL;
@@ -26987,7 +27001,8 @@ static Type* instantiate_class_template_for_owner(
         tmpl->instances[tmpl->instance_count].pack_count = actual_pack_count;
         if (actual_pack_count > 0 &&
             (tmpl->params[pack_index].kind == TPARAM_TYPE ||
-             tmpl->params[pack_index].kind == TPARAM_TEMPLATE)) {
+             tmpl->params[pack_index].kind == TPARAM_TEMPLATE ||
+             tmpl->params[pack_index].is_auto)) {
             Type** pack_args = tmpl->is_local_class_template &&
                     tmpl->pending_pack_count >= 0
                 ? tmpl->pending_pack_args : arguments + pack_index;
@@ -26995,7 +27010,9 @@ static Type* instantiate_class_template_for_owner(
                 ast_arena_alloc(sizeof(Type*) * (size_t)actual_pack_count);
             memcpy(tmpl->instances[tmpl->instance_count].pack_args,
                    pack_args, sizeof(Type*) * (size_t)actual_pack_count);
-        } else if (actual_pack_count > 0) {
+        }
+        if (actual_pack_count > 0 &&
+            tmpl->params[pack_index].kind == TPARAM_NONTYPE) {
             int64_t* pack_values = tmpl->is_local_class_template &&
                     tmpl->pending_pack_count >= 0
                 ? tmpl->pending_pack_values : (int64_t*)value_args + pack_index;

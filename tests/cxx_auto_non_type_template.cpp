@@ -69,7 +69,17 @@ struct auto_pointer_holder {
     }
 };
 
+template<auto... Values>
+struct auto_value_pack_holder {
+    constexpr int read() const {
+        return (Values + ...);
+    }
+};
+
 auto_pointer_holder<&auto_class_pointer_target> auto_pointer_instance;
+auto_value_pack_holder<5, 7u> auto_value_pack_mixed_instance;
+auto_value_pack_holder<5, 7> auto_value_pack_signed_instance;
+auto_value_pack_holder<5u, 7u> auto_value_pack_unsigned_instance;
 
 extern "C" int main() {
     return auto_constant<7>() == 7 &&
@@ -102,7 +112,10 @@ extern "C" int main() {
                    auto_pointer_value<auto_pointer_alias>() == -19 &&
                    auto_pointer_variable<&auto_class_pointer_target> == -23 &&
                    auto_pointer_holder<&auto_class_pointer_target>::value == -23 &&
-                   auto_pointer_instance.read() == -23
+                   auto_pointer_instance.read() == -23 &&
+                   auto_value_pack_mixed_instance.read() == 12 &&
+                   auto_value_pack_signed_instance.read() == 12 &&
+                   auto_value_pack_unsigned_instance.read() == 12
                ? 0
                : 1;
 }
