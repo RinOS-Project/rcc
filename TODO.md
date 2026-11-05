@@ -14250,7 +14250,8 @@ remains a separate open item.
         i686/AMD64 output, and all 71 verified-backend functions at `-O0`/`-O2`
         pass with zero fallback in
         `test-cxx-function-template-structural-nontype`. Other rank-five and
-        rank-six extents, and ranks above six, remain open.
+        rank-six extents, and ranks outside the tested 1–11 and 65 cases, remain
+        open.
   - [x] Verify six-dimensional `[2][1][1][1][1][2]` arrays of structural union
         elements with mixed active alternatives and member reads through all
         six indices. Cover explicit and deduced NTTPs, strict GCC/Clang C++20,
