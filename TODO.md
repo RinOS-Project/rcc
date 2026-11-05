@@ -14243,9 +14243,12 @@ remains a separate open item.
         `test-cxx-function-template-structural-nontype`.
   - [x] Verify a five-dimensional `[2][1][1][1][2]` array of structural union
         elements with mixed active alternatives and reads through all five
-        indices. Explicit and deduced NTTPs match exact GCC Itanium symbols;
-        strict GCC C++20, host execution, i686/AMD64 output, and all 70
-        verified-backend functions at `-O0`/`-O2` pass with zero fallback in
+        indices. Supply explicit and deduced NTTP values through an ordinary
+        constexpr aggregate-returning function, resolving its callee and
+        rebuilding nested active union members during constant evaluation.
+        Exact GCC Itanium symbols match. Strict GCC C++20, host execution,
+        i686/AMD64 output, and all 71 verified-backend functions at `-O0`/`-O2`
+        pass with zero fallback in
         `test-cxx-function-template-structural-nontype`. Other rank-five
         extents and larger nested union-element layouts remain open.
   - [x] Support direct `float` and `double` union alternatives in structural

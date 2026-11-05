@@ -11677,9 +11677,35 @@ static Expr* sema_constexpr_rebuild_object(
         expression->type = type;
         return expression;
     }
-    if (!sema_constexpr_aggregate_type(type) || type->kind == TYPE_UNION) {
-        return NULL;
+    if (type->kind == TYPE_UNION) {
+        SemaConstexprUnionMember* active =
+            sema_constexpr_union_member_find(storage, type);
+        TypeField* member = active ? active->member : NULL;
+        Expr* value;
+        size_t offset;
+        if (!member || !member->name || member->is_bitfield ||
+            member->offset < 0 || !member->type ||
+            member->type->size <= 0) {
+            return NULL;
+        }
+        offset = (size_t)member->offset;
+        if (offset > (size_t)type->size ||
+            (size_t)member->type->size > (size_t)type->size - offset) {
+            return NULL;
+        }
+        value = sema_constexpr_rebuild_object(
+            member->type, storage + offset,
+            (size_t)type->size - offset, loc);
+        if (!value) return NULL;
+        expression = expr_initializer_list(NULL, loc);
+        expression->compound_type = type;
+        expression->type = type;
+        exprlist_append_designated(
+            &expression->compound_init, value, INIT_DESIGNATOR_FIELD, 0,
+            member->name);
+        return expression;
     }
+    if (!sema_constexpr_aggregate_type(type)) return NULL;
     expression = expr_initializer_list(NULL, loc);
     expression->compound_type = type;
     expression->type = type;

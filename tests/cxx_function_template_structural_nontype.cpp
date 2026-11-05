@@ -151,6 +151,14 @@ struct FunctionTemplateStructuralUnionFiveDimensionalArray {
         .suffix = SUFFIX, \
     }
 
+constexpr FunctionTemplateStructuralUnionFiveDimensionalArray
+function_template_make_structural_five_d_union_value(
+    int first, unsigned char first_tag, unsigned char second_tag,
+    int second_value, unsigned char suffix) {
+    return FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+        first, first_tag, second_tag, second_value, suffix);
+}
+
 struct FunctionTemplateStructuralUnionPayload {
     int code;
     int extra;
@@ -817,11 +825,11 @@ static_assert(function_template_structural_union_quad_array_deduced(
                                       {{.value = 32}, {.tag = 33}}}}},
                           1}>{}) == 28231);
 static_assert(function_template_structural_union_five_dimensional_array_explicit<
-                  FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+                  function_template_make_structural_five_d_union_value(
                       3, 7, 4, 17, 9)>() == 1779);
 static_assert(function_template_structural_union_five_dimensional_array_deduced(
                   FunctionTemplateStructuralUnionFiveDimensionalArrayTag<
-                      FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+                      function_template_make_structural_five_d_union_value(
                           5, 8, 6, 18, 1)>{}) == 1881);
 static_assert(function_template_structural_union_float_explicit<
                   FunctionTemplateStructuralFloatingUnion{
@@ -1119,11 +1127,11 @@ int main() {
                                 {{.value = 32}, {.tag = 33}}}}},
                     1}>{}) != 28231 ||
         function_template_structural_union_five_dimensional_array_explicit<
-            FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+            function_template_make_structural_five_d_union_value(
                 3, 7, 4, 17, 9)>() != 1779 ||
         function_template_structural_union_five_dimensional_array_deduced(
             FunctionTemplateStructuralUnionFiveDimensionalArrayTag<
-                FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+                function_template_make_structural_five_d_union_value(
                     5, 8, 6, 18, 1)>{}) != 1881 ||
         function_template_structural_union_float_explicit<
             FunctionTemplateStructuralFloatingUnion{

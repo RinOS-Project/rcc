@@ -4317,7 +4317,13 @@ static bool cxx_template_non_type_constant_value(
             return evaluated;
         }
     }
-    Type* aggregate_value_type = expression->kind == EXPR_COMPOUND &&
+    Type* aggregate_value_type;
+    if (expression->kind == EXPR_CALL && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        !expression->call_func->ident_decl) {
+        (void)rcc_parser_cxx_bind_resolved_function_call((Expr*)expression);
+    }
+    aggregate_value_type = expression->kind == EXPR_COMPOUND &&
             expression->compound_type
         ? expression->compound_type : expression->type;
     if (aggregate_value_type &&
