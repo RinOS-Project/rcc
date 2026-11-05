@@ -27,6 +27,9 @@ export inline int bridge_private_default_argument(
     return value;
 }
 
+export int bridge_private_declaration_default(
+    int value = reachable_private_helper(39));
+
 export template<class T>
 inline int bridge_private_template_helper(T value) {
     return reachable_private_helper(value.value);

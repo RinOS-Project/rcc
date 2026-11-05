@@ -14876,7 +14876,8 @@ Continue in this order:
       scanner recognizes template parameter lists and valid function-template
       definitions at end-of-file. `test-cxx-modules` covers private helper use,
       private default arguments and template defaults, duplicate-definition
-      rejection, and i686/x86_64 compilation and linking.
+      rejection, private default arguments on inline and separately
+      implemented exported functions, and i686/x86_64 compilation and linking.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate
       currently stops in `test-cxx-type-trait-builtins` on those assertions.
