@@ -962,7 +962,7 @@ static bool cxx_module_artifact_path(const char* directory,
         slug_length += addition;
     }
     suffix_length = snprintf(suffix, sizeof(suffix),
-                             ".%s.cxx%d.a%u.m%016llx.v5.rmi",
+                             ".%s.cxx%d.a%u.m%016llx.v6.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
                              standard, (unsigned)abi,
                              (unsigned long long)macro_state_hash);
@@ -1045,10 +1045,11 @@ static bool cxx_module_artifact_bytes(const char* module_name,
                                       TargetArch target_arch, int standard,
                                       RccCxxItaniumAbi abi,
                                       uint64_t macro_state_hash,
+                                      uint64_t dependency_state_hash,
                                       CxxModuleBuffer* artifact) {
     CxxModuleBuffer payload = {0};
-    char prefix[128];
-    char header[128];
+    char prefix[160];
+    char header[160];
     int prefix_size;
     int header_size;
     unsigned target_bits = target_arch == ARCH_X64 ? 64u : 32u;
@@ -1060,12 +1061,13 @@ static bool cxx_module_artifact_bytes(const char* module_name,
                                   dependencies, reexports, exports,
                                   exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI5 %u %d %u %016llx %lu %lu %016llx ",
+                           "RCCBMI6 %u %d %u %016llx %lu %lu %016llx %016llx ",
                            target_bits, standard, (unsigned)abi,
                            (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
                            (unsigned long)payload.length,
-                           (unsigned long long)source_state_hash);
+                           (unsigned long long)source_state_hash,
+                           (unsigned long long)dependency_state_hash);
     if (prefix_size < 0 || (size_t)prefix_size >= sizeof(prefix)) goto done;
     artifact_checksum = cxx_module_hash_prefixed(
         prefix, payload.data, payload.length);
@@ -1154,6 +1156,44 @@ static bool cxx_module_find_artifact_path(CxxModuleLoadContext* context,
         }
     }
     return false;
+}
+
+static bool cxx_module_dependency_state_hash(
+    CxxModuleLoadContext* context, const CxxModuleNameList* dependencies,
+    uint64_t* hash_out) {
+    uint64_t hash = UINT64_C(14695981039346656037);
+    if (!context || !dependencies || !hash_out) return false;
+    for (size_t index = 0; index < dependencies->count; ++index) {
+        char artifact_path[RCC_MAX_PATH];
+        char* artifact = NULL;
+        size_t artifact_size = 0u;
+        uint64_t artifact_hash;
+        const unsigned char separator = 0u;
+        if (!cxx_module_find_artifact_path(context,
+                                           dependencies->items[index],
+                                           artifact_path,
+                                           sizeof(artifact_path)) ||
+            !cxx_module_read_all(artifact_path, &artifact, &artifact_size)) {
+            rcc_free(artifact);
+            return false;
+        }
+        for (const unsigned char* name =
+                 (const unsigned char*)dependencies->items[index]; *name;
+             ++name) {
+            hash ^= *name;
+            hash *= UINT64_C(1099511628211);
+        }
+        hash ^= separator;
+        hash *= UINT64_C(1099511628211);
+        artifact_hash = cxx_module_hash(artifact, artifact_size);
+        for (size_t byte = 0; byte < sizeof(artifact_hash); ++byte) {
+            hash ^= (unsigned char)(artifact_hash >> (byte * 8u));
+            hash *= UINT64_C(1099511628211);
+        }
+        rcc_free(artifact);
+    }
+    *hash_out = hash;
+    return true;
 }
 
 static void cxx_module_name_list_remove(CxxModuleNameList* list,
@@ -1263,6 +1303,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     size_t payload_size;
     unsigned long long expected_hash;
     unsigned long long source_state_hash;
+    unsigned long long dependency_state_hash;
     unsigned long long macro_state_hash;
     int header_bytes = 0;
     char checksum_prefix[128];
@@ -1281,6 +1322,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     bool private_visible = cxx_module_same_primary(
         requested_name, context ? context->current_module : NULL);
     bool rebuilt_stale_artifact = false;
+    bool rebuilt_stale_dependency = false;
     bool ok = false;
     for (size_t index = 0; index < context->stack_count; ++index) {
         if (strcmp(context->stack[index], requested_name) == 0) {
@@ -1324,10 +1366,10 @@ reload_artifact:
     }
     pp_record_dependency(context->preprocessor, artifact_path);
     if (sscanf(bytes,
-               "RCCBMI5 %u %d %u %llx %lu %lu %llx %llx%n", &target_bits,
+               "RCCBMI6 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
                &standard, &abi, &macro_state_hash, &dependency_count_value,
-               &payload_size_value, &source_state_hash, &expected_hash,
-               &header_bytes) != 8 ||
+               &payload_size_value, &source_state_hash,
+               &dependency_state_hash, &expected_hash, &header_bytes) != 9 ||
         header_bytes <= 0 ||
         payload_size_value > RCC_CXX_MODULE_MAX_ARTIFACT ||
         (size_t)header_bytes >= size || bytes[header_bytes] != '\n' ||
@@ -1339,9 +1381,10 @@ reload_artifact:
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI5 %u %d %u %016llx %lu %lu %016llx ", target_bits,
+        "RCCBMI6 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
         standard, abi, macro_state_hash,
-        dependency_count_value, payload_size_value, source_state_hash);
+        dependency_count_value, payload_size_value, source_state_hash,
+        dependency_state_hash);
     if (checksum_prefix_size < 0 ||
         (size_t)checksum_prefix_size >= sizeof(checksum_prefix) ||
         cxx_module_hash_prefixed(checksum_prefix, bytes + header_bytes + 1,
@@ -1516,6 +1559,70 @@ reload_artifact:
                                       visible && cxx_module_name_list_contains(
                                           &reexports,
                                           dependencies.items[index]))) goto pop;
+    }
+    {
+        uint64_t current_dependency_state_hash;
+        if (!cxx_module_dependency_state_hash(
+                context, &dependencies, &current_dependency_state_hash)) {
+            snprintf(context->error, sizeof(context->error),
+                     "could not fingerprint dependencies of module '%s'",
+                     requested_name);
+            goto pop;
+        }
+        if (current_dependency_state_hash !=
+            (uint64_t)dependency_state_hash) {
+            char module_directory[RCC_MAX_PATH];
+            bool rebuild_ok;
+            if (rebuilt_stale_dependency) {
+                snprintf(context->error, sizeof(context->error),
+                         "dependencies of module '%s' changed during automatic rebuild",
+                         requested_name);
+                goto pop;
+            }
+            if (cxx_module_name_list_contains(&g_cxx_module_rebuilding,
+                                              requested_name)) {
+                snprintf(context->error, sizeof(context->error),
+                         "cyclic stale C++ module rebuild involving '%s'",
+                         requested_name);
+                goto pop;
+            }
+            if (!cxx_module_names_add(&g_cxx_module_rebuilding,
+                                      requested_name)) {
+                snprintf(context->error, sizeof(context->error),
+                         "out of memory tracking stale module rebuild '%s'",
+                         requested_name);
+                goto pop;
+            }
+            rebuild_ok = cxx_module_rebuild_source(
+                context, source_path, source_input_name);
+            cxx_module_name_list_remove(&g_cxx_module_rebuilding,
+                                        requested_name);
+            if (!rebuild_ok ||
+                !cxx_module_directory_of(source_path, module_directory,
+                                         sizeof(module_directory)) ||
+                !cxx_module_artifact_path(
+                    module_directory, requested_name, context->target_arch,
+                    context->standard, context->abi,
+                    context->macro_state_hash, artifact_path,
+                    sizeof(artifact_path))) {
+                snprintf(context->error, sizeof(context->error),
+                         "automatic rebuild of module '%s' with changed dependencies failed",
+                         requested_name);
+                goto pop;
+            }
+            rcc_free(context->stack[--context->stack_count]);
+            rebuilt_stale_dependency = true;
+            rcc_free(source_path);
+            source_path = NULL;
+            rcc_free(source_input_name);
+            source_input_name = NULL;
+            rcc_free(bytes);
+            bytes = NULL;
+            size = 0u;
+            cxx_module_names_clear(&dependencies);
+            cxx_module_names_clear(&reexports);
+            goto reload_artifact;
+        }
     }
     while (cursor < payload_end) {
         char* line_end = memchr(cursor, '\n',
@@ -2016,6 +2123,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     char absolute_source_path[RCC_MAX_PATH];
     char module_name[RCC_MAX_PATH] = {0};
     char error[512] = {0};
+    uint64_t dependency_state_hash = 0u;
     bool has_interface = false;
     bool ok = false;
     if (!source || !input_path || !rewritten_out || !pending ||
@@ -2089,6 +2197,12 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
         }
     }
     if (has_interface) {
+        if (!cxx_module_dependency_state_hash(load_context, &dependencies,
+                                               &dependency_state_hash)) {
+            snprintf(error, sizeof(error),
+                     "could not fingerprint C++ module dependencies");
+            goto done;
+        }
         if (!cxx_module_artifact_path(source_directory, module_name,
                                       g_opts.target_arch, g_cxx_standard,
                                       g_opts.cxx_itanium_abi,
@@ -2105,6 +2219,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
                                        g_cxx_standard,
                                        g_opts.cxx_itanium_abi,
                                        load_context->macro_state_hash,
+                                       dependency_state_hash,
                                        &artifact)) {
             snprintf(error, sizeof(error),
                      "could not create the C++ module interface artifact");
