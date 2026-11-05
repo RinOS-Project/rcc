@@ -14758,3 +14758,11 @@ remains a separate open item.
       C++20 header-unit import, import macro definitions from the header, and
       preserve a translation-unit macro change made before import. The focused
       `-E` regression passes on Windows and POSIX.
+
+## RCC continuation (2026-11-05, structural floating-point NTTPs)
+
+- [x] Accept a C++20 structural class NTTP containing a `float` member through
+      fixed and deduced `auto` function-template parameters and a class-template
+      specialization. GCC and RCC emit matching Itanium symbols; strict GCC,
+      i686/AMD64 assembly and object generation, and GCC/RCC host execution pass
+      in the Windows and POSIX gates.

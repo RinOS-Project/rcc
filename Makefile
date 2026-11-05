@@ -1553,6 +1553,7 @@ CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
 CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
 CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
 CXX_REGRESSION_TARGETS += test-cxx-floating-nontype
+CXX_REGRESSION_TARGETS += test-cxx-structural-floating-nontype
 CXX_REGRESSION_TARGETS += test-preprocessor-header-unit-macros
 CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
@@ -28866,6 +28867,48 @@ test-preprocessor-header-unit-macros: $(RCXX_TARGET)
 	$(GREP) -F -q 'int rcc_header_unit_baseline_macro_value = 29;' \
 		$(TEST_OUT)/header-unit-macros/redefined.i
 	@echo "C++20 header-unit macro import tests completed"
+
+.PHONY: test-cxx-structural-floating-nontype
+test-cxx-structural-floating-nontype: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-floating-nontype)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror -c \
+		-o $(TEST_OUT)/cxx-structural-floating-nontype/gcc.o \
+		tests/cxx_structural_floating_nontype.cpp
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-structural-floating-nontype/gcc-host \
+		tests/cxx_structural_floating_nontype.cpp
+	$(TEST_OUT)/cxx-structural-floating-nontype/gcc-host
+	$(NM) -g --defined-only \
+		$(TEST_OUT)/cxx-structural-floating-nontype/gcc.o \
+		>$(TEST_OUT)/cxx-structural-floating-nontype/gcc-symbols.txt
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-structural-floating-nontype/x86.s \
+		tests/cxx_structural_floating_nontype.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-structural-floating-nontype/x86.o \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-structural-floating-nontype/x64.s \
+		tests/cxx_structural_floating_nontype.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-structural-floating-nontype/x64.o \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
+	$(GREP) -F -q \
+		"_Z27fixed_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q \
+		"_Z29deduced_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q \
+		"_Z27fixed_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
+	$(GREP) -F -q \
+		"_Z29deduced_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-structural-floating-nontype/rcc-host \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
+	$(TEST_OUT)/cxx-structural-floating-nontype/rcc-host
+	@echo "C++20 structural floating-point NTTP tests completed"
 
 test-cxx-converting-constructor: test-cxx-static-cast-constructor
 
