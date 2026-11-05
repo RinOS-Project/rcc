@@ -646,6 +646,7 @@ endif
 -include $(wildcard $(OBJDIR)/*.d)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-explicit-specialization test-cxx-function-template-explicit-pack test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-encoding test-inline-asm-ports test-intrin-header test-inline-asm-execute test-inline-asm-validation test-fenv-header test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-verified-i686-floating-arithmetic test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-destructor test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override test-cxx-empty-base test-cxx-no-unique-address
+.PHONY: test-cxx-modules
 .PHONY: print-host-cc test-c17 test-c23 test-c23-bitint test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
 .PHONY: test-c23-function-type-attributes
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-exception-cleanup-verified test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
@@ -1557,6 +1558,7 @@ CXX_REGRESSION_TARGETS += test-cxx-floating-nontype
 CXX_REGRESSION_TARGETS += test-cxx-structural-floating-nontype
 CXX_REGRESSION_TARGETS += test-preprocessor-header-unit-macros
 CXX_REGRESSION_TARGETS += test-cxx-header-unit-graph
+CXX_REGRESSION_TARGETS += test-cxx-modules
 CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
 CXX_REGRESSION_TARGETS += test-cxx-reference-list-initialization
@@ -28903,6 +28905,79 @@ test-cxx-header-unit-graph: $(RCXX_TARGET)
 	$(GREP) -F -q 'cyclic C++ header-unit dependency' $(TEST_OUT)/cxx-header-unit-graph/cycle.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-header-unit-graph/cycle.ro)
 	@echo "C++20 nested header-unit import graph tests completed"
+
+.PHONY: test-cxx-modules
+test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-modules)
+	$(call COPY_FILE,tests/cxx_modules_dep.cppm,$(TEST_OUT)/cxx-modules/dep.cppm)
+	$(call COPY_FILE,tests/cxx_modules_api.cppm,$(TEST_OUT)/cxx-modules/api.cppm)
+	$(call COPY_FILE,tests/cxx_modules_detail.cppm,$(TEST_OUT)/cxx-modules/detail.cppm)
+	$(call COPY_FILE,tests/cxx_modules_app.cppm,$(TEST_OUT)/cxx-modules/app.cppm)
+	$(call COPY_FILE,tests/cxx_modules_dep_impl.cpp,$(TEST_OUT)/cxx-modules/dep-impl.cpp)
+	$(call COPY_FILE,tests/cxx_modules_app_impl.cpp,$(TEST_OUT)/cxx-modules/app-impl.cpp)
+	$(call COPY_FILE,tests/cxx_modules_consumer.cpp,$(TEST_OUT)/cxx-modules/consumer.cpp)
+	$(call COPY_FILE,tests/cxx_modules_private_leak.cpp,$(TEST_OUT)/cxx-modules/private-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_direct_partition.cpp,$(TEST_OUT)/cxx-modules/direct-partition.cpp)
+	$(call COPY_FILE,tests/cxx_modules_cycle_a.cppm,$(TEST_OUT)/cxx-modules/cycle-a.cppm)
+	$(call COPY_FILE,tests/cxx_modules_cycle_b.cppm,$(TEST_OUT)/cxx-modules/cycle-b.cppm)
+	$(call COPY_FILE,tests/cxx_modules_stale.cppm,$(TEST_OUT)/cxx-modules/stale.cppm)
+	$(call COPY_FILE,tests/cxx_modules_stale_consumer.cpp,$(TEST_OUT)/cxx-modules/stale-consumer.cpp)
+	$(call COPY_FILE,tests/cxx_modules_invalid_private_export.cppm,$(TEST_OUT)/cxx-modules/invalid-private-export.cppm)
+	$(call COPY_FILE,tests/cxx_modules_invalid_global_import.cppm,$(TEST_OUT)/cxx-modules/invalid-global-import.cppm)
+	$(call COPY_FILE,tests/cxx_modules_invalid_partition_private.cppm,$(TEST_OUT)/cxx-modules/invalid-partition-private.cppm)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		$(TEST_OUT)/cxx-modules/consumer.cpp \
+		$(TEST_OUT)/cxx-modules/app-impl.cpp \
+		$(TEST_OUT)/cxx-modules/dep-impl.cpp \
+		$(TEST_OUT)/cxx-modules/app.cppm \
+		$(TEST_OUT)/cxx-modules/detail.cppm \
+		$(TEST_OUT)/cxx-modules/api.cppm \
+		$(TEST_OUT)/cxx-modules/dep.cppm
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/cxx-modules/modules-x86.rin \
+		$(TEST_OUT)/cxx-modules/consumer.ro \
+		$(TEST_OUT)/cxx-modules/app-impl.ro \
+		$(TEST_OUT)/cxx-modules/dep-impl.ro \
+		$(TEST_OUT)/cxx-modules/app.ro \
+		$(TEST_OUT)/cxx-modules/detail.ro \
+		$(TEST_OUT)/cxx-modules/api.ro \
+		$(TEST_OUT)/cxx-modules/dep.ro
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		$(TEST_OUT)/cxx-modules/consumer.cpp \
+		$(TEST_OUT)/cxx-modules/app-impl.cpp \
+		$(TEST_OUT)/cxx-modules/dep-impl.cpp \
+		$(TEST_OUT)/cxx-modules/app.cppm \
+		$(TEST_OUT)/cxx-modules/detail.cppm \
+		$(TEST_OUT)/cxx-modules/api.cppm \
+		$(TEST_OUT)/cxx-modules/dep.cppm
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/cxx-modules/modules-x64.rin \
+		$(TEST_OUT)/cxx-modules/consumer.ro \
+		$(TEST_OUT)/cxx-modules/app-impl.ro \
+		$(TEST_OUT)/cxx-modules/dep-impl.ro \
+		$(TEST_OUT)/cxx-modules/app.ro \
+		$(TEST_OUT)/cxx-modules/detail.ro \
+		$(TEST_OUT)/cxx-modules/api.ro \
+		$(TEST_OUT)/cxx-modules/dep.ro
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/modules-x86.rin)
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/modules-x64.rin)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/private-leak.ro $(TEST_OUT)/cxx-modules/private-leak.cpp,$(TEST_OUT)/cxx-modules/private-leak.log)
+	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/private-leak.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/direct-partition.ro $(TEST_OUT)/cxx-modules/direct-partition.cpp,$(TEST_OUT)/cxx-modules/direct-partition.log)
+	$(GREP) -F -q 'can only be imported by a unit of its owning module' $(TEST_OUT)/cxx-modules/direct-partition.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/invalid-private-export.ro $(TEST_OUT)/cxx-modules/invalid-private-export.cppm,$(TEST_OUT)/cxx-modules/invalid-private-export.log)
+	$(GREP) -F -q 'export declarations are not permitted in a private module fragment' $(TEST_OUT)/cxx-modules/invalid-private-export.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/invalid-global-import.ro $(TEST_OUT)/cxx-modules/invalid-global-import.cppm,$(TEST_OUT)/cxx-modules/invalid-global-import.log)
+	$(GREP) -F -q 'cannot appear in the global module fragment' $(TEST_OUT)/cxx-modules/invalid-global-import.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/invalid-partition-private.ro $(TEST_OUT)/cxx-modules/invalid-partition-private.cppm,$(TEST_OUT)/cxx-modules/invalid-partition-private.log)
+	$(GREP) -F -q 'only valid in a primary module interface unit' $(TEST_OUT)/cxx-modules/invalid-partition-private.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c $(TEST_OUT)/cxx-modules/cycle-a.cppm $(TEST_OUT)/cxx-modules/cycle-b.cppm,$(TEST_OUT)/cxx-modules/cycle.log)
+	$(GREP) -F -q 'cyclic C++ module input dependency' $(TEST_OUT)/cxx-modules/cycle.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/stale.ro $(TEST_OUT)/cxx-modules/stale.cppm
+	$(call COPY_FILE,tests/cxx_modules_stale_updated.cppm,$(TEST_OUT)/cxx-modules/stale.cppm)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/stale-consumer.ro $(TEST_OUT)/cxx-modules/stale-consumer.cpp
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/stale-consumer.ro)
+	@echo "C++20 named-module export, partition, dependency, stale-BMI, and multi-TU link tests completed"
 
 .PHONY: test-cxx-structural-floating-nontype
 test-cxx-structural-floating-nontype: $(RCXX_TARGET)

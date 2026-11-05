@@ -1941,7 +1941,7 @@ reload_artifact:
             goto done;
         }
         dependency = cxx_module_copy_span(
-            cursor, 2u, (size_t)(line_end - cursor) - 2u);
+            cursor, 2u, (size_t)(line_end - cursor));
         if (!dependency || !cxx_module_name_valid(dependency) ||
             !cxx_module_names_add(&dependencies, dependency) ||
             (reexported && !cxx_module_names_add(&reexports, dependency))) {
@@ -2680,20 +2680,22 @@ static bool cxx_module_resolve_imports(const char* source,
                 goto fail;
             }
             size_t end = cxx_module_find_export_declaration_end(
-                source, tokens, token_count, keyword_index + 1u,
+                source, tokens, token_count, keyword_index,
                 &body_open, &body_close);
-            if (end == token_count) {
+            if (end == token_count &&
+                (token_count == 0u || !cxx_module_punct(
+                    source, &tokens[token_count - 1u], ';'))) {
                 snprintf(error, error_capacity,
                          "unterminated C++ export declaration");
                 goto fail;
             }
             if (!cxx_module_export_declaration_valid(
-                    source, tokens, keyword_index + 1u, end)) {
+                    source, tokens, keyword_index, end)) {
                 snprintf(error, error_capacity,
                          "an exported declaration cannot have internal linkage");
                 goto fail;
             }
-            if (!cxx_module_export_span(source, tokens, keyword_index + 1u,
+            if (!cxx_module_export_span(source, tokens, keyword_index,
                                         end, body_open, body_close,
                                         &declaration) ||
                 !cxx_module_append_interface_record(exports, 'E',
