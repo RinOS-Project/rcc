@@ -746,6 +746,23 @@ static char* cxx_module_resolve_relative_import(const char* source,
     return name;
 }
 
+static bool cxx_module_partition_is_local(const char* import_name,
+                                         const char* current_module) {
+    const char* import_partition = import_name ? strchr(import_name, ':') : NULL;
+    const char* current_partition = current_module
+        ? strchr(current_module, ':') : NULL;
+    size_t import_primary_length;
+    size_t current_primary_length;
+    if (!import_partition) return true;
+    if (!current_module) return false;
+    import_primary_length = (size_t)(import_partition - import_name);
+    current_primary_length = current_partition
+        ? (size_t)(current_partition - current_module)
+        : strlen(current_module);
+    return import_primary_length == current_primary_length &&
+        memcmp(import_name, current_module, import_primary_length) == 0;
+}
+
 static bool cxx_module_directory_of(const char* path, char* output,
                                     size_t capacity) {
     const char* slash;
@@ -1225,6 +1242,7 @@ static bool cxx_module_resolve_imports(const char* source,
                                        char* error, size_t error_capacity) {
     int brace_depth = 0;
     bool private_fragment = false;
+    bool global_fragment = false;
     char* declared_module = NULL;
     for (size_t index = 0; index < token_count; ++index) {
         bool exported = cxx_module_token_is(source, &tokens[index], "export");
@@ -1259,6 +1277,12 @@ static bool cxx_module_resolve_imports(const char* source,
                     goto fail;
                 }
                 if (private_marker) {
+                    if (!module_interface || !declared_module ||
+                        strchr(declared_module, ':')) {
+                        snprintf(error, error_capacity,
+                                 "a private module fragment is only valid in a primary module interface unit");
+                        goto fail;
+                    }
                     private_fragment = true;
                 } else if (name) {
                     if (declared_module) {
@@ -1269,6 +1293,19 @@ static bool cxx_module_resolve_imports(const char* source,
                     }
                     declared_module = name;
                     name = NULL;
+                    if (global_fragment && strchr(declared_module, ':')) {
+                        snprintf(error, error_capacity,
+                                 "a module partition cannot follow a global module fragment");
+                        goto fail;
+                    }
+                } else {
+                    if (!module_interface || declared_module ||
+                        global_fragment) {
+                        snprintf(error, error_capacity,
+                                 "a global module fragment is only valid before the primary module declaration");
+                        goto fail;
+                    }
+                    global_fragment = true;
                 }
                 if (!exported && declared_module &&
                     strcmp(declared_module, current_module ? current_module : "") == 0) {
@@ -1309,6 +1346,15 @@ static bool cxx_module_resolve_imports(const char* source,
                     rcc_free(name);
                     snprintf(error, error_capacity,
                              "invalid C++ module import name");
+                    goto fail;
+                }
+                if (!cxx_module_partition_is_local(
+                        name, declared_module ? declared_module
+                                              : current_module)) {
+                    snprintf(error, error_capacity,
+                             "module partition '%s' can only be imported by a unit of its owning module",
+                             name);
+                    rcc_free(name);
                     goto fail;
                 }
                 if (!cxx_module_names_add(dependencies, name)) {
