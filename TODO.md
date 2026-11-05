@@ -14689,3 +14689,13 @@ remains a separate open item.
       C++20, exact Itanium symbol parity, and Windows/POSIX structural-NTTP
       gates pass; all 88 verified-backend functions pass at `-O0` and `-O2`
       with zero fallback.
+
+## RCC continuation (2026-11-05, dependent wide class-template NTTP deduction)
+
+- [x] Remove the 32-argument ceiling from class-template static-value
+      resolution during function-template deduction. Bind direct constant and
+      function-template NTTP arguments first, deduce sibling type and
+      template-template arguments next, then check dependent NTTP expressions.
+      Regress a 33-type owner whose earlier static value depends on a later
+      type, including matching and non-matching values. Strict GCC C++20 and
+      Windows/POSIX `test-cxx-function-template-overloads` gates pass.
