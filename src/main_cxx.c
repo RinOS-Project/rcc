@@ -59,6 +59,7 @@ typedef struct CxxModuleLoadContext {
     TargetArch target_arch;
     int standard;
     RccCxxItaniumAbi abi;
+    uint64_t macro_state_hash;
     CxxModuleNameList loaded;
     char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
     size_t stack_count;
@@ -759,10 +760,46 @@ static bool cxx_module_directory_of(const char* path, char* output,
     return true;
 }
 
+static uint64_t cxx_module_hash_option(uint64_t hash, unsigned char tag,
+                                      const char* value) {
+    hash ^= tag;
+    hash *= UINT64_C(1099511628211);
+    for (const unsigned char* cursor = (const unsigned char*)value;
+         cursor && *cursor; ++cursor) {
+        hash ^= *cursor;
+        hash *= UINT64_C(1099511628211);
+    }
+    hash ^= 0u;
+    hash *= UINT64_C(1099511628211);
+    return hash;
+}
+
+static uint64_t cxx_module_configuration_hash(void) {
+    uint64_t hash = UINT64_C(14695981039346656037);
+    char option[32];
+    for (int index = 0; index < g_opts.include_count; ++index) {
+        hash = cxx_module_hash_option(hash, 'I', g_opts.include_paths[index]);
+    }
+    for (int index = 0; index < g_opts.define_count; ++index) {
+        hash = cxx_module_hash_option(hash, 'D', g_opts.defines[index]);
+    }
+    for (int index = 0; index < g_opts.undef_count; ++index) {
+        hash = cxx_module_hash_option(hash, 'U', g_opts.undefines[index]);
+    }
+    hash = cxx_module_hash_option(hash, 'F',
+                                  g_opts.freestanding ? "1" : "0");
+    hash = cxx_module_hash_option(hash, 'N', g_opts.nostdinc ? "1" : "0");
+    hash = cxx_module_hash_option(hash, 'S', g_opts.sse_enabled ? "1" : "0");
+    hash = cxx_module_hash_option(hash, '2', g_opts.sse2_enabled ? "1" : "0");
+    snprintf(option, sizeof(option), "%u", (unsigned)g_opts.cxx_itanium_abi);
+    return cxx_module_hash_option(hash, 'A', option);
+}
+
 static bool cxx_module_artifact_path(const char* directory,
                                      const char* module_name,
                                      TargetArch target_arch, int standard,
                                      RccCxxItaniumAbi abi,
+                                     uint64_t macro_state_hash,
                                      char* output, size_t capacity) {
     size_t directory_length;
     size_t name_length;
@@ -780,9 +817,11 @@ static bool cxx_module_artifact_path(const char* directory,
         if (slug_length > SIZE_MAX - addition) return false;
         slug_length += addition;
     }
-    suffix_length = snprintf(suffix, sizeof(suffix), ".%s.cxx%d.a%u.rmi",
+    suffix_length = snprintf(suffix, sizeof(suffix),
+                             ".%s.cxx%d.a%u.m%016llx.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
-                             standard, (unsigned)abi);
+                             standard, (unsigned)abi,
+                             (unsigned long long)macro_state_hash);
     if (suffix_length < 0 || (size_t)suffix_length >= sizeof(suffix) ||
         directory_length > SIZE_MAX - slug_length -
                            (size_t)suffix_length - 2u) return false;
@@ -846,6 +885,7 @@ static bool cxx_module_artifact_bytes(const char* module_name,
                                       const char* preprocessed_source,
                                       TargetArch target_arch, int standard,
                                       RccCxxItaniumAbi abi,
+                                      uint64_t macro_state_hash,
                                       CxxModuleBuffer* artifact) {
     CxxModuleBuffer payload = {0};
     char prefix[128];
@@ -860,8 +900,9 @@ static bool cxx_module_artifact_bytes(const char* module_name,
     if (!cxx_module_build_payload(module_name, dependencies, exports,
                                   exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI1 %u %d %u %lu %lu %016llx ",
+                           "RCCBMI2 %u %d %u %016llx %lu %lu %016llx ",
                            target_bits, standard, (unsigned)abi,
+                           (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
                            (unsigned long)payload.length,
                            (unsigned long long)source_state_hash);
@@ -922,7 +963,7 @@ static bool cxx_module_find_artifact_path(CxxModuleLoadContext* context,
     char candidate[RCC_MAX_PATH];
     if (cxx_module_artifact_path(context->source_directory, module_name,
                                  context->target_arch, context->standard,
-                                 context->abi,
+                                 context->abi, context->macro_state_hash,
                                  candidate, sizeof(candidate))) {
         FILE* file = fopen(candidate, "rb");
         if (file) {
@@ -933,7 +974,8 @@ static bool cxx_module_find_artifact_path(CxxModuleLoadContext* context,
     for (int index = 0; index < context->include_count; ++index) {
         if (!cxx_module_artifact_path(context->include_paths[index],
                                       module_name, context->target_arch,
-                                      context->standard, context->abi, candidate,
+                                      context->standard, context->abi,
+                                      context->macro_state_hash, candidate,
                                       sizeof(candidate))) continue;
         FILE* file = fopen(candidate, "rb");
         if (file) {
@@ -942,7 +984,8 @@ static bool cxx_module_find_artifact_path(CxxModuleLoadContext* context,
         }
     }
     if (cxx_module_artifact_path(".", module_name, context->target_arch,
-                                 context->standard, context->abi, candidate,
+                                 context->standard, context->abi,
+                                 context->macro_state_hash, candidate,
                                  sizeof(candidate))) {
         FILE* file = fopen(candidate, "rb");
         if (file) {
@@ -968,6 +1011,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     size_t payload_size;
     unsigned long long expected_hash;
     unsigned long long source_state_hash;
+    unsigned long long macro_state_hash;
     int header_bytes = 0;
     char checksum_prefix[128];
     int checksum_prefix_size;
@@ -1005,9 +1049,11 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
         return false;
     }
     pp_record_dependency(context->preprocessor, artifact_path);
-    if (sscanf(bytes, "RCCBMI1 %u %d %u %lu %lu %llx %llx%n", &target_bits,
-               &standard, &abi, &dependency_count_value, &payload_size_value,
-               &source_state_hash, &expected_hash, &header_bytes) != 7 ||
+    if (sscanf(bytes,
+               "RCCBMI2 %u %d %u %llx %lu %lu %llx %llx%n", &target_bits,
+               &standard, &abi, &macro_state_hash, &dependency_count_value,
+               &payload_size_value, &source_state_hash, &expected_hash,
+               &header_bytes) != 8 ||
         header_bytes <= 0 ||
         payload_size_value > RCC_CXX_MODULE_MAX_ARTIFACT ||
         (size_t)header_bytes >= size || bytes[header_bytes] != '\n' ||
@@ -1019,7 +1065,8 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI1 %u %d %u %lu %lu %016llx ", target_bits, standard, abi,
+        "RCCBMI2 %u %d %u %016llx %lu %lu %016llx ", target_bits,
+        standard, abi, macro_state_hash,
         dependency_count_value, payload_size_value, source_state_hash);
     if (checksum_prefix_size < 0 ||
         (size_t)checksum_prefix_size >= sizeof(checksum_prefix) ||
@@ -1037,6 +1084,12 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
         standard != context->standard || abi != (unsigned)context->abi) {
         snprintf(context->error, sizeof(context->error),
                  "module interface '%s' was built for a different target, C++ mode, or ABI",
+                 requested_name);
+        goto done;
+    }
+    if (macro_state_hash != (unsigned long long)context->macro_state_hash) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' was built with different macro or include-path options",
                  requested_name);
         goto done;
     }
@@ -1401,6 +1454,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     load_context->target_arch = g_opts.target_arch;
     load_context->standard = g_cxx_standard;
     load_context->abi = g_opts.cxx_itanium_abi;
+    load_context->macro_state_hash = cxx_module_configuration_hash();
     if (!cxx_module_resolve_imports(source, tokens, token_count,
                                     module_name[0] ? module_name : NULL,
                                     has_interface,
@@ -1443,6 +1497,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
         if (!cxx_module_artifact_path(source_directory, module_name,
                                       g_opts.target_arch, g_cxx_standard,
                                       g_opts.cxx_itanium_abi,
+                                      load_context->macro_state_hash,
                                       pending->path,
                                       sizeof(pending->path)) ||
             !cxx_module_artifact_bytes(module_name, &dependencies,
@@ -1450,7 +1505,9 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
                                        exports.length, source,
                                        g_opts.target_arch,
                                        g_cxx_standard,
-                                       g_opts.cxx_itanium_abi, &artifact)) {
+                                       g_opts.cxx_itanium_abi,
+                                       load_context->macro_state_hash,
+                                       &artifact)) {
             snprintf(error, sizeof(error),
                      "could not create the C++ module interface artifact");
             goto done;
