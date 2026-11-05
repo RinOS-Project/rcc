@@ -122,6 +122,11 @@ const int* auto_structural_member_pointer_variable_address() {
             &auto_member_pointer_target::field}>;
 }
 
+const int* auto_structural_null_member_pointer_variable_address() {
+    return &auto_structural_member_pointer_variable<
+        auto_data_member_pointer_constant{nullptr}>;
+}
+
 template<auto Pointer>
 struct auto_member_pointer_holder {
     int read() const {
@@ -365,6 +370,8 @@ extern "C" int main() {
                    auto_structural_member_pointer_variable<
                        auto_data_member_pointer_constant{nullptr}> == 41 &&
                    *auto_structural_member_pointer_variable_address() == 41 &&
+                   *auto_structural_null_member_pointer_variable_address() ==
+                       41 &&
                    auto_member_pointer_read<
                        &auto_member_pointer_target::field>() == 5 &&
                    auto_member_pointer_read<
