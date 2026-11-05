@@ -172,6 +172,11 @@ Preprocessor* pp_new(void) {
     pp->module_import_baseline_macros = NULL;
     pp->module_import_baseline_generation = 0u;
     pp->module_header_import_depth = 0u;
+    pp->module_header_undefs = NULL;
+    pp->module_header_undef_count = 0u;
+    pp->module_header_undef_capacity = 0u;
+    pp->module_header_undef_overflow = false;
+    pp->is_module_header_state = false;
 
     /* Define built-in macros */
     pp_define(pp, "__RCC__", "1");
@@ -405,6 +410,10 @@ void pp_free(Preprocessor* pp) {
     }
     rcc_free(pp->module_macro_snapshots);
     macro_list_free(pp->module_import_baseline_macros);
+    for (size_t index = 0; index < pp->module_header_undef_count; ++index) {
+        rcc_free(pp->module_header_undefs[index].name);
+    }
+    rcc_free(pp->module_header_undefs);
 
     /* Free include paths */
     if (pp->include_paths) {
@@ -590,11 +599,54 @@ void pp_define_func(Preprocessor* pp, const char* name, const char** params,
     m->definition_generation = ++pp->macro_generation;
 }
 
+static void pp_record_module_header_undef(Preprocessor* pp,
+                                          const char* name,
+                                          uint64_t definition_generation) {
+    if (!pp || !name || !*name || pp->module_header_undef_overflow) return;
+    for (size_t index = 0; index < pp->module_header_undef_count; ++index) {
+        PPModuleHeaderUndef* undef = &pp->module_header_undefs[index];
+        if (undef->definition_generation == definition_generation &&
+            strcmp(undef->name, name) == 0) return;
+    }
+    if (pp->module_header_undef_count == pp->module_header_undef_capacity) {
+        size_t capacity = pp->module_header_undef_capacity == 0u
+            ? 8u : pp->module_header_undef_capacity * 2u;
+        if (capacity < pp->module_header_undef_capacity ||
+            capacity > SIZE_MAX / sizeof(*pp->module_header_undefs)) {
+            pp->module_header_undef_overflow = true;
+            return;
+        }
+        PPModuleHeaderUndef* replacement = rcc_realloc(
+            pp->module_header_undefs,
+            capacity * sizeof(*pp->module_header_undefs));
+        if (!replacement) {
+            pp->module_header_undef_overflow = true;
+            return;
+        }
+        pp->module_header_undefs = replacement;
+        pp->module_header_undef_capacity = capacity;
+    }
+    char* copy = rcc_strdup(name);
+    if (!copy) {
+        pp->module_header_undef_overflow = true;
+        return;
+    }
+    PPModuleHeaderUndef* undef =
+        &pp->module_header_undefs[pp->module_header_undef_count++];
+    undef->name = copy;
+    undef->definition_generation = definition_generation;
+}
+
 void pp_undef(Preprocessor* pp, const char* name) {
+    if (!pp || !name) return;
     Macro** mp = &pp->macros;
     while (*mp) {
         if (strcmp((*mp)->name, name) == 0) {
             Macro* m = *mp;
+            if (pp->is_module_header_state) {
+                pp_record_module_header_undef(
+                    pp, name, m->definition_generation);
+            }
             *mp = m->next;
             macro_release_storage(m, true);
             rcc_free(m);
@@ -3596,6 +3648,29 @@ static bool pp_import_header_unit_macros(Preprocessor* destination,
                                          int source_line) {
     const Macro* baseline = destination->module_import_baseline_macros;
     if (!baseline) return false;
+    if (header_state->module_header_undef_overflow) {
+        rcc_error((SourceLoc){filename, source_line, 0},
+                  "header-unit macro undefinition state exceeds compiler limits");
+        return false;
+    }
+    for (size_t index = 0; index < header_state->module_header_undef_count;
+         ++index) {
+        const PPModuleHeaderUndef* undef =
+            &header_state->module_header_undefs[index];
+        const char* name = undef->name;
+        const Macro* original;
+        Macro* existing;
+        if (pp_is_cxx20_keyword_macro_name(name)) continue;
+        original = pp_find_macro_in_list(baseline, name);
+        existing = pp_get_macro(destination, name);
+        if (original && existing &&
+            undef->definition_generation ==
+                original->definition_generation &&
+            existing->definition_generation ==
+                original->definition_generation) {
+            pp_undef(destination, name);
+        }
+    }
     for (const Macro* imported = header_state->macros; imported;
          imported = imported->next) {
         const Macro* original = pp_find_macro_in_list(baseline,
@@ -3747,6 +3822,7 @@ Preprocessor* pp_new_module_header_state(const Preprocessor* pp) {
         pp->module_import_baseline_generation;
     header_state->module_header_import_depth =
         pp->module_header_import_depth + 1u;
+    header_state->is_module_header_state = true;
     header_state->cxx_mode = pp->cxx_mode;
     header_state->cxx_standard = pp->cxx_standard;
     for (int index = 0; index < pp->include_path_count; ++index) {

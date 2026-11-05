@@ -31,6 +31,11 @@ typedef struct PPModuleMacroSnapshot {
     Macro* macros;
 } PPModuleMacroSnapshot;
 
+typedef struct PPModuleHeaderUndef {
+    char* name;
+    uint64_t definition_generation;
+} PPModuleHeaderUndef;
+
 /* Preprocessor state */
 typedef struct {
     Macro* macros;               /* Macro hash table head */
@@ -64,6 +69,11 @@ typedef struct {
     Macro* module_import_baseline_macros;
     uint64_t module_import_baseline_generation;
     unsigned module_header_import_depth;
+    PPModuleHeaderUndef* module_header_undefs;
+    size_t module_header_undef_count;
+    size_t module_header_undef_capacity;
+    bool module_header_undef_overflow;
+    bool is_module_header_state;
 } Preprocessor;
 
 /* Initialize preprocessor */
