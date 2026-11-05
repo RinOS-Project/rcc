@@ -1827,18 +1827,43 @@ static bool sema_cxx_declaration_visible_at(Decl* declaration,
     return declaration->loc.column <= use_loc.column;
 }
 
+static bool sema_cxx_symbol_is_module_private(const Symbol* symbol) {
+    bool found_declaration = false;
+    if (!symbol || !symbol->decl) return false;
+    if (symbol->kind != SYM_FUNC) {
+        return symbol->decl->is_module_reachable_private;
+    }
+    for (Decl* declaration = symbol->decl; declaration;
+         declaration = declaration->func_overload_next) {
+        found_declaration = true;
+        if (!declaration->is_module_reachable_private) return false;
+    }
+    return found_declaration;
+}
+
+static void sema_cxx_update_symbol_module_visibility(Symbol* symbol) {
+    if (symbol) {
+        symbol->is_module_reachable_private =
+            sema_cxx_symbol_is_module_private(symbol);
+    }
+}
+
 static Symbol* sema_cxx_visible_symbol(Symbol* symbol, SourceLoc use_loc) {
     SemaCxxAdlCandidates candidates = {0};
     bool filtered = false;
     if (!symbol) return NULL;
     if (symbol->kind != SYM_FUNC) {
-        return !current_func_template_instance ||
-                       sema_cxx_declaration_visible_at(symbol->decl, use_loc)
+        return rcc_parser_module_entity_lookup_visible(
+                       symbol->is_module_reachable_private) &&
+                       (!current_func_template_instance ||
+                        sema_cxx_declaration_visible_at(symbol->decl, use_loc))
             ? symbol : NULL;
     }
     for (Decl* declaration = symbol->decl; declaration;
          declaration = declaration->func_overload_next) {
-        if (declaration->func_is_hidden_friend ||
+        if (!rcc_parser_module_entity_lookup_visible(
+                declaration->is_module_reachable_private) ||
+            declaration->func_is_hidden_friend ||
             (current_func_template_instance &&
              !sema_cxx_declaration_visible_at(declaration, use_loc))) {
             filtered = true;
@@ -39535,6 +39560,7 @@ static void sema_decl(Decl* decl) {
             }
             Symbol* sym = is_global
                 ? symtab_lookup_local(g_symtab, decl->name) : NULL;
+            bool had_symbol = sym != NULL;
             if (sym) {
                 if (sym->kind != SYM_VAR ||
                     !type_is_compatible(sym->type, decl->type)) {
@@ -39557,6 +39583,10 @@ static void sema_decl(Decl* decl) {
             }
             if (sym && sym->kind == SYM_VAR && sym->type && decl->type &&
                 type_is_compatible(sym->type, decl->type)) {
+                sym->is_module_reachable_private = had_symbol
+                    ? sym->is_module_reachable_private &&
+                          decl->is_module_reachable_private
+                    : decl->is_module_reachable_private;
                 sema_merge_function_type_attributes(decl->type, sym->type);
                 sym->type = decl->type;
             }
@@ -39571,6 +39601,7 @@ static void sema_decl(Decl* decl) {
                 decl->c23_is_maybe_unused = true;
             }
             sym->decl = decl;
+            sema_cxx_update_symbol_module_visibility(sym);
             if (!is_global || decl->var_init) sym->is_defined = true;
             decl->var_offset = sym->offset;
             decl->var_is_global = sym->is_global;
@@ -39778,11 +39809,20 @@ static void sema_decl(Decl* decl) {
         case DECL_FUNC: {
             CxxNamespace* saved_cxx_namespace = current_cxx_namespace;
             bool saved_template_instance = current_func_template_instance;
+            bool saved_module_private_record =
+                rcc_parser_module_reachable_current_record_private();
+            bool saved_module_lookup =
+                rcc_parser_module_reachable_lookup_enabled();
+            if (decl->is_module_semantic_record) {
+                rcc_parser_set_module_reachable_record(false, true);
+            }
             if (rcc_parser_is_cxx_mode()) {
                 current_cxx_namespace = sema_decl_namespace(decl);
             }
             Decl* redeclaration_prior = NULL;
-            Symbol* sym = symtab_lookup(g_symtab, decl->name);
+            Symbol* sym = rcc_parser_is_cxx_mode()
+                ? symtab_lookup_local(g_symtab, decl->name)
+                : symtab_lookup(g_symtab, decl->name);
             bool declaration_already_registered = false;
             bool cxx_overload_set = false;
             bool cxx_defaults_merged = false;
@@ -39884,6 +39924,7 @@ static void sema_decl(Decl* decl) {
                 decl->link_name = redeclaration_prior->link_name;
             }
             if (!cxx_overload_set) sym->decl = decl;
+            sema_cxx_update_symbol_module_visibility(sym);
             if (!cxx_defaults_merged) {
                 sema_validate_cxx_default_suffix(decl);
             }
@@ -39891,6 +39932,18 @@ static void sema_decl(Decl* decl) {
                 (!sym->is_global || decl->storage == STORAGE_STATIC)) {
                 rcc_error(decl->loc,
                           "weak function declaration requires external linkage");
+            }
+            {
+                bool has_visible_declaration = false;
+                for (Decl* declaration = sym->decl; declaration;
+                     declaration = declaration->func_overload_next) {
+                    if (!declaration->is_module_reachable_private) {
+                        has_visible_declaration = true;
+                        break;
+                    }
+                }
+                sym->is_module_reachable_private =
+                    !has_visible_declaration;
             }
             sema_resolve_function_noexcept(decl);
             if (rcc_parser_is_cxx_mode() && redeclaration_prior) {
@@ -40068,6 +40121,8 @@ analyze_function_body:
                 current_cxx_this_param = previous_this_param;
                 current_cxx_function_decl = previous_cxx_function_decl;
             }
+            rcc_parser_set_module_reachable_record(
+                saved_module_private_record, saved_module_lookup);
             current_cxx_namespace = saved_cxx_namespace;
             break;
         }
@@ -40078,6 +40133,7 @@ analyze_function_body:
 
         case DECL_TYPEDEF: {
             Symbol* previous = symtab_lookup_local(g_symtab, decl->name);
+            bool had_symbol = previous != NULL;
             sema_validate_array_parameter_type(decl->typedef_type,
                                                decl->loc, false);
             sema_validate_restrict_type(decl->typedef_type, decl->loc);
@@ -40093,8 +40149,15 @@ analyze_function_body:
                 previous->type = decl->typedef_type;
                 previous->decl = decl;
             } else {
-                symtab_define(g_symtab, decl->name, SYM_TYPE,
-                              decl->typedef_type, decl->loc);
+                previous = symtab_define(g_symtab, decl->name, SYM_TYPE,
+                                         decl->typedef_type, decl->loc);
+            }
+            if (previous && previous->kind == SYM_TYPE &&
+                type_is_compatible(previous->type, decl->typedef_type)) {
+                previous->is_module_reachable_private = had_symbol
+                    ? previous->is_module_reachable_private &&
+                          decl->is_module_reachable_private
+                    : decl->is_module_reachable_private;
             }
             break;
         }
@@ -40102,21 +40165,48 @@ analyze_function_body:
         case DECL_STRUCT:
         case DECL_UNION: {
             SymKind k = (decl->kind == DECL_STRUCT) ? SYM_STRUCT : SYM_UNION;
+            Symbol* previous = symtab_lookup_local(g_symtab, decl->name);
+            bool had_symbol = previous != NULL;
             for (TypeField* field = decl->type ? decl->type->fields : NULL;
                  field; field = field->next) {
                 sema_validate_restrict_type(field->type, decl->loc);
             }
-            symtab_define(g_symtab, decl->name, k, decl->type, decl->loc);
+            previous = symtab_define(g_symtab, decl->name, k, decl->type,
+                                     decl->loc);
+            if (previous && previous->kind == k &&
+                type_is_compatible(previous->type, decl->type)) {
+                previous->is_module_reachable_private = had_symbol
+                    ? previous->is_module_reachable_private &&
+                          decl->is_module_reachable_private
+                    : decl->is_module_reachable_private;
+            }
             break;
         }
 
         case DECL_ENUM: {
-            symtab_define(g_symtab, decl->name, SYM_ENUM, decl->type, decl->loc);
+            Symbol* previous = symtab_lookup_local(g_symtab, decl->name);
+            bool had_symbol = previous != NULL;
+            previous = symtab_define(g_symtab, decl->name, SYM_ENUM,
+                                     decl->type, decl->loc);
+            if (previous && previous->kind == SYM_ENUM &&
+                type_is_compatible(previous->type, decl->type)) {
+                previous->is_module_reachable_private = had_symbol
+                    ? previous->is_module_reachable_private &&
+                          decl->is_module_reachable_private
+                    : decl->is_module_reachable_private;
+            }
             /* Define enum constants */
             for (DeclList* c = decl->enum_consts; c; c = c->next) {
+                Symbol* existing = symtab_lookup_local(
+                    g_symtab, c->decl->name);
+                bool had_constant = existing != NULL;
                 Symbol* sym = symtab_define(g_symtab, c->decl->name, SYM_ENUM_CONST,
                                              type_int, c->decl->loc);
                 sym->enum_val = c->decl->enum_val;
+                sym->is_module_reachable_private = had_constant
+                    ? sym->is_module_reachable_private &&
+                          decl->is_module_reachable_private
+                    : decl->is_module_reachable_private;
             }
             break;
         }

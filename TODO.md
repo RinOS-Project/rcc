@@ -14852,3 +14852,19 @@ Continue in this order:
       `test-debug-info` gate pass. Static-local computed trees, signed global
       trees, volatile/reference/atomic leaves, and broader optimized
       multi-piece lifetime/CFI coverage remain open.
+
+## RCC continuation (2026-11-06, C++ module reachability)
+
+- [x] Track exported, private, and semantically reachable declarations across
+      C++20 module imports. Preserve private declarations needed to interpret
+      exported aliases and inline function bodies while preventing private
+      classes, symbols, namespaces, namespace aliases, using declarations,
+      and templates from leaking into importer lookup. Cover transitive and
+      later direct imports without duplicate type identities; consumers use
+      exported aliases to namespace-scoped classes and template
+      specializations, and reject lookup of their private source names.
+      `test-cxx-modules` passes on i686 and x86_64, and
+      `test-cxx-class-template-dependent-nested-type` passes.
+- [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
+      default constructors and their subobjects. The full `test-cxx` gate
+      currently stops in `test-cxx-type-trait-builtins` on those assertions.

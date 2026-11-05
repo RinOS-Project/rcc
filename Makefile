@@ -28947,6 +28947,19 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call COPY_FILE,tests/cxx_modules_invalid_private_export.cppm,$(TEST_OUT)/cxx-modules/invalid-private-export.cppm)
 	$(call COPY_FILE,tests/cxx_modules_invalid_global_import.cppm,$(TEST_OUT)/cxx-modules/invalid-global-import.cppm)
 	$(call COPY_FILE,tests/cxx_modules_invalid_partition_private.cppm,$(TEST_OUT)/cxx-modules/invalid-partition-private.cppm)
+	$(call COPY_FILE,tests/cxx_modules_reachable_private.cppm,$(TEST_OUT)/cxx-modules/reachable-private.cppm)
+	$(call COPY_FILE,tests/cxx_modules_reachable_bridge.cppm,$(TEST_OUT)/cxx-modules/reachable-bridge.cppm)
+	$(call COPY_FILE,tests/cxx_modules_reachable_bridge_impl.cpp,$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_consumer.cpp,$(TEST_OUT)/cxx-modules/reachable-consumer.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_private_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-private-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_alias_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-alias-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_template_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-template-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_symbol_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-symbol-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_alias_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_using_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-using-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_late_direct.cpp,$(TEST_OUT)/cxx-modules/reachable-late-direct.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_late_private_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-late-private-leak.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/consumer.cpp \
 		$(TEST_OUT)/cxx-modules/app-impl.cpp \
@@ -28993,13 +29006,71 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q 'cannot appear in the global module fragment' $(TEST_OUT)/cxx-modules/invalid-global-import.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/invalid-partition-private.ro $(TEST_OUT)/cxx-modules/invalid-partition-private.cppm,$(TEST_OUT)/cxx-modules/invalid-partition-private.log)
 	$(GREP) -F -q 'only valid in a primary module interface unit' $(TEST_OUT)/cxx-modules/invalid-partition-private.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		$(TEST_OUT)/cxx-modules/reachable-consumer.cpp \
+		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp \
+		$(TEST_OUT)/cxx-modules/reachable-bridge.cppm \
+		$(TEST_OUT)/cxx-modules/reachable-private.cppm
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/cxx-modules/reachable-modules-x64.rin \
+		$(TEST_OUT)/cxx-modules/reachable-consumer.ro \
+		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.ro \
+		$(TEST_OUT)/cxx-modules/reachable-bridge.ro \
+		$(TEST_OUT)/cxx-modules/reachable-private.ro
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-modules/reachable-late-direct.ro \
+		$(TEST_OUT)/cxx-modules/reachable-late-direct.cpp
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/cxx-modules/reachable-late-direct-x64.rin \
+		$(TEST_OUT)/cxx-modules/reachable-late-direct.ro \
+		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.ro \
+		$(TEST_OUT)/cxx-modules/reachable-bridge.ro \
+		$(TEST_OUT)/cxx-modules/reachable-private.ro
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-late-private-leak.ro $(TEST_OUT)/cxx-modules/reachable-late-private-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-late-private-leak.log)
+	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-late-private-leak.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-leak.log)
+	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-namespace-leak.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-template-leak.ro $(TEST_OUT)/cxx-modules/reachable-template-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-template-leak.log)
+	$(GREP) -F -q "expected ;, got 'int'" $(TEST_OUT)/cxx-modules/reachable-template-leak.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-symbol-leak.ro $(TEST_OUT)/cxx-modules/reachable-symbol-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-symbol-leak.log)
+	$(GREP) -F -q "undefined identifier 'reachable_private_helper'" $(TEST_OUT)/cxx-modules/reachable-symbol-leak.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-using-leak.ro $(TEST_OUT)/cxx-modules/reachable-using-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-using-leak.log)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		$(TEST_OUT)/cxx-modules/reachable-consumer.cpp \
+		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp \
+		$(TEST_OUT)/cxx-modules/reachable-bridge.cppm \
+		$(TEST_OUT)/cxx-modules/reachable-private.cppm
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/cxx-modules/reachable-modules-x86.rin \
+		$(TEST_OUT)/cxx-modules/reachable-consumer.ro \
+		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.ro \
+		$(TEST_OUT)/cxx-modules/reachable-bridge.ro \
+		$(TEST_OUT)/cxx-modules/reachable-private.ro
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-modules/reachable-late-direct.ro \
+		$(TEST_OUT)/cxx-modules/reachable-late-direct.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/cxx-modules/reachable-late-direct-x86.rin \
+		$(TEST_OUT)/cxx-modules/reachable-late-direct.ro \
+		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.ro \
+		$(TEST_OUT)/cxx-modules/reachable-bridge.ro \
+		$(TEST_OUT)/cxx-modules/reachable-private.ro
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/reachable-modules-x86.rin)
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/reachable-modules-x64.rin)
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/reachable-late-direct-x86.rin)
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/reachable-late-direct-x64.rin)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-private-leak.ro $(TEST_OUT)/cxx-modules/reachable-private-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-private-leak.log)
+	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-private-leak.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-alias-leak.ro $(TEST_OUT)/cxx-modules/reachable-alias-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-alias-leak.log)
+	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-alias-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c $(TEST_OUT)/cxx-modules/cycle-a.cppm $(TEST_OUT)/cxx-modules/cycle-b.cppm,$(TEST_OUT)/cxx-modules/cycle.log)
 	$(GREP) -F -q 'cyclic C++ module input dependency' $(TEST_OUT)/cxx-modules/cycle.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/stale.ro $(TEST_OUT)/cxx-modules/stale.cppm
 	$(call COPY_FILE,tests/cxx_modules_stale_updated.cppm,$(TEST_OUT)/cxx-modules/stale.cppm)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/stale-consumer.ro $(TEST_OUT)/cxx-modules/stale-consumer.cpp
 	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/stale-consumer.ro)
-	@echo "C++20 named-module export, partition, dependency, stale-BMI, and multi-TU link tests completed"
+	@echo "C++20 named-module export, reachability, partition, dependency, stale-BMI, and multi-TU link tests completed"
 
 .PHONY: test-cxx-structural-floating-nontype
 test-cxx-structural-floating-nontype: $(RCXX_TARGET)

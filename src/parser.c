@@ -159,6 +159,7 @@ typedef struct ParserTypeName {
     bool is_deprecated;
     const char* deprecated_message;
     const char* cxx_namespace;
+    bool is_module_reachable_private;
     struct ParserTagScope* scope;
     uint32_t cxx_constructor_arity_mask;
     struct ParserTypeName* next;
@@ -169,6 +170,7 @@ typedef struct ParserTagName {
     const char* cxx_namespace;
     TypeKind kind;
     Type* type;
+    bool is_module_reachable_private;
     struct ParserTagScope* scope;
     struct ParserTagName* next;
 } ParserTagName;
@@ -203,6 +205,8 @@ static int parser_aggregate_pack_alignment;
 static int parser_pack_stack[32];
 static int parser_pack_depth;
 static bool parser_cxx_mode;
+static bool parser_module_reachable_private_record;
+static bool parser_module_reachable_lookup_enabled;
 static const char* parser_ambiguous_type_name;
 static int parser_cxx_standard = 20;
 static bool parser_cxx_template_default_mode;
@@ -224,6 +228,24 @@ bool rcc_parser_last_cxx_declarator_was_pack(void) {
 
 void rcc_parser_set_cxx_mode(bool enabled) {
     parser_cxx_mode = enabled;
+}
+
+void rcc_parser_set_module_reachable_record(bool is_private,
+                                            bool allow_private_lookup) {
+    parser_module_reachable_private_record = is_private;
+    parser_module_reachable_lookup_enabled = allow_private_lookup;
+}
+
+bool rcc_parser_module_reachable_lookup_enabled(void) {
+    return parser_module_reachable_lookup_enabled;
+}
+
+bool rcc_parser_module_reachable_current_record_private(void) {
+    return parser_module_reachable_private_record;
+}
+
+bool rcc_parser_module_entity_lookup_visible(bool is_private) {
+    return !is_private || parser_module_reachable_lookup_enabled;
 }
 
 bool rcc_parser_is_cxx_mode(void) {
@@ -486,7 +508,9 @@ static Type* parser_lookup_type(const char* name) {
     if (parser_cxx_mode) {
         ParserCxxTypeLookup lookup = {NULL, INT_MAX, INT_MAX, false};
         for (ParserTagName* tag = parser_tag_names; tag; tag = tag->next) {
-            if (tag->name && strcmp(tag->name, name) == 0 &&
+            if (rcc_parser_module_entity_lookup_visible(
+                    tag->is_module_reachable_private) &&
+                tag->name && strcmp(tag->name, name) == 0 &&
                 (tag->kind == TYPE_ENUM || tag->kind == TYPE_STRUCT ||
                  tag->kind == TYPE_UNION) && tag->scope &&
                 parser_tag_scope_is_visible(tag->scope)) {
@@ -497,7 +521,9 @@ static Type* parser_lookup_type(const char* name) {
             }
         }
         for (entry = parser_type_names; entry; entry = entry->next) {
-            if (entry->name && strcmp(entry->name, name) == 0) {
+            if (rcc_parser_module_entity_lookup_visible(
+                    entry->is_module_reachable_private) &&
+                entry->name && strcmp(entry->name, name) == 0) {
                 parser_cxx_consider_type(&lookup, entry->type,
                     entry->cxx_namespace ? entry->cxx_namespace : "",
                     current_namespace ? current_namespace : "",
@@ -518,7 +544,9 @@ static Type* parser_lookup_type(const char* name) {
                     (rcc_parser_cxx_type_namespace_is_visible &&
                      rcc_parser_cxx_type_namespace_is_visible(
                          tag->cxx_namespace, current_namespace));
-                if (tag->name && strcmp(tag->name, name) == 0 &&
+                if (rcc_parser_module_entity_lookup_visible(
+                        tag->is_module_reachable_private) &&
+                    tag->name && strcmp(tag->name, name) == 0 &&
                     (tag->kind == TYPE_ENUM || tag->kind == TYPE_STRUCT ||
                      tag->kind == TYPE_UNION) && namespace_visible &&
                     tag->scope && parser_tag_scope_is_visible(tag->scope)) {
@@ -532,7 +560,9 @@ static Type* parser_lookup_type(const char* name) {
     for (entry = parser_type_names; entry; entry = entry->next) {
         size_t declaration_namespace_length;
         bool namespace_visible;
-        if (!entry->name || strcmp(entry->name, name) != 0) continue;
+        if (!rcc_parser_module_entity_lookup_visible(
+                entry->is_module_reachable_private) ||
+            !entry->name || strcmp(entry->name, name) != 0) continue;
         if (!parser_cxx_mode) return entry->type;
         declaration_namespace_length = entry->cxx_namespace
             ? strlen(entry->cxx_namespace) : 0u;
@@ -555,19 +585,40 @@ static Type* parser_lookup_type(const char* name) {
 }
 
 static void parser_define_type(const char* name, Type* type) {
+    const char* cxx_namespace = parser_cxx_mode &&
+        rcc_parser_cxx_current_namespace_identity
+        ? rcc_parser_cxx_current_namespace_identity() : NULL;
+    bool is_private = parser_module_reachable_private_record;
+    if (cxx_namespace && !*cxx_namespace) cxx_namespace = NULL;
+    if (parser_cxx_mode && name && type) {
+        for (ParserTypeName* existing = parser_type_names; existing;
+             existing = existing->next) {
+            bool same_namespace =
+                (!existing->cxx_namespace && !cxx_namespace) ||
+                (existing->cxx_namespace && cxx_namespace &&
+                 strcmp(existing->cxx_namespace, cxx_namespace) == 0);
+            bool same_type = existing->type == type ||
+                (existing->type && type &&
+                 type_is_compatible(existing->type, type));
+            if (existing->name && strcmp(existing->name, name) == 0 &&
+                existing->scope == parser_tag_scope && same_namespace &&
+                same_type) {
+                existing->is_module_reachable_private =
+                    existing->is_module_reachable_private && is_private;
+                return;
+            }
+        }
+    }
     ParserTypeName* entry = ast_arena_alloc(sizeof(*entry));
     entry->name = name;
     entry->type = type;
     entry->is_maybe_unused = false;
     entry->is_deprecated = false;
     entry->deprecated_message = NULL;
-    entry->cxx_namespace = parser_cxx_mode &&
-        rcc_parser_cxx_current_namespace_identity
-        ? rcc_parser_cxx_current_namespace_identity() : NULL;
+    entry->cxx_namespace = cxx_namespace;
     entry->scope = parser_tag_scope;
-    if (entry->cxx_namespace && !*entry->cxx_namespace) {
-        entry->cxx_namespace = NULL;
-    }
+    entry->is_module_reachable_private =
+        is_private;
     entry->cxx_constructor_arity_mask = 0u;
     entry->next = parser_type_names;
     parser_type_names = entry;
@@ -676,6 +727,8 @@ static const char* parser_new_tag_scope_identity(void) {
 void rcc_parser_reset_type_scopes(void) {
     parser_type_names = NULL;
     parser_tag_names = NULL;
+    parser_module_reachable_private_record = false;
+    parser_module_reachable_lookup_enabled = false;
     parser_tag_identity_counter = 0u;
     parser_tag_root_scope = ast_arena_alloc(sizeof(*parser_tag_root_scope));
     parser_tag_root_scope->parent = NULL;
@@ -702,7 +755,9 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
                 (!entry->cxx_namespace && !cxx_namespace) ||
                 (entry->cxx_namespace && cxx_namespace &&
                  strcmp(entry->cxx_namespace, cxx_namespace) == 0);
-            if (entry->kind == kind && same_namespace && entry->scope &&
+            if (rcc_parser_module_entity_lookup_visible(
+                    entry->is_module_reachable_private) &&
+                entry->kind == kind && same_namespace && entry->scope &&
                 parser_tag_scope_is_visible(entry->scope) &&
                 strcmp(entry->name, name) == 0) {
                 visible = entry;
@@ -711,6 +766,9 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
         }
         if (visible &&
             (visible->scope == parser_tag_scope || !has_definition)) {
+            visible->is_module_reachable_private =
+                visible->is_module_reachable_private &&
+                parser_module_reachable_private_record;
             return visible->type;
         }
     }
@@ -726,6 +784,8 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
         entry->cxx_namespace = cxx_namespace;
         entry->kind = kind;
         entry->type = type;
+        entry->is_module_reachable_private =
+            parser_module_reachable_private_record;
         entry->scope = parser_tag_scope;
         entry->next = parser_tag_names;
         parser_tag_names = entry;
@@ -2365,14 +2425,18 @@ Type* rcc_parser_lookup_type(const char* name) {
         const char* global_name = name + 2;
         for (ParserTypeName* entry = parser_type_names; entry;
              entry = entry->next) {
-            if (entry->name && strcmp(entry->name, global_name) == 0 &&
+            if (rcc_parser_module_entity_lookup_visible(
+                    entry->is_module_reachable_private) &&
+                entry->name && strcmp(entry->name, global_name) == 0 &&
                 entry->scope == parser_tag_root_scope &&
                 (!entry->cxx_namespace || !*entry->cxx_namespace)) {
                 return entry->type;
             }
         }
         for (tag = parser_tag_names; tag; tag = tag->next) {
-            if (tag->name && strcmp(tag->name, global_name) == 0 &&
+            if (rcc_parser_module_entity_lookup_visible(
+                    tag->is_module_reachable_private) &&
+                tag->name && strcmp(tag->name, global_name) == 0 &&
                 tag->scope == parser_tag_root_scope &&
                 (!tag->cxx_namespace || !*tag->cxx_namespace) &&
                 (tag->kind == TYPE_ENUM || tag->kind == TYPE_STRUCT ||
@@ -2400,7 +2464,9 @@ Type* rcc_parser_lookup_type(const char* name) {
                 for (ParserTypeName* entry = parser_type_names; entry;
                      entry = entry->next) {
                     bool namespace_matches = false;
-                    if (entry->scope != parser_tag_root_scope ||
+                    if (!rcc_parser_module_entity_lookup_visible(
+                            entry->is_module_reachable_private) ||
+                        entry->scope != parser_tag_root_scope ||
                         !entry->name ||
                         strcmp(entry->name, type_name) != 0) {
                         continue;
@@ -2418,7 +2484,9 @@ Type* rcc_parser_lookup_type(const char* name) {
                 }
             }
             for (tag = parser_tag_names; tag; tag = tag->next) {
-                if (tag->kind == TYPE_ENUM && tag->name &&
+                if (rcc_parser_module_entity_lookup_visible(
+                        tag->is_module_reachable_private) &&
+                    tag->kind == TYPE_ENUM && tag->name &&
                     tag->cxx_namespace &&
                     tag->scope == parser_tag_root_scope &&
                     strlen(tag->cxx_namespace) == namespace_length &&
@@ -2431,7 +2499,9 @@ Type* rcc_parser_lookup_type(const char* name) {
         }
     }
     for (tag = parser_tag_names; tag; tag = tag->next) {
-        if (tag->name && strcmp(tag->name, name) == 0 &&
+        if (rcc_parser_module_entity_lookup_visible(
+                tag->is_module_reachable_private) &&
+            tag->name && strcmp(tag->name, name) == 0 &&
             (tag->kind == TYPE_STRUCT || tag->kind == TYPE_UNION)) {
             return tag->type;
         }

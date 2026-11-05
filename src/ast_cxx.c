@@ -8257,10 +8257,13 @@ CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent) {
     ns->next = NULL;
     ns->namespace_alias_names = NULL;
     ns->namespace_alias_targets = NULL;
+    ns->namespace_alias_private = NULL;
     ns->namespace_alias_count = 0;
     ns->using_namespaces = NULL;
+    ns->using_namespace_private = NULL;
     ns->using_namespace_count = 0;
     ns->using_declarations = NULL;
+    ns->using_declaration_private = NULL;
     ns->using_declaration_count = 0;
 
     /* Link to parent */
@@ -8288,6 +8291,8 @@ static void cxx_namespace_lookup_collect(CxxNamespace* scope,
     CxxNamespace* child;
     if (!scope || !name || !lookup || lookup->matches > 1u) return;
     for (child = scope->children; child; child = child->next) {
+        if (!rcc_parser_module_entity_lookup_visible(
+                child->is_module_reachable_private)) continue;
         if (child->name && strcmp(child->name, name) == 0) {
             lookup->result = child;
             ++lookup->matches;
@@ -8295,7 +8300,9 @@ static void cxx_namespace_lookup_collect(CxxNamespace* scope,
         }
     }
     for (int index = 0; index < scope->namespace_alias_count; ++index) {
-        if (scope->namespace_alias_names[index] &&
+        if (rcc_parser_module_entity_lookup_visible(
+                scope->namespace_alias_private[index]) &&
+            scope->namespace_alias_names[index] &&
             strcmp(scope->namespace_alias_names[index], name) == 0) {
             lookup->result = scope->namespace_alias_targets[index];
             ++lookup->matches;
@@ -8303,7 +8310,9 @@ static void cxx_namespace_lookup_collect(CxxNamespace* scope,
         }
     }
     for (child = scope->children; child; child = child->next) {
-        if (child->is_inline_namespace) {
+        if (child->is_inline_namespace &&
+            rcc_parser_module_entity_lookup_visible(
+                child->is_module_reachable_private)) {
             cxx_namespace_lookup_collect(child, name, lookup);
             if (lookup->matches > 1u) return;
         }
@@ -8370,8 +8379,18 @@ bool cxx_namespace_add_alias(CxxNamespace* ns, const char* name,
      * namespace, but that injected name does not prevent a namespace alias
      * declaration there.  If the spellings collide, ordinary qualified
      * lookup will correctly report the resulting ambiguity. */
-    if (!ns || !name || !*name || !target ||
-        cxx_namespace_has_direct_name(ns, name)) {
+    if (!ns || !name || !*name || !target) return false;
+    for (int index = 0; index < ns->namespace_alias_count; ++index) {
+        if (ns->namespace_alias_names[index] &&
+            strcmp(ns->namespace_alias_names[index], name) == 0 &&
+            ns->namespace_alias_targets[index] == target) {
+            ns->namespace_alias_private[index] =
+                ns->namespace_alias_private[index] &&
+                rcc_parser_module_reachable_current_record_private();
+            return true;
+        }
+    }
+    if (cxx_namespace_has_direct_name(ns, name)) {
         return false;
     }
     ns->namespace_alias_names = ast_arena_grow(
@@ -8386,9 +8405,17 @@ bool cxx_namespace_add_alias(CxxNamespace* ns, const char* name,
             (size_t)ns->namespace_alias_count,
         sizeof(*ns->namespace_alias_targets) *
             (size_t)(ns->namespace_alias_count + 1));
+    ns->namespace_alias_private = ast_arena_grow(
+        ns->namespace_alias_private,
+        sizeof(*ns->namespace_alias_private) *
+            (size_t)ns->namespace_alias_count,
+        sizeof(*ns->namespace_alias_private) *
+            (size_t)(ns->namespace_alias_count + 1));
     ns->namespace_alias_names[ns->namespace_alias_count] =
         rcc_intern(name);
     ns->namespace_alias_targets[ns->namespace_alias_count] = target;
+    ns->namespace_alias_private[ns->namespace_alias_count] =
+        rcc_parser_module_reachable_current_record_private();
     ++ns->namespace_alias_count;
     return true;
 }
@@ -8409,6 +8436,49 @@ static void cxx_inherit_function_deprecation(const Decl* earlier,
 }
 
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
+    if (decl) {
+        bool is_module_namespace = false;
+        for (CxxNamespace* scope = ns; scope; scope = scope->parent) {
+            if (scope->name &&
+                strncmp(scope->name, "__rcc_module_", 13u) == 0) {
+                is_module_namespace = true;
+                break;
+            }
+        }
+        decl->is_module_reachable_private =
+            rcc_parser_module_reachable_current_record_private();
+        decl->is_module_semantic_record = is_module_namespace ||
+            rcc_parser_module_reachable_lookup_enabled();
+    }
+    if (ns && decl) {
+        for (DeclList* existing = ns->decls; existing;
+             existing = existing->next) {
+            Decl* previous = existing->decl;
+            bool same_link = previous && previous->link_name &&
+                decl->link_name &&
+                strcmp(previous->link_name, decl->link_name) == 0;
+            bool same_name = previous && previous->name && decl->name &&
+                strcmp(previous->name, decl->name) == 0;
+            bool same_type = previous && previous->type && decl->type &&
+                (previous->type == decl->type ||
+                 type_is_compatible(previous->type, decl->type));
+            if (previous &&
+                (previous->is_module_reachable_private ||
+                 decl->is_module_reachable_private) &&
+                previous->kind == decl->kind && (same_link || same_name) &&
+                (same_type || (!previous->type && !decl->type))) {
+                previous->is_module_reachable_private =
+                    previous->is_module_reachable_private &&
+                    decl->is_module_reachable_private;
+                previous->is_module_semantic_record |=
+                    decl->is_module_semantic_record;
+                if (decl->kind == DECL_FUNC) {
+                    cxx_inherit_function_deprecation(previous, decl);
+                }
+                return;
+            }
+        }
+    }
     if (ns && decl && decl->kind == DECL_FUNC && decl->link_name) {
         for (DeclList* existing = ns->decls; existing;
              existing = existing->next) {
@@ -9463,6 +9533,8 @@ static void cxx_template_merge_default_arguments(CxxTemplate* target,
 CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     if (!ns || !tmpl) return NULL;
     tmpl->ns = ns;
+    tmpl->is_module_reachable_private =
+        rcc_parser_module_reachable_current_record_private();
     if (tmpl->friend_access && tmpl->func_def &&
         !tmpl->func_def->func_body &&
         cxx_template_has_default_argument(tmpl)) {
@@ -9475,6 +9547,9 @@ CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
         if (!cxx_function_template_redeclaration_matches(existing, tmpl)) {
             continue;
         }
+        existing->is_module_reachable_private =
+            existing->is_module_reachable_private &&
+            tmpl->is_module_reachable_private;
         if (existing->is_hidden_friend && !tmpl->friend_access &&
             cxx_template_has_default_argument(tmpl)) {
             rcc_error(tmpl->func_def->loc,
@@ -9541,21 +9616,55 @@ CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
 
 void cxx_namespace_add_using_namespace(CxxNamespace* ns, CxxNamespace* target) {
     if (!ns || !target) return;
+    for (int index = 0; index < ns->using_namespace_count; ++index) {
+        if (ns->using_namespaces[index] == target) {
+            ns->using_namespace_private[index] =
+                ns->using_namespace_private[index] &&
+                rcc_parser_module_reachable_current_record_private();
+            return;
+        }
+    }
     ns->using_namespaces = ast_arena_grow(
         ns->using_namespaces,
         sizeof(CxxNamespace*) * (size_t)ns->using_namespace_count,
         sizeof(CxxNamespace*) * (size_t)(ns->using_namespace_count + 1));
-    ns->using_namespaces[ns->using_namespace_count++] = target;
+    ns->using_namespace_private = ast_arena_grow(
+        ns->using_namespace_private,
+        sizeof(*ns->using_namespace_private) *
+            (size_t)ns->using_namespace_count,
+        sizeof(*ns->using_namespace_private) *
+            (size_t)(ns->using_namespace_count + 1));
+    ns->using_namespaces[ns->using_namespace_count] = target;
+    ns->using_namespace_private[ns->using_namespace_count] =
+        rcc_parser_module_reachable_current_record_private();
+    ++ns->using_namespace_count;
 }
 
 void cxx_namespace_add_using_decl(CxxNamespace* ns, const char* qualified_name) {
     if (!ns || !qualified_name || !*qualified_name) return;
+    for (int index = 0; index < ns->using_declaration_count; ++index) {
+        if (strcmp(ns->using_declarations[index], qualified_name) == 0) {
+            ns->using_declaration_private[index] =
+                ns->using_declaration_private[index] &&
+                rcc_parser_module_reachable_current_record_private();
+            return;
+        }
+    }
     ns->using_declarations = ast_arena_grow(
         ns->using_declarations,
         sizeof(const char*) * (size_t)ns->using_declaration_count,
         sizeof(const char*) * (size_t)(ns->using_declaration_count + 1));
-    ns->using_declarations[ns->using_declaration_count++] =
+    ns->using_declaration_private = ast_arena_grow(
+        ns->using_declaration_private,
+        sizeof(*ns->using_declaration_private) *
+            (size_t)ns->using_declaration_count,
+        sizeof(*ns->using_declaration_private) *
+            (size_t)(ns->using_declaration_count + 1));
+    ns->using_declarations[ns->using_declaration_count] =
         rcc_intern(qualified_name);
+    ns->using_declaration_private[ns->using_declaration_count] =
+        rcc_parser_module_reachable_current_record_private();
+    ++ns->using_declaration_count;
 }
 
 /* ═══════════════════════════════════════
@@ -17812,8 +17921,15 @@ CxxNamespace* cxx_namespace_new(const char* name, SourceLoc loc) {
 void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
     if (!ns || !cls) return;
     for (int index = 0; index < ns->class_count; ++index) {
-        if (ns->classes[index] == cls) return;
+        if (ns->classes[index] == cls) {
+            cls->is_module_reachable_private =
+                cls->is_module_reachable_private &&
+                rcc_parser_module_reachable_current_record_private();
+            return;
+        }
     }
+    cls->is_module_reachable_private =
+        rcc_parser_module_reachable_current_record_private();
     cls->ns = ns;
     cls->type->cxx_namespace = cxx_namespace_typeinfo_identity(ns);
     ns->classes = ast_arena_grow(
@@ -17824,6 +17940,10 @@ void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
 
 /* Add nested namespace */
 void cxx_namespace_add_namespace(CxxNamespace* parent, CxxNamespace* child) {
+    child->is_module_reachable_private =
+        child->name && strncmp(child->name, "__rcc_module_", 13u) == 0
+            ? false
+            : rcc_parser_module_reachable_current_record_private();
     child->parent = parent;
     child->next = parent->children;
     parent->children = child;

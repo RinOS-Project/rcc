@@ -1,0 +1,3 @@
+import reachable_bridge;
+
+ReachableAlias private_alias_must_not_be_visible;

@@ -413,6 +413,11 @@ bool rcc_parser_in_function_scope(void);
 void rcc_parser_reset_type_scopes(void);
 const char* rcc_parser_new_local_type_identity(void);
 void rcc_parser_apply_pragma_pack(struct Token* directive);
+void rcc_parser_set_module_reachable_record(bool is_private,
+                                            bool allow_private_lookup);
+bool rcc_parser_module_reachable_lookup_enabled(void);
+bool rcc_parser_module_reachable_current_record_private(void);
+bool rcc_parser_module_entity_lookup_visible(bool is_private);
 int rcc_parser_pack_alignment(void);
 int rcc_parser_parse_explicit_alignment(void);
 Type* rcc_parser_apply_explicit_alignment(Type* type, int alignment,
@@ -1545,6 +1550,8 @@ struct Decl {
     const char* link_name;
     Type* type;
     SourceLoc loc;
+    bool is_module_reachable_private;
+    bool is_module_semantic_record;
     StorageClass storage;
     /* GNU weak declarations retain external linkage but may be replaced by
      * a strong definition at link time.  Keep this source property on the

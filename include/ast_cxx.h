@@ -121,6 +121,7 @@ struct CxxDeductionGuide {
 /* C++ Class/Struct */
 struct CxxClass {
     const char* name;
+    bool is_module_reachable_private;
     bool is_struct;          /* struct vs class (default access) */
     bool is_union;           /* A union shares the class-member grammar. */
     bool is_final;           /* C++ final class cannot be used as a base. */
@@ -261,6 +262,7 @@ struct CxxClass {
 struct CxxNamespace {
     const char* name;
     CxxNamespace* parent;
+    bool is_module_reachable_private;
     bool is_inline_namespace;
     /* Unnamed namespaces keep their source spelling for lookup/mangling, but
      * RTTI needs a translation-unit identity so internal types never merge
@@ -287,13 +289,16 @@ struct CxxNamespace {
      * declarations continue to use the target's ABI-qualified spelling. */
     const char** namespace_alias_names;
     CxxNamespace** namespace_alias_targets;
+    bool* namespace_alias_private;
     int namespace_alias_count;
 
     /* Names introduced by using-directives/declarations.  Semantic analysis
      * consults this metadata instead of manufacturing duplicate symbols. */
     CxxNamespace** using_namespaces;
+    bool* using_namespace_private;
     int using_namespace_count;
     const char** using_declarations;
+    bool* using_declaration_private;
     int using_declaration_count;
 };
 
@@ -341,6 +346,7 @@ typedef struct {
 struct CxxTemplate {
     const char* name;
     CxxNamespace* ns;
+    bool is_module_reachable_private;
     TemplateParam* params;
     int param_count;
     /* Classes granting friendship to a function template.  The list is

@@ -129,6 +129,15 @@ Symbol* symtab_define(SymTab* st, const char* name, SymKind kind, Type* type, So
     /* Check for redefinition in current scope */
     Symbol* existing = symtab_lookup_local(st, name);
     if (existing) {
+        if (existing->is_module_reachable_private &&
+            !rcc_parser_module_reachable_current_record_private() &&
+            existing->kind == kind &&
+            (existing->type == type ||
+             (existing->type && type &&
+              type_is_compatible(existing->type, type)))) {
+            existing->is_module_reachable_private = false;
+            return existing;
+        }
         /* C permits a typedef name to be redeclared to the same type in the
          * same scope.  This is required for the standard forward declaration
          * form `typedef struct Tag Tag;` followed by the completed definition
@@ -153,6 +162,8 @@ Symbol* symtab_define(SymTab* st, const char* name, SymKind kind, Type* type, So
     sym->offset = 0;
     sym->is_global = (st->current == st->global);
     sym->is_defined = false;
+    sym->is_module_reachable_private =
+        rcc_parser_module_reachable_current_record_private();
     sym->enum_val = 0;
 
     /* Check if shadowing */
@@ -192,7 +203,9 @@ Symbol* symtab_define(SymTab* st, const char* name, SymKind kind, Type* type, So
 Symbol* symtab_lookup(SymTab* st, const char* name) {
     for (Scope* scope = st->current; scope; scope = scope->parent) {
         for (Symbol* sym = scope->symbols; sym; sym = sym->next) {
-            if (strcmp(sym->name, name) == 0) {
+            if (strcmp(sym->name, name) == 0 &&
+                rcc_parser_module_entity_lookup_visible(
+                    sym->is_module_reachable_private)) {
                 return sym;
             }
         }
@@ -215,7 +228,9 @@ Symbol* symtab_lookup_tag(SymTab* st, const char* name) {
     for (Scope* scope = st->current; scope; scope = scope->parent) {
         for (Symbol* sym = scope->symbols; sym; sym = sym->next) {
             if ((sym->kind == SYM_STRUCT || sym->kind == SYM_UNION || sym->kind == SYM_ENUM) &&
-                strcmp(sym->name, name) == 0) {
+                strcmp(sym->name, name) == 0 &&
+                rcc_parser_module_entity_lookup_visible(
+                    sym->is_module_reachable_private)) {
                 return sym;
             }
         }

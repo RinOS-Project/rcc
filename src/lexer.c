@@ -275,6 +275,12 @@ const char* token_type_str(TokenType type) {
         case TOK_ELLIPSIS: return "...";
         case TOK_PRAGMA_PACK: return "#pragma pack";
         case TOK_PRAGMA_FENV_ROUND: return "#pragma STDC FENV_ROUND";
+        case TOK_PRAGMA_MODULE_REACHABLE_PRIVATE:
+            return "#pragma rinos cxx_module private_begin";
+        case TOK_PRAGMA_MODULE_REACHABLE_SEMANTIC:
+            return "#pragma rinos cxx_module semantic_begin";
+        case TOK_PRAGMA_MODULE_REACHABLE_END:
+            return "#pragma rinos cxx_module end";
         default:
             for (int i = 0; keywords[i].name; i++) {
                 if (keywords[i].type == type) {
@@ -1650,8 +1656,47 @@ static Token* handle_pragma_directive(Lexer* lex) {
     int fenv_setting = -1;
     bool fenv_round = false;
     int fenv_round_setting = -1;
+    TokenType module_reachable_pragma = TOK_COUNT;
 
     pragma_skip_space(&p);
+    {
+        const char* module_pragma = p;
+        if (pragma_match_word(&module_pragma, "rinos")) {
+            pragma_skip_space(&module_pragma);
+            if (pragma_match_word(&module_pragma, "cxx_module")) {
+                pragma_skip_space(&module_pragma);
+                if (pragma_match_word(&module_pragma, "private_begin") &&
+                    pragma_tail_is_space_or_comment(module_pragma)) {
+                    module_reachable_pragma =
+                        TOK_PRAGMA_MODULE_REACHABLE_PRIVATE;
+                } else {
+                    module_pragma = p;
+                    (void)pragma_match_word(&module_pragma, "rinos");
+                    pragma_skip_space(&module_pragma);
+                    (void)pragma_match_word(&module_pragma, "cxx_module");
+                    pragma_skip_space(&module_pragma);
+                    if (pragma_match_word(&module_pragma,
+                                          "semantic_begin") &&
+                        pragma_tail_is_space_or_comment(module_pragma)) {
+                        module_reachable_pragma =
+                            TOK_PRAGMA_MODULE_REACHABLE_SEMANTIC;
+                    } else {
+                        module_pragma = p;
+                        (void)pragma_match_word(&module_pragma, "rinos");
+                        pragma_skip_space(&module_pragma);
+                        (void)pragma_match_word(&module_pragma,
+                                                "cxx_module");
+                        pragma_skip_space(&module_pragma);
+                        if (pragma_match_word(&module_pragma, "end") &&
+                            pragma_tail_is_space_or_comment(module_pragma)) {
+                            module_reachable_pragma =
+                                TOK_PRAGMA_MODULE_REACHABLE_END;
+                        }
+                    }
+                }
+            }
+        }
+    }
     {
         const char* fenv = p;
         if (pragma_match_word(&fenv, "STDC")) {
@@ -1745,6 +1790,9 @@ static Token* handle_pragma_directive(Lexer* lex) {
         Token* token = token_new(TOK_PRAGMA_FENV_ROUND, loc);
         token->value.int_val = fenv_round_setting;
         return token;
+    }
+    if (module_reachable_pragma != TOK_COUNT) {
+        return token_new(module_reachable_pragma, loc);
     }
     if (!recognized) return NULL;
 

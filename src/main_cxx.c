@@ -85,6 +85,7 @@ typedef struct CxxModuleLoadContext {
     CxxModuleNameList loaded;
     CxxModuleNameList exposed;
     CxxModuleNameList private_exposed;
+    CxxModuleNameList private_records_loaded;
     CxxModuleNameList loaded_headers;
     char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
     size_t stack_count;
@@ -1726,6 +1727,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     bool rebuilt_stale_artifact = false;
     bool rebuilt_stale_dependency = false;
     bool rebuilt_stale_header = false;
+    bool loaded_private_records = false;
     bool ok = false;
     for (size_t index = 0; index < context->stack_count; ++index) {
         if (strcmp(context->stack[index], requested_name) == 0) {
@@ -2036,6 +2038,7 @@ reload_artifact:
         size_t digit_count;
         char visibility;
         bool append_record;
+        bool hidden_record;
         if (!line_end || (size_t)(line_end - cursor) < 3u ||
             cursor[1] != ' ' ||
             ((visibility = cursor[0]) != 'E' && visibility != 'P' &&
@@ -2289,11 +2292,17 @@ reload_artifact:
             }
             rcc_free(header_name);
         } else {
+            hidden_record = visibility == 'P'
+                ? !private_visible : !visible;
             append_record = visibility == 'E'
-                ? visible
-                : visibility == 'P' && private_visible &&
-                    !cxx_module_name_list_contains(
-                        &context->private_exposed, requested_name);
+                ? true
+                : visibility == 'P' &&
+                    (private_visible
+                         ? !cxx_module_name_list_contains(
+                               &context->private_exposed, requested_name)
+                         : !cxx_module_name_list_contains(
+                               &context->private_records_loaded,
+                               requested_name));
             if (pending_header_payload_records > 0u) {
                 size_t segment_index = pending_header_segments.count -
                     pending_header_payload_records;
@@ -2310,19 +2319,29 @@ reload_artifact:
                     append_record = false;
                 }
             }
-            if (append_record &&
-                !cxx_module_buffer_append(imports, cursor,
-                                          (size_t)record_length)) {
-                snprintf(context->error, sizeof(context->error),
-                         "out of memory importing module '%s'", requested_name);
-                goto pop;
+            if (append_record) {
+                const char* marker = hidden_record || visibility == 'P'
+                    ? "#pragma rinos cxx_module private_begin\n"
+                    : "#pragma rinos cxx_module semantic_begin\n";
+                if (!cxx_module_buffer_text(imports, marker) ||
+                    !cxx_module_buffer_append(imports, cursor,
+                                              (size_t)record_length) ||
+                    !cxx_module_buffer_text(
+                        imports,
+                        "\n#pragma rinos cxx_module end\n")) {
+                    snprintf(context->error, sizeof(context->error),
+                             "out of memory importing module '%s'",
+                             requested_name);
+                    goto pop;
+                }
+                if (visibility == 'P') loaded_private_records = true;
             }
             if (pending_header_payload_records > 0u) {
                 size_t segment_index = pending_header_segments.count -
                     pending_header_payload_records;
                 CxxModuleSegment* segment =
                     &pending_header_segments.items[segment_index];
-                if (append_record &&
+                if (append_record && !hidden_record &&
                     !cxx_module_header_paths_add(
                         &pending_header_visible_paths,
                         segment->header_path)) {
@@ -2383,6 +2402,14 @@ reload_artifact:
     if (!cxx_module_names_add(&context->loaded, requested_name)) {
         snprintf(context->error, sizeof(context->error),
                  "out of memory recording module '%s'", requested_name);
+        goto pop;
+    }
+    if (loaded_private_records &&
+        !cxx_module_names_add(&context->private_records_loaded,
+                              requested_name)) {
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory tracking reachable declarations from '%s'",
+                 requested_name);
         goto pop;
     }
     ok = true;
@@ -3377,6 +3404,7 @@ done:
     cxx_module_names_clear(&load_context->loaded);
     cxx_module_names_clear(&load_context->exposed);
     cxx_module_names_clear(&load_context->private_exposed);
+    cxx_module_names_clear(&load_context->private_records_loaded);
     cxx_module_names_clear(&load_context->loaded_headers);
     return ok;
 }

@@ -35,6 +35,23 @@ static CxxClass* active_template_class_definition;
 static AST* active_ast;
 static CxxTemplate* qualified_variable_template_candidate;
 
+static bool cxx_module_entity_lookup_visible(bool is_private) {
+    return rcc_parser_module_entity_lookup_visible(is_private);
+}
+
+static bool cxx_namespace_has_visible_using(CxxNamespace* ns) {
+    if (!ns) return false;
+    for (int index = 0; index < ns->using_namespace_count; ++index) {
+        if (cxx_module_entity_lookup_visible(
+                ns->using_namespace_private[index])) return true;
+    }
+    for (int index = 0; index < ns->using_declaration_count; ++index) {
+        if (cxx_module_entity_lookup_visible(
+                ns->using_declaration_private[index])) return true;
+    }
+    return false;
+}
+
 void rcc_parser_cxx_set_active_ast(AST* ast) {
     active_ast = ast;
 }
@@ -243,6 +260,8 @@ static bool cxx_namespace_type_lookup_contains(
     for (CxxNamespace* child = lookup_namespace->children; child;
          child = child->next) {
         if ((child->is_inline_namespace || child->is_anonymous_namespace) &&
+            cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private) &&
             cxx_namespace_type_lookup_contains(
                 child, declaration_namespace, &current_path)) {
             return true;
@@ -250,7 +269,9 @@ static bool cxx_namespace_type_lookup_contains(
     }
     for (int index = 0; index < lookup_namespace->using_namespace_count;
          ++index) {
-        if (cxx_namespace_type_lookup_contains(
+        if (cxx_module_entity_lookup_visible(
+                lookup_namespace->using_namespace_private[index]) &&
+            cxx_namespace_type_lookup_contains(
                 lookup_namespace->using_namespaces[index],
                 declaration_namespace, &current_path)) {
             return true;
@@ -280,6 +301,8 @@ static bool cxx_namespace_type_lookup_directly_contains(
     for (CxxNamespace* child = lookup_namespace->children; child;
          child = child->next) {
         if ((child->is_inline_namespace || child->is_anonymous_namespace) &&
+            cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private) &&
             cxx_namespace_type_lookup_directly_contains(
                 child, declaration_namespace, &current_path)) {
             return true;
@@ -350,6 +373,8 @@ void rcc_parser_cxx_type_namespace_lookup_depths(
             }
             for (int index = 0; index < scope->using_namespace_count;
                  ++index) {
+                if (!cxx_module_entity_lookup_visible(
+                        scope->using_namespace_private[index])) continue;
                 CxxNamespace* nominated = scope->using_namespaces[index];
                 CxxNamespace* effective_scope =
                     cxx_namespace_common_ancestor(scope, nominated);
@@ -5544,6 +5569,8 @@ static bool cxx_template_integer_call_add_using_declaration_candidates(
     }
     for (int using_index = 0;
          using_index < scope->using_declaration_count; ++using_index) {
+        if (!cxx_module_entity_lookup_visible(
+                scope->using_declaration_private[using_index])) continue;
         const char* target = scope->using_declarations[using_index];
         char* target_buffer;
         char* separator;
@@ -5569,7 +5596,9 @@ static bool cxx_template_integer_call_add_using_declaration_candidates(
         for (DeclList* item = target_namespace->decls; item;
              item = item->next) {
             Decl* candidate = item->decl;
-            if (!candidate || !cxx_friend_function_name_matches(
+            if (!candidate || !cxx_module_entity_lookup_visible(
+                    candidate->is_module_reachable_private) ||
+                !cxx_friend_function_name_matches(
                     target_namespace, candidate->name, target_name)) {
                 continue;
             }
@@ -5627,7 +5656,9 @@ static bool cxx_template_integer_call_add_using_namespace_candidates(
 
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* function_template = ns->templates[index];
-        if (function_template && function_template->kind == TMPL_FUNCTION &&
+        if (function_template && cxx_module_entity_lookup_visible(
+                function_template->is_module_reachable_private) &&
+            function_template->kind == TMPL_FUNCTION &&
             !function_template->is_concept && function_template->name &&
             strcmp(function_template->name, name) == 0) {
             return false;
@@ -5635,7 +5666,9 @@ static bool cxx_template_integer_call_add_using_namespace_candidates(
     }
     for (DeclList* item = ns->decls; item; item = item->next) {
         Decl* candidate = item->decl;
-        if (!candidate || !candidate->name ||
+        if (!candidate || !cxx_module_entity_lookup_visible(
+                candidate->is_module_reachable_private) ||
+            !candidate->name ||
             !cxx_friend_function_name_matches(ns, candidate->name, name) ||
             (candidate->kind == DECL_FUNC &&
              candidate->func_is_hidden_friend)) {
@@ -5650,7 +5683,8 @@ static bool cxx_template_integer_call_add_using_namespace_candidates(
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
-        if (child->is_inline_namespace &&
+        if (child->is_inline_namespace && cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private) &&
             !cxx_template_integer_call_add_using_namespace_candidates(
                 child, name, candidates, candidate_count,
                 candidate_capacity, scope_has_name, visited_namespaces,
@@ -5659,6 +5693,8 @@ static bool cxx_template_integer_call_add_using_namespace_candidates(
         }
     }
     for (int index = 0; index < ns->using_namespace_count; ++index) {
+        if (!cxx_module_entity_lookup_visible(
+                ns->using_namespace_private[index])) continue;
         if (!cxx_template_integer_call_add_using_namespace_candidates(
                 ns->using_namespaces[index], name, candidates,
                 candidate_count, candidate_capacity, scope_has_name,
@@ -5990,9 +6026,7 @@ static Decl* cxx_template_integer_call_function(
             char* namespace_name = cxx_copy_name_span(name, namespace_length);
             call_namespace = cxx_namespace_find(
                 g_global_namespace, namespace_name);
-            if (call_namespace &&
-                (call_namespace->using_namespace_count > 0 ||
-                 call_namespace->using_declaration_count > 0)) {
+            if (cxx_namespace_has_visible_using(call_namespace)) {
                 return NULL;
             }
             if (call_namespace) {
@@ -6064,7 +6098,8 @@ static Decl* cxx_template_integer_call_function(
         candidate_count = 0;
         for (int index = 0; index < ns->template_count; ++index) {
             CxxTemplate* function_template = ns->templates[index];
-            if (function_template &&
+            if (function_template && cxx_module_entity_lookup_visible(
+                    function_template->is_module_reachable_private) &&
                 function_template->kind == TMPL_FUNCTION &&
                 !function_template->is_concept &&
                 function_template->name &&
@@ -6073,7 +6108,8 @@ static Decl* cxx_template_integer_call_function(
             }
         }
         for (CxxNamespace* child = ns->children; child; child = child->next) {
-            if (child->is_inline_namespace) return NULL;
+            if (child->is_inline_namespace && cxx_module_entity_lookup_visible(
+                    child->is_module_reachable_private)) return NULL;
         }
         if (!cxx_template_integer_call_count_namespace_declarations(
                 g_global_namespace, &candidate_capacity)) return NULL;
@@ -6083,7 +6119,9 @@ static Decl* cxx_template_integer_call_function(
         if (!candidates) return NULL;
         for (DeclList* item = ns->decls; item; item = item->next) {
             Decl* candidate = item->decl;
-            if (!candidate || !candidate->name ||
+            if (!candidate || !cxx_module_entity_lookup_visible(
+                    candidate->is_module_reachable_private) ||
+                !candidate->name ||
                 !cxx_friend_function_name_matches(ns, candidate->name,
                                                   name) ||
                 (candidate->kind == DECL_FUNC &&
@@ -6118,6 +6156,8 @@ static Decl* cxx_template_integer_call_function(
                 sizeof(*visited_namespaces) * (size_t)visited_capacity);
             if (!visited_namespaces) return NULL;
             for (int index = 0; index < ns->using_namespace_count; ++index) {
+                if (!cxx_module_entity_lookup_visible(
+                        ns->using_namespace_private[index])) continue;
                 if (!cxx_template_integer_call_add_using_namespace_candidates(
                         ns->using_namespaces[index], name, candidates,
                         &candidate_count, candidate_capacity, &scope_has_name,
@@ -14646,7 +14686,8 @@ static CxxClass* cxx_find_class_declaration(const char* name) {
     if (!name || !ns) return NULL;
     for (int index = 0; index < ns->class_count; ++index) {
         CxxClass* candidate = ns->classes[index];
-        if (candidate && candidate->name &&
+        if (candidate && cxx_module_entity_lookup_visible(
+                candidate->is_module_reachable_private) && candidate->name &&
             strcmp(candidate->name, name) == 0 && candidate->type &&
             !candidate->templ) {
             return candidate;
@@ -15461,20 +15502,25 @@ static void collect_namespace_definition_lookup(
     CxxNamespaceDefinitionLookup* lookup) {
     if (!scope || !name || !lookup) return;
     for (CxxNamespace* child = scope->children; child; child = child->next) {
-        if (child->name && strcmp(child->name, name) == 0) {
+        if (cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private) &&
+            child->name && strcmp(child->name, name) == 0) {
             if (!lookup->ns) lookup->ns = child;
             ++lookup->matches;
         }
     }
     for (int index = 0; index < scope->namespace_alias_count; ++index) {
-        if (scope->namespace_alias_names[index] &&
+        if (cxx_module_entity_lookup_visible(
+                scope->namespace_alias_private[index]) &&
+            scope->namespace_alias_names[index] &&
             strcmp(scope->namespace_alias_names[index], name) == 0) {
             lookup->alias_found = true;
             ++lookup->matches;
         }
     }
     for (CxxNamespace* child = scope->children; child; child = child->next) {
-        if (child->is_inline_namespace) {
+        if (child->is_inline_namespace && cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private)) {
             collect_namespace_definition_lookup(child, name, lookup);
         }
     }
@@ -18766,13 +18812,15 @@ static CxxTemplate* namespace_template(CxxNamespace* ns,
     if (!ns || !name) return NULL;
     for (index = 0; index < ns->template_count; ++index) {
         CxxTemplate* candidate = ns->templates[index];
-        if (candidate && candidate->name &&
+        if (candidate && cxx_module_entity_lookup_visible(
+                candidate->is_module_reachable_private) && candidate->name &&
             strcmp(candidate->name, name) == 0) {
             return candidate;
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
-        if (child->is_inline_namespace) {
+        if (child->is_inline_namespace && cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private)) {
             CxxTemplate* candidate = namespace_template(child, name);
             if (candidate) return candidate;
         }
@@ -18996,6 +19044,8 @@ static CxxTemplate* find_concept(const char* qualified_name) {
             ? active_namespace : g_global_namespace;
         for (CxxNamespace* ns = scope; ns; ns = ns->parent) {
             for (int index = 0; index < ns->using_declaration_count; ++index) {
+                if (!cxx_module_entity_lookup_visible(
+                        ns->using_declaration_private[index])) continue;
                 const char* target = ns->using_declarations[index];
                 const char* final_component;
                 if (!target) continue;
@@ -19081,22 +19131,29 @@ static void cxx_function_template_lookup_namespace(
     }
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* candidate = ns->templates[index];
-        if (candidate && candidate->kind == TMPL_FUNCTION &&
+        if (candidate && cxx_module_entity_lookup_visible(
+                candidate->is_module_reachable_private) &&
+            candidate->kind == TMPL_FUNCTION &&
             !candidate->is_concept && candidate->name &&
             strcmp(candidate->name, name) == 0) {
             cxx_function_template_lookup_add(lookup, candidate);
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
-        if (child->is_inline_namespace) {
+        if (child->is_inline_namespace && cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private)) {
             cxx_function_template_lookup_namespace(lookup, child, name);
         }
     }
     for (int index = 0; index < ns->using_namespace_count; ++index) {
+        if (!cxx_module_entity_lookup_visible(
+                ns->using_namespace_private[index])) continue;
         cxx_function_template_lookup_namespace(
             lookup, ns->using_namespaces[index], name);
     }
     for (int index = 0; index < ns->using_declaration_count; ++index) {
+        if (!cxx_module_entity_lookup_visible(
+                ns->using_declaration_private[index])) continue;
         const char* target = ns->using_declarations[index];
         const char* final_component = strrchr(target, ':');
         final_component = final_component ? final_component + 1 : target;
@@ -19268,14 +19325,18 @@ static bool cxx_namespace_has_function_template_name(
     if (!ns || !name) return false;
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* candidate = ns->templates[index];
-        if (candidate && candidate->kind == TMPL_FUNCTION &&
+        if (candidate && cxx_module_entity_lookup_visible(
+                candidate->is_module_reachable_private) &&
+            candidate->kind == TMPL_FUNCTION &&
             !candidate->is_concept && candidate->name &&
             strcmp(candidate->name, name) == 0) {
             return true;
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
-        if (cxx_namespace_has_function_template_name(child, name)) return true;
+        if (cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private) &&
+            cxx_namespace_has_function_template_name(child, name)) return true;
     }
     return false;
 }
@@ -19678,13 +19739,15 @@ static CxxClass* namespace_class(CxxNamespace* ns, const char* name) {
     if (!ns || !name) return NULL;
     for (int index = 0; index < ns->class_count; ++index) {
         CxxClass* candidate = ns->classes[index];
-        if (candidate && candidate->name &&
+        if (candidate && cxx_module_entity_lookup_visible(
+                candidate->is_module_reachable_private) && candidate->name &&
             strcmp(candidate->name, name) == 0) {
             return candidate;
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
-        if (child->is_inline_namespace) {
+        if (child->is_inline_namespace && cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private)) {
             CxxClass* candidate = namespace_class(child, name);
             if (candidate) return candidate;
         }
@@ -54758,6 +54821,7 @@ static bool cxx_top_level_class_declaration_starts(void) {
 AST* rcc_parse_cxx(TokenList* tokens) {
     rcc_parser_set_cxx_mode(true);
     rcc_parser_reset_type_scopes();
+    rcc_parser_set_module_reachable_record(false, false);
     rcc_parser_initialize_builtin_va_list_type();
     parser.cur = tokens->head;
     parser.prev = NULL;
@@ -54777,7 +54841,13 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         SourceLoc loc = peek()->loc;
         skip_cxx_attributes();
 
-        if (cxx_leading_alignas_class_starts()) {
+        if (match(TOK_PRAGMA_MODULE_REACHABLE_PRIVATE)) {
+            rcc_parser_set_module_reachable_record(true, true);
+        } else if (match(TOK_PRAGMA_MODULE_REACHABLE_SEMANTIC)) {
+            rcc_parser_set_module_reachable_record(false, true);
+        } else if (match(TOK_PRAGMA_MODULE_REACHABLE_END)) {
+            rcc_parser_set_module_reachable_record(false, false);
+        } else if (cxx_leading_alignas_class_starts()) {
             SourceLoc alignment_loc = peek()->loc;
             int explicit_alignment = 0;
             while (check(TOK__ALIGNAS)) {
@@ -54915,6 +54985,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         if (parser.cur == declaration_start && !at_end()) advance();
     }
 
+    rcc_parser_set_module_reachable_record(false, false);
     active_ast = NULL;
     return ast;
 }

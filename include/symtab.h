@@ -34,6 +34,7 @@ typedef struct Symbol {
     int offset;         /* Stack offset (local) or address (global) */
     bool is_global;
     bool is_defined;
+    bool is_module_reachable_private;
 
     /* For enum constants */
     int64_t enum_val;
