@@ -171,6 +171,7 @@ Preprocessor* pp_new(void) {
     pp->module_macro_snapshot_overflow = false;
     pp->module_import_baseline_macros = NULL;
     pp->module_import_baseline_generation = 0u;
+    pp->module_header_import_depth = 0u;
 
     /* Define built-in macros */
     pp_define(pp, "__RCC__", "1");
@@ -3731,7 +3732,8 @@ Preprocessor* pp_new_module_header_state(const Preprocessor* pp) {
     Preprocessor* header_state;
     Macro* macros;
     Macro* baseline;
-    if (!pp || !pp->module_import_baseline_macros) return NULL;
+    if (!pp || !pp->module_import_baseline_macros ||
+        pp->module_header_import_depth >= PP_MAX_INCLUDE_DEPTH) return NULL;
     macros = macro_list_clone(pp->module_import_baseline_macros);
     if (!macros) return NULL;
     baseline = macro_list_clone(pp->module_import_baseline_macros);
@@ -3751,6 +3753,8 @@ Preprocessor* pp_new_module_header_state(const Preprocessor* pp) {
     header_state->module_import_baseline_macros = baseline;
     header_state->module_import_baseline_generation =
         pp->module_import_baseline_generation;
+    header_state->module_header_import_depth =
+        pp->module_header_import_depth + 1u;
     header_state->cxx_mode = pp->cxx_mode;
     header_state->cxx_standard = pp->cxx_standard;
     for (int index = 0; index < pp->include_path_count; ++index) {

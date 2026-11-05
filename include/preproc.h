@@ -63,6 +63,7 @@ typedef struct {
     bool module_macro_snapshot_overflow;
     Macro* module_import_baseline_macros;
     uint64_t module_import_baseline_generation;
+    unsigned module_header_import_depth;
 } Preprocessor;
 
 /* Initialize preprocessor */
