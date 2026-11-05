@@ -730,6 +730,73 @@ static bool cxx_module_export_span(const char* source,
                                    CxxModuleToken* tokens,
                                    size_t first, size_t end,
                                    size_t body_open, size_t body_close,
+                                   CxxModuleBuffer* output);
+
+static bool cxx_module_export_namespace_contents(
+    const char* source, CxxModuleToken* tokens, size_t first, size_t end,
+    CxxModuleBuffer* output) {
+    size_t open = end;
+    size_t close;
+    size_t cursor;
+    size_t byte_cursor;
+    if (!source || !tokens || first >= end || !output) return false;
+    for (size_t index = first; index < end; ++index) {
+        if (cxx_module_punct(source, &tokens[index], '{')) {
+            open = index;
+            break;
+        }
+    }
+    if (open == end ||
+        (close = cxx_module_find_matching_brace(source, tokens, end, open))
+            == end ||
+        !cxx_module_buffer_append(
+            output, source + tokens[first].begin,
+            tokens[open].begin - tokens[first].begin) ||
+        !cxx_module_buffer_text(output, "{")) {
+        return false;
+    }
+    cursor = open + 1u;
+    byte_cursor = tokens[open].end;
+    while (cursor < close) {
+        size_t declaration_end;
+        size_t body_open;
+        size_t body_close;
+        CxxModuleBuffer declaration = {0};
+        if (cxx_module_punct(source, &tokens[cursor], ';')) {
+            ++cursor;
+            continue;
+        }
+        declaration_end = cxx_module_find_export_declaration_end(
+            source, tokens, close, cursor, &body_open, &body_close);
+        if (declaration_end <= cursor || declaration_end > close ||
+            !cxx_module_buffer_append(
+                output, source + byte_cursor,
+                tokens[cursor].begin - byte_cursor) ||
+            !cxx_module_export_span(source, tokens, cursor,
+                                    declaration_end, body_open, body_close,
+                                    &declaration) ||
+            !cxx_module_buffer_append(output, declaration.data,
+                                      declaration.length)) {
+            rcc_free(declaration.data);
+            return false;
+        }
+        rcc_free(declaration.data);
+        byte_cursor = tokens[declaration_end - 1u].end;
+        cursor = declaration_end;
+    }
+    return cxx_module_buffer_append(
+               output, source + byte_cursor,
+               tokens[close].begin - byte_cursor) &&
+           cxx_module_buffer_text(output, "}") &&
+           cxx_module_buffer_append(
+               output, source + tokens[close].end,
+               tokens[end - 1u].end - tokens[close].end);
+}
+
+static bool cxx_module_export_span(const char* source,
+                                   CxxModuleToken* tokens,
+                                   size_t first, size_t end,
+                                   size_t body_open, size_t body_close,
                                    CxxModuleBuffer* output) {
     size_t begin_byte;
     size_t end_byte;
@@ -741,6 +808,14 @@ static bool cxx_module_export_span(const char* source,
     if (first >= end || end > SIZE_MAX) return false;
     begin_byte = tokens[first].begin;
     end_byte = tokens[end - 1u].end;
+    if (cxx_module_prefix_has(tokens, first, end, source, "namespace")) {
+        for (size_t index = first; index < end; ++index) {
+            if (cxx_module_punct(source, &tokens[index], '{')) {
+                return cxx_module_export_namespace_contents(
+                    source, tokens, first, end, output);
+            }
+        }
+    }
     if (body_open < end && body_close < end && body_open < body_close) {
         preserve_body = cxx_module_prefix_has(
             tokens, first, body_open, source, "template") ||

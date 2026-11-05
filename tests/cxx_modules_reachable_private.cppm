@@ -12,6 +12,10 @@ namespace reachable_detail {
 struct ReachableScoped {
     int scoped_value;
 };
+
+int reachable_scoped_helper(int value) {
+    return value + 6;
+}
 }
 namespace reachable_alias_detail = reachable_detail;
 using reachable_detail::ReachableScoped;

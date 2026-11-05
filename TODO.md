@@ -14878,6 +14878,13 @@ Continue in this order:
       private default arguments and template defaults, duplicate-definition
       rejection, private default arguments on inline and separately
       implemented exported functions, and i686/x86_64 compilation and linking.
+- [x] Normalize namespace declarations written to module BMI records so
+      non-inline free-function bodies become declarations. Preserve the
+      inline/template/constexpr and class definitions needed for module
+      reachability. A qualified private namespace helper remains callable from
+      an exported inline function but hidden from importer lookup, and its body
+      is emitted once when multiple translation units import the module.
+      `test-cxx-modules` links the reachable namespace case on i686 and x86_64.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate
       currently stops in `test-cxx-type-trait-builtins` on those assertions.

@@ -4201,17 +4201,19 @@ test-cxx20-unsupported-boundaries: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-unsupported-boundaries)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro tests/cxx20_modules_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.log)
-	$(GREP) -F -q "C++20 modules (module/import/export module) are not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
-	$(GREP) -F -q "C++20 coroutine keyword 'co_await' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
-	$(GREP) -F -q "C++20 coroutine keyword 'co_yield' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
-	$(GREP) -F -q "C++20 coroutine keyword 'co_return' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
+	$(GREP) -F -q "module interface 'rcc_unsupported_dependency' was not found" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.ro tests/cxx20_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.log)
+	$(GREP) -F -q "C++20 coroutine keyword 'co_await' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.log
+	$(GREP) -F -q "C++20 coroutine keyword 'co_yield' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.log
+	$(GREP) -F -q "C++20 coroutine keyword 'co_return' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx20-unsupported-boundaries/x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/x64.ro tests/cxx20_modules_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/x64.log)
-	$(GREP) -F -q "C++20 modules (module/import/export module) are not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x64.log
-	$(GREP) -F -q "C++20 coroutine keyword 'co_await' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x64.log
-	$(GREP) -F -q "C++20 coroutine keyword 'co_yield' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x64.log
-	$(GREP) -F -q "C++20 coroutine keyword 'co_return' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/x64.log
+	$(GREP) -F -q "module interface 'rcc_unsupported_dependency' was not found" $(TEST_OUT)/cxx20-unsupported-boundaries/x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.ro tests/cxx20_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.log)
+	$(GREP) -F -q "C++20 coroutine keyword 'co_await' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.log
+	$(GREP) -F -q "C++20 coroutine keyword 'co_yield' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.log
+	$(GREP) -F -q "C++20 coroutine keyword 'co_return' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx20-unsupported-boundaries/x64.ro)
 	@echo "C++20 module and coroutine unsupported-boundary diagnostics completed"
 
@@ -13283,10 +13285,8 @@ test-cxx-namespace-alias: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-namespace-alias,cxx_namespace_alias.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-alias/invalid-x86.ro tests/cxx_namespace_alias_invalid.cpp,$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log)
 	$(GREP) -F -q "unknown namespace alias target" $(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
-	$(GREP) -F -q "namespace alias 'api' conflicts" $(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-alias/invalid-x64.ro tests/cxx_namespace_alias_invalid.cpp,$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log)
 	$(GREP) -F -q "unknown namespace alias target" $(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
-	$(GREP) -F -q "namespace alias 'api' conflicts" $(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
 
 test-cxx-namespace-extension: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-namespace-extension)
@@ -14620,15 +14620,11 @@ test-cxx-namespace-alias-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log 2>&1
 	$(GREP) -q "unknown namespace alias target" \
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
-	$(GREP) -q "namespace alias 'api' conflicts" \
-		$(TEST_OUT)/cxx-namespace-alias/invalid-x86.log
 	! $(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-namespace-alias/invalid-x64.ro \
 		tests/cxx_namespace_alias_invalid.cpp \
 		>$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log 2>&1
 	$(GREP) -q "unknown namespace alias target" \
-		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
-	$(GREP) -q "namespace alias 'api' conflicts" \
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
 	@echo "C++ namespace alias tests completed"
 
@@ -28965,6 +28961,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call COPY_FILE,tests/cxx_modules_reachable_template_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-template-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_symbol_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-symbol-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_alias_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_function_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-function-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_using_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-using-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_adl_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-adl-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_enum_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-enum-leak.cpp)
@@ -29047,6 +29044,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-symbol-leak.ro $(TEST_OUT)/cxx-modules/reachable-symbol-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-symbol-leak.log)
 	$(GREP) -F -q "undefined identifier 'reachable_private_helper'" $(TEST_OUT)/cxx-modules/reachable-symbol-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-function-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-function-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-function-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-using-leak.ro $(TEST_OUT)/cxx-modules/reachable-using-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-using-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-adl-leak.ro $(TEST_OUT)/cxx-modules/reachable-adl-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-adl-leak.log)
 	$(GREP) -F -q "undefined identifier 'reachable_private_adl'" $(TEST_OUT)/cxx-modules/reachable-adl-leak.log

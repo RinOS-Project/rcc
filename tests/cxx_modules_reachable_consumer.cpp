@@ -20,6 +20,7 @@ int main() {
             bridge_private_default_argument() == 35 &&
             bridge_private_declaration_default() == 43 &&
             bridge_private_template_helper(value) == 21 &&
+            bridge_private_namespace_helper(8) == 14 &&
             bridge_private_helper(8) == 12 &&
             bridge_private_enum() == 41 && bridge_private_adl(value) == 22
         ? 0 : 1;
