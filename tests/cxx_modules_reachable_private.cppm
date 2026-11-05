@@ -49,6 +49,16 @@ export ReachableOverloadResult reachable_overload(double value) {
     return result;
 }
 
+export namespace reachable_public_detail {
+struct ReachablePublicNested {
+    int value;
+};
+
+int public_namespace_function(int value) {
+    return value + 70;
+}
+}
+
 export using ReachableAlias = ReachablePrivate;
 export using ReachableEnumAlias = ReachablePrivateEnum;
 export using ReachableScopedAlias = reachable_detail::ReachableScoped;

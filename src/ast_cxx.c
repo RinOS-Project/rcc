@@ -18000,6 +18000,8 @@ void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
         }
         if (ns->classes[index] && cls->type &&
             ns->classes[index]->type == cls->type) {
+            /* Private and exported BMI records can repeat one class
+             * definition when its owner is imported directly later. */
             ns->classes[index]->is_module_reachable_private =
                 ns->classes[index]->is_module_reachable_private &&
                 rcc_parser_module_reachable_current_record_private();

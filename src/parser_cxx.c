@@ -15543,6 +15543,8 @@ static void collect_namespace_definition_lookup(
     CxxNamespaceDefinitionLookup* lookup) {
     if (!scope || !name || !lookup) return;
     for (CxxNamespace* child = scope->children; child; child = child->next) {
+        /* An imported exported redeclaration extends the namespace identity
+         * already established by a private semantic record. */
         if ((cxx_module_entity_lookup_visible(
                  child->is_module_reachable_private) ||
              rcc_parser_module_imported_record()) &&
@@ -15574,7 +15576,17 @@ static CxxNamespace* get_or_create_namespace_definition(
     CxxNamespace* ns;
     if (created) *created = false;
     collect_namespace_definition_lookup(parent, name, &lookup);
-    if (lookup.matches == 1 && !lookup.alias_found) return lookup.ns;
+    if (lookup.matches == 1 && !lookup.alias_found) {
+        ns = lookup.ns;
+        /* Promotion applies only to this declaration context; ordinary
+         * namespace lookup still consults the privacy flag. */
+        if (rcc_parser_module_imported_record()) {
+            ns->is_module_reachable_private =
+                ns->is_module_reachable_private &&
+                rcc_parser_module_reachable_current_record_private();
+        }
+        return ns;
+    }
     if (lookup.matches > 1) {
         rcc_error(loc,
                   "namespace definition name '%s' is ambiguous in the inline namespace set",

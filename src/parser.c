@@ -766,6 +766,9 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
                 (!entry->cxx_namespace && !cxx_namespace) ||
                 (entry->cxx_namespace && cxx_namespace &&
                  strcmp(entry->cxx_namespace, cxx_namespace) == 0);
+            /* BMI records merge declarations of one module entity even when
+             * the earlier copy is lookup-private. Ordinary lookup continues
+             * to consult the privacy flag. */
             if ((rcc_parser_module_entity_lookup_visible(
                      entry->is_module_reachable_private) ||
                  parser_module_imported_record) &&

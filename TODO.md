@@ -14889,7 +14889,9 @@ Continue in this order:
       When a later direct import promotes an exported overload, its type and
       namespace identity now coalesce with earlier private semantic records;
       a compile-time check confirms that only the exported overload enters
-      ordinary lookup.
+      ordinary lookup. An exported nested namespace and class are promoted
+      the same way after a non-exporting intermediate import, while lookup
+      through that intermediate module alone remains hidden.
       `test-cxx-modules` links both namespace cases on i686 and x86_64.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate
