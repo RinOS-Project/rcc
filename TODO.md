@@ -14699,3 +14699,10 @@ remains a separate open item.
       Regress a 33-type owner whose earlier static value depends on a later
       type, including matching and non-matching values. Strict GCC C++20 and
       Windows/POSIX `test-cxx-function-template-overloads` gates pass.
+
+## RCC continuation (2026-11-05, dependent value after template-template deduction)
+
+- [x] Bind a later function-template template-template argument before checking
+      an earlier class-template NTTP that depends on `sizeof(Wrapper<int>::type)`.
+      Cover wrappers producing both 4-byte and 8-byte types. Strict GCC C++20
+      and Windows/POSIX `test-cxx-function-template-overloads` gates pass.

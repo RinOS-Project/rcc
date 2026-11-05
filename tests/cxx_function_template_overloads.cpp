@@ -678,6 +678,24 @@ template<int Value,
     typename T32>
 struct FunctionTemplateWideMemberValueBox {};
 
+template<class T>
+struct FunctionTemplateTemplateValueIdentity {
+    using type = T;
+};
+
+template<class T>
+struct FunctionTemplateTemplateValueWiden {
+    using type = long long;
+};
+
+template<template<class> class Template>
+struct FunctionTemplateTemplateValueOwner {
+    static constexpr int value = sizeof(typename Template<int>::type);
+};
+
+template<int Value, template<class> class Template>
+struct FunctionTemplateTemplateValueBox {};
+
 struct FunctionTemplateMemberValueOne {
     static constexpr int value = 1;
 };
@@ -1462,6 +1480,13 @@ int choose_wide_owner_member_value_class_pack_order(
         T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21,
         T22, T23, T24, T25, T26, T27, T28, T29, T30, T31, T32>) {
     return 269;
+}
+
+template<template<class> class Template>
+int choose_template_value_owner_template_argument_order(
+    FunctionTemplateTemplateValueBox<
+        FunctionTemplateTemplateValueOwner<Template>::value, Template>) {
+    return 270;
 }
 
 template<typename Head, typename... Types>
@@ -3802,6 +3827,16 @@ int main(void) {
                 int, int, int, int, int, int, int, int, int, int, int
             >{}) != 269) {
         return 113;
+    }
+    if (choose_template_value_owner_template_argument_order(
+            FunctionTemplateTemplateValueBox<
+                4, FunctionTemplateTemplateValueIdentity>{}) != 270) {
+        return 114;
+    }
+    if (choose_template_value_owner_template_argument_order(
+            FunctionTemplateTemplateValueBox<
+                8, FunctionTemplateTemplateValueWiden>{}) != 270) {
+        return 115;
     }
     if (choose_member_call_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<

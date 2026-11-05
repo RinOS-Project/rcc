@@ -33683,10 +33683,9 @@ static bool deduce_function_template_type_with_pack(
                                        TPARAM_TEMPLATE) {
                             if (pass != 1)
                                 continue;
-                            if (!pattern_arguments[index] ||
-                                !actual_arguments[index] ||
-                                pattern_arguments[index]->cxx_template !=
-                                    actual_arguments[index]->cxx_template) {
+                            if (!cxx_function_template_class_template_template_argument_deduce(
+                                    tmpl, pattern_arguments[index],
+                                    actual_arguments[index], arguments)) {
                                 return false;
                             }
                         } else if (template_parameter &&
