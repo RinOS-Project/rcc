@@ -54,6 +54,7 @@ typedef struct CxxModulePendingArtifact {
 typedef struct CxxModuleLoadContext {
     Preprocessor* preprocessor;
     const char* source_directory;
+    const char* input_path;
     const char** include_paths;
     int include_count;
     TargetArch target_arch;
@@ -62,6 +63,7 @@ typedef struct CxxModuleLoadContext {
     uint64_t macro_state_hash;
     CxxModuleNameList loaded;
     CxxModuleNameList exposed;
+    CxxModuleNameList loaded_headers;
     char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
     size_t stack_count;
     char error[512];
@@ -72,6 +74,7 @@ typedef struct CxxModuleEvent {
     size_t end;
     char* import_name;
     char* replacement;
+    bool header_unit;
 } CxxModuleEvent;
 
 typedef struct CxxModuleEvents {
@@ -187,7 +190,8 @@ static void cxx_module_names_clear(CxxModuleNameList* list) {
 
 static bool cxx_module_events_add(CxxModuleEvents* events, size_t begin,
                                   size_t end, char* import_name,
-                                  char* replacement_text) {
+                                  char* replacement_text,
+                                  bool header_unit) {
     CxxModuleEvent* replacement;
     size_t capacity;
     if (!events || end < begin) return false;
@@ -205,6 +209,7 @@ static bool cxx_module_events_add(CxxModuleEvents* events, size_t begin,
     events->items[events->count].end = end;
     events->items[events->count].import_name = import_name;
     events->items[events->count].replacement = replacement_text;
+    events->items[events->count].header_unit = header_unit;
     ++events->count;
     return true;
 }
@@ -689,8 +694,40 @@ static bool cxx_module_is_header_import(const char* source,
                                         CxxModuleToken* tokens,
                                         size_t first, size_t semicolon) {
     if (first >= semicolon) return false;
-    return !tokens[first].identifier ||
+    return (!tokens[first].identifier &&
+            source[tokens[first].begin] == '"') ||
         cxx_module_punct(source, &tokens[first], '<');
+}
+
+static char* cxx_module_parse_header_import(const char* source,
+                                            CxxModuleToken* tokens,
+                                            size_t first, size_t semicolon) {
+    if (!source || !tokens || first >= semicolon) return NULL;
+    if (first + 1u == semicolon && !tokens[first].identifier &&
+        source[tokens[first].begin] == '"' &&
+        tokens[first].end > tokens[first].begin + 1u &&
+        source[tokens[first].end - 1u] == '"' &&
+        tokens[first].end - tokens[first].begin < RCC_MAX_PATH) {
+        return cxx_module_copy_span(source, tokens[first].begin,
+                                    tokens[first].end);
+    }
+    if (cxx_module_punct(source, &tokens[first], '<') &&
+        semicolon > first + 2u &&
+        cxx_module_punct(source, &tokens[semicolon - 1u], '>')) {
+        size_t begin = tokens[first].begin;
+        size_t end = tokens[semicolon - 1u].end;
+        if (end - begin >= RCC_MAX_PATH) return NULL;
+        for (size_t index = first; index < semicolon; ++index) {
+            for (size_t offset = tokens[index].begin;
+                 offset < tokens[index].end; ++offset) {
+                if (source[offset] == '\n' || source[offset] == '\r') {
+                    return NULL;
+                }
+            }
+        }
+        return cxx_module_copy_span(source, begin, end - begin);
+    }
+    return NULL;
 }
 
 static char* cxx_module_resolve_relative_import(const char* source,
@@ -1261,6 +1298,7 @@ static bool cxx_module_resolve_imports(const char* source,
             size_t event_begin = tokens[index].begin;
             size_t event_end;
             char* name = NULL;
+            bool header_unit = false;
             if (semicolon == token_count) {
                 snprintf(error, error_capacity,
                          "unterminated C++ module or import declaration");
@@ -1328,46 +1366,57 @@ static bool cxx_module_resolve_imports(const char* source,
                              "export import requires a C++ module interface unit");
                     goto fail;
                 }
-                if (cxx_module_is_header_import(source, tokens,
-                                                import_first, semicolon)) {
-                    snprintf(error, error_capacity,
-                             "C++ header-unit imports are not supported yet");
-                    goto fail;
-                }
                 if (import_first >= semicolon) {
                     snprintf(error, error_capacity,
                              "empty C++ module import declaration");
                     goto fail;
                 }
-                name = cxx_module_resolve_relative_import(
-                    source, tokens, import_first, semicolon,
-                    declared_module ? declared_module : current_module);
-                if (!name || !cxx_module_name_valid(name)) {
-                    rcc_free(name);
-                    snprintf(error, error_capacity,
-                             "invalid C++ module import name");
-                    goto fail;
-                }
-                if (!cxx_module_partition_is_local(
-                        name, declared_module ? declared_module
-                                              : current_module)) {
-                    snprintf(error, error_capacity,
-                             "module partition '%s' can only be imported by a unit of its owning module",
-                             name);
-                    rcc_free(name);
-                    goto fail;
-                }
-                if (!cxx_module_names_add(dependencies, name)) {
-                    rcc_free(name);
-                    goto allocation_fail;
-                }
-                if (exported && !cxx_module_names_add(reexports, name)) {
-                    rcc_free(name);
-                    goto allocation_fail;
+                if (cxx_module_is_header_import(source, tokens,
+                                                import_first, semicolon)) {
+                    if (exported || module_interface) {
+                        snprintf(error, error_capacity,
+                                 "header-unit imports in module interfaces and export-import are not supported yet");
+                        goto fail;
+                    }
+                    name = cxx_module_parse_header_import(
+                        source, tokens, import_first, semicolon);
+                    if (!name) {
+                        snprintf(error, error_capacity,
+                                 "invalid C++ header-unit import name");
+                        goto fail;
+                    }
+                    header_unit = true;
+                } else {
+                    name = cxx_module_resolve_relative_import(
+                        source, tokens, import_first, semicolon,
+                        declared_module ? declared_module : current_module);
+                    if (!name || !cxx_module_name_valid(name)) {
+                        rcc_free(name);
+                        snprintf(error, error_capacity,
+                                 "invalid C++ module import name");
+                        goto fail;
+                    }
+                    if (!cxx_module_partition_is_local(
+                            name, declared_module ? declared_module
+                                                  : current_module)) {
+                        snprintf(error, error_capacity,
+                                 "module partition '%s' can only be imported by a unit of its owning module",
+                                 name);
+                        rcc_free(name);
+                        goto fail;
+                    }
+                    if (!cxx_module_names_add(dependencies, name)) {
+                        rcc_free(name);
+                        goto allocation_fail;
+                    }
+                    if (exported && !cxx_module_names_add(reexports, name)) {
+                        rcc_free(name);
+                        goto allocation_fail;
+                    }
                 }
             }
             if (!cxx_module_events_add(events, event_begin, event_end,
-                                       name, NULL)) {
+                                       name, NULL, header_unit)) {
                 rcc_free(name);
                 goto allocation_fail;
             }
@@ -1398,7 +1447,7 @@ static bool cxx_module_resolve_imports(const char* source,
                 !cxx_module_buffer_text(exports, "\n") ||
                 !cxx_module_events_add(events, tokens[index].begin,
                                        tokens[close].end, NULL,
-                                       replacement.data)) {
+                                       replacement.data, false)) {
                 rcc_free(replacement.data);
                 goto allocation_fail;
             }
@@ -1427,7 +1476,7 @@ static bool cxx_module_resolve_imports(const char* source,
                                         end, body_open, body_close,
                                         exports) ||
                 !cxx_module_events_add(events, tokens[index].begin,
-                                       tokens[index].end, NULL, NULL)) {
+                                       tokens[index].end, NULL, NULL, false)) {
                 goto allocation_fail;
             }
             index = end - 1u;
@@ -1449,6 +1498,46 @@ fail:
     return false;
 }
 
+static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
+                                          const char* header_name,
+                                          CxxModuleBuffer* imports) {
+    char directive[RCC_MAX_PATH + 16u];
+    char* expanded;
+    int directive_length;
+    int errors_before;
+    if (!context || !context->preprocessor || !context->input_path ||
+        !header_name || !imports) return false;
+    if (cxx_module_name_list_contains(&context->loaded_headers, header_name)) {
+        return true;
+    }
+    directive_length = snprintf(directive, sizeof(directive),
+                                "#include %s\n", header_name);
+    if (directive_length < 0 ||
+        (size_t)directive_length >= sizeof(directive)) {
+        snprintf(context->error, sizeof(context->error),
+                 "header-unit import name is too long");
+        return false;
+    }
+    errors_before = g_error_count;
+    expanded = pp_process_string(context->preprocessor, directive,
+                                 context->input_path);
+    if (!expanded || g_error_count != errors_before) {
+        rcc_free(expanded);
+        snprintf(context->error, sizeof(context->error),
+                 "could not preprocess header unit %s", header_name);
+        return false;
+    }
+    if (!cxx_module_buffer_text(imports, expanded) ||
+        !cxx_module_names_add(&context->loaded_headers, header_name)) {
+        rcc_free(expanded);
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory importing header unit %s", header_name);
+        return false;
+    }
+    rcc_free(expanded);
+    return true;
+}
+
 static bool cxx_module_rewrite_source(const char* source,
                                       CxxModuleEvents* events,
                                       CxxModuleLoadContext* load_context,
@@ -1466,8 +1555,12 @@ static bool cxx_module_rewrite_source(const char* source,
         if (event->import_name) {
             imports.length = 0u;
             if (imports.data) imports.data[0] = '\0';
-            if (!cxx_module_load_artifact(load_context, event->import_name,
-                                          &imports, true) ||
+            bool imported = event->header_unit
+                ? cxx_module_import_header_unit(load_context,
+                                                event->import_name, &imports)
+                : cxx_module_load_artifact(load_context, event->import_name,
+                                           &imports, true);
+            if (!imported ||
                 !cxx_module_buffer_append(&rewritten, imports.data,
                                           imports.length)) goto fail;
         }
@@ -1572,6 +1665,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
         goto done;
     }
     load_context->source_directory = source_directory;
+    load_context->input_path = input_path;
     load_context->preprocessor = preprocessor;
     load_context->include_paths = g_opts.include_paths;
     load_context->include_count = g_opts.include_count;
@@ -1658,6 +1752,7 @@ done:
     rcc_free(artifact.data);
     cxx_module_names_clear(&load_context->loaded);
     cxx_module_names_clear(&load_context->exposed);
+    cxx_module_names_clear(&load_context->loaded_headers);
     return ok;
 }
 
