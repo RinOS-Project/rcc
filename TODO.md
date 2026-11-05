@@ -14841,3 +14841,14 @@ Continue in this order:
       the full `test-debug-info` gate pass. Static-local computed trees, signed
       global trees, volatile/reference/atomic leaves, and broader optimized
       multi-piece lifetime/CFI coverage remain open.
+
+## RCC continuation (2026-11-06, computed TLS i686 unsigned divmod DWARF)
+
+- [x] Verify computed i686 unsigned 64-bit divmod trees over non-volatile TLS
+      globals. Cover `(tls_dividend + 0x100000001ULL) / tls_divisor` and `%`
+      in legacy and verified C++20 objects, require six source and two divisor
+      `TLSOFF32S` relocations, and evaluate each expression over an 11-by-9
+      boundary-value matrix. `test-debug-info-inline-expression` and the full
+      `test-debug-info` gate pass. Static-local computed trees, signed global
+      trees, volatile/reference/atomic leaves, and broader optimized
+      multi-piece lifetime/CFI coverage remain open.
