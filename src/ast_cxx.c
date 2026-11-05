@@ -16203,12 +16203,16 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         }
         if (tmpl->pending_pack_count > 0) {
             bool has_type_pack = false;
+            bool has_value_pack = false;
             for (int parameter_index = 0;
                  parameter_index < tmpl->param_count; ++parameter_index) {
-                if (tmpl->params[parameter_index].is_pack &&
-                    tmpl->params[parameter_index].kind != TPARAM_NONTYPE) {
+                TemplateParam* parameter = &tmpl->params[parameter_index];
+                if (!parameter->is_pack) continue;
+                if (parameter->kind == TPARAM_NONTYPE) {
+                    has_value_pack = true;
+                    if (parameter->is_auto) has_type_pack = true;
+                } else {
                     has_type_pack = true;
-                    break;
                 }
             }
             if (has_type_pack) {
@@ -16218,7 +16222,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                 memcpy(tmpl->instances[tmpl->instance_count].pack_args,
                        tmpl->pending_pack_args,
                        sizeof(Type*) * (size_t)tmpl->pending_pack_count);
-            } else {
+            }
+            if (has_value_pack) {
                 tmpl->instances[tmpl->instance_count].pack_values =
                     ast_arena_alloc(sizeof(int64_t) *
                                     (size_t)tmpl->pending_pack_count);

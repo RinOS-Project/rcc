@@ -104,6 +104,10 @@ function_template_structural_pointer_factory_member_array_getter() {
     return &function_template_structural_pointer_factory_member_target.elements[1];
 }
 constexpr const int*
+function_template_structural_pointer_factory_member_array_second_getter() {
+    return &function_template_structural_pointer_factory_member_target.elements[2];
+}
+constexpr const int*
 function_template_structural_pointer_factory_member_array_forwarder(
     const int* pointer) {
     const int* local_pointer = pointer;
@@ -648,6 +652,24 @@ template<auto Pointer>
 inline constexpr const int* function_template_auto_scalar_pointer_variable =
     Pointer;
 
+template<const int*... Pointers>
+constexpr int pointer_pack_typed_sum() {
+    return (0 + ... + *Pointers);
+}
+
+template<auto... Pointers>
+constexpr int pointer_pack_deduced_sum() {
+    return (0 + ... + *Pointers);
+}
+
+template<const int*... Pointers>
+struct PointerPackClass {
+    static constexpr int read() { return (0 + ... + *Pointers); }
+};
+
+template<auto... Pointers>
+inline constexpr int pointer_pack_deduced_variable = (0 + ... + *Pointers);
+
 template<FunctionTemplateStructuralPointerArray Value>
 constexpr int function_template_structural_pointer_array_explicit() {
     return *Value.values[0] * 100 + *Value.values[1] * 10 + Value.bias;
@@ -1114,6 +1136,30 @@ static_assert(*function_template_auto_scalar_pointer_variable<
                   function_template_structural_pointer_factory_member_array_forwarder(
                       function_template_structural_pointer_factory_member_array_getter())> ==
               13);
+static_assert(pointer_pack_typed_sum<
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_getter()),
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_second_getter())>() ==
+              30);
+static_assert(pointer_pack_deduced_sum<
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_getter()),
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_second_getter())>() ==
+              30);
+static_assert(PointerPackClass<
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_getter()),
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_second_getter())>::read() ==
+              30);
+static_assert(pointer_pack_deduced_variable<
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_getter()),
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_second_getter())> ==
+              30);
 static_assert(function_template_scalar_pointer_value<nullptr>() == -1);
 static_assert(function_template_structural_union_direct_pointer_deduced(
                   FunctionTemplateStructuralDirectPointerUnionTag<
@@ -1226,6 +1272,12 @@ int main() {
         &function_template_auto_scalar_pointer_variable<
             function_template_structural_pointer_factory_member_array_forwarder(
                 function_template_structural_pointer_factory_member_array_getter())>;
+    const int* scalar_pointer_pack_variable =
+        &pointer_pack_deduced_variable<
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_getter()),
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_second_getter())>;
     if (function_template_structural_value_explicit<
             FunctionTemplateStructuralTarget{37}>() != 37 ||
         function_template_structural_value_deduced(
@@ -1503,6 +1555,25 @@ int main() {
                 function_template_structural_pointer_factory_member_array_getter())>::read() !=
             13 ||
         !auto_pointer_variable || **auto_pointer_variable != 13 ||
+        pointer_pack_typed_sum<
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_getter()),
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_second_getter())>() !=
+            30 ||
+        pointer_pack_deduced_sum<
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_getter()),
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_second_getter())>() !=
+            30 ||
+        PointerPackClass<
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_getter()),
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_second_getter())>::read() !=
+            30 ||
+        !scalar_pointer_pack_variable || *scalar_pointer_pack_variable != 30 ||
         function_template_scalar_pointer_value<nullptr>() != -1 ||
         function_template_structural_pointer_factory_explicit<
             function_template_make_structural_pointer_union_value(
