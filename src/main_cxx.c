@@ -74,8 +74,6 @@ typedef struct CxxModuleLoadContext {
     CxxModuleNameList exposed;
     CxxModuleNameList private_exposed;
     CxxModuleNameList loaded_headers;
-    CxxModuleBuffer* interface_records;
-    bool interface_unit;
     char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
     size_t stack_count;
     char error[512];
@@ -84,6 +82,10 @@ typedef struct CxxModuleLoadContext {
 static bool cxx_module_preprocess_header_unit(
     CxxModuleLoadContext* context, const char* header_name,
     char** expanded_out);
+static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
+                                          const char* header_name,
+                                          CxxModuleBuffer* imports);
+static uint64_t cxx_module_hash(const void* bytes, size_t length);
 
 typedef struct CxxModuleEvent {
     size_t begin;
@@ -698,6 +700,28 @@ static bool cxx_module_append_interface_record(CxxModuleBuffer* records,
         cxx_module_buffer_text(records, "\n");
 }
 
+static bool cxx_module_append_header_unit_records(
+    CxxModuleBuffer* records, const char* header_name,
+    const CxxModuleBuffer* expanded, char visibility) {
+    CxxModuleBuffer state = {0};
+    char hash_text[32];
+    int hash_length;
+    bool ok;
+    if (!records || !header_name || !expanded || expanded->length == 0u ||
+        (visibility != 'E' && visibility != 'P')) return false;
+    hash_length = snprintf(hash_text, sizeof(hash_text), "%016llx",
+                           (unsigned long long)cxx_module_hash(
+                               expanded->data, expanded->length));
+    ok = hash_length > 0 && (size_t)hash_length < sizeof(hash_text) &&
+        cxx_module_buffer_text(&state, header_name) &&
+        cxx_module_buffer_text(&state, "\n") &&
+        cxx_module_buffer_append(&state, hash_text, (size_t)hash_length) &&
+        cxx_module_append_interface_record(records, 'H', &state) &&
+        cxx_module_append_interface_record(records, visibility, expanded);
+    rcc_free(state.data);
+    return ok;
+}
+
 static bool cxx_module_private_declaration_shareable(
     const char* source, CxxModuleToken* tokens, size_t first, size_t end) {
     if (first >= end) return false;
@@ -973,7 +997,7 @@ static bool cxx_module_artifact_path(const char* directory,
         slug_length += addition;
     }
     suffix_length = snprintf(suffix, sizeof(suffix),
-                             ".%s.cxx%d.a%u.m%016llx.v7.rmi",
+                             ".%s.cxx%d.a%u.m%016llx.v8.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
                              standard, (unsigned)abi,
                              (unsigned long long)macro_state_hash);
@@ -1072,7 +1096,7 @@ static bool cxx_module_artifact_bytes(const char* module_name,
                                   dependencies, reexports, exports,
                                   exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI7 %u %d %u %016llx %lu %lu %016llx %016llx ",
+                           "RCCBMI8 %u %d %u %016llx %lu %lu %016llx %016llx ",
                            target_bits, standard, (unsigned)abi,
                            (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
@@ -1378,7 +1402,7 @@ reload_artifact:
     }
     pp_record_dependency(context->preprocessor, artifact_path);
     if (sscanf(bytes,
-               "RCCBMI7 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
+               "RCCBMI8 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
                &standard, &abi, &macro_state_hash, &dependency_count_value,
                &payload_size_value, &source_state_hash,
                &dependency_state_hash, &expected_hash, &header_bytes) != 9 ||
@@ -1393,7 +1417,7 @@ reload_artifact:
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI7 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
+        "RCCBMI8 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
         standard, abi, macro_state_hash,
         dependency_count_value, payload_size_value, source_state_hash,
         dependency_state_hash);
@@ -1830,6 +1854,7 @@ static bool cxx_module_resolve_imports(const char* source,
                                        size_t token_count,
                                        const char* current_module,
                                        bool module_interface,
+                                       CxxModuleLoadContext* load_context,
                                        CxxModuleEvents* events,
                                        CxxModuleNameList* dependencies,
                                        CxxModuleNameList* reexports,
@@ -1857,6 +1882,7 @@ static bool cxx_module_resolve_imports(const char* source,
             size_t event_begin = tokens[index].begin;
             size_t event_end;
             char* name = NULL;
+            char* replacement = NULL;
             bool header_unit = false;
             if (semicolon == token_count) {
                 snprintf(error, error_capacity,
@@ -1951,6 +1977,36 @@ static bool cxx_module_resolve_imports(const char* source,
                         goto fail;
                     }
                     header_unit = true;
+                    if (module_interface && load_context) {
+                        CxxModuleBuffer expanded_header = {0};
+                        if (!cxx_module_import_header_unit(
+                                load_context, name, &expanded_header)) {
+                            snprintf(error, error_capacity, "%s",
+                                     load_context->error[0]
+                                         ? load_context->error
+                                         : "could not preprocess module header unit");
+                            rcc_free(name);
+                            goto fail;
+                        }
+                        if (expanded_header.length > 0u) {
+                            if (!cxx_module_append_header_unit_records(
+                                    exports, name, &expanded_header,
+                                    exported ? 'E' : 'P')) {
+                                rcc_free(expanded_header.data);
+                                rcc_free(name);
+                                goto allocation_fail;
+                            }
+                            replacement = rcc_strdup(expanded_header.data);
+                            if (!replacement) {
+                                rcc_free(expanded_header.data);
+                                rcc_free(name);
+                                goto allocation_fail;
+                            }
+                        }
+                        rcc_free(expanded_header.data);
+                        rcc_free(name);
+                        name = NULL;
+                    }
                 } else {
                     name = cxx_module_resolve_relative_import(
                         source, tokens, import_first, semicolon,
@@ -1981,9 +2037,10 @@ static bool cxx_module_resolve_imports(const char* source,
                 }
             }
             if (!cxx_module_events_add(events, event_begin, event_end,
-                                       name, NULL, header_unit,
+                                       name, replacement, header_unit,
                                        is_import && exported)) {
                 rcc_free(name);
+                rcc_free(replacement);
                 goto allocation_fail;
             }
             index = semicolon;
@@ -2172,33 +2229,6 @@ static bool cxx_module_rewrite_source(const char* source,
                 : cxx_module_load_artifact(load_context, event->import_name,
                                            &imports, true);
             if (!imported) goto fail;
-            if (event->header_unit && load_context->interface_unit &&
-                imports.length > 0u) {
-                CxxModuleBuffer header_state = {0};
-                char hash_text[32];
-                int hash_length = snprintf(
-                    hash_text, sizeof(hash_text), "%016llx",
-                    (unsigned long long)cxx_module_hash(
-                        imports.data, imports.length));
-                bool recorded = hash_length > 0 &&
-                    (size_t)hash_length < sizeof(hash_text) &&
-                    cxx_module_buffer_text(&header_state,
-                                           event->import_name) &&
-                    cxx_module_buffer_text(&header_state, "\n") &&
-                    cxx_module_buffer_append(&header_state, hash_text,
-                                             (size_t)hash_length) &&
-                    cxx_module_append_interface_record(
-                        load_context->interface_records, 'H', &header_state) &&
-                    cxx_module_append_interface_record(
-                        load_context->interface_records,
-                        event->exported_import ? 'E' : 'P', &imports);
-                rcc_free(header_state.data);
-                if (!recorded) {
-                    snprintf(load_context->error, sizeof(load_context->error),
-                             "could not record header-unit declarations in module interface");
-                    goto fail;
-                }
-            }
             if (!cxx_module_buffer_append(&rewritten, imports.data,
                                           imports.length)) goto fail;
         }
@@ -2280,8 +2310,6 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     CxxModuleNameList dependencies = {0};
     CxxModuleNameList reexports = {0};
     CxxModuleBuffer exports = {0};
-    CxxModuleBuffer header_exports = {0};
-    CxxModuleBuffer interface_records = {0};
     CxxModuleBuffer artifact = {0};
     char source_directory[RCC_MAX_PATH];
     char absolute_source_path[RCC_MAX_PATH];
@@ -2321,11 +2349,9 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     load_context->standard = g_cxx_standard;
     load_context->abi = g_opts.cxx_itanium_abi;
     load_context->macro_state_hash = cxx_module_configuration_hash();
-    load_context->interface_records = &header_exports;
-    load_context->interface_unit = has_interface;
     if (!cxx_module_resolve_imports(source, tokens, token_count,
                                     module_name[0] ? module_name : NULL,
-                                    has_interface,
+                                    has_interface, load_context,
                                     &events, &dependencies, &reexports,
                                     &exports,
                                     error, sizeof(error))) {
@@ -2363,15 +2389,6 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
         }
     }
     if (has_interface) {
-        if (!cxx_module_buffer_append(&interface_records,
-                                      header_exports.data,
-                                      header_exports.length) ||
-            !cxx_module_buffer_append(&interface_records, exports.data,
-                                      exports.length)) {
-            snprintf(error, sizeof(error),
-                     "could not assemble C++ module interface declarations");
-            goto done;
-        }
         if (!cxx_module_dependency_state_hash(load_context, &dependencies,
                                                &dependency_state_hash)) {
             snprintf(error, sizeof(error),
@@ -2388,9 +2405,8 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
                                        input_path,
                                        &dependencies,
                                        &reexports,
-                                       interface_records.data ?
-                                           interface_records.data : "",
-                                       interface_records.length, source,
+                                       exports.data ? exports.data : "",
+                                       exports.length, source,
                                        g_opts.target_arch,
                                        g_cxx_standard,
                                        g_opts.cxx_itanium_abi,
@@ -2418,8 +2434,6 @@ done:
     cxx_module_names_clear(&dependencies);
     cxx_module_names_clear(&reexports);
     rcc_free(exports.data);
-    rcc_free(header_exports.data);
-    rcc_free(interface_records.data);
     rcc_free(artifact.data);
     cxx_module_names_clear(&load_context->loaded);
     cxx_module_names_clear(&load_context->exposed);
@@ -2613,7 +2627,7 @@ static bool cxx_module_scan_batch_unit(char** argv, const char* input_path,
         !cxx_module_resolve_imports(
             preprocessed, tokens, token_count,
             unit->module_name[0] ? unit->module_name : NULL,
-            unit->has_interface, &events, &dependencies, &reexports,
+            unit->has_interface, NULL, &events, &dependencies, &reexports,
             &exports,
             error, sizeof(error))) {
         goto done;
