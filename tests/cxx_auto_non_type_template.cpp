@@ -75,6 +75,21 @@ int auto_deduced_zipped_pack_sum(
     return (Values + ...) + sizeof...(arguments);
 }
 
+template<class Type, auto... Values>
+struct variable_argument_pack {
+    Type count;
+};
+
+template<class Type, auto... Values>
+inline constexpr variable_argument_pack<Type, Values...>
+    variable_argument_pack_value{static_cast<Type>(sizeof...(Values))};
+
+template<class Type, auto... Values>
+int deduce_variable_argument_pack(
+    variable_argument_pack<Type, Values...> argument) {
+    return static_cast<int>(argument.count + (Values + ...));
+}
+
 template<auto Pointer>
 struct auto_pointer_holder {
     static constexpr int value = *Pointer;
@@ -125,6 +140,9 @@ extern "C" int main() {
                    auto_deduced_zipped_pack_sum(
                        auto_constant_argument<int, 5>{},
                        auto_constant_argument<unsigned, 7u>{}) == 14 &&
+                   deduce_variable_argument_pack(
+                       variable_argument_pack_value<unsigned,
+                                                    2, 3u, 4>) == 12 &&
                    auto_default_constant<>(3) == 7 &&
                    auto_default_constant<-2>(9) == 7 &&
                    auto_pointer_value<&auto_pointer_target>() == -19 &&

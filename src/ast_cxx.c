@@ -10896,9 +10896,29 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                 args[owner_argument_index];
                         }
                     }
-                    nested_arguments[nested_count] = template_substitute_type(
-                        tmpl, pattern_argument, expanded_arguments, arg_count,
-                        expanded_values, expanded_value_present);
+                    bool deduces_auto_value_pack_type =
+                        has_local_pack_source && value_pack &&
+                        expansion_parameter->is_auto && parameter &&
+                        parameter->kind == TPARAM_NONTYPE &&
+                        parameter->is_auto && pattern_value_expression &&
+                        pattern_value_expression->kind == EXPR_IDENT &&
+                        pattern_value_expression->ident_name &&
+                        expansion_parameter->name &&
+                        strcmp(pattern_value_expression->ident_name,
+                               expansion_parameter->name) == 0;
+                    /* A directly forwarded auto NTTP pack element keeps its
+                     * own deduced type. The dependent pattern's placeholder
+                     * type alone cannot represent a heterogeneous pack. */
+                    if (deduces_auto_value_pack_type) {
+                        nested_arguments[nested_count] =
+                            tmpl->pending_pack_args[pending_pack_index];
+                    } else {
+                        nested_arguments[nested_count] =
+                            template_substitute_type(
+                                tmpl, pattern_argument, expanded_arguments,
+                                arg_count, expanded_values,
+                                expanded_value_present);
+                    }
                     if (!nested_arguments[nested_count]) return NULL;
                     if (value_pack) {
                         int owner_argument_index =
