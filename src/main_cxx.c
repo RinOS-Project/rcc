@@ -806,10 +806,33 @@ static bool cxx_module_private_declaration_shareable(
     return true;
 }
 
+static bool cxx_module_export_declaration_valid(
+    const char* source, CxxModuleToken* tokens, size_t first, size_t end) {
+    if (first >= end) return false;
+    for (size_t index = first; index < end; ++index) {
+        if (cxx_module_token_is(source, &tokens[index], "static")) {
+            return false;
+        }
+        if (cxx_module_token_is(source, &tokens[index], "namespace") &&
+            index + 1u < end &&
+            cxx_module_punct(source, &tokens[index + 1u], '{')) {
+            return false;
+        }
+        if (cxx_module_punct(source, &tokens[index], '{') ||
+            cxx_module_punct(source, &tokens[index], '=') ||
+            cxx_module_punct(source, &tokens[index], ';')) {
+            break;
+        }
+    }
+    return true;
+}
+
 static bool cxx_module_collect_export_block(const char* source,
                                             CxxModuleToken* tokens,
                                             size_t first, size_t close,
                                             const char* module_name,
+                                            char* error,
+                                            size_t error_capacity,
                                             CxxModuleBuffer* exports) {
     size_t cursor = first;
     while (cursor < close) {
@@ -828,7 +851,14 @@ static bool cxx_module_collect_export_block(const char* source,
         end = cxx_module_find_export_declaration_end(
             source, tokens, close, cursor, &body_open, &body_close);
         CxxModuleBuffer declaration = {0};
-        if (end <= cursor || end > close ||
+        if (end <= cursor || end > close) return false;
+        if (!cxx_module_export_declaration_valid(source, tokens, cursor,
+                                                 end)) {
+            snprintf(error, error_capacity,
+                     "an exported declaration cannot have internal linkage");
+            return false;
+        }
+        if (
             !cxx_module_export_span(source, tokens, cursor, end,
                                     body_open, body_close, &declaration) ||
             !cxx_module_append_interface_record(exports, 'E', &declaration,
@@ -2166,7 +2196,7 @@ static bool cxx_module_resolve_imports(const char* source,
             }
             if (!cxx_module_collect_export_block(
                     source, tokens, keyword_index + 1u, close,
-                    declared_module, exports) ||
+                    declared_module, error, error_capacity, exports) ||
                 !cxx_module_append_without_export(
                     source, tokens[keyword_index].end,
                     tokens[close].begin, &replacement) ||
@@ -2198,6 +2228,12 @@ static bool cxx_module_resolve_imports(const char* source,
             if (end == token_count) {
                 snprintf(error, error_capacity,
                          "unterminated C++ export declaration");
+                goto fail;
+            }
+            if (!cxx_module_export_declaration_valid(
+                    source, tokens, keyword_index + 1u, end)) {
+                snprintf(error, error_capacity,
+                         "an exported declaration cannot have internal linkage");
                 goto fail;
             }
             if (!cxx_module_export_span(source, tokens, keyword_index + 1u,
