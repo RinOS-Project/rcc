@@ -14258,6 +14258,12 @@ remains a separate open item.
         exact Itanium symbols, host execution, i686/AMD64 generation, and all
         90 verified-backend functions at `-O0`/`-O2` with zero fallback in the
         Windows/POSIX structural-NTTP gates.
+  - [x] Verify the alternate six-dimensional `[1][2][2][1][2][1]` structural
+        union-array extent with reads through all six indices and eight scalar
+        leaves. Explicit/deduced NTTPs match exact GCC symbols; strict GCC C++20,
+        host execution, i686/AMD64 generation, and all three verified-backend
+        functions at `-O0`/`-O2` pass with zero fallback in the Windows/POSIX
+        structural-NTTP gates.
   - [x] Support direct `float` and `double` union alternatives in structural
         NTTPs. Preserve their IEEE bit patterns through collection, packed value
         records, member reads, and Itanium floating-literal encoding. Verify
