@@ -94,6 +94,10 @@ typedef struct CxxModuleEvent {
     char* replacement;
     bool header_unit;
     bool exported_import;
+    bool module_declaration;
+    bool starts_module_purview;
+    bool private_fragment_marker;
+    bool import_declaration;
 } CxxModuleEvent;
 
 typedef struct CxxModuleEvents {
@@ -213,7 +217,11 @@ static bool cxx_module_events_add(CxxModuleEvents* events, size_t begin,
                                   size_t end, char* import_name,
                                   char* replacement_text,
                                   bool header_unit,
-                                  bool exported_import) {
+                                  bool exported_import,
+                                  bool module_declaration,
+                                  bool starts_module_purview,
+                                  bool private_fragment_marker,
+                                  bool import_declaration) {
     CxxModuleEvent* replacement;
     size_t capacity;
     if (!events || end < begin) return false;
@@ -233,6 +241,12 @@ static bool cxx_module_events_add(CxxModuleEvents* events, size_t begin,
     events->items[events->count].replacement = replacement_text;
     events->items[events->count].header_unit = header_unit;
     events->items[events->count].exported_import = exported_import;
+    events->items[events->count].module_declaration = module_declaration;
+    events->items[events->count].starts_module_purview =
+        starts_module_purview;
+    events->items[events->count].private_fragment_marker =
+        private_fragment_marker;
+    events->items[events->count].import_declaration = import_declaration;
     ++events->count;
     return true;
 }
@@ -683,21 +697,59 @@ static bool cxx_module_export_span(const char* source,
     return cxx_module_buffer_text(output, "\n");
 }
 
+static bool cxx_module_append_module_namespace_open(
+    CxxModuleBuffer* output, const char* module_name) {
+    size_t length;
+    const char* partition;
+    if (!output || !module_name || !*module_name) return false;
+    partition = strchr(module_name, ':');
+    length = partition ? (size_t)(partition - module_name)
+                       : strlen(module_name);
+    if (length == 0u ||
+        !cxx_module_buffer_text(output,
+                                "inline namespace __rcc_module_")) {
+        return false;
+    }
+    for (size_t index = 0; index < length; ++index) {
+        char encoded[3];
+        int written = snprintf(encoded, sizeof(encoded), "%02x",
+                               (unsigned char)module_name[index]);
+        if (written != 2 ||
+            !cxx_module_buffer_append(output, encoded, 2u)) return false;
+    }
+    return cxx_module_buffer_text(output, " {\n");
+}
+
 static bool cxx_module_append_interface_record(CxxModuleBuffer* records,
                                                char visibility,
-                                               const CxxModuleBuffer* content) {
+                                               const CxxModuleBuffer* content,
+                                               const char* module_name) {
+    CxxModuleBuffer wrapped = {0};
+    const CxxModuleBuffer* stored = content;
     char header[32];
     int header_length;
     if (!records || !content ||
         (visibility != 'E' && visibility != 'P' && visibility != 'H')) {
         return false;
     }
+    if (module_name) {
+        if (!cxx_module_append_module_namespace_open(&wrapped, module_name) ||
+            !cxx_module_buffer_append(&wrapped, content->data,
+                                      content->length) ||
+            !cxx_module_buffer_text(&wrapped, "\n}\n")) {
+            rcc_free(wrapped.data);
+            return false;
+        }
+        stored = &wrapped;
+    }
     header_length = snprintf(header, sizeof(header), "%c %lu\n", visibility,
-                             (unsigned long)content->length);
-    return header_length > 0 && (size_t)header_length < sizeof(header) &&
+                             (unsigned long)stored->length);
+    bool ok = header_length > 0 && (size_t)header_length < sizeof(header) &&
         cxx_module_buffer_append(records, header, (size_t)header_length) &&
-        cxx_module_buffer_append(records, content->data, content->length) &&
+        cxx_module_buffer_append(records, stored->data, stored->length) &&
         cxx_module_buffer_text(records, "\n");
+    rcc_free(wrapped.data);
+    return ok;
 }
 
 static bool cxx_module_append_header_unit_records(
@@ -716,8 +768,9 @@ static bool cxx_module_append_header_unit_records(
         cxx_module_buffer_text(&state, header_name) &&
         cxx_module_buffer_text(&state, "\n") &&
         cxx_module_buffer_append(&state, hash_text, (size_t)hash_length) &&
-        cxx_module_append_interface_record(records, 'H', &state) &&
-        cxx_module_append_interface_record(records, visibility, expanded);
+        cxx_module_append_interface_record(records, 'H', &state, NULL) &&
+        cxx_module_append_interface_record(records, visibility, expanded,
+                                           NULL);
     rcc_free(state.data);
     return ok;
 }
@@ -742,6 +795,7 @@ static bool cxx_module_private_declaration_shareable(
 static bool cxx_module_collect_export_block(const char* source,
                                             CxxModuleToken* tokens,
                                             size_t first, size_t close,
+                                            const char* module_name,
                                             CxxModuleBuffer* exports) {
     size_t cursor = first;
     while (cursor < close) {
@@ -763,7 +817,8 @@ static bool cxx_module_collect_export_block(const char* source,
         if (end <= cursor || end > close ||
             !cxx_module_export_span(source, tokens, cursor, end,
                                     body_open, body_close, &declaration) ||
-            !cxx_module_append_interface_record(exports, 'E', &declaration)) {
+            !cxx_module_append_interface_record(exports, 'E', &declaration,
+                                                module_name)) {
             rcc_free(declaration.data);
             return false;
         }
@@ -997,7 +1052,7 @@ static bool cxx_module_artifact_path(const char* directory,
         slug_length += addition;
     }
     suffix_length = snprintf(suffix, sizeof(suffix),
-                             ".%s.cxx%d.a%u.m%016llx.v9.rmi",
+                             ".%s.cxx%d.a%u.m%016llx.v10.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
                              standard, (unsigned)abi,
                              (unsigned long long)macro_state_hash);
@@ -1103,7 +1158,7 @@ static bool cxx_module_artifact_bytes(const char* module_name,
                                   dependencies, reexports, exports,
                                   exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI9 %u %d %u %016llx %lu %lu %016llx %016llx ",
+                           "RCCBMI10 %u %d %u %016llx %lu %lu %016llx %016llx ",
                            target_bits, standard, (unsigned)abi,
                            (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
@@ -1417,7 +1472,7 @@ reload_artifact:
     }
     pp_record_dependency(context->preprocessor, artifact_path);
     if (sscanf(bytes,
-               "RCCBMI9 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
+               "RCCBMI10 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
                &standard, &abi, &macro_state_hash, &dependency_count_value,
                &payload_size_value, &source_state_hash,
                &dependency_state_hash, &expected_hash, &header_bytes) != 9 ||
@@ -1432,7 +1487,7 @@ reload_artifact:
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI9 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
+        "RCCBMI10 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
         standard, abi, macro_state_hash,
         dependency_count_value, payload_size_value, source_state_hash,
         dependency_state_hash);
@@ -1899,6 +1954,10 @@ static bool cxx_module_resolve_imports(const char* source,
             char* name = NULL;
             char* replacement = NULL;
             bool header_unit = false;
+            bool module_declaration = false;
+            bool starts_module_purview = false;
+            bool private_fragment_marker = false;
+            bool import_declaration = false;
             if (semicolon == token_count) {
                 snprintf(error, error_capacity,
                          "unterminated C++ module or import declaration");
@@ -1907,6 +1966,7 @@ static bool cxx_module_resolve_imports(const char* source,
             event_end = tokens[semicolon].end;
             if (is_module) {
                 bool private_marker = false;
+                module_declaration = true;
                 if (!cxx_module_parse_name(source, tokens,
                                            keyword_index + 1u, semicolon,
                                            &name, &private_marker)) {
@@ -1922,6 +1982,7 @@ static bool cxx_module_resolve_imports(const char* source,
                         goto fail;
                     }
                     private_fragment = true;
+                    private_fragment_marker = true;
                 } else if (name) {
                     if (declared_module) {
                         snprintf(error, error_capacity,
@@ -1932,6 +1993,7 @@ static bool cxx_module_resolve_imports(const char* source,
                     declared_module = name;
                     name = NULL;
                     module_purview = true;
+                    starts_module_purview = true;
                     if (global_fragment && strchr(declared_module, ':')) {
                         snprintf(error, error_capacity,
                                  "a module partition cannot follow a global module fragment");
@@ -1946,7 +2008,7 @@ static bool cxx_module_resolve_imports(const char* source,
                     }
                     global_fragment = true;
                 }
-                if (!exported && declared_module &&
+                if (!exported && !private_marker && declared_module &&
                     strcmp(declared_module, current_module ? current_module : "") == 0) {
                     /* Module implementation units see the primary interface. */
                     const char* partition = strchr(declared_module, ':');
@@ -1961,6 +2023,7 @@ static bool cxx_module_resolve_imports(const char* source,
                     }
                 }
             } else {
+                import_declaration = true;
                 size_t import_first = keyword_index + 1u;
                 if (exported && (!module_interface || !declared_module)) {
                     snprintf(error, error_capacity,
@@ -2053,7 +2116,11 @@ static bool cxx_module_resolve_imports(const char* source,
             }
             if (!cxx_module_events_add(events, event_begin, event_end,
                                        name, replacement, header_unit,
-                                       is_import && exported)) {
+                                       is_import && exported,
+                                       module_declaration,
+                                       starts_module_purview,
+                                       private_fragment_marker,
+                                       import_declaration)) {
                 rcc_free(name);
                 rcc_free(replacement);
                 goto allocation_fail;
@@ -2078,14 +2145,16 @@ static bool cxx_module_resolve_imports(const char* source,
                 goto fail;
             }
             if (!cxx_module_collect_export_block(
-                    source, tokens, keyword_index + 1u, close, exports) ||
+                    source, tokens, keyword_index + 1u, close,
+                    declared_module, exports) ||
                 !cxx_module_append_without_export(
                     source, tokens[keyword_index].end,
                     tokens[close].begin, &replacement) ||
                 !cxx_module_buffer_text(exports, "\n") ||
                 !cxx_module_events_add(events, tokens[index].begin,
                                        tokens[close].end, NULL,
-                                       replacement.data, false, false)) {
+                                       replacement.data, false, false,
+                                       false, false, false, false)) {
                 rcc_free(replacement.data);
                 goto allocation_fail;
             }
@@ -2115,10 +2184,11 @@ static bool cxx_module_resolve_imports(const char* source,
                                         end, body_open, body_close,
                                         &declaration) ||
                 !cxx_module_append_interface_record(exports, 'E',
-                                                    &declaration) ||
+                                                    &declaration,
+                                                    declared_module) ||
                 !cxx_module_events_add(events, tokens[index].begin,
                                        tokens[index].end, NULL, NULL, false,
-                                       false)) {
+                                       false, false, false, false, false)) {
                 rcc_free(declaration.data);
                 goto allocation_fail;
             }
@@ -2144,7 +2214,8 @@ static bool cxx_module_resolve_imports(const char* source,
                                          body_open, body_close,
                                          &declaration) ||
                  !cxx_module_append_interface_record(exports, 'P',
-                                                     &declaration))) {
+                                                     &declaration,
+                                                     declared_module))) {
                 rcc_free(declaration.data);
                 goto allocation_fail;
             }
@@ -2243,10 +2314,14 @@ static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
 static bool cxx_module_rewrite_source(const char* source,
                                       CxxModuleEvents* events,
                                       CxxModuleLoadContext* load_context,
+                                      const char* module_name,
                                       char** rewritten_out) {
     CxxModuleBuffer rewritten = {0};
     CxxModuleBuffer imports = {0};
     size_t cursor = 0u;
+    bool module_unit = module_name && *module_name;
+    bool module_purview = false;
+    bool namespace_open = false;
     if (!source || !events || !rewritten_out) return false;
     *rewritten_out = NULL;
     for (size_t index = 0; index < events->count; ++index) {
@@ -2254,6 +2329,12 @@ static bool cxx_module_rewrite_source(const char* source,
         if (event->begin < cursor || event->end > strlen(source)) goto fail;
         if (!cxx_module_buffer_append(&rewritten, source + cursor,
                                       event->begin - cursor)) goto fail;
+        if (namespace_open &&
+            (event->import_declaration ||
+             event->private_fragment_marker)) {
+            if (!cxx_module_buffer_text(&rewritten, "\n}\n")) goto fail;
+            namespace_open = false;
+        }
         if (event->import_name) {
             imports.length = 0u;
             if (imports.data) imports.data[0] = '\0';
@@ -2269,9 +2350,28 @@ static bool cxx_module_rewrite_source(const char* source,
         if (event->replacement &&
             !cxx_module_buffer_text(&rewritten, event->replacement)) goto fail;
         cursor = event->end;
+        if (module_unit && event->module_declaration &&
+            event->starts_module_purview) {
+            module_purview = true;
+            if (!cxx_module_append_module_namespace_open(&rewritten,
+                                                         module_name)) goto fail;
+            namespace_open = true;
+        } else if (module_unit && event->module_declaration &&
+                   event->private_fragment_marker && module_purview) {
+            if (!cxx_module_append_module_namespace_open(&rewritten,
+                                                         module_name)) goto fail;
+            namespace_open = true;
+        } else if (module_unit && event->import_declaration &&
+                   module_purview) {
+            if (!cxx_module_append_module_namespace_open(&rewritten,
+                                                         module_name)) goto fail;
+            namespace_open = true;
+        }
     }
     if (!cxx_module_buffer_append(&rewritten, source + cursor,
                                   strlen(source) - cursor)) goto fail;
+    if (namespace_open &&
+        !cxx_module_buffer_text(&rewritten, "\n}\n")) goto fail;
     *rewritten_out = rewritten.data;
     rcc_free(imports.data);
     return true;
@@ -2410,7 +2510,8 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     }
     {
         bool rewrite_ok = cxx_module_rewrite_source(
-            source, &events, load_context, rewritten_out);
+            source, &events, load_context,
+            module_name[0] ? module_name : NULL, rewritten_out);
         if (has_interface) {
             rcc_free(load_context->stack[--load_context->stack_count]);
         }
