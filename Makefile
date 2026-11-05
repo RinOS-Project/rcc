@@ -1555,6 +1555,7 @@ CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
 CXX_REGRESSION_TARGETS += test-cxx-floating-nontype
 CXX_REGRESSION_TARGETS += test-cxx-structural-floating-nontype
 CXX_REGRESSION_TARGETS += test-preprocessor-header-unit-macros
+CXX_REGRESSION_TARGETS += test-cxx-header-unit-graph
 CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
 CXX_REGRESSION_TARGETS += test-cxx-reference-list-initialization
@@ -28867,6 +28868,40 @@ test-preprocessor-header-unit-macros: $(RCXX_TARGET)
 	$(GREP) -F -q 'int rcc_header_unit_baseline_macro_value = 29;' \
 		$(TEST_OUT)/header-unit-macros/redefined.i
 	@echo "C++20 header-unit macro import tests completed"
+
+.PHONY: test-cxx-header-unit-graph
+test-cxx-header-unit-graph: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-header-unit-graph)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_parent.cppm,$(TEST_OUT)/cxx-header-unit-graph/parent.cppm)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_consumer.cpp,$(TEST_OUT)/cxx-header-unit-graph/consumer.cpp)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_consumer_updated.cpp,$(TEST_OUT)/cxx-header-unit-graph/consumer-updated.cpp)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_duplicate.cppm,$(TEST_OUT)/cxx-header-unit-graph/duplicate.cppm)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_leaf.h,$(TEST_OUT)/cxx-header-unit-graph/cxx_header_unit_graph_leaf.h)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_leaf_updated.h,$(TEST_OUT)/cxx-header-unit-graph/leaf-updated.h)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_parent.h,$(TEST_OUT)/cxx-header-unit-graph/cxx_header_unit_graph_parent.h)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_cycle.cppm,$(TEST_OUT)/cxx-header-unit-graph/cycle.cppm)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_cycle_a.h,$(TEST_OUT)/cxx-header-unit-graph/cxx_header_unit_graph_cycle_a.h)
+	$(call COPY_FILE,tests/cxx_header_unit_graph_cycle_b.h,$(TEST_OUT)/cxx-header-unit-graph/cxx_header_unit_graph_cycle_b.h)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-header-unit-graph/cycle.ro)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-header-unit-graph/parent.ro \
+		$(TEST_OUT)/cxx-header-unit-graph/parent.cppm
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-header-unit-graph/duplicate.ro \
+		$(TEST_OUT)/cxx-header-unit-graph/duplicate.cppm
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-header-unit-graph/consumer.ro \
+		$(TEST_OUT)/cxx-header-unit-graph/consumer.cpp
+	$(call COPY_FILE,$(TEST_OUT)/cxx-header-unit-graph/leaf-updated.h,$(TEST_OUT)/cxx-header-unit-graph/cxx_header_unit_graph_leaf.h)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-header-unit-graph/consumer-updated.ro)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-header-unit-graph/consumer-updated.ro \
+		$(TEST_OUT)/cxx-header-unit-graph/consumer-updated.cpp
+	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-header-unit-graph/consumer-updated.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-header-unit-graph/cycle.ro $(TEST_OUT)/cxx-header-unit-graph/cycle.cppm,$(TEST_OUT)/cxx-header-unit-graph/cycle.log)
+	$(GREP) -F -q 'cyclic C++ header-unit dependency' $(TEST_OUT)/cxx-header-unit-graph/cycle.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-header-unit-graph/cycle.ro)
+	@echo "C++20 nested header-unit import graph tests completed"
 
 .PHONY: test-cxx-structural-floating-nontype
 test-cxx-structural-floating-nontype: $(RCXX_TARGET)

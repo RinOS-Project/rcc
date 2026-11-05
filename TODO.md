@@ -14767,3 +14767,16 @@ remains a separate open item.
       class-template specializations. GCC and RCC emit matching Itanium
       symbols; strict GCC, i686/AMD64 assembly and object generation, and
       GCC/RCC host execution pass in the Windows and POSIX gates.
+
+## RCC continuation (2026-11-05, nested C++20 header-unit import graphs)
+
+- [x] Preserve exported declarations through recursively imported header
+      units and nested module interfaces, promote visibility when a dependency
+      is also imported directly, rebuild stale BMI metadata when a transitive
+      header changes, and diagnose dependency cycles without emitting an
+      object. The focused `make -j2 BINDIR=build
+      test-cxx-header-unit-graph` gate passes. Full `test-ci` reaches an
+      unrelated `test-cxx-global-allocation-operators` link failure:
+      `/usr/bin/ld` reports a dangerous `R_AMD64_IMAGEBASE` relocation with
+      `__ImageBase` undefined while linking its static-reference runtime
+      object.
