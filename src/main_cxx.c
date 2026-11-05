@@ -79,6 +79,13 @@ typedef struct CxxModuleEvents {
     size_t capacity;
 } CxxModuleEvents;
 
+typedef struct CxxModuleBatchUnit {
+    char input_path[RCC_MAX_PATH];
+    char module_name[RCC_MAX_PATH];
+    bool has_interface;
+    CxxModuleNameList dependencies;
+} CxxModuleBatchUnit;
+
 static bool cxx_module_buffer_reserve(CxxModuleBuffer* buffer,
                                       size_t additional) {
     size_t needed;
@@ -1388,6 +1395,57 @@ fail:
     return false;
 }
 
+static bool cxx_module_find_unit_identity(const char* source,
+                                         CxxModuleToken* tokens,
+                                         size_t token_count,
+                                         char* module_name,
+                                         size_t module_name_capacity,
+                                         bool* module_interface,
+                                         char* error,
+                                         size_t error_capacity) {
+    if (!source || (!tokens && token_count) || !module_name ||
+        module_name_capacity == 0u ||
+        !module_interface || !error || error_capacity == 0u) return false;
+    module_name[0] = '\0';
+    *module_interface = false;
+    for (size_t index = 0; index + 1u < token_count; ++index) {
+        bool exported = cxx_module_token_is(source, &tokens[index], "export");
+        size_t keyword = exported ? index + 1u : index;
+        bool declaration_start = index == 0u ||
+            cxx_module_punct(source, &tokens[index - 1u], ';') ||
+            cxx_module_punct(source, &tokens[index - 1u], '}');
+        if (!declaration_start || keyword >= token_count ||
+            !cxx_module_token_is(source, &tokens[keyword], "module")) {
+            continue;
+        }
+        size_t semicolon = cxx_module_find_next_semicolon(
+            source, tokens, token_count, keyword + 1u);
+        char* parsed_name = NULL;
+        bool private_marker = false;
+        if (semicolon == token_count ||
+            !cxx_module_parse_name(source, tokens, keyword + 1u,
+                                   semicolon, &parsed_name,
+                                   &private_marker)) {
+            snprintf(error, error_capacity, "invalid C++ module declaration");
+            return false;
+        }
+        if (parsed_name) {
+            size_t length = strlen(parsed_name);
+            if (length >= module_name_capacity) {
+                rcc_free(parsed_name);
+                snprintf(error, error_capacity, "C++ module name is too long");
+                return false;
+            }
+            memcpy(module_name, parsed_name, length + 1u);
+            *module_interface = exported;
+            rcc_free(parsed_name);
+            return true;
+        }
+        (void)private_marker;
+    }
+    return true;
+}
+
 static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
                                const char* input_path,
                                char** rewritten_out,
@@ -1416,36 +1474,10 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     }
     /* Find a named interface declaration first so relative partition imports
      * can resolve even when they precede its export block. */
-    for (size_t index = 0; index + 1u < token_count; ++index) {
-        bool exported = cxx_module_token_is(source, &tokens[index], "export");
-        size_t keyword = exported ? index + 1u : index;
-        bool declaration_start = index == 0u ||
-            cxx_module_punct(source, &tokens[index - 1u], ';') ||
-            cxx_module_punct(source, &tokens[index - 1u], '}');
-        if (!declaration_start || keyword >= token_count ||
-            !cxx_module_token_is(source, &tokens[keyword], "module")) continue;
-        size_t semicolon = cxx_module_find_next_semicolon(
-            source, tokens, token_count, keyword + 1u);
-        char* parsed_name = NULL;
-        bool private_marker = false;
-        if (semicolon == token_count ||
-            !cxx_module_parse_name(source, tokens, keyword + 1u,
-                                   semicolon, &parsed_name,
-                                   &private_marker)) {
-            snprintf(error, sizeof(error), "invalid C++ module declaration");
-            goto done;
-        }
-        if (parsed_name) {
-            if (strlen(parsed_name) >= sizeof(module_name)) {
-                rcc_free(parsed_name);
-                snprintf(error, sizeof(error), "C++ module name is too long");
-                goto done;
-            }
-            memcpy(module_name, parsed_name, strlen(parsed_name) + 1u);
-            has_interface = exported;
-            rcc_free(parsed_name);
-            break;
-        }
+    if (!cxx_module_find_unit_identity(source, tokens, token_count,
+                                       module_name, sizeof(module_name),
+                                       &has_interface, error, sizeof(error))) {
+        goto done;
     }
     load_context->source_directory = source_directory;
     load_context->preprocessor = preprocessor;
@@ -1612,6 +1644,221 @@ static void define_cxx_feature_test_macros(Preprocessor* pp) {
         pp_define(pp, "__cpp_conditional_explicit", "201806L");
         pp_define(pp, "__cpp_nodiscard", "201907L");
     }
+}
+
+static Preprocessor* cxx_preprocessor_new(char** argv) {
+    Preprocessor* pp = pp_new();
+    if (!pp) return NULL;
+    pp->cxx_mode = true;
+    pp->cxx_standard = g_cxx_standard;
+    /* Keep the operator discoverable to #if defined(...) without letting the
+     * ordinary macro expander decide its argument semantics. */
+    pp_define(pp, "__has_cpp_attribute", "1");
+    for (int index = 0; index < g_opts.include_count; ++index) {
+        pp_add_include_path(pp, g_opts.include_paths[index]);
+    }
+    if (!g_opts.nostdinc) {
+        char tool_include[RCC_MAX_PATH];
+        char tool_bootstrap_include[RCC_MAX_PATH];
+        char installed_include[RCC_MAX_PATH];
+        pp_add_include_path(pp, ".");
+        pp_add_include_path(pp, "include");
+        pp_add_include_path(pp, "include/rcc");
+        if (rcc_tool_relative_path(argv[0], "include/rcc", tool_include,
+                                   sizeof(tool_include))) {
+            pp_add_include_path(pp, tool_include);
+        }
+        if (rcc_tool_relative_path(argv[0], "bootstrap/include",
+                                   tool_bootstrap_include,
+                                   sizeof(tool_bootstrap_include))) {
+            pp_add_include_path(pp, tool_bootstrap_include);
+        }
+        if (rcc_tool_relative_path(argv[0], "../include/rcc",
+                                   installed_include,
+                                   sizeof(installed_include))) {
+            pp_add_include_path(pp, installed_include);
+        }
+        pp_add_include_path(pp, "/rinos/include");
+    }
+    pp_define(pp, "__cplusplus",
+              g_cxx_standard >= 20 ? "202002L" :
+              g_cxx_standard >= 17 ? "201703L" :
+              g_cxx_standard >= 14 ? "201402L" : "201103L");
+    pp_define(pp, "__RCC__", "1");
+    pp_define(pp, "__RCXX__", "1");
+    pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
+    define_cxx_feature_test_macros(pp);
+    for (int index = 0; index < g_opts.define_count; ++index) {
+        const char* definition = g_opts.defines[index];
+        const char* equals = strchr(definition, '=');
+        if (equals) {
+            char name[256];
+            size_t length = (size_t)(equals - definition);
+            if (length >= sizeof(name)) length = sizeof(name) - 1u;
+            memcpy(name, definition, length);
+            name[length] = '\0';
+            pp_define(pp, name, equals + 1);
+        } else {
+            pp_define(pp, definition, "1");
+        }
+    }
+    for (int index = 0; index < g_opts.undef_count; ++index) {
+        pp_undef(pp, g_opts.undefines[index]);
+    }
+    if (g_opts.freestanding) pp_define(pp, "__FREESTANDING__", "1");
+    return pp;
+}
+
+static bool cxx_module_scan_batch_unit(char** argv, const char* input_path,
+                                       CxxModuleBatchUnit* unit) {
+    Preprocessor* pp = NULL;
+    char* preprocessed = NULL;
+    CxxModuleToken* tokens = NULL;
+    size_t token_count = 0u;
+    CxxModuleEvents events = {0};
+    CxxModuleNameList dependencies = {0};
+    CxxModuleBuffer exports = {0};
+    char error[512] = {0};
+    int errors_before = g_error_count;
+    bool ok = false;
+    if (!argv || !input_path || !unit) return false;
+    memset(unit, 0, sizeof(*unit));
+    if (!rcc_copy_path(unit->input_path, sizeof(unit->input_path), input_path)) {
+        snprintf(error, sizeof(error), "input path is too long");
+        goto done;
+    }
+    pp = cxx_preprocessor_new(argv);
+    if (!pp) {
+        snprintf(error, sizeof(error), "cannot allocate preprocessor state");
+        goto done;
+    }
+    preprocessed = pp_process_file(pp, input_path);
+    if (!preprocessed || g_error_count != errors_before) {
+        snprintf(error, sizeof(error), "preprocessing failed");
+        goto done;
+    }
+    if (!cxx_module_lex(preprocessed, &tokens, &token_count)) {
+        snprintf(error, sizeof(error), "could not scan preprocessed source");
+        goto done;
+    }
+    if (!cxx_module_find_unit_identity(preprocessed, tokens, token_count,
+                                       unit->module_name,
+                                       sizeof(unit->module_name),
+                                       &unit->has_interface, error,
+                                       sizeof(error)) ||
+        !cxx_module_resolve_imports(
+            preprocessed, tokens, token_count,
+            unit->module_name[0] ? unit->module_name : NULL,
+            unit->has_interface, &events, &dependencies, &exports,
+            error, sizeof(error))) {
+        goto done;
+    }
+    unit->dependencies = dependencies;
+    memset(&dependencies, 0, sizeof(dependencies));
+    ok = true;
+done:
+    if (!ok) {
+        fprintf(stderr, "rcc++: error: cannot scan module dependencies in '%s': %s\n",
+                input_path, error[0] ? error : "module scan failed");
+    }
+    pp_free(pp);
+    rcc_free(preprocessed);
+    rcc_free(tokens);
+    cxx_module_events_clear(&events);
+    cxx_module_names_clear(&dependencies);
+    rcc_free(exports.data);
+    return ok;
+}
+
+static void cxx_module_batch_unit_clear(CxxModuleBatchUnit* unit) {
+    if (!unit) return;
+    cxx_module_names_clear(&unit->dependencies);
+    memset(unit, 0, sizeof(*unit));
+}
+
+static bool cxx_module_batch_visit(CxxModuleBatchUnit* units,
+                                   size_t unit_count, size_t index,
+                                   unsigned char* states, size_t* order,
+                                   size_t* order_count, char* error,
+                                   size_t error_capacity) {
+    if (states[index] == 2u) return true;
+    if (states[index] == 1u) {
+        snprintf(error, error_capacity,
+                 "cyclic C++ module input dependency involving '%s'",
+                 units[index].module_name[0] ? units[index].module_name
+                                              : units[index].input_path);
+        return false;
+    }
+    states[index] = 1u;
+    for (size_t dependency_index = 0;
+         dependency_index < units[index].dependencies.count;
+         ++dependency_index) {
+        const char* dependency =
+            units[index].dependencies.items[dependency_index];
+        for (size_t candidate = 0; candidate < unit_count; ++candidate) {
+            if (units[candidate].has_interface &&
+                strcmp(units[candidate].module_name, dependency) == 0 &&
+                !cxx_module_batch_visit(units, unit_count, candidate,
+                                        states, order, order_count, error,
+                                        error_capacity)) {
+                return false;
+            }
+        }
+    }
+    states[index] = 2u;
+    order[(*order_count)++] = index;
+    return true;
+}
+
+static bool cxx_module_order_batch_inputs(char** argv, size_t* order) {
+    CxxModuleBatchUnit* units = NULL;
+    unsigned char states[RCC_MAX_INPUTS] = {0};
+    size_t order_count = 0u;
+    char error[512] = {0};
+    bool ok = false;
+    if (!argv || !order || g_opts.input_count <= 0 ||
+        g_opts.input_count > RCC_MAX_INPUTS) return false;
+    for (int index = 0; index < g_opts.input_count; ++index) {
+        order[index] = (size_t)index;
+    }
+    if (g_cxx_standard < 20 || g_opts.input_count < 2) return true;
+    units = rcc_alloc(sizeof(*units) * (size_t)g_opts.input_count);
+    if (!units) {
+        fprintf(stderr, "rcc++: error: cannot allocate module input graph\n");
+        return false;
+    }
+    memset(units, 0, sizeof(*units) * (size_t)g_opts.input_count);
+    for (int index = 0; index < g_opts.input_count; ++index) {
+        if (!cxx_module_scan_batch_unit(argv, g_opts.input_files[index],
+                                        &units[index])) goto done;
+        if (!units[index].has_interface) continue;
+        for (int previous = 0; previous < index; ++previous) {
+            if (units[previous].has_interface &&
+                strcmp(units[previous].module_name,
+                       units[index].module_name) == 0) {
+                snprintf(error, sizeof(error),
+                         "multiple input files provide module interface '%s'",
+                         units[index].module_name);
+                fprintf(stderr, "rcc++: error: %s\n", error);
+                goto done;
+            }
+        }
+    }
+    for (int index = 0; index < g_opts.input_count; ++index) {
+        if (!cxx_module_batch_visit(units, (size_t)g_opts.input_count,
+                                    (size_t)index, states, order,
+                                    &order_count, error, sizeof(error))) {
+            fprintf(stderr, "rcc++: error: %s\n", error);
+            goto done;
+        }
+    }
+    ok = true;
+done:
+    for (int index = 0; index < g_opts.input_count; ++index) {
+        cxx_module_batch_unit_clear(&units[index]);
+    }
+    rcc_free(units);
+    return ok;
 }
 
 /* Print usage for rcc++ */
@@ -2035,71 +2282,10 @@ static int compile_current_input(char** argv) {
     if (g_opts.verbose) {
         printf("Preprocessing...\n");
     }
-    Preprocessor* pp = pp_new();
-    pp->cxx_mode = true;
-    pp->cxx_standard = g_cxx_standard;
-    /* Keep the operator discoverable to #if defined(...) without letting the
-     * ordinary macro expander decide its argument semantics. */
-    pp_define(pp, "__has_cpp_attribute", "1");
-
-    /* Add standard include paths (unless -nostdinc). */
-    /* User include directories take precedence over compiler/system headers,
-       matching the documented -I search order. */
-    for (int i = 0; i < g_opts.include_count; ++i) {
-        pp_add_include_path(pp, g_opts.include_paths[i]);
-    }
-
-    if (!g_opts.nostdinc) {
-        char tool_include[RCC_MAX_PATH];
-        char tool_bootstrap_include[RCC_MAX_PATH];
-        char installed_include[RCC_MAX_PATH];
-        pp_add_include_path(pp, ".");
-        pp_add_include_path(pp, "include");
-        pp_add_include_path(pp, "include/rcc");
-        if (rcc_tool_relative_path(argv[0], "include/rcc", tool_include,
-                                   sizeof(tool_include))) {
-            pp_add_include_path(pp, tool_include);
-        }
-        if (rcc_tool_relative_path(argv[0], "bootstrap/include",
-                                   tool_bootstrap_include,
-                                   sizeof(tool_bootstrap_include))) {
-            pp_add_include_path(pp, tool_bootstrap_include);
-        }
-        if (rcc_tool_relative_path(argv[0], "../include/rcc",
-                                   installed_include,
-                                   sizeof(installed_include))) {
-            pp_add_include_path(pp, installed_include);
-        }
-        pp_add_include_path(pp, "/rinos/include");
-    }
-    /* C++ predefined macros */
-    pp_define(pp, "__cplusplus",
-              g_cxx_standard >= 20 ? "202002L" :
-              g_cxx_standard >= 17 ? "201703L" :
-              g_cxx_standard >= 14 ? "201402L" : "201103L");
-    pp_define(pp, "__RCC__", "1");
-    pp_define(pp, "__RCXX__", "1");
-    pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
-    define_cxx_feature_test_macros(pp);
-    for (int i = 0; i < g_opts.define_count; ++i) {
-        const char* definition = g_opts.defines[i];
-        const char* equals = strchr(definition, '=');
-        if (equals) {
-            char name[256];
-            size_t length = (size_t)(equals - definition);
-            if (length >= sizeof(name)) length = sizeof(name) - 1u;
-            memcpy(name, definition, length);
-            name[length] = '\0';
-            pp_define(pp, name, equals + 1);
-        } else {
-            pp_define(pp, definition, "1");
-        }
-    }
-    for (int i = 0; i < g_opts.undef_count; ++i) {
-        pp_undef(pp, g_opts.undefines[i]);
-    }
-    if (g_opts.freestanding) {
-        pp_define(pp, "__FREESTANDING__", "1");
+    Preprocessor* pp = cxx_preprocessor_new(argv);
+    if (!pp) {
+        fprintf(stderr, "rcc++: error: cannot allocate preprocessor state\n");
+        return 1;
     }
 
     char* pp_source = pp_process_file(pp, g_opts.input_file);
@@ -2370,6 +2556,7 @@ static int compile_current_input(char** argv) {
 
 int main(int argc, char** argv) {
     const char* extension;
+    size_t input_order[RCC_MAX_INPUTS];
     g_opts.cxx_mode = true;
     if (argc < 2) {
         print_usage_cxx();
@@ -2377,8 +2564,10 @@ int main(int argc, char** argv) {
     }
     if (parse_cxx_args(argc, argv) < 0) return 1;
     if (g_opts.input_count == 1) return compile_current_input(argv);
+    if (!cxx_module_order_batch_inputs(argv, input_order)) return 1;
 
-    for (int index = 0; index < g_opts.input_count; ++index) {
+    for (int position = 0; position < g_opts.input_count; ++position) {
+        int index = (int)input_order[position];
         if (!rcc_copy_path(g_opts.input_file, sizeof(g_opts.input_file),
                            g_opts.input_files[index])) {
             fprintf(stderr,
