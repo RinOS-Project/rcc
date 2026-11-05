@@ -632,7 +632,12 @@ static bool cxx_module_export_span(const char* source,
             tokens, first, body_open, source, "template") ||
             cxx_module_prefix_has(tokens, first, body_open, source, "inline") ||
             cxx_module_prefix_has(tokens, first, body_open, source, "constexpr") ||
-            cxx_module_prefix_has(tokens, first, body_open, source, "consteval");
+            cxx_module_prefix_has(tokens, first, body_open, source, "consteval") ||
+            cxx_module_prefix_has(tokens, first, body_open, source, "class") ||
+            cxx_module_prefix_has(tokens, first, body_open, source, "struct") ||
+            cxx_module_prefix_has(tokens, first, body_open, source, "union") ||
+            cxx_module_prefix_has(tokens, first, body_open, source, "enum") ||
+            cxx_module_prefix_has(tokens, first, body_open, source, "namespace");
         if (!preserve_body) {
             if (!cxx_module_buffer_append(
                     output, source + begin_byte,
