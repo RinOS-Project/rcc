@@ -4958,6 +4958,8 @@ static const TemplateParam* active_template_template_parameter(
     int parameter_index);
 static bool template_template_parameter_signatures_match(
     const CxxTemplate* expected, const CxxTemplate* actual);
+static bool cxx_template_template_constraints_match(
+    const CxxTemplate* expected, const CxxTemplate* actual);
 static bool template_template_signature_matches(
     const TemplateParam* parameter, const CxxTemplate* actual);
 static int cxx_parser_function_template_overload_conversion_rank(
@@ -22290,7 +22292,8 @@ static bool template_template_signature_matches(
         return false;
     }
     return template_template_argument_parameter_lists_match(
-        signature, actual);
+               signature, actual) &&
+        cxx_template_template_constraints_match(signature, actual);
 }
 
 bool rcc_parser_cxx_template_template_argument_matches(
@@ -41741,6 +41744,39 @@ static int cxx_template_constraint_relation(
         &right_forms.dnf, &left_forms.cnf);
     if (left_subsumes_right == right_subsumes_left) return 0;
     return left_subsumes_right ? 1 : -1;
+}
+
+/* A constrained template-template parameter accepts an argument when its
+ * associated constraints are at least as specialized as the argument's.
+ * An unconstrained parameter ignores constraints on the argument, while a
+ * constrained parameter is more specialized than an unconstrained argument. */
+static bool cxx_template_template_constraints_match(
+    const CxxTemplate* expected, const CxxTemplate* actual) {
+    CxxTemplate* expected_context;
+    CxxTemplate* actual_context;
+    CxxConstraintNode* expected_node;
+    CxxConstraintNode* actual_node;
+    CxxConstraintNormalForms expected_forms;
+    CxxConstraintNormalForms actual_forms;
+    if (!expected || !actual) return false;
+    if (!expected->constraint || !actual->constraint) return true;
+    expected_context = expected->constraint_context
+        ? expected->constraint_context : (CxxTemplate*)expected;
+    actual_context = actual->constraint_context
+        ? actual->constraint_context : (CxxTemplate*)actual;
+    expected_node = cxx_constraint_expand(
+        expected->constraint, expected->constraint,
+        expected_context, NULL, 0u);
+    actual_node = cxx_constraint_expand(
+        actual->constraint, actual->constraint,
+        actual_context, NULL, 0u);
+    if (!expected_node || !actual_node ||
+        !cxx_constraint_build_normal_forms(expected_node, &expected_forms) ||
+        !cxx_constraint_build_normal_forms(actual_node, &actual_forms)) {
+        return false;
+    }
+    return cxx_constraint_form_subsumes(
+        &expected_forms.dnf, &actual_forms.cnf);
 }
 
 int rcc_parser_cxx_member_constraint_relation(

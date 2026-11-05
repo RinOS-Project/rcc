@@ -5589,10 +5589,9 @@ remains a separate open item.
   mixed alias/class packs, and invalid-signature diagnostics. The focused
   `test-cxx-alias-templates` gate passed for i686/x86_64, with x86_64 runtime,
   GCC C++20 runtime, and negative GCC parity.
-- [ ] Expand deeper dependent-owner/cross-kind pack coverage and add defaults
-  or constraints to nested template-template signatures. Representative
-  structural non-integral owner packs are covered by the dedicated owner
-  structural-value-pack target.
+- [ ] Expand deeper dependent-owner/cross-kind pack coverage. Representative
+      structural non-integral owner packs are covered by the dedicated owner
+      structural-value-pack target.
 
 ## RCC continuation (2026-10-14, alias-template owners of nested aliases)
 
@@ -5616,10 +5615,10 @@ remains a separate open item.
   structural class-type, enum, pointer/nullptr, array, and packed NTTP patterns.
   The dedicated owner-partial and structural-value-pack targets pass exact GCC
   Itanium symbol checks, i686/AMD64 generation, and GCC/RCC host execution.
-- [ ] Extend deeper cross-kind dependent-owner combinations and defaults or
-  constraints in nested template-template signatures.
+- [ ] Extend deeper cross-kind dependent-owner combinations and nested
+      template-template default-argument handling.
 - [ ] Add further structural NTTP combinations specifically inside nested
-  template-template signatures and implement defaults/constraints there.
+      template-template signatures.
 - [x] Commit the parser implementation, regression fixture, and test record
   on RCC `main` as `cfa1568fb5c2083612a1b973c6e16022af9eba19`; no push.
 
@@ -14713,3 +14712,17 @@ remains a separate open item.
       an earlier class-template NTTP that depends on `sizeof(Wrapper<int>::type)`.
       Cover wrappers producing both 4-byte and 8-byte types. Strict GCC C++20
       and Windows/POSIX `test-cxx-function-template-overloads` gates pass.
+
+## RCC continuation (2026-11-05, constrained template-template arguments)
+
+- [x] Compare associated constraints when matching a named class or alias
+      template against a constrained template-template parameter. Use
+      subsumption directionally: reject a stronger argument constraint, accept
+      a stronger parameter constraint, ignore argument constraints for an
+      unconstrained parameter, and accept an unconstrained argument. Keep
+      recursively matched nested template parameter signatures compatible.
+      Strict GCC C++20, the nested-signature host fixture, i686/AMD64 output,
+      and Windows/POSIX `test-cxx-template-template` plus
+      `test-cxx-template-template-invalid` gates pass.
+- [ ] Add defaults to nested template-template signatures and additional
+      structural NTTP combinations there.
