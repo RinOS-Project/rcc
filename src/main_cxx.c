@@ -2065,6 +2065,12 @@ static bool cxx_module_resolve_imports(const char* source,
             cxx_module_token_is(source, &tokens[keyword_index], "module");
         bool is_import = keyword_index < token_count &&
             cxx_module_token_is(source, &tokens[keyword_index], "import");
+        if (brace_depth == 0 && declaration_start && private_fragment &&
+            exported) {
+            snprintf(error, error_capacity,
+                     "export declarations are not permitted in a private module fragment");
+            goto fail;
+        }
         if (brace_depth == 0 && declaration_start && !private_fragment &&
             (is_module || is_import)) {
             size_t semicolon = cxx_module_find_next_semicolon(
