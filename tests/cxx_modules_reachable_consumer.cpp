@@ -13,7 +13,9 @@ int main() {
     templated.value = 33;
     BridgePrivateDefaultTemplate<> defaulted{};
     defaulted.value.value = 37;
-    return bridge_value(value) == 17 && scoped.scoped_value == 25 &&
+    return bridge_value(value) == 17 &&
+            reachable_public_api::namespace_function(8) == 19 &&
+            scoped.scoped_value == 25 &&
             aliased.scoped_value == 27 && introduced.scoped_value == 29 &&
             templated.value == 33 && defaulted.value.value == 37 &&
             defaulted.private_value_sum() == 41 &&

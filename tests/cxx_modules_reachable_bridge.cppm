@@ -2,6 +2,12 @@ export module reachable_bridge;
 
 import reachable_private;
 
+export namespace reachable_public_api {
+int namespace_function(int value) {
+    return value + 11;
+}
+}
+
 export using BridgeAlias = ReachableAlias;
 export using BridgeEnumAlias = ReachableEnumAlias;
 export using BridgeScopedAlias = ReachableScopedAlias;
