@@ -58,6 +58,11 @@ export ReachableOverloadResult reachable_overload(double value) {
 export namespace reachable_public_detail {
 struct ReachablePublicNested {
     int value;
+    int initialized_by_private_helper = reachable_private_helper(2);
+
+    int private_helper_value() const {
+        return reachable_private_helper(value);
+    }
 };
 
 int public_namespace_function(int value) {

@@ -794,6 +794,10 @@ struct Expr {
     ExprKind kind;
     Type* type;
     SourceLoc loc;
+    /* Deferred expressions in exported module records retain the private
+     * lookup context in which the declaration was written. */
+    bool has_module_reachable_lookup_context;
+    bool module_reachable_private_context;
     /* Constant rounding mode active at this source expression, or dynamic. */
     RccFenvRoundMode fenv_round_mode;
     const char* float_literal_spelling;
@@ -1558,6 +1562,9 @@ struct Decl {
     SourceLoc loc;
     bool is_module_reachable_private;
     bool is_module_semantic_record;
+    /* Imported BMI declarations are visible to semantic analysis, but their
+     * owning module emits their definitions. */
+    bool is_module_imported_record;
     StorageClass storage;
     /* GNU weak declarations retain external linkage but may be replaced by
      * a strong definition at link time.  Keep this source property on the

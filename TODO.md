@@ -14777,10 +14777,8 @@ remains a separate open item.
       object. The focused `make -j2 BINDIR=build
       test-cxx-header-unit-graph` gate passes. The first full `test-ci` run
       exposed a Windows/WSL host-runtime object collision, tracked in the
-      following continuation. After that fix, a full local run remains
-      unverified because this WSL installation lacks the i686 Linux
-      `asm/errno.h` development header required by the CI-installed
-      `gcc-multilib` support.
+      following continuation. The i686 Linux header is now installed in WSL;
+      full `test-cxx` passes, while the complete `test-ci` suite remains open.
 
 ## RCC continuation (2026-11-05, host-isolated C++ test runtime objects)
 
@@ -14862,8 +14860,10 @@ Continue in this order:
       templates, enumerators, and ADL candidates from leaking into importer
       lookup. Keep private enumerators available while parsing a module unit's
       semantically reachable declarations and hide them from ordinary
-      importer lookup. Cover transitive and later direct imports without
-      duplicate type identities. Consumers use exported aliases to
+      importer lookup. An enumerator remains accessible through an exported
+      alias to its enum type without becoming an unqualified name. Cover
+      transitive and later direct imports without duplicate type identities.
+      Consumers use exported aliases to
       namespace-scoped classes and template specializations, and reject lookup
       of their private source names.
       `test-cxx-modules` passes on i686 and x86_64, and
@@ -14914,3 +14914,8 @@ Continue in this order:
       function and global definitions rather than duplicate bodies or data;
       the reachable private helper/global multi-TU link passes on i686/x86_64.
       `test-cxx-modules` and the full `test-cxx` gate pass.
+- [x] Retain private module lookup context for deferred class-member function
+      bodies and default member initializer expressions. An exported nested
+      class can call a private helper from an inline method and its default
+      initializer through an alias re-exported by a private bridge;
+      `test-cxx-modules` compiles and links the case for i686 and x86_64.

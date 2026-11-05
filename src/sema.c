@@ -713,6 +713,7 @@ static bool sema_exception_body_has_unregistered_cleanup(const Stmt* stmt);
 static bool sema_exception_body_has_vla(const Stmt* stmt);
 static bool sema_exception_body_has_call(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
+static Type* sema_expr_impl(Expr* expr);
 static Type* sema_resolve_typeof_type(Type* type);
 static bool sema_cxx_is_untyped_braced_initializer(const Expr* expression);
 static void sema_cxx_analyze_braced_initializer_elements(Expr* expression);
@@ -29980,6 +29981,26 @@ static Expr* sema_cxx_lvalue_to_rvalue_operand(Expr* expression) {
 }
 
 static Type* sema_expr(Expr* expr) {
+    bool saved_private_record;
+    bool saved_lookup_enabled;
+    Type* result;
+
+    if (!expr) return NULL;
+    if (!expr->has_module_reachable_lookup_context) {
+        return sema_expr_impl(expr);
+    }
+    saved_private_record =
+        rcc_parser_module_reachable_current_record_private();
+    saved_lookup_enabled = rcc_parser_module_reachable_lookup_enabled();
+    rcc_parser_set_module_reachable_record(
+        expr->module_reachable_private_context, true);
+    result = sema_expr_impl(expr);
+    rcc_parser_set_module_reachable_record(saved_private_record,
+                                           saved_lookup_enabled);
+    return result;
+}
+
+static Type* sema_expr_impl(Expr* expr) {
     Expr* preanalyzed_binary_lhs = NULL;
     Type* preanalyzed_binary_lhs_type = NULL;
     bool synthesized_base_conversion;

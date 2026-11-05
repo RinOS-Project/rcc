@@ -9562,6 +9562,7 @@ CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* existing = ns->templates[index];
         bool has_distinct_module_reachable_context;
+        bool has_distinct_imported_visibility;
         bool is_imported_module_redeclaration;
         if (!cxx_function_template_redeclaration_matches(existing, tmpl)) {
             continue;
@@ -9569,10 +9570,16 @@ CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
         has_distinct_module_reachable_context =
             existing->has_module_reachable_lookup_context !=
             tmpl->has_module_reachable_lookup_context;
+        has_distinct_imported_visibility =
+            existing->is_module_imported_record &&
+            tmpl->is_module_imported_record &&
+            existing->is_module_reachable_private !=
+                tmpl->is_module_reachable_private;
         is_imported_module_redeclaration =
             cxx_namespace_is_module_namespace(ns) &&
-            existing->is_module_imported_record !=
-                tmpl->is_module_imported_record;
+            (existing->is_module_imported_record !=
+                 tmpl->is_module_imported_record ||
+             has_distinct_imported_visibility);
         existing->is_module_reachable_private =
             existing->is_module_reachable_private &&
             tmpl->is_module_reachable_private;
@@ -9582,24 +9589,27 @@ CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
         existing->has_module_reachable_lookup_context =
             existing->has_module_reachable_lookup_context ||
             tmpl->has_module_reachable_lookup_context;
-        if (existing->is_hidden_friend && !tmpl->friend_access &&
+        if (!is_imported_module_redeclaration &&
+            existing->is_hidden_friend && !tmpl->friend_access &&
             cxx_template_has_default_argument(tmpl)) {
             rcc_error(tmpl->func_def->loc,
                       "cannot add a default template argument to the first namespace declaration of hidden friend template '%s'",
                       tmpl->name ? tmpl->name : "<function template>");
             return NULL;
         }
-        if ((existing->is_hidden_friend && existing->func_def &&
+        if (!is_imported_module_redeclaration &&
+            ((existing->is_hidden_friend && existing->func_def &&
              existing->func_def->func_body &&
              cxx_template_has_default_argument(existing)) ||
             (tmpl->friend_access && tmpl->func_def &&
              tmpl->func_def->func_body &&
-             cxx_template_has_default_argument(tmpl))) {
+             cxx_template_has_default_argument(tmpl)))) {
             rcc_error(tmpl->func_def->loc,
                       "friend function template with a default template argument cannot be redeclared");
             return NULL;
         }
-        if (cxx_template_redefines_default_argument(existing, tmpl)) {
+        if (!is_imported_module_redeclaration &&
+            cxx_template_redefines_default_argument(existing, tmpl)) {
             rcc_error(tmpl->func_def->loc,
                       "redefinition of default template argument for '%s'",
                       tmpl->name ? tmpl->name : "<function template>");
@@ -17873,6 +17883,11 @@ void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
     field->bit_width = bit_width;
     field->is_static = is_static;
     field->initializer = initializer;
+    if (initializer && rcc_parser_module_reachable_lookup_enabled()) {
+        initializer->has_module_reachable_lookup_context = true;
+        initializer->module_reachable_private_context =
+            rcc_parser_module_reachable_current_record_private();
+    }
     field->is_deprecated = is_deprecated;
     field->deprecated_message = deprecated_message;
     field->cxx_no_unique_address = no_unique_address;
@@ -17900,6 +17915,10 @@ void cxx_class_add_method(CxxClass* cls, CxxMethod* method) {
     if (method && method->decl) {
         method->decl->is_module_imported_record =
             rcc_parser_module_imported_record();
+        method->decl->is_module_reachable_private =
+            rcc_parser_module_reachable_current_record_private();
+        method->decl->is_module_semantic_record =
+            rcc_parser_module_reachable_lookup_enabled();
     }
     /* Create member wrapper */
     struct CxxMember* member = rcc_alloc(sizeof(struct CxxMember));

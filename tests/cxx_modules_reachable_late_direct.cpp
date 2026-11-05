@@ -4,7 +4,7 @@ import reachable_private;
 static_assert(sizeof(reachable_overload(1)) ==
               sizeof(ReachableOverloadResult));
 static_assert(sizeof(reachable_public_detail::ReachablePublicNested) ==
-              sizeof(int));
+              2 * sizeof(int));
 
 int main() {
     ReachableAlias value{};

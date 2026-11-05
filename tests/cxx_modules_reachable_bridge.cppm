@@ -14,6 +14,8 @@ export using BridgeScopedAlias = ReachableScopedAlias;
 export using BridgeNamespaceAliasType = ReachableNamespaceAliasType;
 export using BridgeUsingType = ReachableUsingType;
 export using BridgeTemplateAlias = ReachableTemplateAlias;
+export using BridgePublicNested =
+    reachable_public_detail::ReachablePublicNested;
 
 export template<class T = ReachablePrivate>
 struct BridgePrivateDefaultTemplate {
