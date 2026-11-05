@@ -427,6 +427,10 @@ void rcc_parser_define_type(const char* name, Type* type);
 void* rcc_parser_type_scope_mark(void);
 void rcc_parser_type_scope_restore(void* mark);
 bool rcc_parser_import_enum_constants(Type* enum_type, SourceLoc loc);
+bool rcc_parser_lookup_enum_constant(const char* name, int64_t* value,
+                                    Type** type, Type** expression_type,
+                                    bool* is_deprecated,
+                                    const char** deprecated_message);
 void* rcc_parser_enum_scope_mark(void);
 void rcc_parser_enum_scope_restore(void* mark);
 Type* rcc_parser_parse_cxx_declarator(Type* base_type, const char** name,

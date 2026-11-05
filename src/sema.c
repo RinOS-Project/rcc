@@ -1612,7 +1612,9 @@ static void sema_cxx_adl_collect_symbol(
     }
     for (Decl* declaration = symbol->decl; declaration;
          declaration = declaration->func_overload_next) {
-        if (declaration->kind != DECL_FUNC ||
+        if (!rcc_parser_module_entity_lookup_visible(
+                declaration->is_module_reachable_private) ||
+            declaration->kind != DECL_FUNC ||
             declaration->func_is_template_instance ||
             !sema_cxx_adl_hidden_friend_matches(declaration,
                                                 associated_types) ||
@@ -30427,6 +30429,28 @@ static Type* sema_expr(Expr* expr) {
             }
             if (expr->kind != EXPR_IDENT) break;
             if (!sym) {
+                int64_t enum_value;
+                Type* enum_type = NULL;
+                Type* enum_expression_type = NULL;
+                bool enum_is_deprecated = false;
+                const char* enum_deprecated_message = NULL;
+                if (rcc_parser_lookup_enum_constant(
+                        expr->ident_name, &enum_value, &enum_type,
+                        &enum_expression_type, &enum_is_deprecated,
+                        &enum_deprecated_message)) {
+                    expr->kind = EXPR_INT_LIT;
+                    expr->int_val = enum_value;
+                    expr->type = rcc_parser_is_cxx_mode() && enum_type
+                        ? enum_expression_type : type_int;
+                    expr->is_deprecated_enumerator = enum_is_deprecated;
+                    expr->deprecated_enumerator_name = enum_is_deprecated
+                        ? expr->ident_name : NULL;
+                    expr->deprecated_enumerator_message =
+                        enum_deprecated_message;
+                    break;
+                }
+            }
+            if (!sym) {
                 sym = sema_cxx_runtime_function(expr->ident_name,
                                                  expr->loc);
             }
@@ -39814,7 +39838,8 @@ static void sema_decl(Decl* decl) {
             bool saved_module_lookup =
                 rcc_parser_module_reachable_lookup_enabled();
             if (decl->is_module_semantic_record) {
-                rcc_parser_set_module_reachable_record(false, true);
+                rcc_parser_set_module_reachable_record(
+                    decl->is_module_reachable_private, true);
             }
             if (rcc_parser_is_cxx_mode()) {
                 current_cxx_namespace = sema_decl_namespace(decl);

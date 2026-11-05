@@ -187,6 +187,7 @@ typedef struct ParserEnumConstant {
     bool is_maybe_unused;
     bool is_deprecated;
     const char* deprecated_message;
+    bool is_module_reachable_private;
     struct ParserEnumConstant* next;
 } ParserEnumConstant;
 
@@ -806,6 +807,8 @@ static void parser_define_enum_constant(const char* name, int64_t value,
     entry->is_maybe_unused = is_maybe_unused;
     entry->is_deprecated = is_deprecated;
     entry->deprecated_message = deprecated_message;
+    entry->is_module_reachable_private =
+        parser_module_reachable_private_record;
     entry->next = parser_enum_constants;
     parser_enum_constants = entry;
 }
@@ -850,13 +853,15 @@ static bool parser_enum_constant_name_matches(
                entry->type, namespace_name);
 }
 
-static bool parser_lookup_enum_constant(const char* name, int64_t* value,
-                                        Type** type, Type** expression_type,
-                                        bool* is_deprecated,
-                                        const char** deprecated_message) {
+bool rcc_parser_lookup_enum_constant(const char* name, int64_t* value,
+                                    Type** type, Type** expression_type,
+                                    bool* is_deprecated,
+                                    const char** deprecated_message) {
     ParserEnumConstant* entry;
     for (entry = parser_enum_constants; entry; entry = entry->next) {
-        if (parser_enum_constant_name_matches(entry, name)) {
+        if (rcc_parser_module_entity_lookup_visible(
+                entry->is_module_reachable_private) &&
+            parser_enum_constant_name_matches(entry, name)) {
             if (value) *value = entry->value;
             if (type) *type = entry->type;
             if (expression_type) *expression_type = entry->expression_type;
@@ -3804,10 +3809,10 @@ static Expr* parse_primary(void) {
         Type* enum_expression_type = NULL;
         bool enum_is_deprecated = false;
         const char* enum_deprecated_message = NULL;
-        if (parser_lookup_enum_constant(qualified_name, &enum_value,
-                                        &enum_type, &enum_expression_type,
-                                        &enum_is_deprecated,
-                                        &enum_deprecated_message)) {
+        if (rcc_parser_lookup_enum_constant(
+                qualified_name, &enum_value, &enum_type,
+                &enum_expression_type, &enum_is_deprecated,
+                &enum_deprecated_message)) {
             Expr* value = expr_int(enum_value, loc);
             /* C enumerator identifiers have type int; C++ keeps the enum
              * type for the enumerator expression. */
@@ -3832,11 +3837,10 @@ static Expr* parse_primary(void) {
         bool enum_is_deprecated = false;
         const char* enum_deprecated_message = NULL;
         const char* local_using_name = NULL;
-        if (parser_lookup_enum_constant(previous()->value.str_val,
-                                        &enum_value, &enum_type,
-                                        &enum_expression_type,
-                                        &enum_is_deprecated,
-                                        &enum_deprecated_message)) {
+        if (rcc_parser_lookup_enum_constant(
+                previous()->value.str_val, &enum_value, &enum_type,
+                &enum_expression_type, &enum_is_deprecated,
+                &enum_deprecated_message)) {
             Expr* value = expr_int(enum_value, loc);
             /* Match the language-specific enumerator expression type. */
             value->type = parser_cxx_mode && enum_type
@@ -5382,8 +5386,9 @@ bool rcc_parser_import_enum_constants(Type* enum_type, SourceLoc loc) {
         int64_t value = item->value;
         int64_t existing_value;
         Type* existing_type = NULL;
-        if (parser_lookup_enum_constant(name, &existing_value,
-                                        &existing_type, NULL, NULL, NULL)) {
+        if (rcc_parser_lookup_enum_constant(name, &existing_value,
+                                            &existing_type, NULL, NULL,
+                                            NULL)) {
             if (existing_type != enum_type || existing_value != value) {
                 rcc_error(loc,
                           "using enum introduces a conflicting enumerator '%s'",

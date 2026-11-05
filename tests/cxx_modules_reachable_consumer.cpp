@@ -13,5 +13,7 @@ int main() {
     templated.value = 33;
     return bridge_value(value) == 17 && scoped.scoped_value == 25 &&
             aliased.scoped_value == 27 && introduced.scoped_value == 29 &&
-            templated.value == 33 && bridge_private_helper(8) == 12 ? 0 : 1;
+            templated.value == 33 && bridge_private_helper(8) == 12 &&
+            bridge_private_enum() == 41 && bridge_private_adl(value) == 22
+        ? 0 : 1;
 }

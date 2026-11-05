@@ -3143,6 +3143,7 @@ static bool cxx_module_rewrite_source(const char* source,
     bool module_unit = module_name && *module_name;
     bool module_purview = false;
     bool namespace_open = false;
+    bool module_semantic_open = false;
     if (!source || !events || !rewritten_out) return false;
     *rewritten_out = NULL;
     for (size_t index = 0; index < events->count; ++index) {
@@ -3155,6 +3156,14 @@ static bool cxx_module_rewrite_source(const char* source,
              event->private_fragment_marker)) {
             if (!cxx_module_buffer_text(&rewritten, "\n}\n")) goto fail;
             namespace_open = false;
+        }
+        if (module_semantic_open &&
+            (event->import_declaration ||
+             event->private_fragment_marker)) {
+            if (!cxx_module_buffer_text(
+                    &rewritten,
+                    "#pragma rinos cxx_module end\n")) goto fail;
+            module_semantic_open = false;
         }
         if (event->import_name) {
             imports.length = 0u;
@@ -3176,16 +3185,28 @@ static bool cxx_module_rewrite_source(const char* source,
         if (module_unit && event->module_declaration &&
             event->starts_module_purview) {
             module_purview = true;
+            if (!cxx_module_buffer_text(
+                    &rewritten,
+                    "#pragma rinos cxx_module semantic_begin\n")) goto fail;
+            module_semantic_open = true;
             if (!cxx_module_append_module_namespace_open(&rewritten,
                                                          module_name)) goto fail;
             namespace_open = true;
         } else if (module_unit && event->module_declaration &&
                    event->private_fragment_marker && module_purview) {
+            if (!cxx_module_buffer_text(
+                    &rewritten,
+                    "#pragma rinos cxx_module semantic_begin\n")) goto fail;
+            module_semantic_open = true;
             if (!cxx_module_append_module_namespace_open(&rewritten,
                                                          module_name)) goto fail;
             namespace_open = true;
         } else if (module_unit && event->import_declaration &&
                    module_purview) {
+            if (!cxx_module_buffer_text(
+                    &rewritten,
+                    "#pragma rinos cxx_module semantic_begin\n")) goto fail;
+            module_semantic_open = true;
             if (!cxx_module_append_module_namespace_open(&rewritten,
                                                          module_name)) goto fail;
             namespace_open = true;
@@ -3195,6 +3216,9 @@ static bool cxx_module_rewrite_source(const char* source,
                                   strlen(source) - cursor)) goto fail;
     if (namespace_open &&
         !cxx_module_buffer_text(&rewritten, "\n}\n")) goto fail;
+    if (module_semantic_open &&
+        !cxx_module_buffer_text(&rewritten,
+                                "#pragma rinos cxx_module end\n")) goto fail;
     *rewritten_out = rewritten.data;
     rcc_free(imports.data);
     return true;

@@ -4,6 +4,10 @@ struct ReachablePrivate {
     int value;
 };
 
+enum ReachablePrivateEnum {
+    reachable_private_enum_value = 41
+};
+
 namespace reachable_detail {
 struct ReachableScoped {
     int scoped_value;
@@ -23,7 +27,12 @@ int reachable_private_helper(int value) {
     return value + reachable_private_value;
 }
 
+int reachable_private_adl(ReachablePrivate value) {
+    return value.value + 5;
+}
+
 export using ReachableAlias = ReachablePrivate;
+export using ReachableEnumAlias = ReachablePrivateEnum;
 export using ReachableScopedAlias = reachable_detail::ReachableScoped;
 export using ReachableNamespaceAliasType =
     reachable_alias_detail::ReachableScoped;

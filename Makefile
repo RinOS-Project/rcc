@@ -28958,6 +28958,8 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call COPY_FILE,tests/cxx_modules_reachable_symbol_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-symbol-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_alias_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_using_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-using-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_adl_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-adl-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_enum_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-enum-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_late_direct.cpp,$(TEST_OUT)/cxx-modules/reachable-late-direct.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_late_private_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-late-private-leak.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
@@ -29036,6 +29038,8 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q "undefined identifier 'reachable_private_helper'" $(TEST_OUT)/cxx-modules/reachable-symbol-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-using-leak.ro $(TEST_OUT)/cxx-modules/reachable-using-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-using-leak.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-adl-leak.ro $(TEST_OUT)/cxx-modules/reachable-adl-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-adl-leak.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-enum-leak.ro $(TEST_OUT)/cxx-modules/reachable-enum-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-enum-leak.log)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/reachable-consumer.cpp \
 		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp \

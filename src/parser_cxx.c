@@ -5716,7 +5716,9 @@ static bool cxx_template_integer_call_add_adl_namespace_candidates(
     }
     for (DeclList* item = ns->decls; item; item = item->next) {
         Decl* candidate = item->decl;
-        if (!candidate || candidate->kind != DECL_FUNC ||
+        if (!candidate || !cxx_module_entity_lookup_visible(
+                candidate->is_module_reachable_private) ||
+            candidate->kind != DECL_FUNC ||
             candidate->func_this_param || candidate->func_template_owner ||
             !cxx_friend_function_name_matches(ns, candidate->name, name)) {
             continue;
@@ -5743,7 +5745,8 @@ static bool cxx_template_integer_call_add_adl_namespace_candidates(
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
-        if (child->is_inline_namespace &&
+        if (child->is_inline_namespace && cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private) &&
             !cxx_template_integer_call_add_adl_namespace_candidates(
                 child, name, arguments, candidates, candidate_count,
                 candidate_capacity, depth + 1u)) {
@@ -19187,14 +19190,17 @@ static void cxx_function_template_lookup_adl_namespace(
     }
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* candidate = ns->templates[index];
-        if (candidate && candidate->kind == TMPL_FUNCTION &&
+        if (candidate && cxx_module_entity_lookup_visible(
+                candidate->is_module_reachable_private) &&
+            candidate->kind == TMPL_FUNCTION &&
             !candidate->is_concept && candidate->name &&
             strcmp(candidate->name, name) == 0) {
             cxx_function_template_lookup_add(lookup, candidate);
         }
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
-        if (child->is_inline_namespace) {
+        if (child->is_inline_namespace && cxx_module_entity_lookup_visible(
+                child->is_module_reachable_private)) {
             cxx_function_template_lookup_adl_namespace(lookup, child, name);
         }
     }
