@@ -5615,8 +5615,7 @@ remains a separate open item.
   structural class-type, enum, pointer/nullptr, array, and packed NTTP patterns.
   The dedicated owner-partial and structural-value-pack targets pass exact GCC
   Itanium symbol checks, i686/AMD64 generation, and GCC/RCC host execution.
-- [ ] Extend deeper cross-kind dependent-owner combinations and nested
-      template-template default-argument handling.
+- [ ] Extend deeper cross-kind dependent-owner combinations.
 - [ ] Add further structural NTTP combinations specifically inside nested
       template-template signatures.
 - [x] Commit the parser implementation, regression fixture, and test record
@@ -14724,5 +14723,10 @@ remains a separate open item.
       Strict GCC C++20, the nested-signature host fixture, i686/AMD64 output,
       and Windows/POSIX `test-cxx-template-template` plus
       `test-cxx-template-template-invalid` gates pass.
-- [ ] Add defaults to nested template-template signatures and additional
-      structural NTTP combinations there.
+- [x] Match nested template-template parameter lists when unmatched trailing
+      parameters on either side have defaults; reject unmatched parameters
+      without defaults in both directions. Strict GCC C++20, i686/AMD64 output,
+      and Windows/POSIX `test-cxx-template-template` and
+      `test-cxx-template-template-invalid` gates pass.
+- [ ] Add additional structural NTTP combinations inside nested
+      template-template signatures.

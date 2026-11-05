@@ -31,6 +31,17 @@ struct NestedDependentValuePackOuter {};
 template<template<template<typename T, T... Values> class> class Outer>
 struct NestedDependentValuePackHolder {};
 
+template<template<template<typename> class> class Outer>
+struct NestedDefaultSignatureHolder {};
+
+template<template<typename, typename = int> class Inner>
+struct NestedExtraDefaultOuter {};
+
+template<template<template<typename, typename = int> class> class Outer>
+struct NestedTwoParameterDefaultHolder {};
+
+template<template<typename> class Inner>
+struct NestedOneParameterOuter {};
 template<typename T>
 concept NestedSignatureHasF = requires(T value) { value.f(); };
 
@@ -76,6 +87,10 @@ using AcceptedNestedPackSignature =
     NestedPackHolder<NestedPackOuter>;
 using AcceptedNestedDependentValuePackSignature =
     NestedDependentValuePackHolder<NestedDependentValuePackOuter>;
+using AcceptedNestedDefaultSignature =
+    NestedDefaultSignatureHolder<NestedExtraDefaultOuter>;
+using AcceptedReverseNestedDefaultSignature =
+    NestedTwoParameterDefaultHolder<NestedOneParameterOuter>;
 using AcceptedEquivalentConstraint =
     ConstrainedTemplateHolder<ConstrainedTemplate>;
 using AcceptedConstrainedAlias =
@@ -96,6 +111,8 @@ int main() {
                    sizeof(AcceptedNestedValueSignature) == 1 &&
                    sizeof(AcceptedNestedPackSignature) == 1 &&
                    sizeof(AcceptedNestedDependentValuePackSignature) == 1 &&
+                   sizeof(AcceptedNestedDefaultSignature) == 1 &&
+                   sizeof(AcceptedReverseNestedDefaultSignature) == 1 &&
                    sizeof(AcceptedEquivalentConstraint) == 1 &&
                    sizeof(AcceptedConstrainedAlias) == 1 &&
                    sizeof(AcceptedUnconstrainedArgument) == 1 &&

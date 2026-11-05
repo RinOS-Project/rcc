@@ -11513,6 +11513,16 @@ endif
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/constraint-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_template_template_constraints_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/constraint-gcc.log)
 	$(GREP) -F -q "constraint mismatch at argument 1" $(TEST_OUT)/cxx-template-template-invalid/constraint-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/nested-default-x86.ro tests/cxx_template_template_nested_defaults_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-default-x86.log)
+	$(GREP) -F -q "template-template argument does not match its parameter list" $(TEST_OUT)/cxx-template-template-invalid/nested-default-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-template-template-invalid/nested-default-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/nested-default-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/nested-default-x64.ro tests/cxx_template_template_nested_defaults_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-default-x64.log)
+	$(GREP) -F -q "template-template argument does not match its parameter list" $(TEST_OUT)/cxx-template-template-invalid/nested-default-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-template-template-invalid/nested-default-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/nested-default-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_template_template_nested_defaults_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-default-gcc.log)
+	$(GREP) -F -q "type/value mismatch at argument 1" $(TEST_OUT)/cxx-template-template-invalid/nested-default-gcc.log
 	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x86.log
 	$(GREP) -q "template-template argument does not match its parameter list" \

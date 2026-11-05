@@ -22189,11 +22189,19 @@ static const TemplateParam* active_template_template_parameter(
 
 static bool template_template_parameter_signatures_match(
     const CxxTemplate* expected, const CxxTemplate* actual) {
-    if (!expected || !actual ||
-        expected->param_count != actual->param_count) {
+    int common_count;
+    if (!expected || !actual) {
         return false;
     }
-    for (int index = 0; index < expected->param_count; ++index) {
+    common_count = expected->param_count < actual->param_count
+        ? expected->param_count : actual->param_count;
+    for (int index = common_count; index < expected->param_count; ++index) {
+        if (!expected->params[index].has_default) return false;
+    }
+    for (int index = common_count; index < actual->param_count; ++index) {
+        if (!actual->params[index].has_default) return false;
+    }
+    for (int index = 0; index < common_count; ++index) {
         const TemplateParam* expected_parameter = &expected->params[index];
         const TemplateParam* actual_parameter = &actual->params[index];
         if (expected_parameter->kind != actual_parameter->kind ||
@@ -22249,7 +22257,7 @@ static bool template_template_argument_parameter_lists_match(
             return false;
         }
         if (expected_parameter->kind == TPARAM_TEMPLATE &&
-            !template_template_argument_parameter_lists_match(
+            !template_template_parameter_signatures_match(
                 expected_parameter->template_signature,
                 actual_parameter->template_signature)) {
             return false;
@@ -22268,7 +22276,7 @@ static bool template_template_argument_parameter_lists_match(
                 return false;
             }
             if (expected_pack->kind == TPARAM_TEMPLATE &&
-                !template_template_argument_parameter_lists_match(
+                !template_template_parameter_signatures_match(
                     expected_pack->template_signature,
                     actual_parameter->template_signature)) {
                 return false;
