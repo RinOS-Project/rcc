@@ -23914,6 +23914,13 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         tmpl, type, arguments, argument_count, value_args, value_present);
 }
 
+Type* rcc_parser_cxx_substitute_template_type(
+    CxxTemplate* tmpl, Type* type, Type** arguments, int argument_count,
+    const int64_t* value_args, const bool* value_present) {
+    return substitute_template_type(
+        tmpl, type, arguments, argument_count, value_args, value_present);
+}
+
 static TypeParam* substitute_template_parameters(CxxTemplate* tmpl,
                                                   TypeParam* parameters,
                                                   Type** arguments,
@@ -25278,6 +25285,15 @@ static int cxx_template_signature_pack_index(const CxxTemplate* signature) {
 
 static int cxx_template_pack_index_in_type(CxxTemplate* tmpl, Type* type) {
     if (!tmpl || !type) return -1;
+    if (type->cxx_dependent_decltype_expr) {
+        int value_pack_index = cxx_parser_template_value_pack_index_expression(
+            tmpl, type->cxx_dependent_decltype_expr);
+        if (value_pack_index >= 0 && value_pack_index < tmpl->param_count &&
+            tmpl->params[value_pack_index].kind == TPARAM_NONTYPE &&
+            tmpl->params[value_pack_index].is_pack) {
+            return value_pack_index;
+        }
+    }
     if (type->kind == TYPE_STRUCT && type->cxx_dependent &&
         type->cxx_template_param_index >= 0 &&
         type->cxx_template_param_index < tmpl->param_count) {
@@ -32793,6 +32809,10 @@ static bool deduce_function_template_type_with_pack(
     TypeParam* pattern_parameter;
     TypeParam* actual_parameter;
     if (!tmpl || !pattern || !actual || !arguments) return false;
+    /* A dependent decltype is a non-deduced context.  Other arguments in the
+     * same specialization can deduce its parameter, after which substitution
+     * and the normal converted-argument check verify the resulting type. */
+    if (pattern->cxx_dependent_decltype_expr) return true;
     if (actual->kind == TYPE_PTR && actual->is_reference &&
         !(pattern->kind == TYPE_PTR && pattern->is_reference)) {
         actual = actual->base;

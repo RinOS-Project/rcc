@@ -48,6 +48,13 @@ int auto_deduced_pack_sum(
     return (Values + ...);
 }
 
+template<auto... Values>
+int auto_deduced_mixed_pack_sum(
+    auto_constant_argument<decltype(Values), Values>... arguments) {
+    (void)sizeof...(arguments);
+    return (Values + ...);
+}
+
 template<auto Pointer>
 struct auto_pointer_holder {
     static constexpr int value = *Pointer;
@@ -73,6 +80,9 @@ extern "C" int main() {
                        auto_constant_argument<int, 7>{}) == 12 &&
                    auto_deduced_pack_sum(
                        auto_constant_argument<unsigned, 5u>{},
+                       auto_constant_argument<unsigned, 7u>{}) == 12 &&
+                   auto_deduced_mixed_pack_sum(
+                       auto_constant_argument<int, 5>{},
                        auto_constant_argument<unsigned, 7u>{}) == 12 &&
                    auto_default_constant<>(3) == 7 &&
                    auto_default_constant<-2>(9) == 7 &&

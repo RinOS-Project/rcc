@@ -3661,6 +3661,16 @@ static void cxx_mangle_template_type_append_impl(
         CXX_MANGLE_TEMPLATE_APPEND('v');
         return;
     }
+    if (type->cxx_dependent_decltype_expr) {
+        if (type->is_volatile) CXX_MANGLE_TEMPLATE_APPEND('V');
+        if (type->is_const) CXX_MANGLE_TEMPLATE_APPEND('K');
+        CXX_MANGLE_TEMPLATE_APPEND('D');
+        CXX_MANGLE_TEMPLATE_APPEND('t');
+        cxx_member_template_expression_append(
+            buf, pos, type->cxx_dependent_decltype_expr, tmpl, context);
+        CXX_MANGLE_TEMPLATE_APPEND('E');
+        return;
+    }
     if (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
         CXX_MANGLE_TEMPLATE_APPEND(
             type->is_reference
@@ -9767,6 +9777,15 @@ static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
                                                 Type* type) {
     int index = -1;
     if (!tmpl || !type) return -1;
+    if (type->cxx_dependent_decltype_expr) {
+        index = template_parameter_pack_index_expression(
+            tmpl, type->cxx_dependent_decltype_expr);
+        if (index == -2) return -2;
+        if (index >= 0 &&
+            (index >= tmpl->param_count || !tmpl->params[index].is_pack)) {
+            index = -1;
+        }
+    }
     /* Nested dependent names retain the owner parameter index even though
      * their tag is `Owner::member`, so name-based type-parameter lookup below
      * cannot discover the source pack. */
@@ -10054,6 +10073,11 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     int index;
 
     if (!type) return NULL;
+    if (type->cxx_dependent_decltype_expr) {
+        replacement = rcc_parser_cxx_substitute_template_type(
+            tmpl, type, args, arg_count, value_args, value_present);
+        return template_apply_pattern_qualifiers(type, replacement);
+    }
     if (type->cxx_dependent_alias_template) {
         replacement = template_substitute_dependent_alias_template_type(
             tmpl, type, args, arg_count, value_args, value_present);

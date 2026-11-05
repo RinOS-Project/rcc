@@ -251,6 +251,10 @@ bool rcc_parser_cxx_type_constraint_satisfied(
     struct Type* expression_type, bool is_lvalue, bool is_xvalue);
 bool rcc_parser_cxx_bind_resolved_function_call(struct Expr* expression);
 struct Type* rcc_parser_cxx_expression_type(struct Expr* expression);
+struct Type* rcc_parser_cxx_substitute_template_type(
+    struct CxxTemplate* tmpl, struct Type* type, struct Type** arguments,
+    int argument_count, const int64_t* value_args,
+    const bool* value_present);
 bool rcc_sema_resolve_function_noexcept(struct Decl* declaration);
 struct TypeMethod;
 int rcc_sema_cxx_conversion_rank(struct Expr* expression,
