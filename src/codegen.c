@@ -16204,6 +16204,16 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         gen_expr(mod, call_argument(expr, 0));
         return true;
     }
+    if (strcmp(function->ident_name,
+               "__builtin_rcc_start_lifetime_as") == 0 ||
+        strcmp(function->ident_name,
+               "__builtin_rcc_start_lifetime_as_array") == 0) {
+        /* Object-lifetime start has no machine instruction. Evaluate the
+         * runtime extent before returning the original pointer value. */
+        gen_expr(mod, call_argument(expr, 1));
+        gen_expr(mod, call_argument(expr, 0));
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_unreachable") == 0 ||
         strcmp(function->ident_name, "__builtin_trap") == 0) {
         /* These are real terminating/undefined-path intrinsics, not

@@ -672,6 +672,8 @@ static bool pp_has_builtin(const char* name) {
     static const char* const builtins[] = {
         "__builtin_add_overflow", "__builtin_add_overflow_p",
         "__builtin_assume_aligned",
+        "__builtin_rcc_start_lifetime_as",
+        "__builtin_rcc_start_lifetime_as_array",
         "__builtin_bswap16", "__builtin_bswap32", "__builtin_bswap64",
         "__builtin_clear_padding",
         "__builtin_choose_expr", "__builtin_clrsb", "__builtin_clrsbl",
@@ -743,6 +745,7 @@ static bool pp_has_builtin(const char* name) {
         "__is_trivially_constructible",
         "__has_virtual_destructor",
         "__is_abstract", "__is_aggregate",
+        "__is_implicit_lifetime",
         "__is_base_of", "__is_class", "__is_trivial",
         "__is_empty", "__is_enum", "__is_final", "__is_polymorphic",
         "__is_function",

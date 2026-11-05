@@ -237,6 +237,7 @@ bool rcc_sema_cxx_trivially_destructible(struct Type* type);
 bool rcc_sema_cxx_has_trivial_destructor(struct Type* type);
 bool rcc_sema_cxx_has_trivial_constructor(struct Type* type);
 bool rcc_sema_cxx_has_trivial_copy(struct Type* type);
+bool rcc_sema_cxx_is_implicit_lifetime(struct Type* type);
 bool rcc_sema_cxx_is_nontrivial_for_calls(struct Type* type);
 bool rcc_sema_cxx_has_trivial_assign(struct Type* type, bool* value);
 bool rcc_sema_cxx_has_nothrow_assign(struct Type* type, bool* value);

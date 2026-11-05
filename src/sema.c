@@ -16508,8 +16508,15 @@ static bool sema_cxx_type_has_trivial_default_constructor(
             callable_without_arguments = false;
         }
         if (!callable_without_arguments) continue;
+        if (constructor->is_deleted ||
+            (constructor->method &&
+             constructor->method->is_deleted)) {
+            continue;
+        }
         has_default_candidate = true;
-        if (!constructor->is_deleted && !constructor->is_defaulted) {
+        if (!constructor->is_defaulted &&
+            (!constructor->method ||
+             !constructor->method->is_defaulted)) {
             return false;
         }
     }
@@ -21754,6 +21761,89 @@ static bool sema_cxx_type_trait_has_trivial_copy_recursive(
 
 bool rcc_sema_cxx_has_trivial_copy(Type* type) {
     return sema_cxx_type_trait_has_trivial_copy_recursive(type, 0u);
+}
+
+static bool sema_cxx_special_constructor_is_trivial(
+    Type* type, int special_kind, unsigned depth) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    bool is_move = special_kind == 2;
+    if (!cls || (special_kind != 1 && special_kind != 2)) return false;
+    for (CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        CxxMethod* method = constructor->method;
+        if (!method || constructor->is_inherited || method->member_template ||
+            sema_cxx_constructor_special_member_kind(type, constructor) !=
+                special_kind || constructor->is_deleted || method->is_deleted ||
+            (!constructor->is_defaulted && !method->is_defaulted)) {
+            continue;
+        }
+        if (sema_cxx_type_trait_special_subobjects_are_trivial(
+                type, is_move, !is_move, false, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_is_implicit_lifetime(Type* type, unsigned depth) {
+    CxxClass* cls;
+    bool has_copy = false;
+    bool has_move = false;
+    if (!type || depth > 32u) return false;
+    if (type->kind == TYPE_PTR && type->is_reference) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base &&
+               sema_cxx_is_implicit_lifetime(type->base, depth + 1u);
+    }
+    if (type_is_scalar(type) || type->kind == TYPE_ENUM) return true;
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return false;
+    if (!type_is_complete(type)) return false;
+    cls = type->cxx_class;
+    if (ast_cxx_is_aggregate(type)) {
+        /* Aggregate classes are implicit-lifetime classes when the
+         * destructor is not user-provided. A deleted destructor is still
+         * non-user-provided, and aggregate members may have non-trivial
+         * destructors. */
+        return !cls || !cls->destructor_method ||
+               cls->destructor_method->is_defaulted ||
+               cls->destructor_method->is_deleted;
+    }
+    if (!sema_cxx_trivially_destructible(type)) return false;
+    if (sema_cxx_has_trivial_constructor(type, depth + 1u)) {
+        return true;
+    }
+    if (!cls || !sema_cxx_has_declared_copy_move_constructor(
+                    type, &has_copy, &has_move)) {
+        return false;
+    }
+    if (has_copy) {
+        if (sema_cxx_special_constructor_is_trivial(type, 1, depth + 1u))
+            return true;
+    } else if (!has_move &&
+               !sema_cxx_has_declared_special_assignment(type, true) &&
+               sema_cxx_type_trait_special_subobjects_are_trivial(
+                   type, false, true, false, depth + 1u)) {
+        /* No declared move suppresses the implicitly declared copy ctor. */
+        return true;
+    }
+    if (has_move) {
+        if (sema_cxx_special_constructor_is_trivial(type, 2, depth + 1u))
+            return true;
+    } else if (!has_copy &&
+               !sema_cxx_has_declared_special_assignment(type, false) &&
+               !sema_cxx_has_declared_special_assignment(type, true) &&
+               !cls->destructor_method &&
+               sema_cxx_type_trait_special_subobjects_are_trivial(
+                   type, true, true, false, depth + 1u)) {
+        /* The implicit move ctor exists only without any user-declared
+         * special member that suppresses it. */
+        return true;
+    }
+    return false;
+}
+
+bool rcc_sema_cxx_is_implicit_lifetime(Type* type) {
+    return sema_cxx_is_implicit_lifetime(type, 0u);
 }
 
 bool rcc_sema_cxx_is_nontrivial_for_calls(Type* type) {
@@ -35663,6 +35753,50 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         }
         function->type = type_ptr(type_int);
         expr->type = type_int;
+        return true;
+    }
+    if (strcmp(name, "__builtin_rcc_start_lifetime_as") == 0 ||
+        strcmp(name, "__builtin_rcc_start_lifetime_as_array") == 0) {
+        bool is_array =
+            strcmp(name, "__builtin_rcc_start_lifetime_as_array") == 0;
+        int64_t object_size = 0;
+        bool object_size_constant = false;
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 2) {
+            rcc_error(expr->loc, "%s expects 2 arguments, got %d",
+                      name, argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        second = expr->call_args && expr->call_args->next
+            ? expr->call_args->next->expr : NULL;
+        if (!first || !first->type || !type_is_pointer(first->type) ||
+            first->type->cxx_is_member_pointer || !first->type->base ||
+            first->type->base->kind == TYPE_FUNC ||
+            !rcc_sema_cxx_is_implicit_lifetime(first->type->base)) {
+            rcc_error(expr->loc,
+                      "%s first argument must point to an implicit-lifetime object",
+                      name);
+        }
+        if (!second || !second->type || !type_is_integer(second->type)) {
+            rcc_error(expr->loc,
+                      "%s second argument must have integer type", name);
+        } else if (!is_array) {
+            object_size_constant = expr_eval_integer_constant(
+                second, &object_size);
+            if (!object_size_constant || object_size <= 0 || !first ||
+                !first->type || !first->type->base ||
+                object_size != first->type->base->size) {
+                rcc_error(expr->loc,
+                          "%s object size must equal sizeof the pointed-to type",
+                          name);
+            }
+        }
+        function->type = type_ptr(type_void);
+        expr->type = first && first->type ? first->type : type_ptr(type_void);
         return true;
     }
     if (strcmp(name, "__builtin_assume_aligned") == 0) {

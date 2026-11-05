@@ -18172,6 +18172,33 @@ static RccIrLowerValue lower_builtin_call(
             argument->expr && expr_eval_integer_constant(
                 argument->expr, &constant) ? 1u : 0u);
     }
+    if (strcmp(name, "__builtin_rcc_start_lifetime_as") == 0 ||
+        strcmp(name, "__builtin_rcc_start_lifetime_as_array") == 0) {
+        RccIrInstruction* lifetime_boundary;
+        first = expression->call_args;
+        second = first ? first->next : NULL;
+        if (!first || !first->expr || !second || !second->expr ||
+            second->next || !expression->type ||
+            expression->type->kind != TYPE_PTR) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        value = lower_expression(context, first->expr);
+        expected = lower_expression(context, second->expr);
+        if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER ||
+            !expected.valid || expected.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        /* The abstract operation starts object lifetime without changing
+         * storage. Preserve a compiler ordering boundary so later memory
+         * optimization cannot move accesses across that semantic point. */
+        lifetime_boundary = lower_append(
+            context, RCC_IR_SIGNAL_FENCE, rcc_ir_type_void(),
+            NULL, 0u, NULL, 0u);
+        if (!lifetime_boundary) return lower_invalid_value();
+        return lower_cast(context, value, expression->type);
+    }
     if (strcmp(name, "__builtin_assume_aligned") == 0) {
         first = expression->call_args;
         second = first ? first->next : NULL;

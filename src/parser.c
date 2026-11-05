@@ -2961,6 +2961,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR;
     } else if (strcmp(name, "__is_aggregate") == 0) {
         *kind = CXX_TYPE_TRAIT_AGGREGATE;
+    } else if (strcmp(name, "__is_implicit_lifetime") == 0) {
+        *kind = CXX_TYPE_TRAIT_IMPLICIT_LIFETIME;
     } else if (strcmp(name, "__is_base_of") == 0) {
         *kind = CXX_TYPE_TRAIT_BASE_OF;
     } else if (strcmp(name, "__is_enum") == 0) {
@@ -3152,6 +3154,9 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
         case CXX_TYPE_TRAIT_AGGREGATE:
             *value = type->kind == TYPE_ARRAY ? type->array_len >= 0
                                               : ast_cxx_is_aggregate(type);
+            break;
+        case CXX_TYPE_TRAIT_IMPLICIT_LIFETIME:
+            *value = rcc_sema_cxx_is_implicit_lifetime(type);
             break;
         case CXX_TYPE_TRAIT_BASE_OF:
             *value = other_type && type->kind == TYPE_STRUCT &&
@@ -3636,6 +3641,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__is_trivially_assignable") ||
          parser_builtin_name("__has_virtual_destructor") ||
          parser_builtin_name("__is_aggregate") ||
+         parser_builtin_name("__is_implicit_lifetime") ||
          parser_builtin_name("__is_base_of") ||
          parser_builtin_name("__is_enum") ||
          parser_builtin_name("__is_class") ||

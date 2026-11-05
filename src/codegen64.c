@@ -4304,6 +4304,15 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
         gen64_expr(mod, call64_argument(expr, 0));
         return true;
     }
+    if (strcmp(function->ident_name,
+               "__builtin_rcc_start_lifetime_as") == 0 ||
+        strcmp(function->ident_name,
+               "__builtin_rcc_start_lifetime_as_array") == 0) {
+        /* Starting an implicit object's lifetime does not rewrite storage. */
+        gen64_expr(mod, call64_argument(expr, 1));
+        gen64_expr(mod, call64_argument(expr, 0));
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_unreachable") == 0 ||
         strcmp(function->ident_name, "__builtin_trap") == 0) {
         /* Emit a real target trap for the undefined/terminating path. */
