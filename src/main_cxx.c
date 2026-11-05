@@ -61,6 +61,7 @@ typedef struct CxxModuleLoadContext {
     RccCxxItaniumAbi abi;
     uint64_t macro_state_hash;
     CxxModuleNameList loaded;
+    CxxModuleNameList exposed;
     char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
     size_t stack_count;
     char error[512];
@@ -825,7 +826,7 @@ static bool cxx_module_artifact_path(const char* directory,
         slug_length += addition;
     }
     suffix_length = snprintf(suffix, sizeof(suffix),
-                             ".%s.cxx%d.a%u.m%016llx.rmi",
+                             ".%s.cxx%d.a%u.m%016llx.v3.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
                              standard, (unsigned)abi,
                              (unsigned long long)macro_state_hash);
@@ -875,12 +876,18 @@ static uint64_t cxx_module_hash_prefixed(const char* prefix,
 
 static bool cxx_module_build_payload(const char* module_name,
                                      const CxxModuleNameList* dependencies,
+                                     const CxxModuleNameList* reexports,
                                      const char* exports, size_t exports_size,
                                      CxxModuleBuffer* payload) {
     if (!cxx_module_buffer_text(payload, module_name) ||
         !cxx_module_buffer_text(payload, "\n")) return false;
     for (size_t index = 0; index < dependencies->count; ++index) {
-        if (!cxx_module_buffer_text(payload, dependencies->items[index]) ||
+        if (!cxx_module_buffer_text(
+                payload,
+                cxx_module_name_list_contains(reexports,
+                                              dependencies->items[index])
+                    ? "R:" : "P:") ||
+            !cxx_module_buffer_text(payload, dependencies->items[index]) ||
             !cxx_module_buffer_text(payload, "\n")) return false;
     }
     return cxx_module_buffer_append(payload, exports, exports_size);
@@ -888,6 +895,7 @@ static bool cxx_module_build_payload(const char* module_name,
 
 static bool cxx_module_artifact_bytes(const char* module_name,
                                       const CxxModuleNameList* dependencies,
+                                      const CxxModuleNameList* reexports,
                                       const char* exports, size_t exports_size,
                                       const char* preprocessed_source,
                                       TargetArch target_arch, int standard,
@@ -904,10 +912,10 @@ static bool cxx_module_artifact_bytes(const char* module_name,
         preprocessed_source, strlen(preprocessed_source));
     uint64_t artifact_checksum;
     bool ok = false;
-    if (!cxx_module_build_payload(module_name, dependencies, exports,
+    if (!cxx_module_build_payload(module_name, dependencies, reexports, exports,
                                   exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI2 %u %d %u %016llx %lu %lu %016llx ",
+                           "RCCBMI3 %u %d %u %016llx %lu %lu %016llx ",
                            target_bits, standard, (unsigned)abi,
                            (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
@@ -1005,7 +1013,8 @@ static bool cxx_module_find_artifact_path(CxxModuleLoadContext* context,
 
 static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
                                      const char* requested_name,
-                                     CxxModuleBuffer* imports) {
+                                     CxxModuleBuffer* imports,
+                                     bool visible) {
     char artifact_path[RCC_MAX_PATH];
     char* bytes = NULL;
     size_t size = 0u;
@@ -1028,10 +1037,8 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     char* name_end;
     char* module_name = NULL;
     CxxModuleNameList dependencies = {0};
+    CxxModuleNameList reexports = {0};
     bool ok = false;
-    if (cxx_module_name_list_contains(&context->loaded, requested_name)) {
-        return true;
-    }
     for (size_t index = 0; index < context->stack_count; ++index) {
         if (strcmp(context->stack[index], requested_name) == 0) {
             snprintf(context->error, sizeof(context->error),
@@ -1039,6 +1046,12 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
                      requested_name);
             return false;
         }
+    }
+    if ((visible &&
+         cxx_module_name_list_contains(&context->exposed, requested_name)) ||
+        (!visible &&
+         cxx_module_name_list_contains(&context->loaded, requested_name))) {
+        return true;
     }
     if (context->stack_count >= RCC_CXX_MODULE_MAX_IMPORT_DEPTH) {
         snprintf(context->error, sizeof(context->error),
@@ -1057,7 +1070,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     }
     pp_record_dependency(context->preprocessor, artifact_path);
     if (sscanf(bytes,
-               "RCCBMI2 %u %d %u %llx %lu %lu %llx %llx%n", &target_bits,
+               "RCCBMI3 %u %d %u %llx %lu %lu %llx %llx%n", &target_bits,
                &standard, &abi, &macro_state_hash, &dependency_count_value,
                &payload_size_value, &source_state_hash, &expected_hash,
                &header_bytes) != 8 ||
@@ -1072,7 +1085,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI2 %u %d %u %016llx %lu %lu %016llx ", target_bits,
+        "RCCBMI3 %u %d %u %016llx %lu %lu %016llx ", target_bits,
         standard, abi, macro_state_hash,
         dependency_count_value, payload_size_value, source_state_hash);
     if (checksum_prefix_size < 0 ||
@@ -1129,17 +1142,26 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
          dependency_index < dependency_count; ++dependency_index) {
         char* line_end = memchr(cursor, '\n', (size_t)(payload_end - cursor));
         char* dependency;
-        if (!line_end || line_end == cursor ||
+        bool reexported;
+        if (!line_end || (size_t)(line_end - cursor) < 3u ||
             (size_t)(line_end - cursor) >= RCC_MAX_PATH) {
             snprintf(context->error, sizeof(context->error),
                      "module interface '%s' has an invalid dependency list",
                      requested_name);
             goto done;
         }
+        reexported = cursor[0] == 'R' && cursor[1] == ':';
+        if (!reexported && !(cursor[0] == 'P' && cursor[1] == ':')) {
+            snprintf(context->error, sizeof(context->error),
+                     "module interface '%s' has an invalid dependency visibility marker",
+                     requested_name);
+            goto done;
+        }
         dependency = cxx_module_copy_span(
-            cursor, 0u, (size_t)(line_end - cursor));
+            cursor, 2u, (size_t)(line_end - cursor) - 2u);
         if (!dependency || !cxx_module_name_valid(dependency) ||
-            !cxx_module_names_add(&dependencies, dependency)) {
+            !cxx_module_names_add(&dependencies, dependency) ||
+            (reexported && !cxx_module_names_add(&reexports, dependency))) {
             rcc_free(dependency);
             snprintf(context->error, sizeof(context->error),
                      "module interface '%s' has an invalid dependency name",
@@ -1159,17 +1181,26 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     module_name = NULL;
     for (size_t index = 0; index < dependencies.count; ++index) {
         if (!cxx_module_load_artifact(context, dependencies.items[index],
-                                      imports)) goto pop;
+                                      imports,
+                                      visible && cxx_module_name_list_contains(
+                                          &reexports,
+                                          dependencies.items[index]))) goto pop;
     }
-    if (!cxx_module_name_list_contains(&context->loaded, requested_name)) {
+    if (visible &&
+        !cxx_module_name_list_contains(&context->exposed, requested_name)) {
         if (!cxx_module_buffer_append(imports, cursor,
                                       (size_t)(payload_end - cursor)) ||
             !cxx_module_buffer_text(imports, "\n") ||
-            !cxx_module_names_add(&context->loaded, requested_name)) {
+            !cxx_module_names_add(&context->exposed, requested_name)) {
             snprintf(context->error, sizeof(context->error),
                      "out of memory importing module '%s'", requested_name);
             goto pop;
         }
+    }
+    if (!cxx_module_names_add(&context->loaded, requested_name)) {
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory recording module '%s'", requested_name);
+        goto pop;
     }
     ok = true;
 pop:
@@ -1177,6 +1208,7 @@ pop:
 done:
     rcc_free(module_name);
     cxx_module_names_clear(&dependencies);
+    cxx_module_names_clear(&reexports);
     rcc_free(bytes);
     return ok;
 }
@@ -1188,6 +1220,7 @@ static bool cxx_module_resolve_imports(const char* source,
                                        bool module_interface,
                                        CxxModuleEvents* events,
                                        CxxModuleNameList* dependencies,
+                                       CxxModuleNameList* reexports,
                                        CxxModuleBuffer* exports,
                                        char* error, size_t error_capacity) {
     int brace_depth = 0;
@@ -1240,8 +1273,16 @@ static bool cxx_module_resolve_imports(const char* source,
                 if (!exported && declared_module &&
                     strcmp(declared_module, current_module ? current_module : "") == 0) {
                     /* Module implementation units see the primary interface. */
-                    name = rcc_strdup(declared_module);
-                    if (!name) goto allocation_fail;
+                    const char* partition = strchr(declared_module, ':');
+                    size_t primary_length = partition
+                        ? (size_t)(partition - declared_module)
+                        : strlen(declared_module);
+                    name = cxx_module_copy_span(declared_module, 0u,
+                                                primary_length);
+                    if (!name || !cxx_module_names_add(dependencies, name)) {
+                        rcc_free(name);
+                        goto allocation_fail;
+                    }
                 }
             } else {
                 size_t import_first = keyword_index + 1u;
@@ -1271,6 +1312,10 @@ static bool cxx_module_resolve_imports(const char* source,
                     goto fail;
                 }
                 if (!cxx_module_names_add(dependencies, name)) {
+                    rcc_free(name);
+                    goto allocation_fail;
+                }
+                if (exported && !cxx_module_names_add(reexports, name)) {
                     rcc_free(name);
                     goto allocation_fail;
                 }
@@ -1376,7 +1421,7 @@ static bool cxx_module_rewrite_source(const char* source,
             imports.length = 0u;
             if (imports.data) imports.data[0] = '\0';
             if (!cxx_module_load_artifact(load_context, event->import_name,
-                                          &imports) ||
+                                          &imports, true) ||
                 !cxx_module_buffer_append(&rewritten, imports.data,
                                           imports.length)) goto fail;
         }
@@ -1455,6 +1500,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     size_t token_count = 0u;
     CxxModuleEvents events = {0};
     CxxModuleNameList dependencies = {0};
+    CxxModuleNameList reexports = {0};
     CxxModuleBuffer exports = {0};
     CxxModuleBuffer artifact = {0};
     char source_directory[RCC_MAX_PATH];
@@ -1490,7 +1536,8 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     if (!cxx_module_resolve_imports(source, tokens, token_count,
                                     module_name[0] ? module_name : NULL,
                                     has_interface,
-                                    &events, &dependencies, &exports,
+                                    &events, &dependencies, &reexports,
+                                    &exports,
                                     error, sizeof(error))) {
         goto done;
     }
@@ -1533,6 +1580,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
                                       pending->path,
                                       sizeof(pending->path)) ||
             !cxx_module_artifact_bytes(module_name, &dependencies,
+                                       &reexports,
                                        exports.data ? exports.data : "",
                                        exports.length, source,
                                        g_opts.target_arch,
@@ -1559,9 +1607,11 @@ done:
     rcc_free(tokens);
     cxx_module_events_clear(&events);
     cxx_module_names_clear(&dependencies);
+    cxx_module_names_clear(&reexports);
     rcc_free(exports.data);
     rcc_free(artifact.data);
     cxx_module_names_clear(&load_context->loaded);
+    cxx_module_names_clear(&load_context->exposed);
     return ok;
 }
 
@@ -1717,6 +1767,7 @@ static bool cxx_module_scan_batch_unit(char** argv, const char* input_path,
     size_t token_count = 0u;
     CxxModuleEvents events = {0};
     CxxModuleNameList dependencies = {0};
+    CxxModuleNameList reexports = {0};
     CxxModuleBuffer exports = {0};
     char error[512] = {0};
     int errors_before = g_error_count;
@@ -1749,7 +1800,8 @@ static bool cxx_module_scan_batch_unit(char** argv, const char* input_path,
         !cxx_module_resolve_imports(
             preprocessed, tokens, token_count,
             unit->module_name[0] ? unit->module_name : NULL,
-            unit->has_interface, &events, &dependencies, &exports,
+            unit->has_interface, &events, &dependencies, &reexports,
+            &exports,
             error, sizeof(error))) {
         goto done;
     }
@@ -1766,6 +1818,7 @@ done:
     rcc_free(tokens);
     cxx_module_events_clear(&events);
     cxx_module_names_clear(&dependencies);
+    cxx_module_names_clear(&reexports);
     rcc_free(exports.data);
     return ok;
 }
