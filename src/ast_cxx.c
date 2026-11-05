@@ -892,6 +892,7 @@ static bool cxx_mangle_structural_member_function_designator(
         cxx_mangle_append_substitution(buf, pos, owner_substitution);
     } else {
         mangle_class_name_context(buf, pos, owner, context);
+        cxx_mangle_record_class_type(context, owner->type);
     }
     mangle_name(buf, pos, method->name);
     cxx_mangle_type_char(buf, pos, 'E');
@@ -12672,6 +12673,17 @@ static Expr* template_clone_pack_pattern(
         expanded_value_present[parameter_index] = true;
         clone_value_args = expanded_value_args;
         clone_value_present = expanded_value_present;
+        if (value_pack->is_auto && tmpl->pending_pack_args) {
+            if (!expanded_type_args) {
+                expanded_type_args = ast_arena_alloc(
+                    sizeof(*expanded_type_args) * (size_t)arg_count);
+                memcpy(expanded_type_args, clone_args,
+                       sizeof(*expanded_type_args) * (size_t)arg_count);
+            }
+            expanded_type_args[parameter_index] =
+                tmpl->pending_pack_args[pack_offset + index];
+            clone_args = expanded_type_args;
+        }
     }
     if (tmpl) {
         saved_active_pack_expansion = tmpl->active_pack_expansion;

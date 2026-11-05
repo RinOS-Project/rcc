@@ -98,6 +98,45 @@ struct auto_member_function_pointer_holder {
     }
 };
 
+template<auto... Pointers>
+int auto_member_pointer_pack_sum() {
+    return ((auto_member_pointer_object.*Pointers) + ...);
+}
+
+template<auto... Pointers>
+int auto_member_function_pointer_pack_sum() {
+    return ((auto_member_pointer_object.*Pointers)() + ...);
+}
+
+template<auto... Pointers>
+bool auto_member_pointer_pack_is_null() {
+    return ((Pointers == nullptr) && ...);
+}
+
+template<auto... Pointers>
+struct auto_member_pointer_pack_holder {
+    int read() const {
+        return ((auto_member_pointer_object.*Pointers) + ...);
+    }
+};
+
+template<auto... Pointers>
+struct auto_member_function_pointer_pack_holder {
+    int read() const {
+        return ((auto_member_pointer_object.*Pointers)() + ...);
+    }
+};
+
+template<auto... Pointers>
+inline constexpr int auto_member_pointer_pack_variable =
+    sizeof...(Pointers);
+
+const int* auto_member_pointer_pack_variable_address() {
+    return &auto_member_pointer_pack_variable<
+        &auto_member_pointer_target::field,
+        &auto_member_pointer_target::get>;
+}
+
 template<int auto_member_pointer_target::*Pointer>
 int auto_typed_member_pointer_tag() {
     return 29;
@@ -197,6 +236,13 @@ auto_member_pointer_holder<&auto_member_pointer_target::field>
     auto_member_pointer_instance;
 auto_member_function_pointer_holder<&auto_member_pointer_target::get>
     auto_member_function_pointer_instance;
+auto_member_pointer_pack_holder<
+    &auto_member_pointer_target::field,
+    &auto_member_pointer_target::field> auto_member_pointer_pack_instance;
+auto_member_function_pointer_pack_holder<
+    &auto_member_pointer_target::get,
+    &auto_member_pointer_target::get>
+        auto_member_function_pointer_pack_instance;
 auto_value_pack_holder<5, 7u> auto_value_pack_mixed_instance;
 auto_value_pack_holder<5, 7> auto_value_pack_signed_instance;
 auto_value_pack_holder<5u, 7u> auto_value_pack_unsigned_instance;
@@ -277,6 +323,22 @@ extern "C" int main() {
                        auto_member_function_pointer_alias>() == 9 &&
                    auto_member_pointer_instance.read() == 5 &&
                    auto_member_function_pointer_instance.read() == 9 &&
+                   auto_member_pointer_pack_sum<
+                       &auto_member_pointer_target::field,
+                       &auto_member_pointer_target::field>() == 10 &&
+                   auto_member_function_pointer_pack_sum<
+                       &auto_member_pointer_target::get,
+                       &auto_member_pointer_target::get>() == 18 &&
+                   auto_member_pointer_pack_is_null<
+                       static_cast<int auto_member_pointer_target::*>(nullptr),
+                       static_cast<auto_member_function_pointer_type>(
+                           nullptr)>() &&
+                   auto_member_pointer_pack_instance.read() == 10 &&
+                   auto_member_function_pointer_pack_instance.read() == 18 &&
+                   auto_member_pointer_pack_variable<
+                       &auto_member_pointer_target::field,
+                       &auto_member_pointer_target::get> == 2 &&
+                   *auto_member_pointer_pack_variable_address() == 2 &&
                    auto_pointer_holder<&auto_class_pointer_target>::value == -23 &&
                    auto_pointer_instance.read() == -23 &&
                    auto_value_pack_mixed_instance.read() == 12 &&
