@@ -76,15 +76,25 @@ typedef struct CxxModuleLoadContext {
     CxxModuleNameList loaded_headers;
     char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
     size_t stack_count;
+    char* header_stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
+    size_t header_stack_count;
     char error[512];
 } CxxModuleLoadContext;
 
 static bool cxx_module_preprocess_header_unit(
     CxxModuleLoadContext* context, const char* header_name,
-    char** expanded_out);
+    const char* importing_path, char** expanded_out,
+    char** resolved_path_out, char** canonical_path_out);
 static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
                                           const char* header_name,
-                                          CxxModuleBuffer* imports);
+                                          const char* importing_path,
+                                          CxxModuleBuffer* imports,
+                                          uint64_t* fingerprint_out);
+static bool cxx_module_expand_header_unit_graph(
+    CxxModuleLoadContext* context, const char* header_name,
+    const char* importing_path, bool ignore_loaded_headers,
+    CxxModuleNameList* graph_headers, CxxModuleBuffer* expanded,
+    char** canonical_path_out);
 static uint64_t cxx_module_hash(const void* bytes, size_t length);
 
 typedef struct CxxModuleEvent {
@@ -759,7 +769,8 @@ static bool cxx_module_append_interface_record(CxxModuleBuffer* records,
 
 static bool cxx_module_append_header_unit_records(
     CxxModuleBuffer* records, const char* header_name,
-    const CxxModuleBuffer* expanded, char visibility) {
+    const CxxModuleBuffer* expanded, uint64_t fingerprint_hash,
+    char visibility) {
     CxxModuleBuffer state = {0};
     char hash_text[32];
     int hash_length;
@@ -767,8 +778,7 @@ static bool cxx_module_append_header_unit_records(
     if (!records || !header_name || !expanded || expanded->length == 0u ||
         (visibility != 'E' && visibility != 'P')) return false;
     hash_length = snprintf(hash_text, sizeof(hash_text), "%016llx",
-                           (unsigned long long)cxx_module_hash(
-                               expanded->data, expanded->length));
+                           (unsigned long long)fingerprint_hash);
     ok = hash_length > 0 && (size_t)hash_length < sizeof(hash_text) &&
         cxx_module_buffer_text(&state, header_name) &&
         cxx_module_buffer_text(&state, "\n") &&
@@ -1108,6 +1118,62 @@ static bool cxx_module_absolute_path(const char* path, char* output,
     memcpy(output + directory_length + 1u, path, path_length + 1u);
     return true;
 #endif
+}
+
+static bool cxx_module_canonical_path(const char* path, char* output,
+                                      size_t capacity) {
+    if (!path || !*path || !output || capacity == 0u) return false;
+#if defined(_WIN32)
+    return _fullpath(output, path, capacity) != NULL;
+#else
+    return realpath(path, output) != NULL;
+#endif
+}
+
+static bool cxx_module_header_path_equal(const char* left,
+                                         const char* right) {
+    if (!left || !right) return false;
+    while (*left && *right) {
+        unsigned char left_char = (unsigned char)*left++;
+        unsigned char right_char = (unsigned char)*right++;
+#if defined(_WIN32)
+        if (left_char == '/') left_char = '\\';
+        if (right_char == '/') right_char = '\\';
+        left_char = (unsigned char)tolower(left_char);
+        right_char = (unsigned char)tolower(right_char);
+#endif
+        if (left_char != right_char) return false;
+    }
+    return *left == '\0' && *right == '\0';
+}
+
+static bool cxx_module_header_paths_contains(const CxxModuleNameList* paths,
+                                              const char* path) {
+    if (!paths || !path) return false;
+    for (size_t index = 0; index < paths->count; ++index) {
+        if (cxx_module_header_path_equal(paths->items[index], path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool cxx_module_header_paths_add(CxxModuleNameList* paths,
+                                       const char* path) {
+    if (!paths || !path || !*path) return false;
+    if (cxx_module_header_paths_contains(paths, path)) return true;
+    return cxx_module_names_add(paths, path);
+}
+
+static bool cxx_module_header_stack_contains(
+    const CxxModuleLoadContext* context, const char* path) {
+    if (!context || !path) return false;
+    for (size_t index = 0; index < context->header_stack_count; ++index) {
+        if (cxx_module_header_path_equal(context->header_stack[index], path)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static uint64_t cxx_module_hash_option(uint64_t hash, unsigned char tag,
@@ -1545,6 +1611,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     bool rebuilt_stale_artifact = false;
     bool rebuilt_stale_dependency = false;
     bool rebuilt_stale_header = false;
+    bool skip_header_payload = false;
     bool ok = false;
     for (size_t index = 0; index < context->stack_count; ++index) {
         if (strcmp(context->stack[index], requested_name) == 0) {
@@ -1914,25 +1981,34 @@ reload_artifact:
                          "out of memory reading module header-unit identity");
                 goto pop;
             }
-            if (!rebuilt_stale_header) {
+            {
                 const char* saved_input_path = context->input_path;
-                char* expanded_header = NULL;
+                char* canonical_header_path = NULL;
+                CxxModuleNameList header_paths = {0};
+                CxxModuleBuffer header_expansion = {0};
                 bool expanded;
+                bool header_was_loaded;
                 context->input_path = source_path;
-                expanded = cxx_module_preprocess_header_unit(
-                    context, header_name, &expanded_header);
+                expanded = cxx_module_expand_header_unit_graph(
+                    context, header_name, source_path, true, &header_paths,
+                    &header_expansion, &canonical_header_path);
                 context->input_path = saved_input_path;
                 if (!expanded) {
                     rcc_free(header_name);
-                    rcc_free(expanded_header);
+                    rcc_free(canonical_header_path);
+                    cxx_module_names_clear(&header_paths);
+                    rcc_free(header_expansion.data);
                     goto pop;
                 }
-                if (cxx_module_hash(expanded_header,
-                                    strlen(expanded_header)) !=
-                    (uint64_t)recorded_header_hash) {
+                if (!rebuilt_stale_header &&
+                    cxx_module_hash(header_expansion.data,
+                                    header_expansion.length) !=
+                        (uint64_t)recorded_header_hash) {
                     char module_directory[RCC_MAX_PATH];
                     bool rebuild_ok;
-                    rcc_free(expanded_header);
+                    rcc_free(canonical_header_path);
+                    cxx_module_names_clear(&header_paths);
+                    rcc_free(header_expansion.data);
                     rcc_free(header_name);
                     if (cxx_module_name_list_contains(
                             &g_cxx_module_rebuilding, requested_name)) {
@@ -1979,7 +2055,26 @@ reload_artifact:
                     cxx_module_names_clear(&reexports);
                     goto reload_artifact;
                 }
-                rcc_free(expanded_header);
+                header_was_loaded = cxx_module_header_paths_contains(
+                    &context->loaded_headers, canonical_header_path);
+                for (size_t header_index = 0;
+                     header_index < header_paths.count; ++header_index) {
+                    if (!cxx_module_header_paths_add(
+                            &context->loaded_headers,
+                            header_paths.items[header_index])) {
+                        snprintf(context->error, sizeof(context->error),
+                                 "out of memory recording imported header-unit paths");
+                        rcc_free(canonical_header_path);
+                        cxx_module_names_clear(&header_paths);
+                        rcc_free(header_expansion.data);
+                        rcc_free(header_name);
+                        goto pop;
+                    }
+                }
+                skip_header_payload = header_was_loaded;
+                rcc_free(canonical_header_path);
+                cxx_module_names_clear(&header_paths);
+                rcc_free(header_expansion.data);
             }
             rcc_free(header_name);
         } else {
@@ -1988,6 +2083,7 @@ reload_artifact:
                 : visibility == 'P' && private_visible &&
                     !cxx_module_name_list_contains(
                         &context->private_exposed, requested_name);
+            append_record = append_record && !skip_header_payload;
             if (append_record &&
                 !cxx_module_buffer_append(imports, cursor,
                                           (size_t)record_length)) {
@@ -1995,6 +2091,7 @@ reload_artifact:
                          "out of memory importing module '%s'", requested_name);
                 goto pop;
             }
+            skip_header_payload = false;
         }
         cursor += (size_t)record_length;
         if (cursor >= payload_end || *cursor != '\n') {
@@ -2189,8 +2286,11 @@ static bool cxx_module_resolve_imports(const char* source,
                     header_unit = true;
                     if (module_interface && load_context) {
                         CxxModuleBuffer expanded_header = {0};
+                        uint64_t header_fingerprint = 0u;
                         if (!cxx_module_import_header_unit(
-                                load_context, name, &expanded_header)) {
+                                load_context, name,
+                                load_context->input_path, &expanded_header,
+                                &header_fingerprint)) {
                             snprintf(error, error_capacity, "%s",
                                      load_context->error[0]
                                          ? load_context->error
@@ -2201,6 +2301,7 @@ static bool cxx_module_resolve_imports(const char* source,
                         if (expanded_header.length > 0u) {
                             if (!cxx_module_append_header_unit_records(
                                     exports, name, &expanded_header,
+                                    header_fingerprint,
                                     exported ? 'E' : 'P')) {
                                 rcc_free(expanded_header.data);
                                 rcc_free(name);
@@ -2379,16 +2480,23 @@ fail:
 
 static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
                                               const char* header_name,
-                                              char** expanded_out) {
+                                              const char* importing_path,
+                                              char** expanded_out,
+                                              char** resolved_path_out,
+                                              char** canonical_path_out) {
     char directive[RCC_MAX_PATH + 16u];
     char* expanded;
+    char* resolved_path = NULL;
+    char* canonical_path = NULL;
     Preprocessor* preprocessing_state;
-    bool owns_preprocessing_state = false;
     int directive_length;
     int errors_before;
     if (expanded_out) *expanded_out = NULL;
-    if (!context || !context->preprocessor || !context->input_path ||
-        !header_name || !expanded_out) return false;
+    if (resolved_path_out) *resolved_path_out = NULL;
+    if (canonical_path_out) *canonical_path_out = NULL;
+    if (!context || !context->preprocessor || !importing_path ||
+        !header_name || !expanded_out || !resolved_path_out ||
+        !canonical_path_out) return false;
     directive_length = snprintf(directive, sizeof(directive),
                                 "#include %s\n", header_name);
     if (directive_length < 0 ||
@@ -2399,7 +2507,6 @@ static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
     }
     preprocessing_state = pp_new_module_header_state(
         context->preprocessor);
-    owns_preprocessing_state = true;
     if (!preprocessing_state) {
         snprintf(context->error, sizeof(context->error),
                  "independent header-unit preprocessing state is unavailable");
@@ -2407,46 +2514,269 @@ static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
     }
     errors_before = g_error_count;
     expanded = pp_process_string(preprocessing_state, directive,
-                                 context->input_path);
+                                 importing_path);
     if (!expanded || g_error_count != errors_before) {
         rcc_free(expanded);
-        if (owns_preprocessing_state) pp_free(preprocessing_state);
+        pp_free(preprocessing_state);
         snprintf(context->error, sizeof(context->error),
                  "could not preprocess header unit %s", header_name);
         return false;
     }
-    if (owns_preprocessing_state) {
-        for (int index = 0; index < preprocessing_state->dependency_count;
-             ++index) {
-            pp_record_dependency(context->preprocessor,
-                                 preprocessing_state->dependencies[index]);
-        }
+    if (preprocessing_state->dependency_count <= 0) {
+        rcc_free(expanded);
         pp_free(preprocessing_state);
+        snprintf(context->error, sizeof(context->error),
+                 "could not resolve canonical path for header unit %s",
+                 header_name);
+        return false;
     }
+    {
+        char canonical_buffer[RCC_MAX_PATH];
+        if (!cxx_module_canonical_path(preprocessing_state->dependencies[0],
+                                      canonical_buffer,
+                                      sizeof(canonical_buffer))) {
+            rcc_free(expanded);
+            pp_free(preprocessing_state);
+            snprintf(context->error, sizeof(context->error),
+                     "could not resolve canonical path for header unit %s",
+                     header_name);
+            return false;
+        }
+        resolved_path = rcc_strdup(preprocessing_state->dependencies[0]);
+        canonical_path = rcc_strdup(canonical_buffer);
+    }
+    if (!resolved_path || !canonical_path) {
+        rcc_free(expanded);
+        rcc_free(resolved_path);
+        rcc_free(canonical_path);
+        pp_free(preprocessing_state);
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory recording header-unit identity");
+        return false;
+    }
+    for (int index = 0; index < preprocessing_state->dependency_count;
+         ++index) {
+        char dependency_path[RCC_MAX_PATH];
+        const char* dependency = preprocessing_state->dependencies[index];
+        if (!cxx_module_canonical_path(dependency, dependency_path,
+                                       sizeof(dependency_path))) {
+            pp_record_dependency(context->preprocessor, dependency);
+        } else {
+            pp_record_dependency(context->preprocessor, dependency_path);
+        }
+    }
+    pp_free(preprocessing_state);
     *expanded_out = expanded;
+    *resolved_path_out = resolved_path;
+    *canonical_path_out = canonical_path;
     return true;
+}
+
+static bool cxx_module_expand_header_unit_imports(
+    CxxModuleLoadContext* context, const char* source,
+    const char* importing_path, bool ignore_loaded_headers,
+    CxxModuleNameList* graph_headers, CxxModuleBuffer* expanded) {
+    CxxModuleToken* tokens = NULL;
+    size_t token_count = 0u;
+    size_t cursor = 0u;
+    int brace_depth = 0;
+    bool ok = false;
+    if (!context || !source || !importing_path || !graph_headers ||
+        !expanded) return false;
+    if (!cxx_module_lex(source, &tokens, &token_count)) {
+        snprintf(context->error, sizeof(context->error),
+                 "could not tokenize a header unit");
+        return false;
+    }
+    for (size_t index = 0; index < token_count; ++index) {
+        bool exported = cxx_module_token_is(source, &tokens[index], "export");
+        size_t keyword_index = exported ? index + 1u : index;
+        bool declaration_start = index == 0u ||
+            cxx_module_punct(source, &tokens[index - 1u], ';') ||
+            cxx_module_punct(source, &tokens[index - 1u], '}');
+        bool is_import = keyword_index < token_count &&
+            cxx_module_token_is(source, &tokens[keyword_index], "import");
+        if (brace_depth == 0 && declaration_start && is_import) {
+            size_t semicolon = cxx_module_find_next_semicolon(
+                source, tokens, token_count, keyword_index + 1u);
+            if (semicolon < token_count &&
+                cxx_module_is_header_import(source, tokens,
+                                            keyword_index + 1u, semicolon)) {
+                char* header_name = cxx_module_parse_header_import(
+                    source, tokens, keyword_index + 1u, semicolon);
+                CxxModuleBuffer nested = {0};
+                if (!header_name) {
+                    snprintf(context->error, sizeof(context->error),
+                             "invalid nested C++ header-unit import");
+                    rcc_free(tokens);
+                    return false;
+                }
+                if (!cxx_module_buffer_append(
+                        expanded, source + cursor,
+                        tokens[index].begin - cursor) ||
+                    !cxx_module_expand_header_unit_graph(
+                        context, header_name, importing_path,
+                        ignore_loaded_headers, graph_headers, &nested,
+                        NULL) ||
+                    !cxx_module_buffer_append(expanded, nested.data,
+                                              nested.length)) {
+                    rcc_free(header_name);
+                    rcc_free(nested.data);
+                    rcc_free(tokens);
+                    if (!context->error[0]) {
+                        snprintf(context->error, sizeof(context->error),
+                                 "could not expand nested header unit");
+                    }
+                    return false;
+                }
+                rcc_free(header_name);
+                rcc_free(nested.data);
+                cursor = tokens[semicolon].end;
+                index = semicolon;
+                continue;
+            }
+        }
+        if (cxx_module_punct(source, &tokens[index], '{')) {
+            ++brace_depth;
+        } else if (cxx_module_punct(source, &tokens[index], '}') &&
+                   brace_depth > 0) {
+            --brace_depth;
+        }
+    }
+    ok = cxx_module_buffer_append(expanded, source + cursor,
+                                  strlen(source) - cursor);
+    if (!ok) {
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory expanding a header unit");
+    }
+    rcc_free(tokens);
+    return ok;
+}
+
+static bool cxx_module_expand_header_unit_graph(
+    CxxModuleLoadContext* context, const char* header_name,
+    const char* importing_path, bool ignore_loaded_headers,
+    CxxModuleNameList* graph_headers, CxxModuleBuffer* expanded,
+    char** canonical_path_out) {
+    char* preprocessed = NULL;
+    char* resolved_path = NULL;
+    char* canonical_path = NULL;
+    char* stack_path = NULL;
+    CxxModuleBuffer nested = {0};
+    bool ok = false;
+    if (canonical_path_out) *canonical_path_out = NULL;
+    if (!context || !header_name || !importing_path || !graph_headers ||
+        !expanded || !cxx_module_preprocess_header_unit(
+            context, header_name, importing_path, &preprocessed,
+            &resolved_path, &canonical_path)) {
+        return false;
+    }
+    if (canonical_path_out) {
+        *canonical_path_out = rcc_strdup(canonical_path);
+        if (!*canonical_path_out) {
+            snprintf(context->error, sizeof(context->error),
+                     "out of memory recording canonical header-unit path");
+            goto done;
+        }
+    }
+    if (cxx_module_header_stack_contains(context, canonical_path)) {
+        snprintf(context->error, sizeof(context->error),
+                 "cyclic C++ header-unit dependency involving '%s'",
+                 canonical_path);
+        goto done;
+    }
+    if (cxx_module_header_paths_contains(graph_headers, canonical_path)) {
+        ok = true;
+        goto done;
+    }
+    if (!cxx_module_header_paths_add(graph_headers, canonical_path)) {
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory recording header-unit dependency");
+        goto done;
+    }
+    if (!ignore_loaded_headers && cxx_module_header_paths_contains(
+                                     &context->loaded_headers,
+                                     canonical_path)) {
+        ok = true;
+        goto done;
+    }
+    if (context->header_stack_count >= RCC_CXX_MODULE_MAX_IMPORT_DEPTH) {
+        snprintf(context->error, sizeof(context->error),
+                 "C++ header-unit dependency depth exceeds %u",
+                 (unsigned)RCC_CXX_MODULE_MAX_IMPORT_DEPTH);
+        goto done;
+    }
+    stack_path = rcc_strdup(canonical_path);
+    if (!stack_path) {
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory tracking header-unit dependency");
+        goto done;
+    }
+    context->header_stack[context->header_stack_count++] = stack_path;
+    stack_path = NULL;
+    ok = cxx_module_expand_header_unit_imports(
+        context, preprocessed, resolved_path, ignore_loaded_headers,
+        graph_headers, &nested);
+    rcc_free(context->header_stack[--context->header_stack_count]);
+    if (ok && !cxx_module_buffer_append(expanded, nested.data,
+                                        nested.length)) {
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory expanding a header unit");
+        ok = false;
+    }
+done:
+    rcc_free(stack_path);
+    rcc_free(nested.data);
+    rcc_free(preprocessed);
+    rcc_free(resolved_path);
+    rcc_free(canonical_path);
+    return ok;
 }
 
 static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
                                           const char* header_name,
-                                          CxxModuleBuffer* imports) {
-    char* expanded = NULL;
-    if (!context || !header_name || !imports) return false;
-    if (cxx_module_name_list_contains(&context->loaded_headers, header_name)) {
-        return true;
+                                          const char* importing_path,
+                                          CxxModuleBuffer* imports,
+                                          uint64_t* fingerprint_out) {
+    CxxModuleNameList fingerprint_headers = {0};
+    CxxModuleNameList imported_headers = {0};
+    CxxModuleBuffer fingerprint = {0};
+    CxxModuleBuffer materialized = {0};
+    bool ok = false;
+    if (!context || !header_name || !importing_path || !imports) return false;
+    if (!cxx_module_expand_header_unit_graph(
+            context, header_name, importing_path, true,
+            &fingerprint_headers, &fingerprint, NULL) ||
+        !cxx_module_expand_header_unit_graph(
+            context, header_name, importing_path, false,
+            &imported_headers, &materialized, NULL)) {
+        goto done;
     }
-    if (!cxx_module_preprocess_header_unit(context, header_name, &expanded)) {
-        return false;
+    if (fingerprint_out) {
+        *fingerprint_out = cxx_module_hash(fingerprint.data,
+                                           fingerprint.length);
     }
-    if (!cxx_module_buffer_text(imports, expanded) ||
-        !cxx_module_names_add(&context->loaded_headers, header_name)) {
-        rcc_free(expanded);
+    for (size_t index = 0; index < imported_headers.count; ++index) {
+        if (!cxx_module_header_paths_add(&context->loaded_headers,
+                                         imported_headers.items[index])) {
+            snprintf(context->error, sizeof(context->error),
+                     "out of memory recording imported header-unit paths");
+            goto done;
+        }
+    }
+    if (!cxx_module_buffer_append(imports, materialized.data,
+                                  materialized.length)) {
         snprintf(context->error, sizeof(context->error),
                  "out of memory importing header unit %s", header_name);
-        return false;
+        goto done;
     }
-    rcc_free(expanded);
-    return true;
+    ok = true;
+done:
+    cxx_module_names_clear(&fingerprint_headers);
+    cxx_module_names_clear(&imported_headers);
+    rcc_free(fingerprint.data);
+    rcc_free(materialized.data);
+    return ok;
 }
 
 static bool cxx_module_rewrite_source(const char* source,
@@ -2478,7 +2808,9 @@ static bool cxx_module_rewrite_source(const char* source,
             if (imports.data) imports.data[0] = '\0';
             bool imported = event->header_unit
                 ? cxx_module_import_header_unit(load_context,
-                                                event->import_name, &imports)
+                                                event->import_name,
+                                                load_context->input_path,
+                                                &imports, NULL)
                 : cxx_module_load_artifact(load_context, event->import_name,
                                            &imports, true);
             if (!imported) goto fail;
