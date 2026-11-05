@@ -14674,10 +14674,12 @@ remains a separate open item.
 ## RCC continuation (2026-11-05, constexpr pointer variables in aggregate NTTP factories)
 
 - [x] Bind namespace-scope `constexpr` pointer variables through their address
-      initializers before materializing constexpr aggregate-factory calls, and
-      recursively evaluate pointer variables while collecting structural NTTP
-      members. Cover a pointer to an array element inside a namespace-scope
-      object, with a compile-time assertion and host runtime check. Strict GCC
-      and Clang C++20, exact Itanium symbol parity, and Windows/POSIX
-      structural-NTTP gates pass; all 88 verified-backend functions pass at
-      `-O0` and `-O2` with zero fallback.
+      initializers before materializing constexpr aggregate-factory calls,
+      including conditional selection through a constexpr pointer alias and a
+      comma expression with a scalar left operand; also recursively evaluate
+      pointer variables while collecting structural NTTP members. Cover a
+      pointer to an array element inside a namespace-scope object, with
+      compile-time assertions and host runtime checks. Strict GCC and Clang
+      C++20, exact Itanium symbol parity, and Windows/POSIX structural-NTTP
+      gates pass; all 88 verified-backend functions pass at `-O0` and `-O2`
+      with zero fallback.

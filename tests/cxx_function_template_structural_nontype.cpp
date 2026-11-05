@@ -91,8 +91,19 @@ inline constexpr FunctionTemplateStructuralPointerFactoryMemberTarget
     function_template_structural_pointer_factory_member_target = {
         19, 23, {11, 13, 17}};
 inline constexpr const int*
-    function_template_structural_pointer_factory_member_array_pointer =
+    function_template_structural_pointer_factory_member_array_pointer_base =
         &function_template_structural_pointer_factory_member_target.elements[1];
+inline constexpr const int*
+    function_template_structural_pointer_factory_member_array_pointer =
+        true
+            ? function_template_structural_pointer_factory_member_array_pointer_base
+            : nullptr;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-value"
+inline constexpr const int*
+    function_template_structural_pointer_factory_member_array_comma_pointer =
+        (0, function_template_structural_pointer_factory_member_array_pointer_base);
+#pragma GCC diagnostic pop
 
 struct FunctionTemplateStructuralPointerFactoryValue {
     FunctionTemplateStructuralPointerUnion payload;
@@ -977,6 +988,10 @@ static_assert(function_template_structural_pointer_factory_explicit<
                   function_template_make_structural_pointer_union_value(
                       function_template_structural_pointer_factory_member_array_pointer,
                       2)>() == 15);
+static_assert(function_template_structural_pointer_factory_explicit<
+                  function_template_make_structural_pointer_union_value(
+                      function_template_structural_pointer_factory_member_array_comma_pointer,
+                      2)>() == 15);
 static_assert(function_template_structural_union_direct_pointer_explicit<
                   FunctionTemplateStructuralDirectPointerUnion{
                       .pointer =
@@ -1325,6 +1340,10 @@ int main() {
         function_template_structural_pointer_factory_explicit<
             function_template_make_structural_pointer_union_value(
                 function_template_structural_pointer_factory_member_array_pointer,
+                2)>() != 15 ||
+        function_template_structural_pointer_factory_explicit<
+            function_template_make_structural_pointer_union_value(
+                function_template_structural_pointer_factory_member_array_comma_pointer,
                 2)>() != 15 ||
         function_template_structural_union_direct_pointer_explicit<
             FunctionTemplateStructuralDirectPointerUnion{

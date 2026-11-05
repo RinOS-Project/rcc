@@ -4398,6 +4398,17 @@ static void cxx_bind_template_constant_address_argument(Expr* expression) {
         }
         return;
     }
+    if (expression->kind == EXPR_COND) {
+        cxx_bind_template_constant_address_argument(expression->cond_test);
+        cxx_bind_template_constant_address_argument(expression->cond_then);
+        cxx_bind_template_constant_address_argument(expression->cond_else);
+        return;
+    }
+    if (expression->kind == EXPR_COMMA) {
+        cxx_bind_template_constant_address_argument(expression->binary_lhs);
+        cxx_bind_template_constant_address_argument(expression->binary_rhs);
+        return;
+    }
     if (expression->kind == EXPR_ADDR) {
         cxx_bind_template_constant_address_target(
             expression->unary_operand);
