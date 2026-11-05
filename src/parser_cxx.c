@@ -3460,6 +3460,7 @@ static bool cxx_structural_pointer_member_value(
             expression, pointer_type, &location) ||
         !location.declaration) {
         Decl* declaration = NULL;
+        Expr* provenance_expression = NULL;
         int64_t byte_offset = 0;
         Type* source_type;
         cxx_bind_template_constant_address_argument((Expr*)expression);
@@ -3475,13 +3476,27 @@ static bool cxx_structural_pointer_member_value(
             !rcc_parser_cxx_structural_pointer_conversion(
                 source_type->base, pointer_type->base, NULL) ||
             !rcc_sema_eval_constexpr_pointer_location(
-                (Expr*)expression, &declaration, &byte_offset)) {
+                (Expr*)expression, &declaration, &byte_offset,
+                &provenance_expression)) {
             return false;
         }
         if (!declaration) {
             if (byte_offset != 0) return false;
             *value_out = 0;
             return true;
+        }
+        if (provenance_expression &&
+            cxx_structural_pointer_member_location(
+                provenance_expression, pointer_type, &location) &&
+            location.declaration == declaration &&
+            location.byte_offset == byte_offset &&
+            location.has_subobject_path &&
+            cxx_structural_pointer_member_declaration_has_static_storage(
+                declaration, false)) {
+            return cxx_structural_pointer_value_register(
+                declaration, byte_offset, true, location.one_past,
+                location.array_decay, location.subobject_path,
+                location.subobject_path_length, value_out);
         }
         if (byte_offset != 0 || !declaration->type ||
             !cxx_structural_pointer_member_declaration_has_static_storage(

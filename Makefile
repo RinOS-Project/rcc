@@ -757,7 +757,24 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_SYMBOLS = \
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS = \
 	_Z53function_template_structural_pointer_factory_explicitIXtl45FunctionTemplateStructuralPointerFactoryValuetl38FunctionTemplateStructuralPointerUniondi6objecttl45FunctionTemplateStructuralPointerUnionPayloadadL_Z49function_template_structural_union_pointer_targetELi6EEEEEEiv \
 	_Z38function_template_scalar_pointer_valueIXadL_Z49function_template_structural_union_pointer_targetEEEiv \
-	_Z38function_template_scalar_pointer_valueILPKi0EEiv
+	_Z38function_template_scalar_pointer_valueILPKi0EEiv \
+	_Z67function_template_structural_pointer_factory_member_array_forwarderPKi
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_GCC_WINDOWS = \
+	_Z38function_template_scalar_pointer_valueIXadixdtL_Z58function_template_structural_pointer_factory_member_targetE8elementsLx1EEEiv \
+	_Z43function_template_auto_scalar_pointer_valueIXadixdtL_Z58function_template_structural_pointer_factory_member_targetE8elementsLx1EEEiv
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_GCC_POSIX = \
+	_Z38function_template_scalar_pointer_valueIXadixdtL_Z58function_template_structural_pointer_factory_member_targetE8elementsLl1EEEiv \
+	_Z43function_template_auto_scalar_pointer_valueIXadixdtL_Z58function_template_structural_pointer_factory_member_targetE8elementsLl1EEEiv
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_X86 = \
+	_Z38function_template_scalar_pointer_valueIXadixdtL_Z58function_template_structural_pointer_factory_member_targetE8elementsLi1EEEiv \
+	_Z43function_template_auto_scalar_pointer_valueIXadixdtL_Z58function_template_structural_pointer_factory_member_targetE8elementsLi1EEEiv
+
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_X64 = \
+	_Z38function_template_scalar_pointer_valueIXadixdtL_Z58function_template_structural_pointer_factory_member_targetE8elementsLl1EEEiv \
+	_Z43function_template_auto_scalar_pointer_valueIXadixdtL_Z58function_template_structural_pointer_factory_member_targetE8elementsLl1EEEiv
 
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_GCC_WINDOWS = \
 	_Z53function_template_structural_pointer_factory_explicitIXtl45FunctionTemplateStructuralPointerFactoryValuetl38FunctionTemplateStructuralPointerUniondi6objecttl45FunctionTemplateStructuralPointerUnionPayloadadixL_Z50function_template_structural_pointer_factory_arrayELx1ELi2EEEEEEiv
@@ -6371,6 +6388,9 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_GCC_POSIX),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_X86),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_X64),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_GCC_POSIX),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_X86),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_X64),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
@@ -6395,7 +6415,7 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,93)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,97)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -8369,6 +8389,9 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_GCC_WINDOWS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_X86),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SCALAR_MEMBER_ARRAY_POINTER_RETURN_SYMBOLS_X64),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_GCC_WINDOWS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_X86),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_X64),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
@@ -8378,7 +8401,7 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,93)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,97)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)

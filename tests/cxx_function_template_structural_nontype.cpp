@@ -99,6 +99,16 @@ inline constexpr FunctionTemplateStructuralPointerFactoryMemberTarget
 inline constexpr const int*
     function_template_structural_pointer_factory_member_array_pointer_base =
         &function_template_structural_pointer_factory_member_target.elements[1];
+constexpr const int*
+function_template_structural_pointer_factory_member_array_getter() {
+    return &function_template_structural_pointer_factory_member_target.elements[1];
+}
+constexpr const int*
+function_template_structural_pointer_factory_member_array_forwarder(
+    const int* pointer) {
+    const int* local_pointer = pointer;
+    return local_pointer;
+}
 inline constexpr const int*
     function_template_structural_pointer_factory_member_array_pointer =
         true
@@ -623,6 +633,12 @@ constexpr int function_template_scalar_pointer_value() {
     return *Pointer;
 }
 
+template<auto Pointer>
+constexpr int function_template_auto_scalar_pointer_value() {
+    if constexpr (Pointer == nullptr) return -1;
+    return *Pointer;
+}
+
 template<FunctionTemplateStructuralPointerArray Value>
 constexpr int function_template_structural_pointer_array_explicit() {
     return *Value.values[0] * 100 + *Value.values[1] * 10 + Value.bias;
@@ -1048,6 +1064,10 @@ static_assert(function_template_structural_pointer_factory_explicit<
                   function_template_make_structural_pointer_union_value(
                       function_template_structural_pointer_factory_member_array_comma_pointer,
                       2)>() == 15);
+static_assert(function_template_structural_pointer_factory_explicit<
+                  function_template_make_structural_pointer_union_value(
+                      function_template_structural_pointer_factory_member_array_getter(),
+                      2)>() == 15);
 static_assert(function_template_structural_union_direct_pointer_explicit<
                   FunctionTemplateStructuralDirectPointerUnion{
                       .pointer =
@@ -1067,6 +1087,16 @@ static_assert(function_template_scalar_pointer_value<
 static_assert(function_template_scalar_pointer_value<
                   function_template_structural_union_pointer_getter_alias>() ==
               23);
+static_assert(function_template_scalar_pointer_value<
+                  function_template_structural_pointer_factory_member_array_getter()>() ==
+              13);
+static_assert(function_template_scalar_pointer_value<
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_getter())>() ==
+              13);
+static_assert(function_template_auto_scalar_pointer_value<
+                  function_template_structural_pointer_factory_member_array_getter()>() ==
+              13);
 static_assert(function_template_scalar_pointer_value<nullptr>() == -1);
 static_assert(function_template_structural_union_direct_pointer_deduced(
                   FunctionTemplateStructuralDirectPointerUnionTag<
@@ -1418,6 +1448,10 @@ int main() {
             function_template_make_structural_pointer_union_value(
                 function_template_structural_pointer_factory_member_array_comma_pointer,
                 2)>() != 15 ||
+        function_template_structural_pointer_factory_explicit<
+            function_template_make_structural_pointer_union_value(
+                function_template_structural_pointer_factory_member_array_getter(),
+                2)>() != 15 ||
         function_template_structural_union_direct_pointer_explicit<
             FunctionTemplateStructuralDirectPointerUnion{
                 .pointer =
@@ -1430,6 +1464,19 @@ int main() {
             23 ||
         function_template_scalar_pointer_value<
             function_template_structural_union_pointer_getter()>() != 23 ||
+        function_template_scalar_pointer_value<
+            function_template_structural_pointer_factory_member_array_getter()>() !=
+            13 ||
+        function_template_scalar_pointer_value<
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_getter())>() !=
+            13 ||
+        *function_template_structural_pointer_factory_member_array_forwarder(
+            function_template_structural_pointer_factory_member_array_getter()) !=
+            13 ||
+        function_template_auto_scalar_pointer_value<
+            function_template_structural_pointer_factory_member_array_getter()>() !=
+            13 ||
         function_template_scalar_pointer_value<nullptr>() != -1 ||
         function_template_structural_pointer_factory_explicit<
             function_template_make_structural_pointer_union_value(

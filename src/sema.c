@@ -5849,6 +5849,7 @@ typedef struct SemaConstexprBinding {
     bool is_pointer;
     Decl* pointer_declaration;
     int64_t pointer_offset;
+    Expr* pointer_provenance;
     /* A pointer parameter/local may refer to a constexpr aggregate owned by
      * an outer evaluator frame. Retain that frame's bytes while forwarding
      * the pointer through nested constexpr calls. */
@@ -6977,6 +6978,7 @@ typedef struct SemaConstexprScalar {
     bool is_pointer;
     Decl* pointer_declaration;
     int64_t pointer_offset;
+    Expr* pointer_provenance;
     bool is_member_pointer;
     TypeField* member_pointer_field;
     TypeMethod* member_pointer_method;
@@ -7528,6 +7530,7 @@ static bool sema_constexpr_scalar_convert(
             output->is_pointer = true;
             output->pointer_declaration = input->pointer_declaration;
             output->pointer_offset = input->pointer_offset;
+            output->pointer_provenance = input->pointer_provenance;
             output->is_member_pointer = false;
             output->member_pointer_field = NULL;
             output->member_pointer_method = NULL;
@@ -8771,6 +8774,7 @@ static bool sema_constexpr_load_binding_scalar(
             value->is_pointer = scalar->is_pointer;
             value->pointer_declaration = scalar->pointer_declaration;
             value->pointer_offset = scalar->pointer_offset;
+            value->pointer_provenance = scalar->pointer_provenance;
             value->is_member_pointer = scalar->is_member_pointer;
             value->member_pointer_field = scalar->member_pointer_field;
             value->member_pointer_method = scalar->member_pointer_method;
@@ -8815,6 +8819,7 @@ static bool sema_constexpr_load_binding_scalar(
     value->is_pointer = target->is_pointer;
     value->pointer_declaration = target->pointer_declaration;
     value->pointer_offset = target->pointer_offset;
+    value->pointer_provenance = target->pointer_provenance;
     value->is_member_pointer = target->is_member_pointer;
     value->member_pointer_field = target->member_pointer_field;
     value->member_pointer_method = target->member_pointer_method;
@@ -8856,6 +8861,7 @@ static bool sema_constexpr_store_binding_scalar(
             scalar->is_pointer = converted.is_pointer;
             scalar->pointer_declaration = converted.pointer_declaration;
             scalar->pointer_offset = converted.pointer_offset;
+            scalar->pointer_provenance = converted.pointer_provenance;
             scalar->is_member_pointer = converted.is_member_pointer;
             scalar->member_pointer_field = converted.member_pointer_field;
             scalar->member_pointer_method = converted.member_pointer_method;
@@ -8924,6 +8930,7 @@ static bool sema_constexpr_store_binding_scalar(
         target->is_pointer = converted.is_pointer;
         target->pointer_declaration = converted.pointer_declaration;
         target->pointer_offset = converted.pointer_offset;
+        target->pointer_provenance = converted.pointer_provenance;
         target->is_member_pointer = converted.is_member_pointer;
         target->member_pointer_field = converted.member_pointer_field;
         target->member_pointer_method = converted.member_pointer_method;
@@ -10329,6 +10336,8 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 local_value.pointer_declaration;
             bindings[*binding_count].pointer_offset =
                 local_value.pointer_offset;
+            bindings[*binding_count].pointer_provenance =
+                local_value.pointer_provenance;
             bindings[*binding_count].is_member_pointer =
                 local_value.is_member_pointer;
             bindings[*binding_count].member_pointer_field =
@@ -11372,6 +11381,8 @@ static bool sema_eval_constexpr_aggregate_statement(
                     initializer.pointer_declaration;
                 bindings[*binding_count].pointer_offset =
                     initializer.pointer_offset;
+                bindings[*binding_count].pointer_provenance =
+                    initializer.pointer_provenance;
                 bindings[*binding_count].is_member_pointer =
                     initializer.is_member_pointer;
                 bindings[*binding_count].member_pointer_field =
@@ -12105,6 +12116,8 @@ static bool sema_eval_constexpr_scalar_statement(
             bindings[*binding_count].pointer_declaration =
                 initializer.pointer_declaration;
             bindings[*binding_count].pointer_offset = initializer.pointer_offset;
+            bindings[*binding_count].pointer_provenance =
+                initializer.pointer_provenance;
             bindings[*binding_count].is_member_pointer =
                 initializer.is_member_pointer;
             bindings[*binding_count].member_pointer_field =
@@ -12714,6 +12727,8 @@ static bool sema_eval_constexpr_scalar_function(
             bindings[count].pointer_declaration =
                 argument_value.pointer_declaration;
             bindings[count].pointer_offset = argument_value.pointer_offset;
+            bindings[count].pointer_provenance =
+                argument_value.pointer_provenance;
             bindings[count].is_member_pointer =
                 argument_value.is_member_pointer;
             bindings[count].member_pointer_field =
@@ -13046,6 +13061,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                 value->pointer_declaration =
                     bindings[binding_index].pointer_declaration;
                 value->pointer_offset = bindings[binding_index].pointer_offset;
+                value->pointer_provenance =
+                    bindings[binding_index].pointer_provenance;
                 value->is_member_pointer =
                     bindings[binding_index].is_member_pointer;
                 value->member_pointer_field =
@@ -13402,6 +13419,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             current.pointer_declaration =
                 bindings[binding_index].pointer_declaration;
             current.pointer_offset = bindings[binding_index].pointer_offset;
+            current.pointer_provenance =
+                bindings[binding_index].pointer_provenance;
             current.is_member_pointer =
                 bindings[binding_index].is_member_pointer;
             current.member_pointer_field =
@@ -13420,6 +13439,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             bindings[binding_index].pointer_declaration =
                 assigned.pointer_declaration;
             bindings[binding_index].pointer_offset = assigned.pointer_offset;
+            bindings[binding_index].pointer_provenance =
+                assigned.pointer_provenance;
             bindings[binding_index].is_member_pointer =
                 assigned.is_member_pointer;
             bindings[binding_index].member_pointer_field =
@@ -13477,6 +13498,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             current.pointer_declaration =
                 bindings[binding_index].pointer_declaration;
             current.pointer_offset = bindings[binding_index].pointer_offset;
+            current.pointer_provenance =
+                bindings[binding_index].pointer_provenance;
             current.is_member_pointer =
                 bindings[binding_index].is_member_pointer;
             current.member_pointer_field =
@@ -13500,6 +13523,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             bindings[binding_index].pointer_declaration =
                 updated.pointer_declaration;
             bindings[binding_index].pointer_offset = updated.pointer_offset;
+            bindings[binding_index].pointer_provenance =
+                updated.pointer_provenance;
             bindings[binding_index].is_member_pointer =
                 updated.is_member_pointer;
             bindings[binding_index].member_pointer_field =
@@ -13578,6 +13603,7 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                 value->pointer_declaration =
                     target_binding->declaration;
                 value->pointer_offset = (int64_t)target_offset;
+                value->pointer_provenance = expression;
                 return true;
             }
             if (bindings && expression->unary_operand &&
@@ -13595,6 +13621,7 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                     value->pointer_declaration =
                         bindings[object_binding_index].declaration;
                     value->pointer_offset = 0;
+                    value->pointer_provenance = expression;
                     return value->pointer_declaration != NULL;
                 }
             }
@@ -13606,6 +13633,7 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             value->is_pointer = true;
             value->pointer_declaration = declaration;
             value->pointer_offset = offset;
+            value->pointer_provenance = expression;
             return true;
         }
         case EXPR_DEREF: {
@@ -14108,7 +14136,8 @@ bool rcc_sema_eval_constexpr_pointer_constant(Expr* expression) {
 }
 
 bool rcc_sema_eval_constexpr_pointer_location(
-    Expr* expression, Decl** declaration_out, int64_t* byte_offset_out) {
+    Expr* expression, Decl** declaration_out, int64_t* byte_offset_out,
+    Expr** provenance_expression_out) {
     SemaConstexprScalar value;
     Decl* declaration;
     if (!expression || !declaration_out || !byte_offset_out ||
@@ -14134,6 +14163,9 @@ bool rcc_sema_eval_constexpr_pointer_location(
     }
     *declaration_out = declaration;
     *byte_offset_out = value.pointer_offset;
+    if (provenance_expression_out) {
+        *provenance_expression_out = value.pointer_provenance;
+    }
     return true;
 }
 
