@@ -26,6 +26,12 @@ constexpr int (auto_member_pointer_target::*
     &auto_member_pointer_target::get;
 using auto_member_function_pointer_type =
     int (auto_member_pointer_target::*)() const;
+struct auto_data_member_pointer_constant {
+    int auto_member_pointer_target::*pointer;
+};
+struct auto_function_member_pointer_constant {
+    auto_member_function_pointer_type pointer;
+};
 auto_member_pointer_target auto_member_pointer_object{5};
 
 template<auto Pointer>
@@ -46,6 +52,16 @@ int auto_member_pointer_read() {
 template<auto Pointer>
 int auto_member_function_pointer_read() {
     return (auto_member_pointer_object.*Pointer)();
+}
+
+template<auto Value>
+int auto_structural_member_pointer_read() {
+    return auto_member_pointer_object.*Value.pointer;
+}
+
+template<auto Value>
+int auto_structural_member_function_pointer_read() {
+    return (auto_member_pointer_object.*Value.pointer)();
 }
 
 template<auto Pointer>
@@ -321,6 +337,12 @@ extern "C" int main() {
                        &auto_member_pointer_target::get>() == 9 &&
                    auto_member_function_pointer_read<
                        auto_member_function_pointer_alias>() == 9 &&
+                   auto_structural_member_pointer_read<
+                       auto_data_member_pointer_constant{
+                           &auto_member_pointer_target::field}>() == 5 &&
+                   auto_structural_member_function_pointer_read<
+                       auto_function_member_pointer_constant{
+                           &auto_member_pointer_target::get}>() == 9 &&
                    auto_member_pointer_instance.read() == 5 &&
                    auto_member_function_pointer_instance.read() == 9 &&
                    auto_member_pointer_pack_sum<
