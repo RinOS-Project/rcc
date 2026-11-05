@@ -253,13 +253,14 @@ $(1)
 endef
 endif
 
-CXX_HOST_EXCEPTION_RUNTIME = $(TEST_OUT)/cxx-host-exception-runtime-x64.o
+CXX_HOST_EXCEPTION_RUNTIME = \
+	$(TEST_OUT)/cxx-host-exception-runtime-$(HOST_BUILD_TAG)-x64.o
 CXX_STATIC_REFERENCE_GUARD_RUNTIME = \
-	$(TEST_OUT)/cxx-static-reference-guard-runtime-x64.o
+	$(TEST_OUT)/cxx-static-reference-guard-runtime-$(HOST_BUILD_TAG)-x64.o
 CXX_HOST_EXCEPTION_RUNTIME_I686 = \
-	$(TEST_OUT)/cxx-host-exception-runtime-i686.o
+	$(TEST_OUT)/cxx-host-exception-runtime-$(HOST_BUILD_TAG)-i686.o
 CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686 = \
-	$(TEST_OUT)/cxx-static-reference-guard-runtime-i686.o
+	$(TEST_OUT)/cxx-static-reference-guard-runtime-$(HOST_BUILD_TAG)-i686.o
 ifeq ($(OS),Windows_NT)
 CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES = $(CXX_HOST_EXCEPTION_RUNTIME)
 else

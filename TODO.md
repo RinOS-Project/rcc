@@ -14775,8 +14775,57 @@ remains a separate open item.
       is also imported directly, rebuild stale BMI metadata when a transitive
       header changes, and diagnose dependency cycles without emitting an
       object. The focused `make -j2 BINDIR=build
-      test-cxx-header-unit-graph` gate passes. Full `test-ci` reaches an
-      unrelated `test-cxx-global-allocation-operators` link failure:
-      `/usr/bin/ld` reports a dangerous `R_AMD64_IMAGEBASE` relocation with
-      `__ImageBase` undefined while linking its static-reference runtime
-      object.
+      test-cxx-header-unit-graph` gate passes. The first full `test-ci` run
+      exposed a Windows/WSL host-runtime object collision, tracked in the
+      following continuation. After that fix, a full local run remains
+      unverified because this WSL installation lacks the i686 Linux
+      `asm/errno.h` development header required by the CI-installed
+      `gcc-multilib` support.
+
+## RCC continuation (2026-11-05, host-isolated C++ test runtime objects)
+
+- [x] Include `HOST_BUILD_TAG` in the shared C++ exception and static-reference
+      runtime object paths so native Windows COFF artifacts cannot satisfy
+      POSIX/WSL ELF prerequisites in the same checkout. POSIX rebuilt distinct
+      x64 and i686 ELF objects; `test-cxx-global-allocation-operators`
+      completed its x64 host execution and reached the i686 verified-runner
+      compile. That local compile stops because
+      `/usr/include/i386-linux-gnu/asm/errno.h` is unavailable; the checked-in
+      GitHub workflow installs `gcc-multilib`.
+
+## RCC release-readiness audit (2026-11-05)
+
+The current source, regression targets, and `.github/workflows/ci.yml` show
+these as implemented subsets rather than completed product claims:
+
+- C++20 has bounded named-module import/export/partition and transitive
+  header-unit implementations. Committed regression coverage includes the
+  nested header-unit graph and explicit unsupported-boundary diagnostics; a
+  dedicated named-module/partition regression target is not yet committed.
+  Full module semantics and coroutines remain open.
+- Typed SSA, MIR, optimization passes, and verified object emission are live
+  production paths. `-fverified-backend` remains opt-in and unsupported
+  functions can fall back; full aggregate/vector/exception lowering remains
+  open.
+- DWARF line/info/frame and many type/location forms are implemented,
+  including inline-origin ranges and bounded location lists. General optimized
+  register/piece lifetime tracking, remaining computed i686 divmod expressions,
+  and general CFI coverage remain open.
+- Bounded scalar inlining, DCE/CSE/GVN, strength reduction, LICM, and loop
+  unrolling exist. General loop transformations and cost-aware/interprocedural
+  inlining remain open.
+- Stage-two host-runner bootstrap is tested; it does not prove native RinOS
+  self-host execution.
+
+Continue in this order:
+
+- [ ] Extend DWARF location/lifetime and CFI coverage across optimized register
+      and multi-piece values.
+- [ ] Reduce verified-backend fallback for aggregate, vector, and exception
+      lowering; keep per-target fallback counts in regression gates.
+- [ ] Extend optimizer coverage beyond bounded loop transformations and
+      scalar interprocedural inlining.
+- [ ] Complete C++20 module semantics and coroutine support, with GCC/Clang
+      comparisons and explicit diagnostics until each form is implemented.
+- [ ] Prepare reproducible native RinOS self-host bootstraps; keep actual
+      target-system execution as separate hardware validation.
