@@ -2782,7 +2782,7 @@ static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
         return false;
     }
     preprocessing_state = pp_new_module_header_state(
-        context->preprocessor);
+        context->preprocessor, header_name, importing_path);
     if (!preprocessing_state) {
         snprintf(context->error, sizeof(context->error),
                  "independent header-unit preprocessing state is unavailable");

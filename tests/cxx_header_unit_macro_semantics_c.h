@@ -1,0 +1,2 @@
+#define RCC_HU_SEMANTICS_Y 45
+#define RCC_HU_SEMANTICS_Z c

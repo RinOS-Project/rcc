@@ -28870,7 +28870,29 @@ test-preprocessor-header-unit-macros: $(RCXX_TARGET)
 		$(TEST_OUT)/header-unit-macros/redefined.i
 	$(GREP) -F -q 'int rcc_header_unit_baseline_macro_value = 29;' \
 		$(TEST_OUT)/header-unit-macros/redefined.i
-	@echo "C++20 header-unit macro import tests completed"
+	$(RCXX_TARGET) -std=c++20 -E -Itests \
+		tests/cxx_header_unit_macro_nested_undef.cpp \
+		>$(TEST_OUT)/header-unit-macros/nested-undef.i
+	$(GREP) -F -q 'int rcc_header_unit_nested_undef_value;' \
+		$(TEST_OUT)/header-unit-macros/nested-undef.i
+	$(call CHECK_TEXT_ABSENT,RCC_HU_NESTED_UNDEF,$(TEST_OUT)/header-unit-macros/nested-undef.i)
+	$(RCXX_TARGET) -std=c++20 -E -Itests \
+		tests/cxx_header_unit_macro_nested_redefine.cpp \
+		>$(TEST_OUT)/header-unit-macros/nested-redefine.i
+	$(GREP) -F -q 'int rcc_header_unit_nested_redefine_value = 29;' \
+		$(TEST_OUT)/header-unit-macros/nested-redefine.i
+	$(RCXX_TARGET) -std=c++20 -E -Itests \
+		tests/cxx_header_unit_macro_identical_imports.cpp \
+		>$(TEST_OUT)/header-unit-macros/identical-imports.i
+	$(GREP) -F -q 'int rcc_header_unit_same_import_value = 45;' \
+		$(TEST_OUT)/header-unit-macros/identical-imports.i
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++20 -E -Itests tests/cxx_header_unit_macro_conflicting_redefinition.cpp,$(TEST_OUT)/header-unit-macros/conflicting-redefinition.log)
+	$(GREP) -F -q "header-unit macro 'RCC_HU_SEMANTICS_Y' conflicts with an active definition" \
+		$(TEST_OUT)/header-unit-macros/conflicting-redefinition.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++20 -E -Itests tests/cxx_header_unit_macro_conflicting_imports.cpp,$(TEST_OUT)/header-unit-macros/conflicting-imports.log)
+	$(GREP) -F -q "header-unit macro 'RCC_HU_SEMANTICS_Z' conflicts with an active definition" \
+		$(TEST_OUT)/header-unit-macros/conflicting-imports.log
+	@echo "C++20 header-unit macro definition-point and undefinition-point tests completed"
 
 .PHONY: test-cxx-header-unit-graph
 test-cxx-header-unit-graph: $(RCXX_TARGET)

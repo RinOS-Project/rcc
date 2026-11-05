@@ -22,6 +22,7 @@ typedef struct Macro {
     int param_count;             /* -1 for object-like macros */
     const char* body;            /* Body for function-like macros */
     bool is_builtin;
+    uint64_t definition_origin_id;
     uint64_t definition_generation;
     struct Macro* next;
 } Macro;
@@ -33,6 +34,7 @@ typedef struct PPModuleMacroSnapshot {
 
 typedef struct PPModuleHeaderUndef {
     char* name;
+    uint64_t definition_origin_id;
     uint64_t definition_generation;
 } PPModuleHeaderUndef;
 
@@ -69,6 +71,7 @@ typedef struct {
     Macro* module_import_baseline_macros;
     uint64_t module_import_baseline_generation;
     unsigned module_header_import_depth;
+    char* module_header_import_paths[PP_MAX_INCLUDE_DEPTH];
     PPModuleHeaderUndef* module_header_undefs;
     size_t module_header_undef_count;
     size_t module_header_undef_capacity;
@@ -94,7 +97,9 @@ Macro* pp_get_macro(Preprocessor* pp, const char* name);
 char* pp_process_file(Preprocessor* pp, const char* filename);
 char* pp_process_string(Preprocessor* pp, const char* source, const char* filename);
 bool pp_capture_module_import_baseline(Preprocessor* pp);
-Preprocessor* pp_new_module_header_state(const Preprocessor* pp);
+Preprocessor* pp_new_module_header_state(const Preprocessor* pp,
+                                        const char* header_name,
+                                        const char* importing_path);
 bool pp_module_import_state_hash(const Preprocessor* pp, uint64_t* hash_out);
 bool pp_write_dependencies(Preprocessor* pp, const char* target,
                            const char* source, const char* dependency_file);
