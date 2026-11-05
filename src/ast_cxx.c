@@ -6523,6 +6523,10 @@ void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bo
 }
 
 void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_static) {
+    if (decl) {
+        decl->is_module_imported_record =
+            rcc_parser_module_imported_record();
+    }
     struct CxxMember* member = rcc_alloc(sizeof(struct CxxMember));
     member->access = access;
     member->decl = decl;
@@ -8447,6 +8451,8 @@ static void cxx_inherit_function_deprecation(const Decl* earlier,
 
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
     if (decl) {
+        decl->is_module_imported_record =
+            rcc_parser_module_imported_record();
         decl->is_module_reachable_private =
             rcc_parser_module_reachable_current_record_private();
         decl->is_module_semantic_record =
@@ -8475,6 +8481,9 @@ void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
                     decl->is_module_reachable_private;
                 previous->is_module_semantic_record |=
                     decl->is_module_semantic_record;
+                previous->is_module_imported_record =
+                    previous->is_module_imported_record &&
+                    decl->is_module_imported_record;
                 if (decl->kind == DECL_FUNC) {
                     cxx_inherit_function_deprecation(previous, decl);
                 }
@@ -17888,6 +17897,10 @@ void cxx_class_add_field(CxxClass* cls, const char* name, Type* type,
 
 /* Add method to class */
 void cxx_class_add_method(CxxClass* cls, CxxMethod* method) {
+    if (method && method->decl) {
+        method->decl->is_module_imported_record =
+            rcc_parser_module_imported_record();
+    }
     /* Create member wrapper */
     struct CxxMember* member = rcc_alloc(sizeof(struct CxxMember));
     member->access = method->access;
@@ -17982,6 +17995,13 @@ void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
         if (ns->classes[index] == cls) {
             cls->is_module_reachable_private =
                 cls->is_module_reachable_private &&
+                rcc_parser_module_reachable_current_record_private();
+            return;
+        }
+        if (ns->classes[index] && cls->type &&
+            ns->classes[index]->type == cls->type) {
+            ns->classes[index]->is_module_reachable_private =
+                ns->classes[index]->is_module_reachable_private &&
                 rcc_parser_module_reachable_current_record_private();
             return;
         }

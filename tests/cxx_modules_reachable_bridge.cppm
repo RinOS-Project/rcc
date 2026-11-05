@@ -32,6 +32,10 @@ export inline int bridge_private_namespace_helper(int value) {
     return reachable_detail::reachable_scoped_helper(value);
 }
 
+export inline int bridge_private_overload(int value) {
+    return reachable_overload(value);
+}
+
 export inline int bridge_private_default_argument(
     int value = reachable_private_helper(31)) {
     return value;

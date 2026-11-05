@@ -14886,6 +14886,10 @@ Continue in this order:
       is emitted once when multiple translation units import the module.
       Exported namespaces also retain non-inline function declarations for
       importers while the provider defines the function once.
+      When a later direct import promotes an exported overload, its type and
+      namespace identity now coalesce with earlier private semantic records;
+      a compile-time check confirms that only the exported overload enters
+      ordinary lookup.
       `test-cxx-modules` links both namespace cases on i686 and x86_64.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate

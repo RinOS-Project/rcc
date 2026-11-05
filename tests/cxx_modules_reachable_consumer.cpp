@@ -21,6 +21,7 @@ int main() {
             defaulted.private_value_sum() == 41 &&
             bridge_private_default_argument() == 35 &&
             bridge_private_declaration_default() == 43 &&
+            bridge_private_overload(8) == 108 &&
             bridge_private_template_helper(value) == 21 &&
             bridge_private_namespace_helper(8) == 14 &&
             bridge_private_helper(8) == 12 &&

@@ -766,8 +766,9 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
                 (!entry->cxx_namespace && !cxx_namespace) ||
                 (entry->cxx_namespace && cxx_namespace &&
                  strcmp(entry->cxx_namespace, cxx_namespace) == 0);
-            if (rcc_parser_module_entity_lookup_visible(
-                    entry->is_module_reachable_private) &&
+            if ((rcc_parser_module_entity_lookup_visible(
+                     entry->is_module_reachable_private) ||
+                 parser_module_imported_record) &&
                 entry->kind == kind && same_namespace && entry->scope &&
                 parser_tag_scope_is_visible(entry->scope) &&
                 strcmp(entry->name, name) == 0) {

@@ -24,6 +24,7 @@ extern void rcc_parser_set_cxx_template_default_mode(bool enabled);
 extern bool rcc_parser_type_lookup_is_ambiguous(const char* name);
 extern bool rcc_parser_cxx_split_template_close(void);
 extern bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void);
+extern bool rcc_parser_module_imported_record(void);
 
 /* The current template is only needed while parsing dependent declarations;
  * instantiated types are resolved by the later template semantic phase. */
@@ -14699,6 +14700,34 @@ static CxxClass* cxx_find_class_declaration(const char* name) {
     return NULL;
 }
 
+/* A dependency BMI can make an exported class reachable through one module
+ * before the client imports its defining module directly.  The direct import
+ * carries the same definition with public lookup visibility.  Consume that
+ * duplicate record and promote the already canonical class instead of
+ * registering a second class type. */
+static bool cxx_skip_duplicate_imported_class_record(void) {
+    while (!at_end()) {
+        if (match(TOK_SEMICOLON)) return true;
+        if (check(TOK_LBRACE)) {
+            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+            if (match(TOK_SEMICOLON)) return true;
+        } else {
+            advance();
+        }
+    }
+    return false;
+}
+
+static void cxx_refresh_imported_class_visibility(CxxClass* cls) {
+    if (!cls) return;
+    cls->is_module_reachable_private =
+        cls->is_module_reachable_private &&
+        rcc_parser_module_reachable_current_record_private();
+    if (cls->name && cls->type) {
+        rcc_parser_define_type(cls->name, cls->type);
+    }
+}
+
 static void cxx_sync_aggregate_fields_from_type(CxxClass* cls, Type* type) {
     if (!cls || !type || cls->fields || !type->fields) return;
     for (TypeField* source = type->fields; source; source = source->next) {
@@ -14768,6 +14797,15 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
         !check(TOK_LBRACE) && !check(TOK_COLON)) {
         /* A repeated namespace-scope forward declaration denotes the same
          * class type; do not append a second incomplete class to the registry. */
+        if (rcc_parser_module_imported_record()) {
+            cxx_refresh_imported_class_visibility(existing);
+        }
+        return existing;
+    }
+    if (existing && existing->type && existing->type->is_complete &&
+        rcc_parser_module_imported_record() &&
+        cxx_skip_duplicate_imported_class_record()) {
+        cxx_refresh_imported_class_visibility(existing);
         return existing;
     }
     if (existing && existing->type && !existing->type->is_complete) {
@@ -15505,8 +15543,9 @@ static void collect_namespace_definition_lookup(
     CxxNamespaceDefinitionLookup* lookup) {
     if (!scope || !name || !lookup) return;
     for (CxxNamespace* child = scope->children; child; child = child->next) {
-        if (cxx_module_entity_lookup_visible(
-                child->is_module_reachable_private) &&
+        if ((cxx_module_entity_lookup_visible(
+                 child->is_module_reachable_private) ||
+             rcc_parser_module_imported_record()) &&
             child->name && strcmp(child->name, name) == 0) {
             if (!lookup->ns) lookup->ns = child;
             ++lookup->matches;

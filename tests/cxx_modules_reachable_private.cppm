@@ -31,8 +31,22 @@ int reachable_private_helper(int value) {
     return value + reachable_private_value;
 }
 
+int reachable_overload(int value) {
+    return value + 100;
+}
+
 int reachable_private_adl(ReachablePrivate value) {
     return value.value + 5;
+}
+
+export struct ReachableOverloadResult {
+    char bytes[3];
+};
+
+export ReachableOverloadResult reachable_overload(double value) {
+    ReachableOverloadResult result = {{'R', 'I', 'N'}};
+    (void)value;
+    return result;
 }
 
 export using ReachableAlias = ReachablePrivate;
