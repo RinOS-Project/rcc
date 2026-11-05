@@ -14860,11 +14860,12 @@ Continue in this order:
       exported aliases and inline function bodies while preventing private
       classes, symbols, namespaces, namespace aliases, using declarations,
       templates, enumerators, and ADL candidates from leaking into importer
-      lookup. Resolve reachable private enumerators during semantic analysis
-      of exported bodies instead of folding hidden names in the parser. Cover
-      transitive and later direct imports without duplicate type identities.
-      Consumers use exported aliases to namespace-scoped classes and template
-      specializations, and reject lookup of their private source names.
+      lookup. Keep private enumerators available while parsing a module unit's
+      semantically reachable declarations and hide them from ordinary
+      importer lookup. Cover transitive and later direct imports without
+      duplicate type identities. Consumers use exported aliases to
+      namespace-scoped classes and template specializations, and reject lookup
+      of their private source names.
       `test-cxx-modules` passes on i686 and x86_64, and
       `test-cxx-class-template-dependent-nested-type` passes.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted

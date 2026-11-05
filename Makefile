@@ -29039,7 +29039,9 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-using-leak.ro $(TEST_OUT)/cxx-modules/reachable-using-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-using-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-adl-leak.ro $(TEST_OUT)/cxx-modules/reachable-adl-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-adl-leak.log)
+	$(GREP) -F -q "undefined identifier 'reachable_private_adl'" $(TEST_OUT)/cxx-modules/reachable-adl-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-enum-leak.ro $(TEST_OUT)/cxx-modules/reachable-enum-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-enum-leak.log)
+	$(GREP) -F -q "undefined identifier 'reachable_private_enum_value'" $(TEST_OUT)/cxx-modules/reachable-enum-leak.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/reachable-consumer.cpp \
 		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp \
