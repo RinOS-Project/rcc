@@ -13529,6 +13529,7 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z37auto_repeated_value_variable_categoryIXadL_ZN26auto_member_pointer_target5fieldEEEXadL_ZNS0_5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z44auto_structural_member_pointer_pack_variableIJXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEXtlS0_EEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z35auto_structural_member_pointer_readIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
@@ -13556,6 +13557,7 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z37auto_repeated_value_variable_categoryIXadL_ZN26auto_member_pointer_target5fieldEEEXadL_ZNS0_5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z44auto_structural_member_pointer_pack_variableIJXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEXtlS0_EEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z35auto_structural_member_pointer_readIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
@@ -13589,6 +13591,7 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z37auto_repeated_value_variable_categoryIXadL_ZN26auto_member_pointer_target5fieldEEEXadL_ZNS0_5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z44auto_structural_member_pointer_pack_variableIJXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEXtlS0_EEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z35auto_structural_member_pointer_readIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
@@ -13673,6 +13676,7 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z37auto_repeated_value_variable_categoryIXadL_ZN26auto_member_pointer_target5fieldEEEXadL_ZNS0_5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z44auto_structural_member_pointer_pack_variableIJXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEXtlS0_EEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z35auto_structural_member_pointer_readIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
@@ -13729,6 +13733,7 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z37auto_repeated_value_variable_categoryIXadL_ZN26auto_member_pointer_target5fieldEEEXadL_ZNS0_5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z44auto_structural_member_pointer_pack_variableIJXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEXtlS0_EEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z35auto_structural_member_pointer_readIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
@@ -13792,6 +13797,7 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z37auto_repeated_value_variable_categoryIXadL_ZN26auto_member_pointer_target5fieldEEEXadL_ZNS0_5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z39auto_structural_member_pointer_variableIXtl33auto_data_member_pointer_constantEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z44auto_structural_member_pointer_pack_variableIJXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEXtlS0_EEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z35auto_structural_member_pointer_readIXtl33auto_data_member_pointer_constantadL_ZN26auto_member_pointer_target5fieldEEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s

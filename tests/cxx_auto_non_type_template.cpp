@@ -100,6 +100,10 @@ inline constexpr int
 template<auto Value>
 inline constexpr int auto_structural_member_pointer_variable = 41;
 
+template<auto... Values>
+inline constexpr int auto_structural_member_pointer_pack_variable =
+    sizeof...(Values);
+
 const int* auto_member_pointer_variable_address() {
     return &auto_member_pointer_variable<
         &auto_member_pointer_target::field>;
@@ -124,6 +128,13 @@ const int* auto_structural_member_pointer_variable_address() {
 
 const int* auto_structural_null_member_pointer_variable_address() {
     return &auto_structural_member_pointer_variable<
+        auto_data_member_pointer_constant{nullptr}>;
+}
+
+const int* auto_structural_member_pointer_pack_variable_address() {
+    return &auto_structural_member_pointer_pack_variable<
+        auto_data_member_pointer_constant{
+            &auto_member_pointer_target::field},
         auto_data_member_pointer_constant{nullptr}>;
 }
 
@@ -372,6 +383,13 @@ extern "C" int main() {
                    *auto_structural_member_pointer_variable_address() == 41 &&
                    *auto_structural_null_member_pointer_variable_address() ==
                        41 &&
+                   auto_structural_member_pointer_pack_variable<
+                       auto_data_member_pointer_constant{
+                           &auto_member_pointer_target::field},
+                       auto_data_member_pointer_constant{nullptr}> == 2 &&
+                   auto_structural_member_pointer_pack_variable<> == 0 &&
+                   *auto_structural_member_pointer_pack_variable_address() ==
+                       2 &&
                    auto_member_pointer_read<
                        &auto_member_pointer_target::field>() == 5 &&
                    auto_member_pointer_read<
