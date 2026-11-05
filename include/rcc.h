@@ -49,6 +49,13 @@ typedef enum {
     SIGN_PROFILE_RELEASE,
 } SigningProfile;
 
+/* Keep GNU Itanium spelling as the default for existing RinOS objects while
+ * allowing opt-in compatibility with Clang 18's ABI #47 NTTP spelling. */
+typedef enum {
+    RCC_CXX_ITANIUM_ABI_GNU = 0,
+    RCC_CXX_ITANIUM_ABI_CLANG18
+} RccCxxItaniumAbi;
+
 /* Internal values retained on parsed C23 expressions.  Zero intentionally
  * means the dynamic floating-point environment so zero-initialized synthetic
  * AST nodes keep the pre-C23 behavior. */
@@ -83,6 +90,7 @@ typedef struct {
     bool cxx_mode;
     int c_standard;             /* 17 or 23 when in C mode */
     int cxx_standard;           /* 11, 14, 17, or 20 when in C++ mode */
+    RccCxxItaniumAbi cxx_itanium_abi;
     bool warnings_as_errors;
     bool verbose;
 

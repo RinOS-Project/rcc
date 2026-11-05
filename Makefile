@@ -11423,6 +11423,20 @@ test-cxx-template-template-posix: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc-host tests/cxx_auto_non_type_template_template_partial.cpp
 	$(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc-host
 	$(PYTHON) tests/compare_mangled_symbols.py --all template_template_value_ $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc.s $(TEST_OUT)/cxx-auto-non-type-template-template-partial/x86.s $(TEST_OUT)/cxx-auto-non-type-template-template-partial/x64.s
+	$(RCXX_TARGET) --itanium-abi=clang18 --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s tests/cxx_auto_non_type_template_template_partial.cpp
+	$(RCXX_TARGET) --itanium-abi=clang18 --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s tests/cxx_auto_non_type_template_template_partial.cpp
+	$(GREP) -F -q "_Z32template_template_value_functionI24TemplateTemplateValueBoxTnDaLi37EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_functionIN27TemplateTemplateNestedOwnerIiE6MemberETnDaLi42EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_functionIN27TemplateTemplateNestedOwnerIlE6MemberETnDaLi43EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_pack_sumITpTnDaJLi37ELi42ELi43EEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_pack_sumITpTnDaJEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z34template_template_value_structuralITnDaXtl31TemplateTemplateStructuralValueLi51EEEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_functionI24TemplateTemplateValueBoxTnDaLi37EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z32template_template_value_functionIN27TemplateTemplateNestedOwnerIiE6MemberETnDaLi42EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z32template_template_value_functionIN27TemplateTemplateNestedOwnerIlE6MemberETnDaLi43EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z32template_template_value_pack_sumITpTnDaJLi37ELi42ELi43EEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z32template_template_value_pack_sumITpTnDaJEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z34template_template_value_structuralITnDaXtl31TemplateTemplateStructuralValueLi51EEEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
 	@echo "RCC++ template-template parameter tests completed"
 
 test-cxx-template-template-invalid: $(RCXX_TARGET)
@@ -12973,6 +12987,20 @@ test-cxx-template-template: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc-host.exe tests/cxx_auto_non_type_template_template_partial.cpp
 	$(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc-host.exe
 	$(PYTHON) tests/compare_mangled_symbols.py --all template_template_value_ $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc.s $(TEST_OUT)/cxx-auto-non-type-template-template-partial/x86.s $(TEST_OUT)/cxx-auto-non-type-template-template-partial/x64.s
+	$(RCXX_TARGET) --itanium-abi=clang18 --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s tests/cxx_auto_non_type_template_template_partial.cpp
+	$(RCXX_TARGET) --itanium-abi=clang18 --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s tests/cxx_auto_non_type_template_template_partial.cpp
+	$(GREP) -F -q "_Z32template_template_value_functionI24TemplateTemplateValueBoxTnDaLi37EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_functionIN27TemplateTemplateNestedOwnerIiE6MemberETnDaLi42EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_functionIN27TemplateTemplateNestedOwnerIlE6MemberETnDaLi43EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_pack_sumITpTnDaJLi37ELi42ELi43EEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_pack_sumITpTnDaJEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z34template_template_value_structuralITnDaXtl31TemplateTemplateStructuralValueLi51EEEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x86.s
+	$(GREP) -F -q "_Z32template_template_value_functionI24TemplateTemplateValueBoxTnDaLi37EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z32template_template_value_functionIN27TemplateTemplateNestedOwnerIiE6MemberETnDaLi42EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z32template_template_value_functionIN27TemplateTemplateNestedOwnerIlE6MemberETnDaLi43EEiT_IXT0_EE" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z32template_template_value_pack_sumITpTnDaJLi37ELi42ELi43EEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z32template_template_value_pack_sumITpTnDaJEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
+	$(GREP) -F -q "_Z34template_template_value_structuralITnDaXtl31TemplateTemplateStructuralValueLi51EEEEiv" $(TEST_OUT)/cxx-auto-non-type-template-template-partial/clang18-x64.s
 
 test-cxx-range-for: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-range-for)

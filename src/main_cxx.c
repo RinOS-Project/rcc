@@ -88,6 +88,7 @@ static void print_usage_cxx(void) {
     printf("  --sign-profile <p>  Build profile: debug or release\n");
     printf("  -O<level>       Optimization level (0-3)\n");
     printf("  -std=c++<ver>   C++ standard (11, 14, 17, 20)\n");
+    printf("  --itanium-abi=gnu|clang18  Select GNU or Clang 18 NTTP mangling\n");
     printf("  -g              Generate debug info\n");
     printf("  -S              Output assembly\n");
     printf("  -I/-D/-U        Include path and macro controls\n");
@@ -118,6 +119,7 @@ static int parse_cxx_args(int argc, char** argv) {
     g_opts.opt_level = 0;
     g_opts.sse_enabled = true;
     g_opts.sse2_enabled = true;
+    g_opts.cxx_itanium_abi = RCC_CXX_ITANIUM_ABI_GNU;
     g_opts.input_count = 0;
 
     static struct option long_options[] = {
@@ -153,6 +155,7 @@ static int parse_cxx_args(int argc, char** argv) {
         {"fdynamic-tls", no_argument, 0, 22},
         {"frounding-math", no_argument, 0, 23},
         {"fno-rounding-math", no_argument, 0, 24},
+        {"itanium-abi", required_argument, 0, 25},
         {0, 0, 0, 0}
     };
 
@@ -345,6 +348,18 @@ static int parse_cxx_args(int argc, char** argv) {
                 break;
             case 24:
                 g_opts.frounding_math = false;
+                break;
+            case 25:
+                if (strcmp(optarg, "gnu") == 0) {
+                    g_opts.cxx_itanium_abi = RCC_CXX_ITANIUM_ABI_GNU;
+                } else if (strcmp(optarg, "clang18") == 0) {
+                    g_opts.cxx_itanium_abi = RCC_CXX_ITANIUM_ABI_CLANG18;
+                } else {
+                    fprintf(stderr,
+                            "rcc++: error: unsupported Itanium ABI mode '%s'; "
+                            "expected gnu or clang18\n", optarg);
+                    return -1;
+                }
                 break;
             default:
                 return -1;

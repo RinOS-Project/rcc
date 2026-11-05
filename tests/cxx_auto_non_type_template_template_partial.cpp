@@ -1,6 +1,10 @@
 template<auto Value>
 struct TemplateTemplateValueBox {};
 
+struct TemplateTemplateStructuralValue {
+    int value;
+};
+
 template<typename>
 inline constexpr int template_template_value_partial = 0;
 
@@ -22,6 +26,16 @@ inline constexpr TemplateTemplateNestedOwner<long>::Member<43>
 template<template<auto M> class Box, auto Value>
 int template_template_value_function(Box<Value>) {
     return static_cast<int>(Value);
+}
+
+template<auto... Values>
+int template_template_value_pack_sum() {
+    return (0 + ... + static_cast<int>(Values));
+}
+
+template<auto Value>
+int template_template_value_structural() {
+    return Value.value;
 }
 
 static_assert(template_template_value_partial<
@@ -46,7 +60,11 @@ int main() {
                    template_template_value_function(
                        template_template_nested_member) == 42 &&
                    template_template_value_function(
-                       template_template_nested_member_long_owner) == 43
+                       template_template_nested_member_long_owner) == 43 &&
+                   template_template_value_pack_sum<37, 42, 43>() == 122 &&
+                   template_template_value_pack_sum<>() == 0 &&
+                   template_template_value_structural<
+                       TemplateTemplateStructuralValue{51}>() == 51
                ? 0
                : 1;
 }

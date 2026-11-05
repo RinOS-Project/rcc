@@ -2009,6 +2009,23 @@ static bool cxx_mangle_function_template_value_argument(
     return true;
 }
 
+static void cxx_mangle_clang18_auto_parameter_declaration(
+    char* buf, size_t* pos, const TemplateParam* parameter) {
+    const char* encoding;
+    size_t length;
+    if (!parameter || !parameter->is_auto ||
+        g_opts.cxx_itanium_abi != RCC_CXX_ITANIUM_ABI_CLANG18) {
+        return;
+    }
+    encoding = parameter->is_pack ? "TpTnDa" : "TnDa";
+    length = strlen(encoding);
+    if (*pos + length >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ template function name is too long");
+    }
+    memcpy(buf + *pos, encoding, length);
+    *pos += length;
+}
+
 /* Use the source template and its complete argument list for class members.
  * The parser's internal `.__instanceN` tag is intentionally useful for AST
  * ownership, but N is translation-unit order and therefore cannot identify an
@@ -4612,6 +4629,8 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                     (size_t)pack_length >= sizeof(buf) - 32u) {
                 rcc_fatal("C++ template function name is too long");
             }
+            cxx_mangle_clang18_auto_parameter_declaration(
+                buf, &pos, parameter);
             buf[pos++] = 'J';
             for (int pack_index = 0;
                  pack_index < pack_length; ++pack_index) {
@@ -4651,6 +4670,8 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         }
         if (parameter->kind == TPARAM_NONTYPE && value_present &&
             value_present[index]) {
+            cxx_mangle_clang18_auto_parameter_declaration(
+                buf, &pos, parameter);
             Type* value_type = cxx_mangle_template_value_type(
                 tmpl, parameter, type_args, tmpl->param_count, index);
             if (cxx_structural_class_value_supported_subset(value_type)) {
