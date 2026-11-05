@@ -4977,6 +4977,12 @@ static bool cxx_template_non_type_constant_value_impl(
     return false;
 }
 
+static bool eval_template_integer_expression(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present, int64_t* result);
+static Decl* cxx_template_lookup_namespace_declaration(
+    CxxTemplate* tmpl, const char* name);
+
 static bool cxx_template_non_type_constant_value_as_type(
     Expr* expression, Type* target_type, int64_t* value_out) {
     Type* source_type;
@@ -4991,6 +4997,62 @@ static bool cxx_template_non_type_constant_value_as_type(
         return false;
     }
     return cxx_template_non_type_constant_value(expression, value_out);
+}
+
+static bool cxx_template_non_type_constant_value_in_context(
+    Expr* expression, CxxTemplate* context, int64_t* value_out) {
+    if (!expression || !value_out) return false;
+    if (context && eval_template_integer_expression(
+                       expression, context, NULL, NULL, value_out)) {
+        return true;
+    }
+    if (expression->kind == EXPR_IDENT && !expression->ident_decl) {
+        Decl* declaration = cxx_template_lookup_namespace_declaration(
+            context, expression->ident_name);
+        if (declaration && declaration->kind == DECL_ENUM_CONST) {
+            *value_out = declaration->enum_val;
+            return true;
+        }
+        if (declaration && declaration->kind == DECL_VAR &&
+            declaration->var_is_constexpr) {
+            Expr resolved_identifier = *expression;
+            resolved_identifier.ident_decl = declaration;
+            return cxx_template_non_type_constant_value(
+                &resolved_identifier, value_out);
+        }
+    }
+    return cxx_template_non_type_constant_value(expression, value_out);
+}
+
+static bool cxx_template_non_type_constant_value_as_type_in_context(
+    Expr* expression, Type* target_type, CxxTemplate* context,
+    int64_t* value_out) {
+    Type* source_type;
+    Expr resolved_identifier;
+    Expr* value_expression = expression;
+    if (!expression || !target_type || !value_out) return false;
+    if (!type_is_floating(target_type)) {
+        return cxx_template_non_type_constant_value_in_context(
+            expression, context, value_out);
+    }
+    source_type = expression->type
+        ? expression->type : cxx_parser_expression_type(expression);
+    if (!source_type || source_type->kind != target_type->kind ||
+        source_type->is_long_double != target_type->is_long_double) {
+        return false;
+    }
+    if (expression->kind == EXPR_IDENT && !expression->ident_decl) {
+        Decl* declaration = cxx_template_lookup_namespace_declaration(
+            context, expression->ident_name);
+        if (declaration && declaration->kind == DECL_VAR &&
+            declaration->var_is_constexpr) {
+            resolved_identifier = *expression;
+            resolved_identifier.ident_decl = declaration;
+            value_expression = &resolved_identifier;
+        }
+    }
+    return cxx_template_non_type_constant_value_as_type(
+        value_expression, target_type, value_out);
 }
 static Type* parse_class_template_specialization_for_owner(
     CxxTemplate* tmpl, CxxClass* owner_class, SourceLoc loc);
@@ -17110,6 +17172,12 @@ static CxxTemplate* cxx_template_snapshot_parameter_scope(
     if (!tmpl) return NULL;
     snapshot = ast_arena_alloc(sizeof(*snapshot));
     *snapshot = *tmpl;
+    /* Defaults are parsed before cxx_namespace_add_template installs the
+     * owner namespace. Keep the lexical namespace for deferred lookup. */
+    if (!snapshot->ns) {
+        snapshot->ns = active_namespace ? active_namespace
+                                        : g_global_namespace;
+    }
     if (tmpl->param_count > 0) {
         snapshot->params = ast_arena_alloc(
             sizeof(*snapshot->params) * (size_t)tmpl->param_count);
@@ -31534,6 +31602,9 @@ static Type* parse_class_template_specialization_with_owner_type(
             int64_t value;
             CxxTemplate* default_context = parameter->default_context
                 ? parameter->default_context : tmpl;
+            if (default_context && !default_context->ns) {
+                default_context->ns = tmpl->ns;
+            }
             Expr* default_expression = cxx_template_clone_expr_with_values(
                 default_context, parameter->default_value, arguments,
                 tmpl->param_count, values, value_present);
@@ -31557,11 +31628,11 @@ static Type* parse_class_template_specialization_with_owner_type(
             }
             if (default_expression &&
                 (parameter->is_auto
-                     ? cxx_template_non_type_constant_value(
-                           default_expression, &value)
-                     : cxx_template_non_type_constant_value_as_type(
+                     ? cxx_template_non_type_constant_value_in_context(
+                           default_expression, default_context, &value)
+                     : cxx_template_non_type_constant_value_as_type_in_context(
                            default_expression, arguments[argument_count],
-                           &value))) {
+                           default_context, &value))) {
                 values[argument_count] = value;
                 value_present[argument_count] = true;
             } else if (!cxx_expression_is_dependent(
@@ -37395,28 +37466,32 @@ static bool eval_template_integer_expression(Expr* expression,
             }
         }
     }
-    if (expression->kind == EXPR_IDENT && tmpl && values && value_present) {
-        for (int index = 0; index < tmpl->param_count; ++index) {
-            TemplateParam* parameter = &tmpl->params[index];
-            if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
-                value_present[index] &&
-                strcmp(parameter->name, expression->ident_name) == 0) {
-                *result = values[index];
-                return true;
-            }
-        }
-        if (tmpl->enclosing_template) {
-            CxxTemplate* enclosing = tmpl->enclosing_template;
-            for (int index = 0; index < enclosing->param_count; ++index) {
-                TemplateParam* parameter = &enclosing->params[index];
-                int substitution_index;
-                if (index > INT_MAX - tmpl->param_count) continue;
-                substitution_index = tmpl->param_count + index;
+    if (expression->kind == EXPR_IDENT && tmpl) {
+        if (values && value_present) {
+            for (int index = 0; index < tmpl->param_count; ++index) {
+                TemplateParam* parameter = &tmpl->params[index];
                 if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
-                    value_present[substitution_index] &&
+                    value_present[index] &&
                     strcmp(parameter->name, expression->ident_name) == 0) {
-                    *result = values[substitution_index];
+                    *result = values[index];
                     return true;
+                }
+            }
+            if (tmpl->enclosing_template) {
+                CxxTemplate* enclosing = tmpl->enclosing_template;
+                for (int index = 0; index < enclosing->param_count; ++index) {
+                    TemplateParam* parameter = &enclosing->params[index];
+                    int substitution_index;
+                    if (index > INT_MAX - tmpl->param_count) continue;
+                    substitution_index = tmpl->param_count + index;
+                    if (parameter->kind == TPARAM_NONTYPE &&
+                        parameter->name &&
+                        value_present[substitution_index] &&
+                        strcmp(parameter->name,
+                               expression->ident_name) == 0) {
+                        *result = values[substitution_index];
+                        return true;
+                    }
                 }
             }
         }

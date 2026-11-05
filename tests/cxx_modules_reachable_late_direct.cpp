@@ -5,6 +5,7 @@ static_assert(sizeof(reachable_overload(1)) ==
               sizeof(ReachableOverloadResult));
 static_assert(sizeof(reachable_public_detail::ReachablePublicNested) ==
               2 * sizeof(int));
+static_assert(sizeof(ReachablePublicDefaultSize<>) == 4 * sizeof(int));
 
 int main() {
     ReachableAlias value{};
@@ -17,6 +18,8 @@ int main() {
     public_alias_template.value = 37;
     ReachableScoped promoted_using{};
     promoted_using.scoped_value = 39;
+    ReachablePublicDefaultSize<> default_sized{};
+    default_sized.values[3] = 43;
     return bridge_value(value) == 19 &&
             reachable_public_detail::public_namespace_function(5) == 75 &&
             reachable_public_variable == 47 &&
@@ -24,5 +27,6 @@ int main() {
             nested.value == 27 && public_template.value == 31 &&
             public_alias_template.value == 37 &&
             promoted_using.scoped_value == 39 &&
+            default_sized.values[3] == 43 &&
             reachable_public_identity(41) == 41 ? 0 : 1;
 }

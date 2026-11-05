@@ -67,6 +67,11 @@ int reachable_public_constrained(T value) {
     return reachable_private_helper(value.value);
 }
 
+export template<int N = reachable_private_concept_minimum_size>
+struct ReachablePublicDefaultSize {
+    int values[N];
+};
+
 export int reachable_public_variable = 47;
 
 export ReachableOverloadResult reachable_overload(double value) {
