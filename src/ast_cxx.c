@@ -677,12 +677,36 @@ static void cxx_mangle_template_value_suffix(
 /* A template-template argument is encoded as a template-name, not as a type.
  * In particular, namespace-qualified names use Itanium's nested-name form. */
 static void mangle_template_argument_name(char* buf, size_t* pos,
-                                          Type* argument) {
+                                          Type* argument,
+                                          CxxMangleContext* context) {
     CxxNamespace** namespace_stack;
     CxxTemplate* actual_template = argument ? argument->cxx_template : NULL;
     size_t namespace_count = 0u;
     if (!actual_template || !actual_template->name) {
         rcc_fatal("C++ template-template argument is missing its template name");
+    }
+    Type* owner_type = argument
+        ? argument->cxx_dependent_class_template_owner : NULL;
+    CxxClass* owner_class = owner_type ? owner_type->cxx_class : NULL;
+    if (owner_class) {
+        bool namespace_prefix_appended = context &&
+            cxx_mangle_namespace_prefix_append(
+                buf, pos, owner_class->ns, context);
+        if (!namespace_prefix_appended) {
+            namespace_stack = cxx_collect_namespace_components(
+                owner_class->ns, false, &namespace_count);
+            cxx_mangle_type_char(buf, pos, 'N');
+            for (size_t index = namespace_count; index > 0u; --index) {
+                mangle_name(buf, pos, namespace_stack[index - 1u]->name);
+            }
+        }
+        CxxMangleContext local_context = { 0 };
+        local_context.class_type_index_base = 1u;
+        mangle_class_name_context(
+            buf, pos, owner_class, context ? context : &local_context);
+        mangle_name(buf, pos, actual_template->name);
+        cxx_mangle_type_char(buf, pos, 'E');
+        return;
     }
     namespace_stack = cxx_collect_namespace_components(
         actual_template->ns, false, &namespace_count);
@@ -716,7 +740,7 @@ static void mangle_template_argument_name_context(
         cxx_mangle_append_substitution(buf, pos, substitution);
         return;
     }
-    mangle_template_argument_name(buf, pos, argument);
+    mangle_template_argument_name(buf, pos, argument, context);
     if (!context || !actual_template) return;
     size_t count = context->template_name_count;
     context->template_names = ast_arena_grow(
@@ -2085,7 +2109,8 @@ static void mangle_class_name_context(
             cxx_mangle_type_append_context(
                 buf, pos, template_args[index], template_argument_context);
         } else if (parameter->kind == TPARAM_TEMPLATE) {
-            mangle_template_argument_name(buf, pos, template_args[index]);
+            mangle_template_argument_name(
+                buf, pos, template_args[index], template_argument_context);
         } else if (parameter->kind == TPARAM_NONTYPE) {
             Type* value_type;
             if (!template_value_present || !template_value_present[index] ||
@@ -2115,7 +2140,8 @@ static void mangle_class_name_context(
             } else if (tmpl->params[pack_parameter_index].kind ==
                        TPARAM_TEMPLATE) {
                 mangle_template_argument_name(
-                    buf, pos, template_args[pack_parameter_index + pack_index]);
+                    buf, pos, template_args[pack_parameter_index + pack_index],
+                    template_argument_context);
             } else {
                 if (!template_value_present ||
                     !template_value_present[pack_parameter_index + pack_index] ||
@@ -2164,7 +2190,8 @@ static void mangle_class_name_context(
                 !template_args[index]->cxx_template) {
                 rcc_fatal("C++ template class template argument is missing");
             }
-            mangle_template_argument_name(buf, pos, template_args[index]);
+            mangle_template_argument_name(
+                buf, pos, template_args[index], template_argument_context);
         } else {
             rcc_fatal("unsupported C++ template class parameter");
         }
@@ -2837,9 +2864,14 @@ static void cxx_mangle_type_append_context(
                 }
                 if (type->cxx_class) {
                     CxxNamespace* class_namespace = type->cxx_class->ns;
+                    bool has_nested_class_scope =
+                        type->cxx_class->enclosing_class != NULL;
                     bool has_namespace =
                         cxx_mangle_namespace_prefix_append(
                             buf, pos, class_namespace, context);
+                    if (!has_namespace && has_nested_class_scope) {
+                        cxx_mangle_type_char(buf, pos, 'N');
+                    }
                     if (context && context->class_name_depth > 0u) {
                         mangle_class_name_context(
                             buf, pos, type->cxx_class, context);
@@ -2849,7 +2881,7 @@ static void cxx_mangle_type_append_context(
                         mangle_class_name_context(
                             buf, pos, type->cxx_class, &class_context);
                     }
-                    if (has_namespace) {
+                    if (has_namespace || has_nested_class_scope) {
                         cxx_mangle_type_char(buf, pos, 'E');
                     }
                 } else if (type->cxx_namespace &&

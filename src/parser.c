@@ -4235,6 +4235,8 @@ static bool parser_cxx_template_shift_closes_arguments(void) {
      * to split; parenthesized shifts and shifts with an operand still parse
      * as expressions. */
     return next_type == TOK_COMMA || next_type == TOK_GT ||
+           next_type == TOK_ASSIGN || next_type == TOK_EQ ||
+           next_type == TOK_NE ||
            next_type == TOK_RPAREN || next_type == TOK_RBRACKET ||
            next_type == TOK_RBRACE || next_type == TOK_LBRACE ||
            next_type == TOK_COLON || next_type == TOK_SEMICOLON ||

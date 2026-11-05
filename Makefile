@@ -11416,6 +11416,13 @@ test-cxx-template-template-posix: $(RCXX_TARGET)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-template-template-nested-signatures,cxx_template_template_nested_signatures.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-template-template-nested-signatures/gcc-host tests/cxx_template_template_nested_signatures.cpp
 	$(TEST_OUT)/cxx-template-template-nested-signatures/gcc-host
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-non-type-template-template-partial)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-auto-non-type-template-template-partial,cxx_auto_non_type_template_template_partial.cpp)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/verified-x64.ro tests/cxx_auto_non_type_template_template_partial.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc.s tests/cxx_auto_non_type_template_template_partial.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc-host tests/cxx_auto_non_type_template_template_partial.cpp
+	$(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc-host
+	$(PYTHON) tests/compare_mangled_symbols.py --all template_template_value_ $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc.s $(TEST_OUT)/cxx-auto-non-type-template-template-partial/x86.s $(TEST_OUT)/cxx-auto-non-type-template-template-partial/x64.s
 	@echo "RCC++ template-template parameter tests completed"
 
 test-cxx-template-template-invalid: $(RCXX_TARGET)
@@ -12959,6 +12966,13 @@ test-cxx-template-template: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-template-nested-signatures,cxx_template_template_nested_signatures.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-template-template-nested-signatures/gcc-host.exe tests/cxx_template_template_nested_signatures.cpp
 	$(TEST_OUT)/cxx-template-template-nested-signatures/gcc-host.exe
+	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-non-type-template-template-partial)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-auto-non-type-template-template-partial,cxx_auto_non_type_template_template_partial.cpp)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/verified-x64.ro tests/cxx_auto_non_type_template_template_partial.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc.s tests/cxx_auto_non_type_template_template_partial.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc-host.exe tests/cxx_auto_non_type_template_template_partial.cpp
+	$(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc-host.exe
+	$(PYTHON) tests/compare_mangled_symbols.py --all template_template_value_ $(TEST_OUT)/cxx-auto-non-type-template-template-partial/gcc.s $(TEST_OUT)/cxx-auto-non-type-template-template-partial/x86.s $(TEST_OUT)/cxx-auto-non-type-template-template-partial/x64.s
 
 test-cxx-range-for: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-range-for)

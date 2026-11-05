@@ -27649,15 +27649,30 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
             return false;
         }
         template_carrier = arguments[template_parameter_index];
+        Type* actual_owner = actual_class && actual_class->enclosing_class
+            ? actual_class->enclosing_class->type
+            : actual->cxx_dependent_class_template_owner;
         if (template_carrier) {
-            if (template_carrier->cxx_template != actual_template) {
+            if (template_carrier->cxx_template != actual_template ||
+                (actual_owner &&
+                 template_carrier->cxx_dependent_class_template_owner &&
+                 !type_is_same_template_argument(
+                     template_carrier->cxx_dependent_class_template_owner,
+                     actual_owner))) {
                 return false;
             }
         } else {
             template_carrier = type_struct(actual_template->name
                 ? actual_template->name : "<template>");
             template_carrier->cxx_template = actual_template;
+            template_carrier->cxx_dependent_class_template_owner =
+                actual_owner;
             arguments[template_parameter_index] = template_carrier;
+        }
+        if (actual_owner &&
+            !template_carrier->cxx_dependent_class_template_owner) {
+            template_carrier->cxx_dependent_class_template_owner =
+                actual_owner;
         }
         for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
             int signature_index = signature_pack_index >= 0 &&
@@ -32947,11 +32962,27 @@ static bool cxx_function_template_class_template_template_argument_deduce(
         !template_template_signature_matches(parameter, actual_template)) {
         return false;
     }
+    Type* actual_owner = actual_argument->cxx_class &&
+            actual_argument->cxx_class->enclosing_class
+        ? actual_argument->cxx_class->enclosing_class->type
+        : actual_argument->cxx_dependent_class_template_owner;
     if (deduced_arguments[parameter_index] &&
         deduced_arguments[parameter_index]->cxx_template != actual_template) {
         return false;
     }
+    if (deduced_arguments[parameter_index] && actual_owner &&
+        deduced_arguments[parameter_index]->
+                cxx_dependent_class_template_owner &&
+        !type_is_same_template_argument(
+            deduced_arguments[parameter_index]->
+                cxx_dependent_class_template_owner,
+            actual_owner)) {
+        return false;
+    }
     deduced_arguments[parameter_index] = actual_argument;
+    if (actual_owner) {
+        actual_argument->cxx_dependent_class_template_owner = actual_owner;
+    }
     return true;
 }
 
@@ -33051,14 +33082,29 @@ static bool deduce_function_template_type_with_pack(
             return false;
         }
         template_carrier = arguments[template_parameter_index];
+        Type* actual_owner = actual_class && actual_class->enclosing_class
+            ? actual_class->enclosing_class->type
+            : actual->cxx_dependent_class_template_owner;
         if (template_carrier) {
-            if (template_carrier->cxx_template != actual_template) {
+            if (template_carrier->cxx_template != actual_template ||
+                (actual_owner &&
+                 template_carrier->cxx_dependent_class_template_owner &&
+                 !type_is_same_template_argument(
+                     template_carrier->cxx_dependent_class_template_owner,
+                     actual_owner))) {
                 return false;
             }
         } else {
             template_carrier = type_struct(actual_template->name);
             template_carrier->cxx_template = actual_template;
+            template_carrier->cxx_dependent_class_template_owner =
+                actual_owner;
             arguments[template_parameter_index] = template_carrier;
+        }
+        if (template_carrier && actual_owner &&
+            !template_carrier->cxx_dependent_class_template_owner) {
+            template_carrier->cxx_dependent_class_template_owner =
+                actual_owner;
         }
         for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
             TemplateParam* nested_parameter =
@@ -49221,6 +49267,142 @@ static bool template_has_unsupported_versioned_shape(CxxTemplate* tmpl) {
     return has_member_assignment;
 }
 
+/* A variable-template partial specialization can bind an NTTP through the
+ * nested argument list of a template-template parameter, as in
+ * `Trait<Container<Value>>`.  The ordinary type-pattern matcher verifies the
+ * template-id shape; this companion records its nested value deductions in
+ * the specialization's NTTP state before instantiation. */
+static bool cxx_deduce_variable_template_nested_values(
+    CxxTemplate* specialization, Type* pattern, Type* actual,
+    Type** candidate_arguments, int64_t* candidate_values,
+    bool* candidate_value_present, int* specificity) {
+    CxxClass* actual_class;
+    CxxTemplate* actual_template;
+    Type** actual_arguments;
+    int64_t* actual_values;
+    bool* actual_value_present;
+    int actual_argument_count;
+    int template_parameter_index;
+    TemplateParam* template_parameter;
+    int signature_pack_index;
+
+    if (!specialization || !pattern || !actual || !candidate_arguments ||
+        !candidate_values || !candidate_value_present) {
+        return false;
+    }
+    if (pattern->kind != TYPE_STRUCT || !pattern->cxx_dependent ||
+        pattern->cxx_template_param_index < 0 ||
+        pattern->cxx_template_param_index >= specialization->param_count ||
+        specialization->params[pattern->cxx_template_param_index].kind !=
+            TPARAM_TEMPLATE || pattern->cxx_template_arg_count <= 0) {
+        return true;
+    }
+
+    template_parameter_index = pattern->cxx_template_param_index;
+    template_parameter = &specialization->params[template_parameter_index];
+    actual_class = actual->cxx_class;
+    actual_template = actual_class && actual_class->template_identity_tmpl
+        ? actual_class->template_identity_tmpl
+        : actual_class && actual_class->templ
+            ? actual_class->templ : actual->cxx_template;
+    actual_arguments = actual_class && actual_class->template_identity_tmpl
+        ? actual_class->template_identity_args
+        : actual_class && actual_class->templ
+            ? actual_class->template_args : actual->cxx_template_args;
+    actual_values = actual_class && actual_class->template_identity_tmpl
+        ? actual_class->template_identity_value_args
+        : actual_class && actual_class->templ
+            ? actual_class->template_value_args : NULL;
+    actual_value_present = actual_class && actual_class->template_identity_tmpl
+        ? actual_class->template_identity_value_present
+        : actual_class && actual_class->templ
+            ? actual_class->template_value_present : NULL;
+    actual_argument_count = actual_class &&
+            actual_class->template_identity_tmpl
+        ? actual_class->template_identity_arg_count
+        : actual_class && actual_class->templ
+            ? actual_class->template_arg_count
+            : actual->cxx_template_arg_count;
+    signature_pack_index = cxx_template_signature_pack_index(
+        template_parameter->template_signature);
+
+    /* A pack expansion has a distinct element-state path.  Leave those
+     * patterns to the existing pack matcher; this helper handles fixed
+     * nested template-id arguments without changing their behavior. */
+    if (pattern->cxx_template_arg_pack_expansions) return true;
+    if (!actual_template || actual_argument_count < 0 ||
+        signature_pack_index >= 0 || signature_pack_index == -2 ||
+        actual_argument_count != pattern->cxx_template_arg_count ||
+        !pattern->cxx_template_args ||
+        (actual_argument_count > 0 && !actual_arguments) ||
+        !template_template_signature_matches(template_parameter,
+                                             actual_template)) {
+        return false;
+    }
+
+    Type* previous = candidate_arguments[template_parameter_index];
+    Type* actual_owner = actual_class && actual_class->enclosing_class
+        ? actual_class->enclosing_class->type
+        : actual->cxx_dependent_class_template_owner;
+    if (previous) {
+        if (previous->cxx_template != actual_template ||
+            (actual_owner &&
+             previous->cxx_dependent_class_template_owner &&
+             !type_is_same_template_argument(
+                 previous->cxx_dependent_class_template_owner,
+                 actual_owner))) {
+            return false;
+        }
+    } else {
+        Type* carrier = type_struct(actual_template->name
+            ? actual_template->name : "<template>");
+        carrier->cxx_template = actual_template;
+        carrier->cxx_dependent_class_template_owner = actual_owner;
+        candidate_arguments[template_parameter_index] = carrier;
+        previous = carrier;
+    }
+    if (previous && actual_owner &&
+        !previous->cxx_dependent_class_template_owner) {
+        previous->cxx_dependent_class_template_owner = actual_owner;
+    }
+
+    CxxTemplate* signature = template_parameter->template_signature;
+    if (!signature || signature->param_count != pattern->cxx_template_arg_count) {
+        return false;
+    }
+    for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+        TemplateParam* nested_parameter = &signature->params[index];
+        if (nested_parameter->kind == TPARAM_NONTYPE) {
+            Expr* value_pattern = pattern->cxx_template_value_args
+                ? pattern->cxx_template_value_args[index] : NULL;
+            Type* actual_value_type = actual_arguments[index];
+            if (!value_pattern || !actual_values ||
+                !actual_value_present || !actual_value_present[index] ||
+                !deduce_class_specialization_value(
+                    specialization, value_pattern, actual_value_type,
+                    actual_values[index], candidate_values,
+                    candidate_value_present, specificity)) {
+                return false;
+            }
+            if (nested_parameter->is_auto &&
+                !cxx_bind_variable_specialization_auto_value_type(
+                    specialization, value_pattern, actual_value_type,
+                    candidate_arguments)) {
+                return false;
+            }
+            if (specificity) ++*specificity;
+        } else if (nested_parameter->kind == TPARAM_TYPE) {
+            if (!cxx_deduce_variable_template_nested_values(
+                    specialization, pattern->cxx_template_args[index],
+                    actual_arguments[index], candidate_arguments,
+                    candidate_values, candidate_value_present, specificity)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static CxxTemplate* cxx_select_variable_template_specialization(
     CxxTemplate* primary, Type** primary_arguments,
     const int64_t* primary_values, const bool* primary_value_present,
@@ -49366,6 +49548,13 @@ static CxxTemplate* cxx_select_variable_template_specialization(
                     matches = deduce_class_specialization_type(
                         specialization, pattern, actual,
                         candidate_arguments, &specificity, NULL);
+                    if (matches) {
+                        matches =
+                            cxx_deduce_variable_template_nested_values(
+                                specialization, pattern, actual,
+                                candidate_arguments, candidate_values,
+                                candidate_value_present, &specificity);
+                    }
                 }
             }
         }
