@@ -452,6 +452,8 @@ long deferred_standard_layout_constraint(T*);
 
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivial(int), "scalar types are trivial");
+static_assert(__is_trivial(DeletedDefaultConstructor), "a deleted default constructor remains trivial");
+static_assert(__is_trivial(HasDeletedDefaultConstructorMember), "deleted default construction of a subobject preserves triviality");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
 static_assert(__is_trivially_copyable(const TriviallyCopyable), "cv-qualified objects retain the property");
@@ -500,6 +502,9 @@ static_assert(!__is_empty(DerivedNonEmptyTypeCategory), "nonempty bases make a d
 static_assert(!__is_empty(EmptyMemberTypeCategory), "empty data members still make a class nonempty");
 static_assert(!__is_empty(TriviallyCopyableUnion), "unions are not empty classes");
 static_assert(!__is_empty(EmptyTypeCategory*), "pointers to empty classes are not empty classes");
+
+static_assert(__has_trivial_constructor(DeletedDefaultConstructor), "a deleted default constructor retains the legacy trivial-constructor property");
+static_assert(__has_trivial_constructor(HasDeletedDefaultConstructorMember), "a deleted member constructor retains the legacy trivial-constructor property");
 
 static_assert(DeferredTraitResults<TypeCategoryClass>::class_type, "dependent class traits are resolved after specialization");
 static_assert(!DeferredTraitResults<int>::class_type, "dependent class traits retain false results after specialization");

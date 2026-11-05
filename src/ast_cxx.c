@@ -8420,6 +8420,16 @@ bool cxx_namespace_add_alias(CxxNamespace* ns, const char* name,
     return true;
 }
 
+static bool cxx_namespace_is_module_namespace(const CxxNamespace* ns) {
+    for (const CxxNamespace* scope = ns; scope; scope = scope->parent) {
+        if (scope->name &&
+            strncmp(scope->name, "__rcc_module_", 13u) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void cxx_inherit_function_deprecation(const Decl* earlier,
                                              Decl* later) {
     if (!earlier || !later || earlier->kind != DECL_FUNC ||
@@ -8437,17 +8447,10 @@ static void cxx_inherit_function_deprecation(const Decl* earlier,
 
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
     if (decl) {
-        bool is_module_namespace = false;
-        for (CxxNamespace* scope = ns; scope; scope = scope->parent) {
-            if (scope->name &&
-                strncmp(scope->name, "__rcc_module_", 13u) == 0) {
-                is_module_namespace = true;
-                break;
-            }
-        }
         decl->is_module_reachable_private =
             rcc_parser_module_reachable_current_record_private();
-        decl->is_module_semantic_record = is_module_namespace ||
+        decl->is_module_semantic_record =
+            cxx_namespace_is_module_namespace(ns) ||
             rcc_parser_module_reachable_lookup_enabled();
     }
     if (ns && decl) {
@@ -9533,8 +9536,13 @@ static void cxx_template_merge_default_arguments(CxxTemplate* target,
 CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     if (!ns || !tmpl) return NULL;
     tmpl->ns = ns;
+    tmpl->has_module_reachable_lookup_context =
+        tmpl->has_module_reachable_lookup_context ||
+        rcc_parser_module_reachable_lookup_enabled();
     tmpl->is_module_reachable_private =
         rcc_parser_module_reachable_current_record_private();
+    tmpl->is_module_imported_record =
+        rcc_parser_module_imported_record();
     if (tmpl->friend_access && tmpl->func_def &&
         !tmpl->func_def->func_body &&
         cxx_template_has_default_argument(tmpl)) {
@@ -9544,12 +9552,27 @@ CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     }
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* existing = ns->templates[index];
+        bool has_distinct_module_reachable_context;
+        bool is_imported_module_redeclaration;
         if (!cxx_function_template_redeclaration_matches(existing, tmpl)) {
             continue;
         }
+        has_distinct_module_reachable_context =
+            existing->has_module_reachable_lookup_context !=
+            tmpl->has_module_reachable_lookup_context;
+        is_imported_module_redeclaration =
+            cxx_namespace_is_module_namespace(ns) &&
+            existing->is_module_imported_record !=
+                tmpl->is_module_imported_record;
         existing->is_module_reachable_private =
             existing->is_module_reachable_private &&
             tmpl->is_module_reachable_private;
+        existing->is_module_imported_record =
+            existing->is_module_imported_record &&
+            tmpl->is_module_imported_record;
+        existing->has_module_reachable_lookup_context =
+            existing->has_module_reachable_lookup_context ||
+            tmpl->has_module_reachable_lookup_context;
         if (existing->is_hidden_friend && !tmpl->friend_access &&
             cxx_template_has_default_argument(tmpl)) {
             rcc_error(tmpl->func_def->loc,
@@ -9585,6 +9608,15 @@ CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
             existing->is_hidden_friend = false;
         }
         if (existing->func_def->func_body && tmpl->func_def->func_body) {
+            /* A translation-unit batch can compile the owning module after
+             * an importer has loaded its BMI. Both declarations then share
+             * the module namespace, but only the BMI declaration carries
+             * the importer lookup context. Keep the imported definition and
+             * let normal same-translation-unit redefinitions diagnose. */
+            if (has_distinct_module_reachable_context ||
+                is_imported_module_redeclaration) {
+                return existing;
+            }
             rcc_error(tmpl->func_def->loc,
                       "redefinition of function template '%s'", tmpl->name);
             return NULL;
@@ -15652,8 +15684,21 @@ Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
 Expr* cxx_template_clone_expr_with_values(
     CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
     const int64_t* value_args, const bool* value_present) {
-    return template_clone_expr(tmpl, expression, args, arg_count,
-                               value_args, value_present);
+    bool saved_private_record =
+        rcc_parser_module_reachable_current_record_private();
+    bool saved_lookup_enabled =
+        rcc_parser_module_reachable_lookup_enabled();
+    if (tmpl && tmpl->has_module_reachable_lookup_context &&
+        !saved_lookup_enabled) {
+        rcc_parser_set_module_reachable_record(saved_private_record, true);
+    }
+    Expr* copy = template_clone_expr(tmpl, expression, args, arg_count,
+                                    value_args, value_present);
+    if (tmpl && tmpl->has_module_reachable_lookup_context &&
+        !saved_lookup_enabled) {
+        rcc_parser_set_module_reachable_record(saved_private_record, false);
+    }
+    return copy;
 }
 
 Stmt* cxx_template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
@@ -15665,8 +15710,21 @@ Stmt* cxx_template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
 Stmt* cxx_template_clone_stmt_with_values(
     CxxTemplate* tmpl, Stmt* statement, Type** args, int arg_count,
     const int64_t* value_args, const bool* value_present) {
-    return template_clone_stmt(tmpl, statement, args, arg_count,
-                               value_args, value_present);
+    bool saved_private_record =
+        rcc_parser_module_reachable_current_record_private();
+    bool saved_lookup_enabled =
+        rcc_parser_module_reachable_lookup_enabled();
+    if (tmpl && tmpl->has_module_reachable_lookup_context &&
+        !saved_lookup_enabled) {
+        rcc_parser_set_module_reachable_record(saved_private_record, true);
+    }
+    Stmt* copy = template_clone_stmt(tmpl, statement, args, arg_count,
+                                     value_args, value_present);
+    if (tmpl && tmpl->has_module_reachable_lookup_context &&
+        !saved_lookup_enabled) {
+        rcc_parser_set_module_reachable_record(saved_private_record, false);
+    }
+    return copy;
 }
 
 static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
@@ -16262,7 +16320,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance = decl_func(definition->name, function_type, parameters,
                              tmpl->defer_function_body_clone
                                  ? NULL
-                                 : template_clone_stmt(
+                                 : cxx_template_clone_stmt_with_values(
                                        tmpl, definition->func_body, args,
                                        arg_count, value_args, value_present),
                              definition->loc);
@@ -16912,7 +16970,7 @@ bool rcc_cxx_complete_function_template_body(Decl* instance) {
     tmpl->pending_pack_count = instance->func_template_pack_count;
     tmpl->pending_pack_offsets = instance->func_template_pack_offsets;
     tmpl->pending_pack_counts = instance->func_template_pack_counts;
-    instance->func_body = template_clone_stmt(
+    instance->func_body = cxx_template_clone_stmt_with_values(
         tmpl, tmpl->func_def->func_body, instance->func_template_args,
         instance->func_template_arg_count,
         instance->func_template_value_args,
@@ -17952,7 +18010,10 @@ void cxx_namespace_add_namespace(CxxNamespace* parent, CxxNamespace* child) {
 /* Template with source location */
 CxxTemplate* cxx_template_new(SourceLoc loc) {
     (void)loc;
-    return cxx_template_alloc(NULL, NULL, 0);
+    CxxTemplate* tmpl = cxx_template_alloc(NULL, NULL, 0);
+    tmpl->has_module_reachable_lookup_context =
+        rcc_parser_module_reachable_lookup_enabled();
+    return tmpl;
 }
 
 /* Add type parameter to template */

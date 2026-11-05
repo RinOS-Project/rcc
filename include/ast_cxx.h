@@ -347,6 +347,11 @@ struct CxxTemplate {
     const char* name;
     CxxNamespace* ns;
     bool is_module_reachable_private;
+    bool is_module_imported_record;
+    /* Exported templates can depend on private module declarations that are
+     * reachable while their definition is parsed. Preserve that lookup
+     * context for deferred specialization and body analysis. */
+    bool has_module_reachable_lookup_context;
     TemplateParam* params;
     int param_count;
     /* Classes granting friendship to a function template.  The list is

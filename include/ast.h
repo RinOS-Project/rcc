@@ -416,6 +416,8 @@ void rcc_parser_apply_pragma_pack(struct Token* directive);
 void rcc_parser_set_module_reachable_record(bool is_private,
                                             bool allow_private_lookup);
 bool rcc_parser_module_reachable_lookup_enabled(void);
+void rcc_parser_set_module_imported_record(bool is_imported);
+bool rcc_parser_module_imported_record(void);
 bool rcc_parser_module_reachable_current_record_private(void);
 bool rcc_parser_module_entity_lookup_visible(bool is_private);
 int rcc_parser_pack_alignment(void);

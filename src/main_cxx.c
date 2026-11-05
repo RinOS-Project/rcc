@@ -660,14 +660,28 @@ static size_t cxx_module_find_export_declaration_end(
     int paren = 0;
     int bracket = 0;
     int brace = 0;
+    int template_angle = 0;
     bool saw_paren = false;
     bool saw_assignment = false;
     bool type_or_namespace = false;
+    bool template_prefix = false;
     if (body_open_out) *body_open_out = count;
     if (body_close_out) *body_close_out = count;
     for (size_t index = first; index < count; ++index) {
         CxxModuleToken* token = &tokens[index];
-        if (paren == 0 && bracket == 0 && brace == 0) {
+        if (paren == 0 && bracket == 0 && brace == 0 &&
+            cxx_module_token_is(source, token, "template")) {
+            template_prefix = true;
+        }
+        if (template_prefix && cxx_module_punct(source, token, '<')) {
+            ++template_angle;
+        } else if (template_angle > 0 &&
+                   cxx_module_punct(source, token, '>')) {
+            --template_angle;
+            if (template_angle == 0) template_prefix = false;
+        }
+        if (paren == 0 && bracket == 0 && brace == 0 &&
+            template_angle == 0) {
             type_or_namespace = type_or_namespace ||
                 cxx_module_token_is(source, token, "class") ||
                 cxx_module_token_is(source, token, "struct") ||
@@ -2323,7 +2337,10 @@ reload_artifact:
                 const char* marker = hidden_record || visibility == 'P'
                     ? "#pragma rinos cxx_module private_begin\n"
                     : "#pragma rinos cxx_module semantic_begin\n";
-                if (!cxx_module_buffer_text(imports, marker) ||
+                if (!cxx_module_buffer_text(
+                        imports,
+                        "#pragma rinos cxx_module imported_begin\n") ||
+                    !cxx_module_buffer_text(imports, marker) ||
                     !cxx_module_buffer_append(imports, cursor,
                                               (size_t)record_length) ||
                     !cxx_module_buffer_text(
@@ -2709,7 +2726,7 @@ static bool cxx_module_resolve_imports(const char* source,
             size_t end = cxx_module_find_export_declaration_end(
                 source, tokens, token_count, keyword_index,
                 &body_open, &body_close);
-            if (end == token_count &&
+            if (end == token_count && body_close == token_count &&
                 (token_count == 0u || !cxx_module_punct(
                     source, &tokens[token_count - 1u], ';'))) {
                 snprintf(error, error_capacity,

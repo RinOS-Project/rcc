@@ -186,6 +186,7 @@ typedef enum {
     TOK_PRAGMA_FENV_ROUND, /* C23 floating-point rounding scope transition */
     TOK_PRAGMA_MODULE_REACHABLE_PRIVATE,
     TOK_PRAGMA_MODULE_REACHABLE_SEMANTIC,
+    TOK_PRAGMA_MODULE_IMPORTED_RECORD,
     TOK_PRAGMA_MODULE_REACHABLE_END,
 
     /* C++ specific operators */

@@ -208,6 +208,7 @@ static int parser_pack_depth;
 static bool parser_cxx_mode;
 static bool parser_module_reachable_private_record;
 static bool parser_module_reachable_lookup_enabled;
+static bool parser_module_imported_record;
 static const char* parser_ambiguous_type_name;
 static int parser_cxx_standard = 20;
 static bool parser_cxx_template_default_mode;
@@ -239,6 +240,14 @@ void rcc_parser_set_module_reachable_record(bool is_private,
 
 bool rcc_parser_module_reachable_lookup_enabled(void) {
     return parser_module_reachable_lookup_enabled;
+}
+
+void rcc_parser_set_module_imported_record(bool is_imported) {
+    parser_module_imported_record = is_imported;
+}
+
+bool rcc_parser_module_imported_record(void) {
+    return parser_module_imported_record;
 }
 
 bool rcc_parser_module_reachable_current_record_private(void) {
@@ -730,6 +739,7 @@ void rcc_parser_reset_type_scopes(void) {
     parser_tag_names = NULL;
     parser_module_reachable_private_record = false;
     parser_module_reachable_lookup_enabled = false;
+    parser_module_imported_record = false;
     parser_tag_identity_counter = 0u;
     parser_tag_root_scope = ast_arena_alloc(sizeof(*parser_tag_root_scope));
     parser_tag_root_scope->parent = NULL;

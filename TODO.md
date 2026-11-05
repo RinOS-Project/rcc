@@ -14868,6 +14868,15 @@ Continue in this order:
       of their private source names.
       `test-cxx-modules` passes on i686 and x86_64, and
       `test-cxx-class-template-dependent-nested-type` passes.
+- [x] Preserve the private reachable lookup context of exported templates
+      while substituting expressions, cloning function and class-template
+      member bodies, and running semantic analysis. In multi-input builds,
+      merge a BMI declaration with its owning module source definition without
+      suppressing duplicate definitions from the same origin. The export
+      scanner recognizes template parameter lists and valid function-template
+      definitions at end-of-file. `test-cxx-modules` covers private helper use,
+      private default arguments and template defaults, duplicate-definition
+      rejection, and i686/x86_64 compilation and linking.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate
       currently stops in `test-cxx-type-trait-builtins` on those assertions.

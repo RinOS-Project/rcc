@@ -624,6 +624,13 @@ else
 RINVALIDATE ?= ../rinvalidate/rinvalidate
 endif
 
+ifeq ($(RINVALIDATE),../rinvalidate/rinvalidate)
+$(RINVALIDATE): ../rinvalidate/Makefile \
+		../rinvalidate/src/rinvalidate.c \
+		../../RinOS-SDK/include/rin/formats_v3.h
+	$(MAKE) -C ../rinvalidate
+endif
+
 # Aquamarine Shader Language compiler. RSH1 validation is shared with the
 # public RinGPU checkout selected by RINGPU_ROOT.
 AQC_SRCS = $(SRCDIR)/main_aqc.c $(SRCDIR)/aqc.c
@@ -28947,6 +28954,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call COPY_FILE,tests/cxx_modules_invalid_private_export.cppm,$(TEST_OUT)/cxx-modules/invalid-private-export.cppm)
 	$(call COPY_FILE,tests/cxx_modules_invalid_global_import.cppm,$(TEST_OUT)/cxx-modules/invalid-global-import.cppm)
 	$(call COPY_FILE,tests/cxx_modules_invalid_partition_private.cppm,$(TEST_OUT)/cxx-modules/invalid-partition-private.cppm)
+	$(call COPY_FILE,tests/cxx_modules_duplicate_template.cppm,$(TEST_OUT)/cxx-modules/duplicate-template.cppm)
 	$(call COPY_FILE,tests/cxx_modules_reachable_private.cppm,$(TEST_OUT)/cxx-modules/reachable-private.cppm)
 	$(call COPY_FILE,tests/cxx_modules_reachable_bridge.cppm,$(TEST_OUT)/cxx-modules/reachable-bridge.cppm)
 	$(call COPY_FILE,tests/cxx_modules_reachable_bridge_impl.cpp,$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp)
@@ -29008,6 +29016,8 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q 'cannot appear in the global module fragment' $(TEST_OUT)/cxx-modules/invalid-global-import.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/invalid-partition-private.ro $(TEST_OUT)/cxx-modules/invalid-partition-private.cppm,$(TEST_OUT)/cxx-modules/invalid-partition-private.log)
 	$(GREP) -F -q 'only valid in a primary module interface unit' $(TEST_OUT)/cxx-modules/invalid-partition-private.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/duplicate-template.ro $(TEST_OUT)/cxx-modules/duplicate-template.cppm,$(TEST_OUT)/cxx-modules/duplicate-template.log)
+	$(GREP) -F -q "redefinition of function template 'duplicate_template_definition'" $(TEST_OUT)/cxx-modules/duplicate-template.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/reachable-consumer.cpp \
 		$(TEST_OUT)/cxx-modules/reachable-bridge-impl.cpp \

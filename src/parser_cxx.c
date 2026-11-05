@@ -24757,6 +24757,8 @@ static bool cxx_complete_class_template_method_body(
     int* saved_pending_pack_offsets;
     int* saved_pending_pack_counts;
     DeclList* saved_active_pack_parameters;
+    bool saved_private_record;
+    bool saved_lookup_enabled;
 
     if (!instance || instance->kind != DECL_FUNC ||
         !instance->func_class_template_body_source_method) {
@@ -24807,12 +24809,23 @@ static bool cxx_complete_class_template_method_body(
     tmpl->pending_pack_count = instance->func_template_pack_count;
     tmpl->pending_pack_offsets = instance->func_template_pack_offsets;
     tmpl->pending_pack_counts = instance->func_template_pack_counts;
+    saved_private_record = rcc_parser_module_reachable_current_record_private();
+    saved_lookup_enabled = rcc_parser_module_reachable_lookup_enabled();
+    if (tmpl->has_module_reachable_lookup_context &&
+        !saved_lookup_enabled) {
+        rcc_parser_set_module_reachable_record(saved_private_record, true);
+    }
 
     completed_method = substitute_template_method(
         tmpl, source_method, instance->func_template_args,
         instance->func_template_arg_count,
         instance->func_template_value_args,
         instance->func_template_value_present, false);
+
+    if (!saved_lookup_enabled &&
+        tmpl->has_module_reachable_lookup_context) {
+        rcc_parser_set_module_reachable_record(saved_private_record, false);
+    }
 
     active_class = saved_active_class;
     active_namespace = saved_active_namespace;
@@ -54851,8 +54864,11 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             rcc_parser_set_module_reachable_record(true, true);
         } else if (match(TOK_PRAGMA_MODULE_REACHABLE_SEMANTIC)) {
             rcc_parser_set_module_reachable_record(false, true);
+        } else if (match(TOK_PRAGMA_MODULE_IMPORTED_RECORD)) {
+            rcc_parser_set_module_imported_record(true);
         } else if (match(TOK_PRAGMA_MODULE_REACHABLE_END)) {
             rcc_parser_set_module_reachable_record(false, false);
+            rcc_parser_set_module_imported_record(false);
         } else if (cxx_leading_alignas_class_starts()) {
             SourceLoc alignment_loc = peek()->loc;
             int explicit_alignment = 0;

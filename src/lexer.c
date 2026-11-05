@@ -279,6 +279,8 @@ const char* token_type_str(TokenType type) {
             return "#pragma rinos cxx_module private_begin";
         case TOK_PRAGMA_MODULE_REACHABLE_SEMANTIC:
             return "#pragma rinos cxx_module semantic_begin";
+        case TOK_PRAGMA_MODULE_IMPORTED_RECORD:
+            return "#pragma rinos cxx_module imported_begin";
         case TOK_PRAGMA_MODULE_REACHABLE_END:
             return "#pragma rinos cxx_module end";
         default:
@@ -1665,7 +1667,11 @@ static Token* handle_pragma_directive(Lexer* lex) {
             pragma_skip_space(&module_pragma);
             if (pragma_match_word(&module_pragma, "cxx_module")) {
                 pragma_skip_space(&module_pragma);
-                if (pragma_match_word(&module_pragma, "private_begin") &&
+                if (pragma_match_word(&module_pragma, "imported_begin") &&
+                    pragma_tail_is_space_or_comment(module_pragma)) {
+                    module_reachable_pragma =
+                        TOK_PRAGMA_MODULE_IMPORTED_RECORD;
+                } else if (pragma_match_word(&module_pragma, "private_begin") &&
                     pragma_tail_is_space_or_comment(module_pragma)) {
                     module_reachable_pragma =
                         TOK_PRAGMA_MODULE_REACHABLE_PRIVATE;

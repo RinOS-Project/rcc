@@ -107,6 +107,33 @@ static AST* current_ast = NULL;
 static TypeMethod* sema_cxx_member_overload_list(Type* type);
 static DeclList* completed_function_template_bodies;
 static DeclList* completed_function_template_bodies_tail;
+static void sema_decl_impl(Decl* decl);
+
+static void sema_decl(Decl* declaration) {
+    bool saved_private_record;
+    bool saved_lookup_enabled;
+    bool allow_private_lookup;
+
+    if (!declaration || !rcc_parser_is_cxx_mode()) {
+        sema_decl_impl(declaration);
+        return;
+    }
+    saved_private_record = rcc_parser_module_reachable_current_record_private();
+    saved_lookup_enabled = rcc_parser_module_reachable_lookup_enabled();
+    allow_private_lookup = saved_lookup_enabled ||
+        (declaration->func_template_owner &&
+         declaration->func_template_owner
+             ->has_module_reachable_lookup_context);
+    if (allow_private_lookup != saved_lookup_enabled) {
+        rcc_parser_set_module_reachable_record(saved_private_record,
+                                               allow_private_lookup);
+    }
+    sema_decl_impl(declaration);
+    if (allow_private_lookup != saved_lookup_enabled) {
+        rcc_parser_set_module_reachable_record(saved_private_record,
+                                               saved_lookup_enabled);
+    }
+}
 
 void rcc_sema_queue_completed_function_template_body(Decl* declaration) {
     DeclList* item;
@@ -720,7 +747,6 @@ static Type* sema_expr_reuse_preanalyzed(Expr* expression,
     }
     return sema_expr(expression);
 }
-static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
 static Expr* sema_cxx_default_member_initializer(Type* type,
                                                 Expr* source,
@@ -16535,15 +16561,12 @@ static bool sema_cxx_type_has_trivial_default_constructor(
             callable_without_arguments = false;
         }
         if (!callable_without_arguments) continue;
-        if (constructor->is_deleted ||
-            (constructor->method &&
-             constructor->method->is_deleted)) {
-            continue;
-        }
         has_default_candidate = true;
         if (!constructor->is_defaulted &&
+            !constructor->is_deleted &&
             (!constructor->method ||
-             !constructor->method->is_defaulted)) {
+             (!constructor->method->is_defaulted &&
+              !constructor->method->is_deleted))) {
             return false;
         }
     }
@@ -39462,7 +39485,7 @@ static void sema_validate_global_allocation_operator(Decl* declaration) {
     }
 }
 
-static void sema_decl(Decl* decl) {
+static void sema_decl_impl(Decl* decl) {
     if (!decl) return;
     if (decl->type) decl->type = sema_resolve_typeof_type(decl->type);
     if (decl->kind == DECL_TYPEDEF && decl->typedef_type) {
