@@ -13367,6 +13367,14 @@ static CxxTemplate* template_clone_class_identity(CxxClass* class_scope) {
         ? class_scope->template_identity_tmpl : class_scope->templ;
 }
 
+static bool template_clone_class_matches_template(
+    CxxClass* class_scope, CxxTemplate* template_scope) {
+    CxxTemplate* identity = template_clone_class_identity(class_scope);
+    return identity == template_scope ||
+        (class_scope && class_scope->templ == template_scope &&
+         template_scope && template_scope->primary_template == identity);
+}
+
 static int template_clone_class_argument_count(CxxClass* class_scope) {
     if (!class_scope) return 0;
     return class_scope->template_identity_tmpl
@@ -13392,7 +13400,7 @@ static int template_clone_value_parameter_index(
             CxxClass* candidate = first_scope
                 ? class_scope : class_scope->enclosing_class;
             for (; candidate; candidate = candidate->enclosing_class) {
-                if (template_clone_class_identity(candidate) == scope) {
+                if (template_clone_class_matches_template(candidate, scope)) {
                     matching_class = candidate;
                     break;
                 }
@@ -16233,16 +16241,189 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
 
     if (tmpl->kind == TMPL_VARIABLE && tmpl->var_def) {
         Decl* definition = tmpl->var_def;
-        Type* variable_type = template_substitute_type(
-            tmpl, definition->type, args, arg_count, value_args,
-            value_present);
-        Expr* initializer = template_clone_expr(
-            tmpl, definition->var_init, args, arg_count, value_args,
-            value_present);
+        CxxClass* saved_active_class_instance =
+            tmpl->active_class_instance;
+        CxxClass* owner_class =
+            tmpl->pending_variable_template_owner_class
+                ? tmpl->pending_variable_template_owner_class
+                : saved_active_class_instance;
+        Type** substitution_args = args;
+        const int64_t* substitution_values = value_args;
+        const bool* substitution_value_present = value_present;
+        int substitution_arg_count = arg_count;
+        Type* variable_type;
+        Expr* initializer;
         Decl* instance;
         char generated_name[128];
         int written;
         unsigned int instance_serial;
+
+        if (owner_class && tmpl->enclosing_template) {
+            int owner_argument_count = 0;
+            int combined_count;
+            size_t combined_slots;
+            Type** combined_args;
+            int64_t* combined_values;
+            bool* combined_value_present;
+            CxxClass* owner_scope = owner_class;
+
+            if (arg_count < 0) {
+                rcc_error(definition->loc,
+                          "member variable template argument count is invalid");
+                return NULL;
+            }
+            for (CxxTemplate* enclosing = tmpl->enclosing_template;
+                 enclosing; enclosing = enclosing->enclosing_template) {
+                while (owner_scope &&
+                       !template_clone_class_matches_template(
+                           owner_scope, enclosing)) {
+                    owner_scope = owner_scope->enclosing_class;
+                }
+                if (!owner_scope) {
+                    rcc_error(definition->loc,
+                              "member variable template owner chain is "
+                              "incomplete at '%s'",
+                              enclosing->name ? enclosing->name : "<unnamed>");
+                    return NULL;
+                }
+                bool direct_match = owner_scope->templ == enclosing;
+                int owner_count = direct_match
+                    ? owner_scope->template_arg_count
+                    : template_clone_class_argument_count(owner_scope);
+                Type** owner_args = direct_match
+                    ? owner_scope->template_args
+                    : owner_scope->template_identity_args;
+                if (owner_count < 0 ||
+                    (owner_count > 0 && !owner_args)) {
+                    rcc_error(definition->loc,
+                              "member variable template owner arguments are "
+                              "incomplete for '%s'",
+                              enclosing->name ? enclosing->name : "<unnamed>");
+                    return NULL;
+                }
+                if (owner_count > INT_MAX - owner_argument_count) {
+                    rcc_error(definition->loc,
+                              "member variable template substitution "
+                              "argument count overflow");
+                    return NULL;
+                }
+                owner_argument_count += owner_count;
+                owner_scope = owner_scope->enclosing_class;
+            }
+            if (owner_argument_count > INT_MAX - arg_count) {
+                rcc_error(definition->loc,
+                          "member variable template substitution argument "
+                          "count overflow");
+                return NULL;
+            }
+            combined_count = arg_count + owner_argument_count;
+            combined_slots = combined_count > 0
+                ? (size_t)combined_count : 1u;
+            if (combined_slots > SIZE_MAX / sizeof(*combined_args) ||
+                combined_slots > SIZE_MAX / sizeof(*combined_values) ||
+                combined_slots > SIZE_MAX / sizeof(*combined_value_present)) {
+                rcc_error(definition->loc,
+                          "member variable template substitution storage "
+                          "size overflow");
+                return NULL;
+            }
+            combined_args = ast_arena_alloc(
+                sizeof(*combined_args) * combined_slots);
+            combined_values = ast_arena_alloc(
+                sizeof(*combined_values) * combined_slots);
+            combined_value_present = ast_arena_alloc(
+                sizeof(*combined_value_present) * combined_slots);
+            memset(combined_args, 0,
+                   sizeof(*combined_args) * combined_slots);
+            memset(combined_values, 0,
+                   sizeof(*combined_values) * combined_slots);
+            memset(combined_value_present, 0,
+                   sizeof(*combined_value_present) * combined_slots);
+            if (arg_count > 0) {
+                if (!args) {
+                    rcc_error(definition->loc,
+                              "member variable template arguments are "
+                              "missing during substitution");
+                    return NULL;
+                }
+                memcpy(combined_args, args,
+                       sizeof(*combined_args) * (size_t)arg_count);
+                if (value_args && value_present) {
+                    memcpy(combined_values, value_args,
+                           sizeof(*combined_values) * (size_t)arg_count);
+                    memcpy(combined_value_present, value_present,
+                           sizeof(*combined_value_present) *
+                               (size_t)arg_count);
+                }
+            }
+            owner_scope = owner_class;
+            int owner_offset = 0;
+            for (CxxTemplate* enclosing = tmpl->enclosing_template;
+                 enclosing; enclosing = enclosing->enclosing_template) {
+                Type** owner_args;
+                const int64_t* owner_values;
+                const bool* owner_value_present;
+                int owner_count;
+                while (owner_scope &&
+                       !template_clone_class_matches_template(
+                           owner_scope, enclosing)) {
+                    owner_scope = owner_scope->enclosing_class;
+                }
+                if (!owner_scope) {
+                    rcc_error(definition->loc,
+                              "member variable template owner chain changed "
+                              "during substitution");
+                    return NULL;
+                }
+                if (owner_scope->templ == enclosing) {
+                    owner_args = owner_scope->template_args;
+                    owner_values = owner_scope->template_value_args;
+                    owner_value_present = owner_scope->template_value_present;
+                } else {
+                    owner_args = owner_scope->template_identity_args;
+                    owner_values =
+                        owner_scope->template_identity_value_args;
+                    owner_value_present =
+                        owner_scope->template_identity_value_present;
+                }
+                owner_count = owner_scope->templ == enclosing
+                    ? owner_scope->template_arg_count
+                    : template_clone_class_argument_count(owner_scope);
+                if (owner_count > 0) {
+                    memcpy(combined_args + arg_count + owner_offset,
+                           owner_args,
+                           sizeof(*combined_args) * (size_t)owner_count);
+                    if (owner_values && owner_value_present) {
+                        memcpy(combined_values + arg_count + owner_offset,
+                               owner_values,
+                               sizeof(*combined_values) *
+                                   (size_t)owner_count);
+                        memcpy(combined_value_present + arg_count +
+                                   owner_offset,
+                               owner_value_present,
+                               sizeof(*combined_value_present) *
+                                   (size_t)owner_count);
+                    }
+                }
+                owner_offset += owner_count;
+                owner_scope = owner_scope->enclosing_class;
+            }
+            substitution_args = combined_args;
+            substitution_values = combined_values;
+            substitution_value_present = combined_value_present;
+            substitution_arg_count = combined_count;
+        }
+
+        tmpl->active_class_instance = owner_class;
+        variable_type = template_substitute_type(
+            tmpl, definition->type, substitution_args,
+            substitution_arg_count, substitution_values,
+            substitution_value_present);
+        initializer = template_clone_expr(
+            tmpl, definition->var_init, substitution_args,
+            substitution_arg_count, substitution_values,
+            substitution_value_present);
+        tmpl->active_class_instance = saved_active_class_instance;
 
         if (!variable_type) {
             rcc_error(definition->loc,

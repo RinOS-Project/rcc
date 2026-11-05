@@ -112,7 +112,7 @@ struct auto_structural_member_pointer_variable_owner {
 template<typename Owner>
 struct auto_structural_member_pointer_variable_template_owner {
     template<auto Value>
-    inline static constexpr int member = 47;
+    inline static constexpr int member = sizeof(Owner) + 47;
 };
 
 const int* auto_member_pointer_variable_address() {
@@ -426,14 +426,16 @@ extern "C" int main() {
                        43 &&
                    auto_structural_member_pointer_variable_template_owner<
                        int>::member<auto_data_member_pointer_constant{
-                       &auto_member_pointer_target::field}> == 47 &&
+                       &auto_member_pointer_target::field}> ==
+                       sizeof(int) + 47 &&
                    *auto_class_template_structural_member_pointer_variable_address() ==
-                       47 &&
+                       sizeof(int) + 47 &&
                    auto_structural_member_pointer_variable_template_owner<
                        long>::member<auto_data_member_pointer_constant{
-                       &auto_member_pointer_target::field}> == 47 &&
+                       &auto_member_pointer_target::field}> ==
+                       sizeof(long) + 47 &&
                    *auto_long_class_template_structural_member_pointer_variable_address() ==
-                       47 &&
+                       sizeof(long) + 47 &&
                    auto_member_pointer_read<
                        &auto_member_pointer_target::field>() == 5 &&
                    auto_member_pointer_read<
