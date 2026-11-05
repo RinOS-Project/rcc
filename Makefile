@@ -1553,6 +1553,7 @@ CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
 CXX_REGRESSION_TARGETS += test-cxx-prvalue-scalar-conversion-cleanup
 CXX_REGRESSION_TARGETS += test-cxx-list-narrowing
 CXX_REGRESSION_TARGETS += test-cxx-floating-nontype
+CXX_REGRESSION_TARGETS += test-preprocessor-header-unit-macros
 CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
 CXX_REGRESSION_TARGETS += test-cxx-reference-list-initialization
@@ -28844,6 +28845,27 @@ endif
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED -c -o $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.ro tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.log)
 	$(GREP) -F -q "static_cast requires a viable conversion function" $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.ro)
+
+.PHONY: test-preprocessor-header-unit-macros
+test-preprocessor-header-unit-macros: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/header-unit-macros)
+	$(RCXX_TARGET) -std=c++20 -E -Itests \
+		-DRCC_HEADER_UNIT_BASELINE_MACRO=1 \
+		tests/cxx_header_unit_macro_undef.cpp \
+		>$(TEST_OUT)/header-unit-macros/undef.i
+	$(GREP) -F -q 'int rcc_header_unit_imported_macro_value = 73;' \
+		$(TEST_OUT)/header-unit-macros/undef.i
+	$(call CHECK_TEXT_ABSENT,RCC_HEADER_UNIT_BASELINE_MACRO,$(TEST_OUT)/header-unit-macros/undef.i)
+	$(RCXX_TARGET) -std=c++20 -E -Itests \
+		-DRCC_HEADER_UNIT_BASELINE_MACRO=1 \
+		-DRCC_HEADER_UNIT_REDEFINE_BASELINE=1 \
+		tests/cxx_header_unit_macro_undef.cpp \
+		>$(TEST_OUT)/header-unit-macros/redefined.i
+	$(GREP) -F -q 'int rcc_header_unit_imported_macro_value = 73;' \
+		$(TEST_OUT)/header-unit-macros/redefined.i
+	$(GREP) -F -q 'int rcc_header_unit_baseline_macro_value = 29;' \
+		$(TEST_OUT)/header-unit-macros/redefined.i
+	@echo "C++20 header-unit macro import tests completed"
 
 test-cxx-converting-constructor: test-cxx-static-cast-constructor
 

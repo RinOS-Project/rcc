@@ -14751,3 +14751,10 @@ remains a separate open item.
       types and pre-C++20 declarations/uses. Strict GCC C++20, GCC/RCC symbol
       parity, RCC i686/AMD64 output and x64 host execution, plus C++17 and
       converted-argument rejection gates pass on Windows and POSIX.
+
+## RCC continuation (2026-11-05, header-unit macro undef propagation)
+
+- [x] Propagate `#undef` effects for command-line baseline macros through a
+      C++20 header-unit import, import macro definitions from the header, and
+      preserve a translation-unit macro change made before import. The focused
+      `-E` regression passes on Windows and POSIX.
