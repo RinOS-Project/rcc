@@ -3322,6 +3322,19 @@ static RccIrLowerValue lower_conditional_glvalue_address(
     return lower_value(phi->result, rcc_ir_type_pointer(0u), true);
 }
 
+static bool lower_is_class_conditional_temporary(const Expr* expression) {
+    const Type* type;
+    if (!expression || expression->kind != EXPR_COND ||
+        expression->cxx_conditional_lvalue) {
+        return false;
+    }
+    type = expression->type;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    return type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+}
+
 static RccIrLowerValue lower_lvalue_address_impl(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
@@ -3339,7 +3352,7 @@ static RccIrLowerValue lower_lvalue_address_impl(
         return lower_lvalue_address(context, expression->binary_rhs);
     }
     if (expression->kind == EXPR_COND &&
-        expression->cxx_conditional_xvalue &&
+        lower_is_class_conditional_temporary(expression) &&
         context->conditional_xvalue_owner &&
         context->aggregate_result_destination_expression == expression) {
         return lower_conditional_expression(context, expression);
@@ -11293,12 +11306,9 @@ static bool lower_scope_cleanup_declaration_supported(
         reference_plan && reference_plan->contains_temporary &&
         reference_plan->expression == declaration->var_init &&
         ((reference_plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_BRANCH &&
-          declaration->var_init && declaration->var_init->kind == EXPR_COND &&
-          declaration->var_init->cxx_conditional_xvalue) ||
+          lower_is_class_conditional_temporary(declaration->var_init)) ||
          (reference_plan->kind == CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER &&
-          reference_plan->source &&
-          reference_plan->source->kind == EXPR_COND &&
-          reference_plan->source->cxx_conditional_xvalue)) &&
+          lower_is_class_conditional_temporary(reference_plan->source))) &&
         declaration->var_reference_temporary_variant_offset >= 0 &&
         reference_owner->var_reference_temporary_storage_size > 0;
     bool storage_supported;
@@ -19426,8 +19436,7 @@ static RccIrLowerValue lower_conditional_xvalue_tree(
             context->aggregate_result_destination;
         RccIrLowerValue value;
         if (!plan->expression || !plan->source || !plan->wrapped_plan ||
-            plan->source->kind != EXPR_COND ||
-            !plan->source->cxx_conditional_xvalue) {
+            !lower_is_class_conditional_temporary(plan->source)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -19593,7 +19602,7 @@ static RccIrLowerValue lower_conditional_expression(
                 owner->var_reference_temporary_plan, expression);
         RccIrLowerValue selector_address;
         RccIrType selector_type;
-        if (!expression->cxx_conditional_xvalue ||
+        if (!lower_is_class_conditional_temporary(expression) ||
             expression->kind != EXPR_COND ||
             !plan ||
             plan->kind != CXX_CONDITIONAL_XVALUE_PLAN_BRANCH ||
@@ -31090,15 +31099,12 @@ static bool lower_declaration(RccIrLowerContext* context,
                                 owner_initializer ||
                             (conditional_xvalue_plan->kind ==
                                      CXX_CONDITIONAL_XVALUE_PLAN_BRANCH
-                                 ? (owner_initializer->kind != EXPR_COND ||
-                                    !owner_initializer->cxx_conditional_xvalue)
+                                 ? !lower_is_class_conditional_temporary(
+                                       owner_initializer)
                                  : (conditional_xvalue_plan->kind !=
                                         CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER ||
-                                    !conditional_xvalue_plan->source ||
-                                    conditional_xvalue_plan->source->kind !=
-                                        EXPR_COND ||
-                                    !conditional_xvalue_plan->source
-                                         ->cxx_conditional_xvalue)) ||
+                                    !lower_is_class_conditional_temporary(
+                                        conditional_xvalue_plan->source))) ||
                             !owner->var_reference_temporary_alternate_type ||
                             owner->var_reference_temporary_variant_offset < 0)
                          : ((owner_initializer->type->kind != TYPE_STRUCT &&

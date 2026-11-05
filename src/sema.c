@@ -188,6 +188,14 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     bool allow_explicit, bool include_inaccessible_or_deleted,
     bool include_member_templates, bool defer_template_bodies,
     bool* ambiguous);
+static bool sema_cxx_type_trait_constructor_accessible(
+    CxxConstructorInfo* constructor, CxxClass* access_context);
+static bool sema_cxx_type_trait_implicit_copy_move_constructible(
+    Type* type, CxxTypeTraitArgument* arguments, ExprList* expressions,
+    int argument_count, unsigned depth, bool* applicable);
+static bool sema_cxx_type_trait_implicit_copy_move_beats_template(
+    Type* type, CxxTypeTraitArgument* arguments, ExprList* expressions,
+    int argument_count, CxxConstructorInfo* constructor, unsigned depth);
 static bool sema_append_cxx_constructor_default_arguments(
     ExprList** arguments, CxxConstructorInfo* constructor,
     int supplied_count);
@@ -2652,6 +2660,19 @@ static Expr* sema_cxx_static_reference_temporary_source(
 static bool sema_cxx_static_reference_has_temporary_source(
     Expr* expression);
 
+static bool sema_cxx_is_class_conditional_temporary(Expr* expression) {
+    Type* type;
+    if (!expression || expression->kind != EXPR_COND ||
+        expression->cxx_conditional_lvalue) {
+        return false;
+    }
+    type = expression->type;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    return type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+}
+
 static bool sema_cxx_collect_conditional_temporary_types(
     Expr* expression, Type** primary_type, Type** alternate_type,
     int* storage_size, int* storage_align, int* leaf_count,
@@ -2662,14 +2683,13 @@ static bool sema_cxx_collect_conditional_temporary_types(
     if (plan_out) *plan_out = NULL;
     if (!expression || !leaf_count || *leaf_count == INT_MAX) return false;
     source = sema_cxx_static_reference_temporary_source(expression);
-    if (expression->kind == EXPR_COND &&
-        expression->cxx_conditional_xvalue &&
+    if (sema_cxx_is_class_conditional_temporary(expression) &&
         sema_cxx_static_reference_has_temporary_source(expression) &&
         source != expression) {
         return false;
     }
-    if (expression->kind == EXPR_COND &&
-        expression->cxx_conditional_xvalue && source == expression) {
+    if (sema_cxx_is_class_conditional_temporary(expression) &&
+        source == expression) {
         int leaf_count_before = *leaf_count;
         plan = ast_arena_alloc(sizeof(*plan));
         if (!plan) return false;
@@ -2702,7 +2722,7 @@ static bool sema_cxx_collect_conditional_temporary_types(
         plan->kind = CXX_CONDITIONAL_XVALUE_PLAN_WRAPPER;
         plan->expression = expression;
         plan->source = source;
-        if (!source->cxx_conditional_xvalue ||
+        if (!sema_cxx_is_class_conditional_temporary(source) ||
             !sema_cxx_collect_conditional_temporary_types(
                 source, primary_type, alternate_type, storage_size,
                 storage_align, leaf_count, has_temporary,
@@ -2780,7 +2800,7 @@ static bool sema_cxx_conditional_temporary_types(
         expression);
     if (!expression || !conditional_source ||
         conditional_source->kind != EXPR_COND ||
-        !conditional_source->cxx_conditional_xvalue ||
+        !sema_cxx_is_class_conditional_temporary(conditional_source) ||
         !sema_cxx_collect_conditional_temporary_types(
             expression, &primary_type, &alternate_type, &storage_size,
             &storage_align, &leaf_count, &has_temporary, &plan) ||
@@ -14519,6 +14539,105 @@ static int sema_cxx_function_type_conversion_rank(Type* source,
         ? 0 : 1;
 }
 
+/* A class parameter passed by value needs copy/move construction even when
+ * source and destination have the same class type. Conversion ranking alone
+ * cannot treat that case as an unconditional identity conversion: a deleted,
+ * inaccessible, or otherwise non-viable copy constructor makes the argument
+ * ill-formed. */
+static bool sema_cxx_by_value_class_argument_is_constructible(
+    Expr* argument, Type* source, Type* target, CxxClass* access_context) {
+    CxxTypeTraitArgument trait_argument = { 0 };
+    Type* construction_source = source;
+    Type* construction_target = target;
+    ExprList* expressions;
+    CxxConstructorInfo* constructor;
+    bool ambiguous = false;
+    bool implicit_applicable = false;
+    bool implicit_viable;
+    bool viable = false;
+    SemaCxxConversionGuard guard;
+    if (!argument || !source || !target ||
+        (target->kind != TYPE_STRUCT && target->kind != TYPE_UNION) ||
+        !target->cxx_class || source->kind != target->kind ||
+        source->cxx_class != target->cxx_class) {
+        return true;
+    }
+    /* C++17 guaranteed elision initializes an exact-type parameter directly
+     * from a same-type prvalue, without invoking a copy/move constructor. */
+    if (!is_lvalue(argument) && !is_xvalue(argument)) return true;
+
+    /* Member declarations parsed before the class closing brace can retain
+     * an incomplete Type wrapper. Use the completed class layout when the
+     * class identity has since acquired one, preserving top-level cv. */
+    if (!type_is_complete(construction_target) &&
+        target->cxx_class->type &&
+        type_is_complete(target->cxx_class->type)) {
+        construction_target = ast_arena_alloc(sizeof(*construction_target));
+        *construction_target = *target->cxx_class->type;
+        construction_target->is_const = target->is_const;
+        construction_target->is_volatile = target->is_volatile;
+        construction_target->is_atomic = target->is_atomic;
+        construction_target->is_restrict = target->is_restrict;
+    }
+    if (!type_is_complete(construction_source) &&
+        source->cxx_class->type &&
+        type_is_complete(source->cxx_class->type)) {
+        construction_source = ast_arena_alloc(sizeof(*construction_source));
+        *construction_source = *source->cxx_class->type;
+        construction_source->is_const = source->is_const;
+        construction_source->is_volatile = source->is_volatile;
+        construction_source->is_atomic = source->is_atomic;
+        construction_source->is_restrict = source->is_restrict;
+    }
+
+    /* Constructor viability can recursively inspect another by-value
+     * parameter of this class. End that candidate path here; reference
+     * parameters and other class conversions continue through normal
+     * overload resolution. */
+    for (SemaCxxConversionGuard* active = active_cxx_conversion_guards;
+         active; active = active->previous) {
+        if (active->source && active->target &&
+            active->source->cxx_class == source->cxx_class &&
+            active->target->cxx_class == target->cxx_class &&
+            active->source->kind == source->kind &&
+            active->target->kind == target->kind) {
+            return false;
+        }
+    }
+
+    trait_argument.type = construction_source;
+    trait_argument.loc = argument->loc;
+    expressions = exprlist_new(argument);
+    guard.source = source;
+    guard.target = target;
+    guard.previous = active_cxx_conversion_guards;
+    active_cxx_conversion_guards = &guard;
+    constructor = sema_cxx_select_type_trait_constructor_ex(
+        construction_target, expressions, 1, false, true, true, true,
+        &ambiguous);
+    if (!ambiguous && constructor && constructor->method &&
+        constructor->method->member_template &&
+        sema_cxx_type_trait_implicit_copy_move_beats_template(
+            construction_target, &trait_argument, expressions, 1,
+            constructor, 0u)) {
+        implicit_viable = sema_cxx_type_trait_implicit_copy_move_constructible(
+            construction_target, &trait_argument, expressions, 1, 0u,
+            &implicit_applicable);
+        viable = implicit_applicable && implicit_viable;
+    } else if (!ambiguous && constructor) {
+        viable = !constructor->is_deleted &&
+            sema_cxx_type_trait_constructor_accessible(
+                constructor, access_context);
+    } else if (!ambiguous) {
+        implicit_viable = sema_cxx_type_trait_implicit_copy_move_constructible(
+            construction_target, &trait_argument, expressions, 1, 0u,
+            &implicit_applicable);
+        viable = implicit_applicable && implicit_viable;
+    }
+    active_cxx_conversion_guards = guard.previous;
+    return viable;
+}
+
 static int cxx_conversion_rank_detail_at_context(
     Expr* argument, Type* target, TypeMethod** conversion_method,
     CxxClass* access_context, CxxFriendAccess* function_friend_access) {
@@ -14658,7 +14777,16 @@ static int cxx_conversion_rank_detail_at_context(
             return 1;
         }
     }
-    if (cxx_same_parameter_type(source, target, true)) return 0;
+    if (cxx_same_parameter_type(source, target, true)) {
+        if ((source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
+            source->cxx_class && target->cxx_class &&
+            source->cxx_class == target->cxx_class &&
+            !sema_cxx_by_value_class_argument_is_constructible(
+                argument, source, target, access_context)) {
+            return -1;
+        }
+        return 0;
+    }
 
     if (source->kind == TYPE_FUNC && target->kind == TYPE_PTR &&
         target->base && target->base->kind == TYPE_FUNC) {

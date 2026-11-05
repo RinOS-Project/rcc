@@ -1,5 +1,5 @@
 struct invalid_cxx_bitfield_width {
-    unsigned value : 33;
+    unsigned value : -1;
 };
 
 extern "C" int main() {

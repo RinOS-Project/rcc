@@ -1230,6 +1230,25 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
     emit64_memory_operand(mod, src, base, disp);
 }
 
+static void emit64_store_integer_bytes(Module* mod, int base, int32_t disp,
+                                       int src, int byte_count) {
+    int offset = 0;
+    if (byte_count > 8) byte_count = 8;
+    while (byte_count > 0) {
+        int width = byte_count >= 8 ? 8 : byte_count >= 4 ? 4
+            : byte_count >= 2 ? 2 : 1;
+        const Type* chunk_type = width == 8 ? type_ullong
+            : width == 4 ? type_uint
+            : width == 2 ? type_ushort : type_uchar;
+        emit64_store_typed(mod, base, disp + offset, src, chunk_type);
+        byte_count -= width;
+        offset += width;
+        if (byte_count > 0) {
+            emit64_shr_reg_imm(mod, src, (uint8_t)(width * 8));
+        }
+    }
+}
+
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_expr_impl(Module* mod, Expr* expr);
 static void gen64_record_inline_debug_scope_ranges(
@@ -12385,23 +12404,31 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     result_class.classes[1] == GEN64_CLASS_INTEGER) {
                     /* Preserve the INTEGER-class return in RAX before
                      * extracting the leading SSE eightbyte through RAX. */
-                    emit64_mov_mem_reg(
-                        mod, RBP, expr->call_result_offset + 8, RAX);
+                    int trailing_bytes = expr->type->size - 8;
+                    if (trailing_bytes > 8) trailing_bytes = 8;
+                    emit64_store_integer_bytes(
+                        mod, RBP, expr->call_result_offset + 8, RAX,
+                        trailing_bytes);
                 }
                 for (int index = 0; index < result_class.count; ++index) {
+                    int byte_offset = index * 8;
+                    int chunk_bytes = expr->type->size - byte_offset;
+                    if (chunk_bytes > 8) chunk_bytes = 8;
                     if (result_class.classes[index] == GEN64_CLASS_INTEGER) {
                         if (!(result_class.count == 2 && index == 1 &&
                               result_class.classes[0] == GEN64_CLASS_SSE)) {
-                            emit64_mov_mem_reg(
+                            emit64_store_integer_bytes(
                                 mod, RBP,
-                                expr->call_result_offset + index * 8,
-                                gp_return++ == 0 ? RAX : RDX);
+                                expr->call_result_offset + byte_offset,
+                                gp_return++ == 0 ? RAX : RDX,
+                                chunk_bytes);
                         }
                     } else {
                         emit64_mov_gpr_from_xmm(mod, RAX, fp_return++, 8);
-                        emit64_mov_mem_reg(
-                            mod, RBP, expr->call_result_offset + index * 8,
-                            RAX);
+                        emit64_store_integer_bytes(
+                            mod, RBP,
+                            expr->call_result_offset + byte_offset, RAX,
+                            chunk_bytes);
                     }
                 }
             }

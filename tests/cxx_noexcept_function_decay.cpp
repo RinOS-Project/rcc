@@ -3,6 +3,13 @@
 using NoexceptFunction = int(double) noexcept;
 using NoexceptFunctionPointer = int (*)(double) noexcept;
 
+static_assert(!std::is_const<const NoexceptFunction>::value,
+              "cv-qualification does not apply to function types");
+static_assert(!std::is_const<const NoexceptFunction&>::value,
+              "cv-qualification does not apply to reference types");
+static_assert(std::is_const<const NoexceptFunctionPointer>::value,
+              "cv-qualification still applies to pointer types");
+
 template<typename T>
 struct NoexceptFunctionProbe {
     static constexpr int value = -1;

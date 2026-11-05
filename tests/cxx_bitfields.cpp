@@ -13,6 +13,10 @@ struct cxx_bitfield_promotion_value {
     unsigned int full : 32;
 };
 
+struct cxx_bitfield_overwide_unsigned {
+    unsigned int value : 33;
+};
+
 int cxx_bitfield_promotion_kind(int) { return 1; }
 int cxx_bitfield_promotion_kind(unsigned int) { return 2; }
 int cxx_bitfield_promotion_kind(long long) { return 3; }
@@ -88,6 +92,7 @@ static cxx_bitfield_wide_storage static_wide_storage = {
 extern "C" int main() {
     cxx_bitfield_value value;
     cxx_bitfield_promotion_value promotion_value;
+    cxx_bitfield_overwide_unsigned overwide_unsigned = {};
     cxx_bitfield_unscoped_enum_value unscoped_enum_value;
     cxx_bitfield_scoped_enum_value scoped_enum_value;
     cxx_bitfield_zero_width_barrier barrier;
@@ -104,6 +109,11 @@ extern "C" int main() {
     value.byte_high = 0xa;
     promotion_value.narrow = 5;
     promotion_value.full = 0x80000000u;
+    overwide_unsigned.value = 0xffffffffu;
+    if (sizeof(cxx_bitfield_overwide_unsigned) != 8 ||
+        overwide_unsigned.value != 0xffffffffu) {
+        return 10;
+    }
     unscoped_enum_value.value = cxx_bitfield_enum_high;
     scoped_enum_value.value = cxx_bitfield_scoped_unsigned::high;
     barrier.before = 5;

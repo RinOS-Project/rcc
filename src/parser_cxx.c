@@ -21799,6 +21799,17 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
     Expr* array_bound;
     int parameter_index;
     if (!type) return NULL;
+    /* A dependent cv-qualified placeholder may become a function type only
+     * after substitution. Function types are never cv-qualified, so discard
+     * qualifiers that were recorded while the placeholder was still
+     * unknown before using the type in specialization matching. */
+    if (type->kind == TYPE_FUNC && (type->is_const || type->is_volatile)) {
+        substituted = ast_arena_alloc(sizeof(*substituted));
+        *substituted = *type;
+        substituted->is_const = false;
+        substituted->is_volatile = false;
+        type = substituted;
+    }
     if (type->cxx_dependent_decltype_expr) {
         CxxTemplate* context = type->cxx_template_param_context
             ? type->cxx_template_param_context : tmpl;
@@ -23235,8 +23246,14 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 value_present);
             if (resolved) substituted = resolved;
         }
-        if ((type->is_const && !substituted->is_const) ||
-            (type->is_volatile && !substituted->is_volatile)) {
+        /* Applying cv-qualification to a function or reference type has no
+         * effect. In particular, `const T` with T a function must remain the
+         * function type so traits such as is_const<const T> select the
+         * primary template rather than the const partial specialization. */
+        if (!substituted->is_reference &&
+            substituted->kind != TYPE_FUNC &&
+            ((type->is_const && !substituted->is_const) ||
+             (type->is_volatile && !substituted->is_volatile))) {
             Type* qualified = ast_arena_alloc(sizeof(*qualified));
             *qualified = *substituted;
             qualified->is_const = qualified->is_const || type->is_const;
@@ -31364,6 +31381,131 @@ static CxxClass* cxx_function_template_dependent_member_expression_owner(
     return owner;
 }
 
+typedef struct {
+    Decl* declaration;
+    bool accessible;
+    bool ambiguous;
+} CxxTemplateStaticMemberLookup;
+
+typedef struct CxxTemplateStaticMemberLookupPath {
+    CxxClass* cls;
+    struct CxxTemplateStaticMemberLookupPath* parent;
+} CxxTemplateStaticMemberLookupPath;
+
+static const char* cxx_template_unqualified_member_name(const char* name) {
+    const char* separator = name ? strrchr(name, ':') : NULL;
+    return separator && separator > name && separator[-1] == ':'
+        ? separator + 1 : name;
+}
+
+static bool cxx_template_class_declares_member_name(
+    CxxClass* cls, const char* name) {
+    if (!cls || !name) return false;
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) return true;
+    }
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        const char* member_name = member->decl
+            ? cxx_template_unqualified_member_name(member->decl->name)
+            : member->method ? member->method->source_name : NULL;
+        if (member_name && strcmp(member_name, name) == 0) return true;
+    }
+    for (CxxTypeAlias* alias = cls->type_aliases; alias; alias = alias->next) {
+        if (alias->name && strcmp(alias->name, name) == 0) return true;
+    }
+    for (CxxClassAliasTemplate* alias = cls->alias_templates;
+         alias; alias = alias->next) {
+        if (alias->declaration && alias->declaration->name &&
+            strcmp(alias->declaration->name, name) == 0) {
+            return true;
+        }
+    }
+    for (CxxNestedClassTemplate* nested = cls->nested_class_templates;
+         nested; nested = nested->next) {
+        if (nested->declaration && nested->declaration->name &&
+            strcmp(nested->declaration->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Decl* cxx_template_direct_static_member(
+    CxxClass* cls, const char* name, AccessSpec* access_out) {
+    if (!cls || !name) return NULL;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        Decl* declaration = member->decl;
+        const char* member_name = declaration
+            ? cxx_template_unqualified_member_name(declaration->name) : NULL;
+        if (!member->is_static || member->method || !declaration ||
+            declaration->kind != DECL_VAR || !member_name ||
+            strcmp(member_name, name) != 0) {
+            continue;
+        }
+        if (access_out) *access_out = member->access;
+        return declaration;
+    }
+    return NULL;
+}
+
+static void cxx_template_static_member_lookup_add(
+    CxxTemplateStaticMemberLookup* lookup, Decl* declaration,
+    bool accessible) {
+    if (!lookup || !declaration || lookup->ambiguous) return;
+    if (!lookup->declaration) {
+        lookup->declaration = declaration;
+        lookup->accessible = accessible;
+    } else if (lookup->declaration != declaration) {
+        lookup->ambiguous = true;
+    } else if (accessible) {
+        lookup->accessible = true;
+    }
+}
+
+static void cxx_template_lookup_static_member_in_bases(
+    CxxClass* cls, const char* name, bool path_accessible,
+    CxxTemplateStaticMemberLookup* lookup,
+    CxxTemplateStaticMemberLookupPath* parent_path) {
+    AccessSpec member_access = ACCESS_PUBLIC;
+    Decl* declaration;
+    CxxTemplateStaticMemberLookupPath path;
+    if (!cls || !name || !lookup || lookup->ambiguous) return;
+    for (CxxTemplateStaticMemberLookupPath* ancestor = parent_path;
+         ancestor; ancestor = ancestor->parent) {
+        if (ancestor->cls == cls) return;
+    }
+    declaration = cxx_template_direct_static_member(
+        cls, name, &member_access);
+    if (declaration) {
+        cxx_template_static_member_lookup_add(
+            lookup, declaration,
+            path_accessible && member_access == ACCESS_PUBLIC);
+        return;
+    }
+    if (cxx_template_class_declares_member_name(cls, name)) return;
+    path.cls = cls;
+    path.parent = parent_path;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        if (!cls->bases[base_index].base) continue;
+        cxx_template_lookup_static_member_in_bases(
+            cls->bases[base_index].base, name,
+            path_accessible &&
+                cls->bases[base_index].access == ACCESS_PUBLIC,
+            lookup, &path);
+        if (lookup->ambiguous) return;
+    }
+}
+
+static CxxTemplateStaticMemberLookup cxx_template_lookup_static_member(
+    CxxClass* cls, const char* name) {
+    CxxTemplateStaticMemberLookup lookup = { 0 };
+    cxx_template_lookup_static_member_in_bases(
+        cls, name, true, &lookup, NULL);
+    return lookup;
+}
+
 static bool cxx_function_template_resolve_class_static_integer(
     Expr* expression, CxxTemplate* function_template, Type** arguments,
     const int64_t* values, const bool* value_present, int64_t* value_out,
@@ -31461,31 +31603,21 @@ static bool cxx_function_template_resolve_class_static_integer(
         resolved_class = resolved_type->cxx_class;
     }
 
-    for (struct CxxMember* member = resolved_class->members; member;
-         member = member->next) {
-        Decl* declaration = member->decl;
-        const char* declared_name = declaration ? declaration->name : NULL;
-        const char* declared_separator = declared_name
-            ? strrchr(declared_name, ':') : NULL;
-        declared_name = declared_separator && declared_separator > declared_name &&
-                declared_separator[-1] == ':'
-            ? declared_separator + 1 : declared_name;
-        if (!member->is_static || !declaration ||
-            declaration->kind != DECL_VAR ||
-            !declaration->var_is_constexpr || !declaration->var_init ||
-            !declaration->type || !type_is_integer(declaration->type) ||
-            !declared_name || strcmp(declared_name, member_name) != 0 ||
-            declaration->var_is_being_constant_evaluated) {
-            continue;
-        }
-        declaration->var_is_being_constant_evaluated = true;
-        bool evaluated = expr_eval_integer_constant(
-            declaration->var_init, value_out);
-        declaration->var_is_being_constant_evaluated = false;
-        if (evaluated) return true;
+    CxxTemplateStaticMemberLookup lookup = cxx_template_lookup_static_member(
+        resolved_class, member_name);
+    Decl* declaration = lookup.declaration;
+    if (!declaration || !lookup.accessible || lookup.ambiguous ||
+        declaration->kind != DECL_VAR ||
+        !declaration->var_is_constexpr || !declaration->var_init ||
+        !declaration->type || !type_is_integer(declaration->type) ||
+        declaration->var_is_being_constant_evaluated) {
         return false;
     }
-    return false;
+    declaration->var_is_being_constant_evaluated = true;
+    bool evaluated = expr_eval_integer_constant(
+        declaration->var_init, value_out);
+    declaration->var_is_being_constant_evaluated = false;
+    return evaluated;
 }
 
 /* Resolve the small constant-expression subset needed when a dependent
@@ -31505,29 +31637,43 @@ static bool cxx_function_template_resolve_dependent_static_integer_members(
     }
     if ((expression->kind == EXPR_MEMBER ||
          expression->kind == EXPR_PTR_MEMBER) && expression->member_name) {
-        const char* member_name = NULL;
-        CxxClass* owner = cxx_function_template_dependent_member_expression_owner(
-            function_template, expression, arguments, &member_name);
+        const char* member_name = expression->member_name;
+        Type* owner_type = expression->member_base
+            ? expression->member_base->type : NULL;
+        CxxClass* owner = NULL;
+        /* A dependent base expression can retain a class-template instance
+         * selected while its argument was still a cv-qualified placeholder.
+         * Rebuild that instance from its primary template identity after the
+         * enclosing function-template arguments are known. */
+        if (owner_type && owner_type->cxx_class &&
+            owner_type->cxx_class->template_identity_tmpl) {
+            Type* substituted_owner_type = substitute_template_type(
+                function_template, owner_type, arguments,
+                function_template->param_count, values, value_present);
+            if (substituted_owner_type) owner_type = substituted_owner_type;
+        }
+        if (expression->kind == EXPR_PTR_MEMBER && owner_type &&
+            owner_type->kind == TYPE_PTR) {
+            owner_type = owner_type->base;
+        }
+        while (owner_type && owner_type->is_reference && owner_type->base) {
+            owner_type = owner_type->base;
+        }
+        if (owner_type && !owner_type->cxx_dependent) {
+            owner = owner_type->cxx_class;
+        }
+        if (!owner) {
+            owner = cxx_function_template_dependent_member_expression_owner(
+                function_template, expression, arguments, NULL);
+        }
         if (owner && member_name) {
-            for (struct CxxMember* member = owner->members; member;
-                 member = member->next) {
-                Decl* declaration = member->decl;
-                const char* declared_name = declaration
-                    ? declaration->name : NULL;
-                const char* separator = declared_name
-                    ? strrchr(declared_name, ':') : NULL;
-                declared_name = separator && separator > declared_name &&
-                        separator[-1] == ':'
-                    ? separator + 1 : declared_name;
-                if (!member->is_static || member->access != ACCESS_PUBLIC ||
-                    !declaration || declaration->kind != DECL_VAR ||
-                    !declaration->var_is_constexpr ||
-                    !declaration->var_init || !declared_name ||
-                    strcmp(declared_name, member_name) != 0 ||
-                    !declaration->type ||
-                    !type_is_integer(declaration->type)) {
-                    continue;
-                }
+            CxxTemplateStaticMemberLookup lookup =
+                cxx_template_lookup_static_member(owner, member_name);
+            Decl* declaration = lookup.declaration;
+            if (declaration && lookup.accessible && !lookup.ambiguous &&
+                declaration->kind == DECL_VAR &&
+                declaration->var_is_constexpr && declaration->var_init &&
+                declaration->type && type_is_integer(declaration->type)) {
                 Expr* initializer = cxx_template_clone_expr_with_values(
                     function_template, declaration->var_init, arguments,
                     function_template->param_count, values, value_present);
@@ -31565,25 +31711,13 @@ static bool cxx_function_template_resolve_dependent_static_integer_members(
             function_template, expression->ident_name, arguments,
             &member_name);
         if (owner && member_name) {
-            for (struct CxxMember* member = owner->members; member;
-                 member = member->next) {
-                Decl* declaration = member->decl;
-                const char* declared_name = declaration
-                    ? declaration->name : NULL;
-                const char* separator = declared_name
-                    ? strrchr(declared_name, ':') : NULL;
-                declared_name = separator && separator > declared_name &&
-                        separator[-1] == ':'
-                    ? separator + 1 : declared_name;
-                if (!member->is_static || member->access != ACCESS_PUBLIC ||
-                    !declaration || declaration->kind != DECL_VAR ||
-                    !declaration->var_is_constexpr ||
-                    !declaration->var_init || !declared_name ||
-                    strcmp(declared_name, member_name) != 0 ||
-                    !declaration->type ||
-                    !type_is_integer(declaration->type)) {
-                    continue;
-                }
+            CxxTemplateStaticMemberLookup lookup =
+                cxx_template_lookup_static_member(owner, member_name);
+            Decl* declaration = lookup.declaration;
+            if (declaration && lookup.accessible && !lookup.ambiguous &&
+                declaration->kind == DECL_VAR &&
+                declaration->var_is_constexpr && declaration->var_init &&
+                declaration->type && type_is_integer(declaration->type)) {
                 Expr* initializer = cxx_template_clone_expr_with_values(
                     function_template, declaration->var_init, arguments,
                     function_template->param_count, values, value_present);
@@ -51129,7 +51263,8 @@ static Type* parse_cxx_type_spec(void) {
      * named or built-in base type (for example, `Widget const&`).  These
      * qualifiers belong to the base object and must be applied before any
      * pointer/reference layers below are constructed. */
-    if (t && (check(TOK_CONST) || check(TOK_VOLATILE))) {
+    if (t && t->kind != TYPE_FUNC && !t->is_reference &&
+        (check(TOK_CONST) || check(TOK_VOLATILE))) {
         Type* qualified = ast_arena_alloc(sizeof(*qualified));
         *qualified = *t;
         while (match(TOK_CONST) || match(TOK_VOLATILE)) {
@@ -51141,7 +51276,8 @@ static Type* parse_cxx_type_spec(void) {
 
     /* Prefix cv-qualifiers apply to the base type, before pointer and
      * reference declarators are layered on top. */
-    if ((is_const || is_volatile) && t) {
+    if ((is_const || is_volatile) && t && t->kind != TYPE_FUNC &&
+        !t->is_reference) {
         Type* ct = ast_arena_alloc(sizeof(Type));
         *ct = *t;
         ct->is_const = ct->is_const || is_const;
