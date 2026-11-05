@@ -14884,7 +14884,9 @@ Continue in this order:
       reachability. A qualified private namespace helper remains callable from
       an exported inline function but hidden from importer lookup, and its body
       is emitted once when multiple translation units import the module.
-      `test-cxx-modules` links the reachable namespace case on i686 and x86_64.
+      Exported namespaces also retain non-inline function declarations for
+      importers while the provider defines the function once.
+      `test-cxx-modules` links both namespace cases on i686 and x86_64.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate
       currently stops in `test-cxx-type-trait-builtins` on those assertions.
