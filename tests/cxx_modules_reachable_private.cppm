@@ -22,7 +22,7 @@ int reachable_scoped_helper(int value) {
 }
 }
 namespace reachable_alias_detail = reachable_detail;
-using reachable_detail::ReachableScoped;
+export using reachable_detail::ReachableScoped;
 
 template<class T>
 struct ReachableTemplate {

@@ -29062,6 +29062,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-function-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-function-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-function-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-using-leak.ro $(TEST_OUT)/cxx-modules/reachable-using-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-using-leak.log)
+	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-using-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-adl-leak.ro $(TEST_OUT)/cxx-modules/reachable-adl-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-adl-leak.log)
 	$(GREP) -F -q "undefined identifier 'reachable_private_adl'" $(TEST_OUT)/cxx-modules/reachable-adl-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-enum-leak.ro $(TEST_OUT)/cxx-modules/reachable-enum-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-enum-leak.log)
