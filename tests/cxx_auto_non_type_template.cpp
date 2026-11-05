@@ -90,6 +90,13 @@ inline constexpr int auto_member_pointer_variable = 23;
 template<auto Pointer>
 inline constexpr int auto_member_function_pointer_variable = 31;
 
+template<auto First, auto Second>
+inline constexpr int auto_repeated_value_variable_category = 0;
+
+template<auto Pointer>
+inline constexpr int
+    auto_repeated_value_variable_category<Pointer, Pointer> = 1;
+
 const int* auto_member_pointer_variable_address() {
     return &auto_member_pointer_variable<
         &auto_member_pointer_target::field>;
@@ -98,6 +105,12 @@ const int* auto_member_pointer_variable_address() {
 const int* auto_member_function_pointer_variable_address() {
     return &auto_member_function_pointer_variable<
         &auto_member_pointer_target::get>;
+}
+
+const int* auto_repeated_value_variable_category_address() {
+    return &auto_repeated_value_variable_category<
+        &auto_member_pointer_target::field,
+        &auto_member_pointer_target::field>;
 }
 
 template<auto Pointer>
@@ -329,6 +342,14 @@ extern "C" int main() {
                    auto_member_function_pointer_variable<
                        &auto_member_pointer_target::get> == 31 &&
                    *auto_member_function_pointer_variable_address() == 31 &&
+                   auto_repeated_value_variable_category<
+                       &auto_member_pointer_target::field,
+                       &auto_member_pointer_target::field> == 1 &&
+                   auto_repeated_value_variable_category<
+                       &auto_member_pointer_target::field,
+                       &auto_member_pointer_target::get> == 0 &&
+                   auto_repeated_value_variable_category<1, 1L> == 0 &&
+                   *auto_repeated_value_variable_category_address() == 1 &&
                    auto_member_pointer_read<
                        &auto_member_pointer_target::field>() == 5 &&
                    auto_member_pointer_read<

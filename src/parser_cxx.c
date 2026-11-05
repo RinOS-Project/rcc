@@ -27148,6 +27148,31 @@ static bool deduce_class_specialization_value(
     return false;
 }
 
+static bool cxx_bind_variable_specialization_auto_value_type(
+    CxxTemplate* specialization, Expr* pattern, Type* actual_type,
+    Type** candidate_arguments) {
+    if (!specialization || !pattern || pattern->kind != EXPR_IDENT ||
+        !pattern->ident_name || !candidate_arguments) {
+        return true;
+    }
+    for (int index = 0; index < specialization->param_count; ++index) {
+        TemplateParam* parameter = &specialization->params[index];
+        if (parameter->kind != TPARAM_NONTYPE || !parameter->is_auto ||
+            !parameter->name ||
+            strcmp(parameter->name, pattern->ident_name) != 0) {
+            continue;
+        }
+        if (!actual_type) return false;
+        if (candidate_arguments[index]) {
+            return type_is_same_template_argument(
+                candidate_arguments[index], actual_type);
+        }
+        candidate_arguments[index] = actual_type;
+        return true;
+    }
+    return true;
+}
+
 static bool cxx_class_specialization_type_equal(const Type* pattern,
                                                 const Type* actual) {
     if (!pattern || !actual || pattern->kind != actual->kind ||
@@ -49121,12 +49146,19 @@ static CxxTemplate* cxx_select_variable_template_specialization(
                 actual_values[index] = pack_values[pack_argument_index];
                 actual_value_present[index] =
                     pack_value_present[pack_argument_index];
+                if (parameter->is_auto) {
+                    actual_arguments[index] =
+                        pack_arguments[pack_argument_index];
+                }
             } else {
                 actual_arguments[index] = pack_arguments[pack_argument_index];
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
             actual_values[index] = primary_values[index];
             actual_value_present[index] = primary_value_present[index];
+            if (parameter->is_auto) {
+                actual_arguments[index] = primary_arguments[index];
+            }
         } else {
             actual_arguments[index] = primary_arguments[index];
         }
@@ -49179,6 +49211,11 @@ static CxxTemplate* cxx_select_variable_template_specialization(
                         specialization, pattern, NULL, actual_values[index],
                         candidate_values, candidate_value_present,
                         &specificity);
+                    if (matches && parameter->is_auto) {
+                        matches = cxx_bind_variable_specialization_auto_value_type(
+                            specialization, pattern, actual_arguments[index],
+                            candidate_arguments);
+                    }
                 }
             } else {
                 Type* pattern = specialization->specialization_args
