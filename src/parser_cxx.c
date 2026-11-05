@@ -3271,6 +3271,8 @@ static bool cxx_structural_pointer_member_location(
     return false;
 }
 
+static void cxx_bind_template_constant_address_argument(Expr* expression);
+
 static bool cxx_structural_pointer_member_value(
     const Expr* expression, Type* pointer_type, int64_t* value_out) {
     CxxStructuralPointerLocation location;
@@ -3411,7 +3413,52 @@ static bool cxx_structural_pointer_member_value(
     if (!cxx_structural_pointer_member_location(
             expression, pointer_type, &location) ||
         !location.declaration) {
-        return false;
+        Decl* declaration = NULL;
+        int64_t byte_offset = 0;
+        Type* source_type;
+        cxx_bind_template_constant_address_argument((Expr*)expression);
+        source_type = (Type*)expression->type;
+        if (!source_type && expression->kind == EXPR_CALL) {
+            source_type = cxx_parser_expression_type((Expr*)expression);
+        }
+        if (pointer_type->is_reference ||
+            pointer_type->cxx_is_member_pointer || !source_type ||
+            source_type->kind != TYPE_PTR || source_type->is_reference ||
+            source_type->cxx_is_member_pointer || !source_type->base ||
+            !pointer_type->base ||
+            !rcc_parser_cxx_structural_pointer_conversion(
+                source_type->base, pointer_type->base, NULL) ||
+            !rcc_sema_eval_constexpr_pointer_location(
+                (Expr*)expression, &declaration, &byte_offset)) {
+            return false;
+        }
+        if (!declaration) {
+            if (byte_offset != 0) return false;
+            *value_out = 0;
+            return true;
+        }
+        if (byte_offset != 0 || !declaration->type ||
+            !cxx_structural_pointer_member_declaration_has_static_storage(
+                declaration, false)) {
+            return false;
+        }
+        if (source_type->base->kind == TYPE_FUNC) {
+            if (declaration->kind != DECL_FUNC ||
+                !cxx_structural_function_pointer_target_accepts(
+                    pointer_type->base, declaration->type)) {
+                return false;
+            }
+        } else if (declaration->kind != DECL_VAR ||
+                   !type_is_compatible(declaration->type,
+                                       source_type->base)) {
+            /* The scalar evaluator returns an object and byte offset. When
+             * the pointer names a subobject, use the syntax-based path above
+             * so its array/member provenance is retained in the NTTP key. */
+            return false;
+        }
+        return cxx_structural_pointer_value_register(
+            declaration, byte_offset, false, false, false, NULL, 0u,
+            value_out);
     }
     return cxx_structural_pointer_value_register(
         location.declaration, location.byte_offset,
@@ -4304,7 +4351,17 @@ static bool cxx_structural_class_count_member_values(
     return true;
 }
 
-static void cxx_bind_template_constant_address_argument(Expr* expression);
+typedef struct CxxTemplateConstantAddressFunction {
+    Decl* declaration;
+    const struct CxxTemplateConstantAddressFunction* parent;
+} CxxTemplateConstantAddressFunction;
+
+static void cxx_bind_template_constant_address_argument_impl(
+    Expr* expression,
+    const CxxTemplateConstantAddressFunction* active_functions);
+static void cxx_bind_template_constant_address_statement(
+    Stmt* statement,
+    const CxxTemplateConstantAddressFunction* active_functions);
 
 static void cxx_bind_template_constant_address_identifier(Expr* operand) {
     const char* name;
@@ -4379,7 +4436,9 @@ static void cxx_bind_template_constant_address_target(Expr* expression) {
     }
 }
 
-static void cxx_bind_template_constant_address_argument(Expr* expression) {
+static void cxx_bind_template_constant_address_argument_impl(
+    Expr* expression,
+    const CxxTemplateConstantAddressFunction* active_functions) {
     if (!expression) return;
     while (expression->kind == EXPR_CAST && expression->cast_expr) {
         expression = expression->cast_expr;
@@ -4392,27 +4451,237 @@ static void cxx_bind_template_constant_address_argument(Expr* expression) {
             declaration->type && declaration->type->kind == TYPE_PTR &&
             !declaration->var_is_being_constant_evaluated) {
             declaration->var_is_being_constant_evaluated = true;
-            cxx_bind_template_constant_address_argument(
-                declaration->var_init);
+            cxx_bind_template_constant_address_argument_impl(
+                declaration->var_init, active_functions);
             declaration->var_is_being_constant_evaluated = false;
         }
         return;
     }
     if (expression->kind == EXPR_COND) {
-        cxx_bind_template_constant_address_argument(expression->cond_test);
-        cxx_bind_template_constant_address_argument(expression->cond_then);
-        cxx_bind_template_constant_address_argument(expression->cond_else);
+        cxx_bind_template_constant_address_argument_impl(
+            expression->cond_test, active_functions);
+        cxx_bind_template_constant_address_argument_impl(
+            expression->cond_then, active_functions);
+        cxx_bind_template_constant_address_argument_impl(
+            expression->cond_else, active_functions);
         return;
     }
     if (expression->kind == EXPR_COMMA) {
-        cxx_bind_template_constant_address_argument(expression->binary_lhs);
-        cxx_bind_template_constant_address_argument(expression->binary_rhs);
+        cxx_bind_template_constant_address_argument_impl(
+            expression->binary_lhs, active_functions);
+        cxx_bind_template_constant_address_argument_impl(
+            expression->binary_rhs, active_functions);
         return;
     }
     if (expression->kind == EXPR_ADDR) {
         cxx_bind_template_constant_address_target(
             expression->unary_operand);
+        return;
     }
+    if (expression->kind == EXPR_CALL) {
+        Decl* function = expression->call_func &&
+                expression->call_func->kind == EXPR_IDENT
+            ? expression->call_func->ident_decl : NULL;
+        for (ExprList* argument = expression->call_args; argument;
+             argument = argument->next) {
+            cxx_bind_template_constant_address_argument_impl(
+                argument->expr, active_functions);
+        }
+        if (!function && expression->call_func &&
+            expression->call_func->kind == EXPR_IDENT) {
+            (void)rcc_parser_cxx_bind_resolved_function_call(expression);
+            function = expression->call_func->ident_decl;
+        }
+        if (!function || function->kind != DECL_FUNC ||
+            !function->func_is_constexpr || !function->func_body) {
+            return;
+        }
+        for (const CxxTemplateConstantAddressFunction* frame =
+                 active_functions; frame; frame = frame->parent) {
+            if (frame->declaration == function) return;
+        }
+        CxxTemplateConstantAddressFunction frame = {
+            function, active_functions};
+        cxx_bind_template_constant_address_statement(
+            function->func_body, &frame);
+        return;
+    }
+    switch (expression->kind) {
+        case EXPR_INDEX:
+            cxx_bind_template_constant_address_argument_impl(
+                expression->index_base, active_functions);
+            cxx_bind_template_constant_address_argument_impl(
+                expression->index_expr, active_functions);
+            break;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            cxx_bind_template_constant_address_argument_impl(
+                expression->member_base, active_functions);
+            break;
+        case EXPR_DEREF:
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            cxx_bind_template_constant_address_argument_impl(
+                expression->unary_operand, active_functions);
+            break;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            cxx_bind_template_constant_address_argument_impl(
+                expression->binary_lhs, active_functions);
+            cxx_bind_template_constant_address_argument_impl(
+                expression->binary_rhs, active_functions);
+            break;
+        case EXPR_COMPOUND:
+            for (ExprList* item = expression->compound_init; item;
+                 item = item->next) {
+                cxx_bind_template_constant_address_argument_impl(
+                    item->expr, active_functions);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void cxx_bind_template_constant_address_statement(
+    Stmt* statement,
+    const CxxTemplateConstantAddressFunction* active_functions) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_EXPR:
+            cxx_bind_template_constant_address_argument_impl(
+                statement->expr, active_functions);
+            break;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                cxx_bind_template_constant_address_statement(
+                    item->stmt, active_functions);
+            }
+            break;
+        case STMT_IF:
+            cxx_bind_template_constant_address_argument_impl(
+                statement->if_cond, active_functions);
+            cxx_bind_template_constant_address_statement(
+                statement->if_then, active_functions);
+            cxx_bind_template_constant_address_statement(
+                statement->if_else, active_functions);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            cxx_bind_template_constant_address_argument_impl(
+                statement->while_cond, active_functions);
+            cxx_bind_template_constant_address_statement(
+                statement->while_body, active_functions);
+            break;
+        case STMT_FOR:
+            cxx_bind_template_constant_address_statement(
+                statement->for_init, active_functions);
+            cxx_bind_template_constant_address_argument_impl(
+                statement->for_cond, active_functions);
+            cxx_bind_template_constant_address_argument_impl(
+                statement->for_inc, active_functions);
+            cxx_bind_template_constant_address_statement(
+                statement->for_body, active_functions);
+            break;
+        case STMT_SWITCH:
+            cxx_bind_template_constant_address_argument_impl(
+                statement->switch_expr, active_functions);
+            cxx_bind_template_constant_address_statement(
+                statement->switch_body, active_functions);
+            break;
+        case STMT_CASE:
+            cxx_bind_template_constant_address_argument_impl(
+                statement->case_val, active_functions);
+            cxx_bind_template_constant_address_statement(
+                statement->case_stmt, active_functions);
+            break;
+        case STMT_DEFAULT:
+            cxx_bind_template_constant_address_statement(
+                statement->default_stmt, active_functions);
+            break;
+        case STMT_RETURN:
+            cxx_bind_template_constant_address_argument_impl(
+                statement->return_val, active_functions);
+            break;
+        case STMT_LABEL:
+            cxx_bind_template_constant_address_statement(
+                statement->label_stmt, active_functions);
+            break;
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR) {
+                cxx_bind_template_constant_address_argument_impl(
+                    statement->decl->var_init, active_functions);
+            }
+            break;
+        case STMT_ASM:
+            for (AsmOperand* operand = statement->asm_outputs; operand;
+                 operand = operand->next) {
+                cxx_bind_template_constant_address_argument_impl(
+                    operand->expr, active_functions);
+            }
+            for (AsmOperand* operand = statement->asm_inputs; operand;
+                 operand = operand->next) {
+                cxx_bind_template_constant_address_argument_impl(
+                    operand->expr, active_functions);
+            }
+            break;
+        case STMT_TRY:
+            cxx_bind_template_constant_address_statement(
+                statement->try_body, active_functions);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                cxx_bind_template_constant_address_statement(
+                    handler->body, active_functions);
+            }
+            break;
+        case STMT_THROW:
+            cxx_bind_template_constant_address_argument_impl(
+                statement->throw_expr, active_functions);
+            break;
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+        case STMT_NULL:
+            break;
+    }
+}
+
+static void cxx_bind_template_constant_address_argument(Expr* expression) {
+    cxx_bind_template_constant_address_argument_impl(expression, NULL);
 }
 
 static bool cxx_template_non_type_constant_value(
@@ -4462,9 +4731,20 @@ static bool cxx_template_non_type_constant_value(
     /* Function-template calls are already bound to their specialization by
      * the expression parser, but expr_call() leaves the result type unset.
      * Recover it here before deciding whether this is an aggregate NTTP value. */
-    if (expression->kind == EXPR_CALL && !expression->type) {
+    if (!expression->type) {
         ((Expr*)expression)->type =
             cxx_parser_expression_type((Expr*)expression);
+    }
+    if (expression->type && expression->type->kind == TYPE_PTR &&
+        !expression->type->is_reference &&
+        !expression->type->cxx_is_member_pointer) {
+        cxx_bind_template_constant_address_argument((Expr*)expression);
+        return cxx_structural_pointer_member_value(
+            expression, expression->type, value_out);
+    }
+    if (expression->type && expression->type->kind == TYPE_NULLPTR) {
+        *value_out = 0;
+        return true;
     }
     aggregate_value_type = expression->kind == EXPR_COMPOUND &&
             expression->compound_type

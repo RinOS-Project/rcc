@@ -77,6 +77,12 @@ union FunctionTemplateStructuralDirectPointerUnion {
 };
 
 inline constexpr int function_template_structural_union_pointer_target = 23;
+constexpr const int* function_template_structural_union_pointer_getter() {
+    return &function_template_structural_union_pointer_target;
+}
+inline constexpr const int*
+    function_template_structural_union_pointer_getter_alias =
+        function_template_structural_union_pointer_getter();
 inline constexpr const int*
     function_template_structural_union_pointer_target_pointer =
         &function_template_structural_union_pointer_target;
@@ -611,6 +617,12 @@ constexpr int function_template_structural_union_direct_pointer_deduced(
     return *Value.pointer;
 }
 
+template<const int* Pointer>
+constexpr int function_template_scalar_pointer_value() {
+    if constexpr (Pointer == nullptr) return -1;
+    return *Pointer;
+}
+
 template<FunctionTemplateStructuralPointerArray Value>
 constexpr int function_template_structural_pointer_array_explicit() {
     return *Value.values[0] * 100 + *Value.values[1] * 10 + Value.bias;
@@ -1003,6 +1015,10 @@ static_assert(function_template_structural_pointer_factory_explicit<
                       &function_template_structural_union_pointer_target,
                       8)>() == 31);
 static_assert(function_template_structural_pointer_factory_explicit<
+                  function_template_make_structural_pointer_union_value(
+                      function_template_structural_union_pointer_getter(),
+                      6)>() == 29);
+static_assert(function_template_structural_pointer_factory_explicit<
                   function_template_make_structural_pointer_union_template_value<
                       2>(
                       &function_template_structural_union_pointer_target,
@@ -1042,6 +1058,16 @@ static_assert(function_template_structural_union_direct_pointer_explicit<
                       .pointer =
                           function_template_structural_union_pointer_target_pointer}>() ==
               23);
+static_assert(function_template_scalar_pointer_value<
+                  &function_template_structural_union_pointer_target>() ==
+              23);
+static_assert(function_template_scalar_pointer_value<
+                  function_template_structural_union_pointer_getter()>() ==
+              23);
+static_assert(function_template_scalar_pointer_value<
+                  function_template_structural_union_pointer_getter_alias>() ==
+              23);
+static_assert(function_template_scalar_pointer_value<nullptr>() == -1);
 static_assert(function_template_structural_union_direct_pointer_deduced(
                   FunctionTemplateStructuralDirectPointerUnionTag<
                       FunctionTemplateStructuralDirectPointerUnion{
@@ -1402,6 +1428,13 @@ int main() {
                 .pointer =
                     function_template_structural_union_pointer_target_pointer}>() !=
             23 ||
+        function_template_scalar_pointer_value<
+            function_template_structural_union_pointer_getter()>() != 23 ||
+        function_template_scalar_pointer_value<nullptr>() != -1 ||
+        function_template_structural_pointer_factory_explicit<
+            function_template_make_structural_pointer_union_value(
+                function_template_structural_union_pointer_getter(),
+                6)>() != 29 ||
         function_template_structural_union_direct_pointer_deduced(
             FunctionTemplateStructuralDirectPointerUnionTag<
                 FunctionTemplateStructuralDirectPointerUnion{

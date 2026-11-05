@@ -754,6 +754,11 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_SYMBOLS = \
 	_Z52function_template_structural_pointer_factory_deducedIXtl45FunctionTemplateStructuralPointerFactoryValuetl38FunctionTemplateStructuralPointerUniondi6objecttl45FunctionTemplateStructuralPointerUnionPayloadadL_Z49function_template_structural_union_pointer_targetELi7EEEEEEi48FunctionTemplateStructuralPointerFactoryValueTagIXT_EE \
 	_Z53function_template_structural_pointer_factory_explicitIXtl45FunctionTemplateStructuralPointerFactoryValuetl38FunctionTemplateStructuralPointerUniondi6objecttl45FunctionTemplateStructuralPointerUnionPayloadaddtL_Z58function_template_structural_pointer_factory_member_targetE6secondLi2EEEEEEiv
 
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS = \
+	_Z53function_template_structural_pointer_factory_explicitIXtl45FunctionTemplateStructuralPointerFactoryValuetl38FunctionTemplateStructuralPointerUniondi6objecttl45FunctionTemplateStructuralPointerUnionPayloadadL_Z49function_template_structural_union_pointer_targetELi6EEEEEEiv \
+	_Z38function_template_scalar_pointer_valueIXadL_Z49function_template_structural_union_pointer_targetEEEiv \
+	_Z38function_template_scalar_pointer_valueILPKi0EEiv
+
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_GCC_WINDOWS = \
 	_Z53function_template_structural_pointer_factory_explicitIXtl45FunctionTemplateStructuralPointerFactoryValuetl38FunctionTemplateStructuralPointerUniondi6objecttl45FunctionTemplateStructuralPointerUnionPayloadadixL_Z50function_template_structural_pointer_factory_arrayELx1ELi2EEEEEEiv
 
@@ -6363,6 +6368,9 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_GCC_POSIX),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_X86),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_X64),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
@@ -6387,7 +6395,7 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,90)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,93)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -8358,6 +8366,9 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_POINTER_RETURN_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_GCC_WINDOWS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_X86),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_ARRAY_SYMBOL_X64),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
@@ -8367,7 +8378,7 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,90)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,93)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)

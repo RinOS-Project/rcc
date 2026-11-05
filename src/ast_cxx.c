@@ -1883,6 +1883,40 @@ static void cxx_mangle_template_class_value_argument(
     cxx_mangle_template_value_suffix(buf, pos, value_type, value);
 }
 
+static bool cxx_mangle_function_template_value_argument(
+    char* buf, size_t* pos, Type* value_type, int64_t value,
+    CxxMangleContext* context) {
+    if (!buf || !pos || !value_type || !context) return false;
+    if (value_type->kind == TYPE_PTR && !value_type->is_reference &&
+        !value_type->cxx_is_member_pointer) {
+        if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ template function name is too long");
+        }
+        if (value == 0) {
+            buf[(*pos)++] = 'L';
+            cxx_mangle_type_append_context(
+                buf, pos, value_type, context);
+            cxx_mangle_template_value_suffix(
+                buf, pos, value_type, value);
+            return true;
+        }
+        buf[(*pos)++] = 'X';
+        if (!cxx_mangle_structural_pointer_value(
+                buf, pos, value_type, value, context)) {
+            return false;
+        }
+        cxx_mangle_type_char(buf, pos, 'E');
+        return true;
+    }
+    if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ template function name is too long");
+    }
+    buf[(*pos)++] = 'L';
+    cxx_mangle_type_append_context(buf, pos, value_type, context);
+    cxx_mangle_template_value_suffix(buf, pos, value_type, value);
+    return true;
+}
+
 /* Use the source template and its complete argument list for class members.
  * The parser's internal `.__instanceN` tag is intentionally useful for AST
  * ownership, but N is translation-unit order and therefore cannot identify an
@@ -4471,30 +4505,26 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             buf[pos++] = 'J';
             for (int pack_index = 0;
                  pack_index < pack_length; ++pack_index) {
-                buf[pos++] = 'L';
-                cxx_mangle_type_append_context(
-                    buf, &pos,
-                    cxx_mangle_template_value_type(
-                        tmpl, parameter, type_args, tmpl->param_count,
-                        index),
-                    &template_argument_context);
                 if (!tmpl->pending_pack_value_present ||
                     !tmpl->pending_pack_value_present[
                         pack_offset + pack_index]) {
                     rcc_fatal("C++ non-type parameter pack value is missing");
                 }
-                if (tmpl->pending_pack_values[pack_offset + pack_index] < 0) {
-                    uint64_t magnitude = (uint64_t)(
-                        -(tmpl->pending_pack_values[
-                              pack_offset + pack_index] + 1)) + 1u;
-                    pos += (size_t)snprintf(
-                        buf + pos, sizeof(buf) - pos, "n%lluE",
-                        (unsigned long long)magnitude);
+                Type* value_type = cxx_mangle_template_value_type(
+                    tmpl, parameter, type_args, tmpl->param_count, index);
+                int64_t value = tmpl->pending_pack_values[
+                    pack_offset + pack_index];
+                if (cxx_structural_class_value_supported_subset(value_type)) {
+                    cxx_mangle_template_class_value_argument(
+                        buf, &pos, value_type, value,
+                        &template_argument_context);
                 } else {
-                    pos += (size_t)snprintf(
-                        buf + pos, sizeof(buf) - pos, "%lldE",
-                        (long long)tmpl->pending_pack_values[
-                            pack_offset + pack_index]);
+                    if (!cxx_mangle_function_template_value_argument(
+                            buf, &pos, value_type, value,
+                            &template_argument_context)) {
+                        rcc_fatal(
+                            "C++ function template value pack argument has no ABI encoding");
+                    }
                 }
             }
             buf[pos++] = 'E';
@@ -4510,20 +4540,11 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                     &template_argument_context);
                 continue;
             }
-            buf[pos++] = 'L';
-            cxx_mangle_type_append_context(
-                buf, &pos,
-                cxx_mangle_template_value_type(
-                    tmpl, parameter, type_args, tmpl->param_count, index),
-                &template_argument_context);
-            if (value_args[index] < 0) {
-                uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;
-                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
-                                        "n%lluE",
-                                        (unsigned long long)magnitude);
-            } else {
-                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "%lldE",
-                                        (long long)value_args[index]);
+            if (!cxx_mangle_function_template_value_argument(
+                    buf, &pos, value_type, value_args[index],
+                    &template_argument_context)) {
+                rcc_fatal(
+                    "C++ function template value argument has no ABI encoding");
             }
         }
     }
@@ -14028,12 +14049,37 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         int index = template_clone_value_parameter_index(
             tmpl, expression->ident_name, arg_count, &parameter);
         if (index >= 0 && value_present[index]) {
-            copy = expr_int(value_args[index], expression->loc);
-            copy->type = parameter && parameter->type
+            Type* value_type = parameter && parameter->type
                 ? template_substitute_type(
                       tmpl, parameter->type, args, arg_count, value_args,
                       value_present)
                 : type_int;
+            if (value_type && value_type->kind == TYPE_PTR &&
+                !value_type->is_reference &&
+                !value_type->cxx_is_member_pointer) {
+                if (value_args[index] == 0) {
+                    copy = expr_int(0, expression->loc);
+                    copy->is_cxx_nullptr = true;
+                    copy->type = value_type;
+                } else {
+                    copy = template_clone_structural_pointer_value_expr(
+                        value_args[index], value_type, expression->loc);
+                    if (!copy) {
+                        rcc_error(expression->loc,
+                                  "function template pointer argument has no representable static target");
+                        return expression;
+                    }
+                }
+                return copy;
+            }
+            if (value_type && value_type->kind == TYPE_NULLPTR) {
+                copy = expr_int(0, expression->loc);
+                copy->is_cxx_nullptr = true;
+                copy->type = value_type;
+                return copy;
+            }
+            copy = expr_int(value_args[index], expression->loc);
+            copy->type = value_type;
             return copy;
         }
     }
@@ -15136,16 +15182,21 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                       tmpl, parameter->type, args, arg_count, value_args,
                       value_present)
                 : NULL;
+            bool pointer_value = value_type &&
+                value_type->kind == TYPE_PTR &&
+                !value_type->is_reference &&
+                !value_type->cxx_is_member_pointer && value_type->base;
             if (!value_present || !value_present[index] || !value_args ||
                 !value_type ||
                 (!type_is_integer(value_type) &&
                  value_type->kind != TYPE_ENUM &&
+                 value_type->kind != TYPE_NULLPTR && !pointer_value &&
                  ((value_type->kind != TYPE_STRUCT &&
                    value_type->kind != TYPE_UNION) ||
                   !cxx_structural_class_value_supported_subset(value_type)))) {
                 rcc_error(template_loc,
                           "function template non-type argument %d requires "
-                          "an integer or supported structural class constant",
+                          "an integer, pointer, nullptr, or supported structural class constant",
                           index + 1);
                 return NULL;
             }

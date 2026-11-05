@@ -1253,6 +1253,10 @@ bool rcc_sema_eval_constexpr_integer_call(Decl* declaration,
 bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression);
 /* Check that an expression is a constant object/function pointer value. */
 bool rcc_sema_eval_constexpr_pointer_constant(Expr* expression);
+/* Evaluate a constant pointer expression and return its static target and
+ * byte offset. A null pointer is reported as a null target at offset zero. */
+bool rcc_sema_eval_constexpr_pointer_location(
+    Expr* expression, Decl** declaration_out, int64_t* byte_offset_out);
 /* Check a non-null or null data/member-function-pointer constant expression. */
 bool rcc_sema_eval_constexpr_member_pointer_constant(Expr* expression);
 /* Evaluate a resolved constexpr integer expression and return its target-width

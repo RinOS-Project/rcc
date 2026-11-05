@@ -14107,6 +14107,36 @@ bool rcc_sema_eval_constexpr_pointer_constant(Expr* expression) {
           !value.type->cxx_is_member_pointer));
 }
 
+bool rcc_sema_eval_constexpr_pointer_location(
+    Expr* expression, Decl** declaration_out, int64_t* byte_offset_out) {
+    SemaConstexprScalar value;
+    Decl* declaration;
+    if (!expression || !declaration_out || !byte_offset_out ||
+        !sema_eval_constexpr_scalar_expr(expression, NULL, 0, &value) ||
+        !value.is_pointer || !value.type || value.is_member_pointer ||
+        value.pointer_offset < 0 ||
+        (value.type->kind != TYPE_NULLPTR &&
+         (value.type->kind != TYPE_PTR ||
+          value.type->cxx_is_member_pointer))) {
+        return false;
+    }
+    declaration = value.pointer_declaration;
+    if (!declaration) {
+        if (value.pointer_offset != 0) return false;
+    } else if (declaration->kind == DECL_VAR) {
+        if ((!declaration->var_is_global &&
+             !declaration->var_is_static_local) ||
+            declaration->var_is_thread_local || declaration->var_is_vla) {
+            return false;
+        }
+    } else if (declaration->kind != DECL_FUNC) {
+        return false;
+    }
+    *declaration_out = declaration;
+    *byte_offset_out = value.pointer_offset;
+    return true;
+}
+
 bool rcc_sema_eval_constexpr_member_pointer_constant(Expr* expression) {
     SemaConstexprScalar value;
     return expression &&
