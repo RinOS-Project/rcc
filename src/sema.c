@@ -7679,19 +7679,43 @@ static bool sema_constexpr_pointer_offset(int64_t base, int64_t elements,
     return true;
 }
 
-static bool sema_constexpr_address_target(Expr* expression, Decl** declaration,
-                                          int64_t* offset) {
-    int64_t index;
-    int64_t element_size;
-    if (!expression || !declaration || !offset) return false;
+static TypeField* sema_constexpr_address_member_field(
+    Type* owner_type, const Expr* expression) {
+    TypeField* match = NULL;
+    if (!owner_type || !expression || !expression->member_name ||
+        (owner_type->kind != TYPE_STRUCT &&
+         owner_type->kind != TYPE_UNION)) {
+        return NULL;
+    }
+    if (expression->member_field && expression->member_field->name &&
+        strcmp(expression->member_field->name,
+               expression->member_name) == 0) {
+        for (TypeField* field = owner_type->fields; field; field = field->next) {
+            if (field == expression->member_field) return field;
+        }
+    }
+    for (TypeField* field = owner_type->fields; field; field = field->next) {
+        if (!field->name ||
+            strcmp(field->name, expression->member_name) != 0) {
+            continue;
+        }
+        if (match) return NULL;
+        match = field;
+    }
+    return match;
+}
+
+static Type* sema_constexpr_address_target_type(
+    Expr* expression, Decl** declaration, int64_t* offset) {
+    if (!expression || !declaration || !offset) return NULL;
     if (expression->kind == EXPR_IDENT && expression->ident_decl) {
         Decl* target = expression->ident_decl;
-        if (target->kind == DECL_FUNC ||
-            (target->kind == DECL_VAR &&
+        if ((target->kind == DECL_FUNC && target->type) ||
+            (target->kind == DECL_VAR && target->type &&
              (target->var_is_global || target->var_is_static_local))) {
             *declaration = target;
             *offset = 0;
-            return true;
+            return target->type;
         }
     }
     if (expression->kind == EXPR_IDENT && expression->ident_name) {
@@ -7699,8 +7723,8 @@ static bool sema_constexpr_address_target(Expr* expression, Decl** declaration,
             ? sema_cxx_lookup_name(expression->ident_name, expression->loc)
             : NULL;
         Decl* target = symbol ? symbol->decl : NULL;
-        if (target &&
-            (target->kind == DECL_FUNC ||
+        if (target && target->type &&
+            ((target->kind == DECL_FUNC) ||
              (target->kind == DECL_VAR &&
               (target->var_is_global || target->var_is_static_local ||
                symbol->is_global)))) {
@@ -7709,36 +7733,49 @@ static bool sema_constexpr_address_target(Expr* expression, Decl** declaration,
             }
             *declaration = target;
             *offset = 0;
-            return true;
+            return target->type;
         }
-        return false;
+        return NULL;
     }
     if (expression->kind == EXPR_INDEX && expression->index_base &&
-        expression->index_expr &&
-        sema_constexpr_address_target(expression->index_base, declaration,
-                                       offset) &&
-        (*declaration)->kind == DECL_VAR && (*declaration)->type &&
-        (*declaration)->type->kind == TYPE_ARRAY &&
-        (*declaration)->type->base &&
-        expr_eval_integer_constant(expression->index_expr, &index)) {
-        element_size = (*declaration)->type->base->size;
-        if (element_size <= 0 || index < 0 ||
-            ((*declaration)->type->array_len >= 0 &&
-             index > (*declaration)->type->array_len) ||
-            index > INT64_MAX / element_size ||
-            index < INT64_MIN / element_size) return false;
-        return sema_constexpr_pointer_offset(*offset, index,
-                                             (int)element_size, offset);
+        expression->index_expr) {
+        Type* array_type = sema_constexpr_address_target_type(
+            expression->index_base, declaration, offset);
+        int64_t index;
+        int element_size;
+        if (!array_type || array_type->kind != TYPE_ARRAY ||
+            !array_type->base || !array_type->base->size ||
+            !expr_eval_integer_constant(expression->index_expr, &index)) {
+            return NULL;
+        }
+        element_size = array_type->base->size;
+        if (index < 0 ||
+            (array_type->array_len >= 0 && index > array_type->array_len) ||
+            !sema_constexpr_pointer_offset(*offset, index, element_size,
+                                           offset)) {
+            return NULL;
+        }
+        return array_type->base;
     }
-    if (expression->kind == EXPR_MEMBER && expression->member_base &&
-        expression->member_field &&
-        sema_constexpr_address_target(expression->member_base, declaration,
-                                       offset) &&
-        expression->member_field->offset >= 0) {
-        return sema_constexpr_pointer_offset(
-            *offset, expression->member_field->offset, 1, offset);
+    if (expression->kind == EXPR_MEMBER && expression->member_base) {
+        Type* owner_type = sema_constexpr_address_target_type(
+            expression->member_base, declaration, offset);
+        TypeField* field = sema_constexpr_address_member_field(
+            owner_type, expression);
+        if (!field || !field->type || field->offset < 0 ||
+            !sema_constexpr_pointer_offset(*offset, field->offset, 1,
+                                           offset)) {
+            return NULL;
+        }
+        return field->type;
     }
-    return false;
+    return NULL;
+}
+
+static bool sema_constexpr_address_target(Expr* expression, Decl** declaration,
+                                          int64_t* offset) {
+    return sema_constexpr_address_target_type(expression, declaration,
+                                               offset) != NULL;
 }
 
 static bool sema_constexpr_zero_initializer(Expr* initializer);

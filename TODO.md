@@ -14661,3 +14661,12 @@ remains a separate open item.
       acceptance, exact Itanium symbols, and both Windows and POSIX
       structural-NTTP gates. All 87 verified-backend functions pass at `-O0`
       and `-O2` with zero fallback.
+
+## RCC continuation (2026-11-05, array-member element addresses in constexpr aggregate NTTP factories)
+
+- [x] Accumulate the object-member byte offset and then walk each array
+      subscript using that array type's element size when evaluating static
+      addresses in constexpr aggregate factories. Verify strict GCC and Clang
+      C++20 acceptance, exact ABI-specific Itanium symbols, and both Windows
+      and POSIX structural-NTTP gates. All 88 verified-backend functions pass
+      at `-O0` and `-O2` with zero fallback.

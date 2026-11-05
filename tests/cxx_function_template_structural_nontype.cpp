@@ -82,9 +82,11 @@ inline constexpr int function_template_structural_pointer_factory_array[3] = {
 struct FunctionTemplateStructuralPointerFactoryMemberTarget {
     int first;
     int second;
+    int elements[3];
 };
 inline constexpr FunctionTemplateStructuralPointerFactoryMemberTarget
-    function_template_structural_pointer_factory_member_target = {19, 23};
+    function_template_structural_pointer_factory_member_target = {
+        19, 23, {11, 13, 17}};
 
 struct FunctionTemplateStructuralPointerFactoryValue {
     FunctionTemplateStructuralPointerUnion payload;
@@ -961,6 +963,10 @@ static_assert(function_template_structural_pointer_factory_explicit<
                   function_template_make_structural_pointer_union_value(
                       &function_template_structural_pointer_factory_member_target.second,
                       2)>() == 25);
+static_assert(function_template_structural_pointer_factory_explicit<
+                  function_template_make_structural_pointer_union_value(
+                      &function_template_structural_pointer_factory_member_target.elements[1],
+                      2)>() == 15);
 static_assert(function_template_structural_union_direct_pointer_explicit<
                   FunctionTemplateStructuralDirectPointerUnion{
                       .pointer =
@@ -1297,6 +1303,10 @@ int main() {
             function_template_make_structural_pointer_union_value(
                 &function_template_structural_pointer_factory_member_target.second,
                 2)>() != 25 ||
+        function_template_structural_pointer_factory_explicit<
+            function_template_make_structural_pointer_union_value(
+                &function_template_structural_pointer_factory_member_target.elements[1],
+                2)>() != 15 ||
         function_template_structural_union_direct_pointer_explicit<
             FunctionTemplateStructuralDirectPointerUnion{
                 .pointer =
