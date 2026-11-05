@@ -1983,7 +1983,11 @@ reload_artifact:
             }
             rcc_free(header_name);
         } else {
-            append_record = visibility == 'E' ? visible : private_visible;
+            append_record = visibility == 'E'
+                ? visible
+                : visibility == 'P' && private_visible &&
+                    !cxx_module_name_list_contains(
+                        &context->private_exposed, requested_name);
             if (append_record &&
                 !cxx_module_buffer_append(imports, cursor,
                                           (size_t)record_length)) {
