@@ -16925,6 +16925,21 @@ static void cxx_template_add_template_param(CxxTemplate* tmpl,
     parameter->is_pack = is_pack;
 }
 
+static bool cxx_template_template_non_type_parameter_type_supported(
+    Type* type) {
+    if (!type) return false;
+    if (type->cxx_dependent || type_is_integer(type) ||
+        type->kind == TYPE_ENUM || type->kind == TYPE_PTR ||
+        type->kind == TYPE_NULLPTR || type_is_floating(type)) {
+        return true;
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        return rcc_parser_cxx_standard_at_least(20) &&
+            cxx_structural_class_value_supported_subset(type);
+    }
+    return false;
+}
+
 static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
     CxxTemplate* signature = cxx_template_new(loc);
     CxxTemplate* enclosing_template = active_template;
@@ -17041,13 +17056,18 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
             } else {
                 Type* nested_type = parse_cxx_type_spec();
                 nested_parameter_pack = match(TOK_ELLIPSIS);
-                if (!nested_type ||
-                    (!type_is_integer(nested_type) &&
-                     nested_type->kind != TYPE_ENUM &&
-                     !nested_type->cxx_dependent)) {
+                if (nested_type &&
+                    (nested_type->kind == TYPE_STRUCT ||
+                     nested_type->kind == TYPE_UNION) &&
+                    !rcc_parser_cxx_standard_at_least(20)) {
                     rcc_error(peek()->loc,
-                              "template-template non-type parameter requires "
-                              "an integral or dependent type");
+                              "class-type template-template non-type "
+                              "parameters require C++20 or newer");
+                } else if (!cxx_template_template_non_type_parameter_type_supported(
+                               nested_type)) {
+                    rcc_error(peek()->loc,
+                              "template-template non-type parameter type "
+                              "must be structural or dependent");
                     nested_type = type_int;
                 }
                 if (check(TOK_IDENT)) nested_name = advance()->value.str_val;
@@ -23699,9 +23719,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 nested_arguments[nested_index] = nested_parameter->type
                     ? nested_parameter->type : type_int;
                 if (!value_expression || !substituted_expression ||
-                    !eval_template_integer_expression(
-                        substituted_expression, tmpl, value_args,
-                        value_present, &nested_values[nested_index])) {
+                    (!eval_template_integer_expression(
+                         substituted_expression, tmpl, value_args,
+                         value_present, &nested_values[nested_index]) &&
+                     !cxx_template_non_type_constant_value(
+                         substituted_expression,
+                         &nested_values[nested_index]))) {
                     if (cxx_function_template_expression_has_undeduced_nontype_parameter(
                             tmpl, nested_value_expressions[nested_index],
                             value_present, 0u)) {
@@ -23711,7 +23734,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     rcc_error(value_expression ? value_expression->loc
                                                 : (SourceLoc){"<template>", 0, 0},
                               "dependent template-template non-type argument "
-                              "must be an integer constant expression");
+                              "is not a valid constant expression for its "
+                              "parameter type");
                     return NULL;
                 }
                 nested_value_present[nested_index] = true;
@@ -23768,10 +23792,13 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                           nested_value_present)
                     : NULL;
                 if (!default_expression ||
-                    !eval_template_integer_expression(
-                        default_expression, default_context, nested_values,
-                        nested_value_present,
-                        &nested_values[nested_index])) {
+                    (!eval_template_integer_expression(
+                         default_expression, default_context, nested_values,
+                         nested_value_present,
+                         &nested_values[nested_index]) &&
+                     !cxx_template_non_type_constant_value(
+                         default_expression,
+                         &nested_values[nested_index]))) {
                     if (cxx_expression_is_dependent(
                             default_expression
                                 ? default_expression
@@ -23782,7 +23809,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     }
                     rcc_error((SourceLoc){"<template>", 0, 0},
                               "template-template non-type default must be "
-                              "an integer constant expression");
+                              "a valid constant expression for its parameter "
+                              "type");
                     return NULL;
                 }
                 nested_arguments[nested_index] = nested_parameter->type
@@ -23898,9 +23926,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         array_len = type->array_len;
         array_bound = type->array_bound;
         if (type->kind == TYPE_ARRAY && type->array_bound) {
+            Expr* substituted_bound = cxx_template_clone_expr_with_values(
+                tmpl, type->array_bound, arguments, argument_count,
+                value_args, value_present);
             int64_t value;
-            if (eval_template_integer_expression(
-                    type->array_bound, tmpl, value_args, value_present,
+            if (substituted_bound && eval_template_integer_expression(
+                    substituted_bound, tmpl, value_args, value_present,
                     &value)) {
                 if (value <= 0 || value > INT_MAX) {
                     rcc_error(type->array_bound->loc,
@@ -23909,8 +23940,9 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 }
                 array_len = (int)value;
                 array_bound = NULL;
-            } else if (cxx_template_integer_expression_overflows(
-                           type->array_bound, tmpl, value_args,
+            } else if (substituted_bound &&
+                       cxx_template_integer_expression_overflows(
+                           substituted_bound, tmpl, value_args,
                            value_present)) {
                 rcc_error(type->array_bound->loc,
                           "invalid shift or overflow in dependent array bound "
@@ -23919,8 +23951,9 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             } else {
                 CxxTemplateIntegerBits evaluated;
                 int64_t signed_value;
-                if (eval_template_integer_expression_bits(
-                        type->array_bound, tmpl, value_args, value_present,
+                if (substituted_bound &&
+                    eval_template_integer_expression_bits(
+                        substituted_bound, tmpl, value_args, value_present,
                         &evaluated)) {
                     if (cxx_template_integer_type_is_unsigned(
                             evaluated.type)) {

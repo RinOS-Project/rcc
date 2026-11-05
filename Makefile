@@ -11503,6 +11503,21 @@ endif
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_template_template_nested_signatures_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-gcc.log)
 	$(GREP) -F -q "type/value mismatch at argument 1" $(TEST_OUT)/cxx-template-template-invalid/nested-signature-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/nested-structural-x86.ro tests/cxx_template_template_nested_structural_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-x86.log)
+	$(GREP) -F -q "template-template non-type parameter type must be structural or dependent" $(TEST_OUT)/cxx-template-template-invalid/nested-structural-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/nested-structural-x64.ro tests/cxx_template_template_nested_structural_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-x64.log)
+	$(GREP) -F -q "template-template non-type parameter type must be structural or dependent" $(TEST_OUT)/cxx-template-template-invalid/nested-structural-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_template_template_nested_structural_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-gcc.log)
+	$(GREP) -q "not structural" $(TEST_OUT)/cxx-template-template-invalid/nested-structural-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-template-template-invalid/nested-structural-pre20.ro tests/cxx_template_template_nested_structural_pre20_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-pre20.log)
+	$(GREP) -F -q "class-type template-template non-type parameters require C++20 or newer" $(TEST_OUT)/cxx-template-template-invalid/nested-structural-pre20.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-pre20.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-pre20.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++17 -pedantic-errors -fsyntax-only tests/cxx_template_template_nested_structural_pre20_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-structural-pre20-gcc.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/constraint-x86.ro tests/cxx_template_template_constraints_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/constraint-x86.log)
 	$(GREP) -F -q "template-template argument does not match its parameter list" $(TEST_OUT)/cxx-template-template-invalid/constraint-x86.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-template-template-invalid/constraint-x86.log,1)
@@ -11552,9 +11567,9 @@ else
 		echo "unresolved dependent template-template value unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
-	$(GREP) -q "dependent template-template non-type argument must be an integer constant expression" \
+	$(GREP) -q "dependent template-template non-type argument is not a valid constant expression for its parameter type" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
-	$(GREP) -q "dependent template-template non-type argument must be an integer constant expression" \
+	$(GREP) -q "dependent template-template non-type argument is not a valid constant expression for its parameter type" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
 	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log

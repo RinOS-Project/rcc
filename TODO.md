@@ -14728,5 +14728,11 @@ remains a separate open item.
       without defaults in both directions. Strict GCC C++20, i686/AMD64 output,
       and Windows/POSIX `test-cxx-template-template` and
       `test-cxx-template-template-invalid` gates pass.
-- [ ] Add additional structural NTTP combinations inside nested
-      template-template signatures.
+- [x] Accept C++20 structural class NTTPs in nested template-template
+      signatures and forward substituted structural values through a
+      dependent `Inner<Value>` specialization, including member access used by
+      an array bound. Cover a further nested signature level, reject
+      non-structural class types, and preserve parameter-type-specific
+      constant-expression diagnostics. Strict GCC C++20, i686/AMD64 output,
+      Windows/POSIX host execution, and template-template positive/negative
+      gates pass.

@@ -11391,12 +11391,16 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     tmpl, value_expression, args, arg_count, value_args,
                     value_present);
                 if (!substituted_expression ||
-                    !rcc_parser_cxx_eval_template_integer_expression(
-                        substituted_expression, tmpl, value_args,
-                        value_present, &nested_values[nested_index])) {
+                    (!rcc_parser_cxx_eval_template_integer_expression(
+                         substituted_expression, tmpl, value_args,
+                         value_present, &nested_values[nested_index]) &&
+                     !rcc_parser_cxx_template_non_type_constant_value(
+                         substituted_expression,
+                         &nested_values[nested_index]))) {
                     rcc_error(value_expression->loc,
                               "dependent template-template non-type argument "
-                              "must be an integer constant expression");
+                              "is not a valid constant expression for its "
+                              "parameter type");
                     return NULL;
                 }
                 nested_arguments[nested_index] = actual_parameter->type
