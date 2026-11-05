@@ -3526,17 +3526,6 @@ static const char* pp_macro_token_end(const char* start) {
     return start + 1;
 }
 
-static const char* pp_macro_digraph_canonical(const char* token,
-                                              size_t length) {
-    if (length == 2u && memcmp(token, "<:", 2u) == 0) return "[";
-    if (length == 2u && memcmp(token, ":>", 2u) == 0) return "]";
-    if (length == 2u && memcmp(token, "<%", 2u) == 0) return "{";
-    if (length == 2u && memcmp(token, "%>", 2u) == 0) return "}";
-    if (length == 2u && memcmp(token, "%:", 2u) == 0) return "#";
-    if (length == 4u && memcmp(token, "%:%:", 4u) == 0) return "##";
-    return NULL;
-}
-
 static bool pp_macro_replacement_equal(const char* left, const char* right) {
     left = left ? left : "";
     right = right ? right : "";
@@ -3554,30 +3543,34 @@ static bool pp_macro_replacement_equal(const char* left, const char* right) {
             right = right_end;
             continue;
         }
-        const char* left_canonical = pp_macro_digraph_canonical(
-            left, left_length);
-        const char* right_canonical = pp_macro_digraph_canonical(
-            right, right_length);
-        if (left_canonical && strlen(left_canonical) == right_length &&
-            memcmp(left_canonical, right, right_length) == 0) {
-            left = left_end;
-            right = right_end;
-            continue;
-        }
-        if (right_canonical && strlen(right_canonical) == left_length &&
-            memcmp(right_canonical, left, left_length) == 0) {
-            left = left_end;
-            right = right_end;
-            continue;
-        }
-        if (left_canonical && right_canonical &&
-            strcmp(left_canonical, right_canonical) == 0) {
-            left = left_end;
-            right = right_end;
-            continue;
-        }
         return false;
     }
+}
+
+static bool pp_is_cxx20_keyword_macro_name(const char* name) {
+    static const char* const keywords[] = {
+        "alignas", "alignof", "and", "and_eq", "asm", "auto",
+        "bitand", "bitor", "bool", "break", "case", "catch", "char",
+        "char8_t", "char16_t", "char32_t", "class", "compl", "concept",
+        "const", "consteval", "constexpr", "constinit", "const_cast",
+        "continue", "co_await", "co_return", "co_yield", "decltype",
+        "default", "delete", "do", "double", "dynamic_cast", "else",
+        "enum", "explicit", "export", "extern", "false", "float", "for",
+        "friend", "goto", "if", "inline", "int", "long", "mutable",
+        "namespace", "new", "noexcept", "not", "not_eq", "nullptr",
+        "operator", "or", "or_eq", "private", "protected", "public",
+        "register", "reinterpret_cast", "requires", "return", "short",
+        "signed", "sizeof", "static", "static_assert", "static_cast",
+        "struct", "switch", "template", "this", "thread_local", "throw",
+        "true", "try", "typedef", "typeid", "typename", "union",
+        "unsigned", "using", "virtual", "void", "volatile", "wchar_t",
+        "while", "xor", "xor_eq", "import", "module", NULL
+    };
+    if (!name) return false;
+    for (size_t index = 0; keywords[index]; ++index) {
+        if (strcmp(name, keywords[index]) == 0) return true;
+    }
+    return false;
 }
 
 static bool pp_macro_definitions_equal(const Macro* left,
@@ -3610,8 +3603,7 @@ static bool pp_import_header_unit_macros(Preprocessor* destination,
         Macro* existing;
         if (original && original->definition_generation ==
                         imported->definition_generation) continue;
-        if (strcmp(imported->name, "module") == 0 ||
-            strcmp(imported->name, "import") == 0) continue;
+        if (pp_is_cxx20_keyword_macro_name(imported->name)) continue;
         existing = pp_get_macro(destination, imported->name);
         if (existing && !pp_macro_definitions_equal(existing, imported)) {
             rcc_error((SourceLoc){filename, source_line, 0},
