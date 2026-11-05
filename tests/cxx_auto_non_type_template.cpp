@@ -23,6 +23,31 @@ constexpr int auto_pointer_variable = *Pointer;
 template<auto Value>
 constexpr int auto_value_variable = Value;
 
+template<auto... Values>
+int auto_pack_size() {
+    return sizeof...(Values);
+}
+
+template<auto... Values>
+int auto_pack_sum() {
+    return (Values + ...);
+}
+
+template<auto... Pointers>
+int auto_pointer_pack_size() {
+    return sizeof...(Pointers);
+}
+
+template<class Type, Type Value>
+struct auto_constant_argument {};
+
+template<class Type, auto... Values>
+int auto_deduced_pack_sum(
+    auto_constant_argument<Type, Values>... arguments) {
+    (void)sizeof...(arguments);
+    return (Values + ...);
+}
+
 template<auto Pointer>
 struct auto_pointer_holder {
     static constexpr int value = *Pointer;
@@ -38,6 +63,17 @@ extern "C" int main() {
                    auto_constant<7u>() == 7 &&
                    auto_value_variable<7> == 7 &&
                    auto_value_variable<7u> == 7 &&
+                   auto_pack_size<7, 7>() == 2 &&
+                   auto_pack_size<7u, 7>() == 2 &&
+                   auto_pack_sum<5, 7u>() == 12 &&
+                   auto_pointer_pack_size<&auto_pointer_target,
+                                          &auto_class_pointer_target>() == 2 &&
+                   auto_deduced_pack_sum(
+                       auto_constant_argument<int, 5>{},
+                       auto_constant_argument<int, 7>{}) == 12 &&
+                   auto_deduced_pack_sum(
+                       auto_constant_argument<unsigned, 5u>{},
+                       auto_constant_argument<unsigned, 7u>{}) == 12 &&
                    auto_default_constant<>(3) == 7 &&
                    auto_default_constant<-2>(9) == 7 &&
                    auto_pointer_value<&auto_pointer_target>() == -19 &&

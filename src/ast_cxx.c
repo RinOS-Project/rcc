@@ -4528,6 +4528,15 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                     tmpl, parameter, type_args, tmpl->param_count, index);
                 int64_t value = tmpl->pending_pack_values[
                     pack_offset + pack_index];
+                if (parameter->is_auto) {
+                    value_type = tmpl->pending_pack_args
+                        ? tmpl->pending_pack_args[pack_offset + pack_index]
+                        : NULL;
+                    if (!value_type) {
+                        rcc_fatal(
+                            "C++ auto non-type pack argument type is missing");
+                    }
+                }
                 if (cxx_structural_class_value_supported_subset(value_type)) {
                     cxx_mangle_template_class_value_argument(
                         buf, &pos, value_type, value,
@@ -9853,6 +9862,26 @@ static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
             index = nested;
         }
     }
+    if (type->cxx_class &&
+        type->cxx_class->template_identity_tmpl &&
+        type->cxx_class->template_identity_args) {
+        for (int nested_index = 0;
+             nested_index <
+                 type->cxx_class->template_identity_arg_count;
+             ++nested_index) {
+            Type* identity_argument =
+                type->cxx_class->template_identity_args[nested_index];
+            int nested = identity_argument && identity_argument != type
+                ? template_parameter_pack_index_nested(
+                      tmpl, identity_argument)
+                : -1;
+            if (nested == -2) return -2;
+            if (nested >= 0) {
+                if (index >= 0 && index != nested) return -2;
+                index = nested;
+            }
+        }
+    }
     return index;
 }
 
@@ -10927,7 +10956,27 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 Expr* value_expression = type->cxx_template_value_args
                     ? type->cxx_template_value_args[nested_index] : NULL;
                 Expr* substituted_expression;
+                Type* non_type_argument_type = NULL;
                 bool value_resolved;
+                if (parameter->is_auto) {
+                    Type* source_argument_type = type->cxx_template_args
+                        ? type->cxx_template_args[nested_index] : NULL;
+                    non_type_argument_type = source_argument_type
+                        ? template_substitute_type(
+                              tmpl, source_argument_type, args, arg_count,
+                              value_args, value_present)
+                        : NULL;
+                } else if (parameter->type) {
+                    non_type_argument_type = template_substitute_type(
+                        nested_class_template, parameter->type,
+                        nested_arguments, nested_count, nested_values,
+                        nested_value_present);
+                }
+                if (!non_type_argument_type) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "dependent class-template non-type argument type could not be substituted");
+                    return NULL;
+                }
                 if (!value_expression) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
                               "dependent class-template non-type argument "
@@ -10969,8 +11018,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     nested_value_expressions[nested_count] =
                         substituted_expression ? substituted_expression
                                                : value_expression;
-                    nested_arguments[nested_count] = parameter->type
-                        ? parameter->type : type_int;
+                    nested_arguments[nested_count] = non_type_argument_type;
                     still_dependent = true;
                 } else if (!value_resolved) {
                     rcc_error(value_expression->loc,
@@ -10980,10 +11028,11 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 } else {
                     nested_value_expressions[nested_count] = expr_int(
                         nested_values[nested_count], value_expression->loc);
-                    nested_arguments[nested_count] = parameter->type
-                        ? parameter->type : type_int;
+                    nested_arguments[nested_count] = non_type_argument_type;
                     nested_value_present[nested_count] = true;
                 }
+                still_dependent = still_dependent ||
+                    non_type_argument_type->cxx_dependent;
             } else {
                 if (!parameter) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
@@ -12708,7 +12757,9 @@ static Expr* template_clone_pack_fold(
                 item = expr_int(tmpl->pending_pack_values[
                                     pack_offset + index],
                                 expression->loc);
-                item->type = value_pack->type ? value_pack->type : type_int;
+                item->type = value_pack->is_auto && tmpl->pending_pack_args
+                    ? tmpl->pending_pack_args[pack_offset + index]
+                    : value_pack->type ? value_pack->type : type_int;
             } else {
                 item = expr_ident(rcc_intern(name), expression->loc);
             }
@@ -12755,7 +12806,9 @@ static Expr* template_clone_pack_fold(
             item = expr_int(
                 tmpl->pending_pack_values[pack_offset + index],
                 expression->loc);
-            item->type = value_pack->type ? value_pack->type : type_int;
+            item->type = value_pack->is_auto && tmpl->pending_pack_args
+                ? tmpl->pending_pack_args[pack_offset + index]
+                : value_pack->type ? value_pack->type : type_int;
         } else {
             item = expr_ident(rcc_intern(name), expression->loc);
         }
@@ -15149,6 +15202,16 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                                     pack_offset + pack_index]) {
                             return false;
                         }
+                        if (parameter->is_auto &&
+                            (!tmpl->pending_pack_args ||
+                             !tmpl->instances[instance_index].pack_args ||
+                             !type_is_same_template_argument(
+                                 tmpl->instances[instance_index].pack_args[
+                                     instance_offset + pack_index],
+                                 tmpl->pending_pack_args[
+                                     pack_offset + pack_index]))) {
+                            return false;
+                        }
                     }
                 }
             } else {
@@ -15181,6 +15244,15 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                             tmpl->instances[instance_index].pack_values[
                                 pack_index] !=
                                 tmpl->pending_pack_values[pack_index]) {
+                            return false;
+                        }
+                        if (parameter->is_auto &&
+                            (!tmpl->pending_pack_args ||
+                             !tmpl->instances[instance_index].pack_args ||
+                             !type_is_same_template_argument(
+                                 tmpl->instances[instance_index].pack_args[
+                                     pack_index],
+                                 tmpl->pending_pack_args[pack_index]))) {
                             return false;
                         }
                     }
@@ -15233,7 +15305,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                  !tmpl->pending_pack_args) ||
                 (tmpl->pending_pack_count > 0 && parameter->kind == TPARAM_NONTYPE &&
                  (!tmpl->pending_pack_values ||
-                  !tmpl->pending_pack_value_present))) {
+                  !tmpl->pending_pack_value_present ||
+                  (parameter->is_auto && !tmpl->pending_pack_args)))) {
                 rcc_error(template_loc,
                           "function template parameter pack arguments are missing");
                 return NULL;
@@ -15513,6 +15586,18 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                     tmpl->pending_pack_values[
                                         zipped_offset + pack_value];
                                 expanded_value_present[zipped_index] = true;
+                                if (zipped_parameter->is_auto) {
+                                    if (!tmpl->pending_pack_args ||
+                                        !tmpl->pending_pack_args[
+                                            zipped_offset + pack_value]) {
+                                        rcc_error(item->decl->loc,
+                                                  "function template zipped auto non-type pack type is missing");
+                                        return NULL;
+                                    }
+                                    expanded_arguments[zipped_index] =
+                                        tmpl->pending_pack_args[
+                                            zipped_offset + pack_value];
+                                }
                             } else {
                                 rcc_error(item->decl->loc,
                                           "function template zipped pack has an unsupported parameter kind");
@@ -15542,6 +15627,18 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                             tmpl->pending_pack_values[
                                 pack_offset + pack_value];
                         expanded_value_present[pack_index] = true;
+                        if (tmpl->params[pack_index].is_auto) {
+                            if (!tmpl->pending_pack_args ||
+                                !tmpl->pending_pack_args[
+                                    pack_offset + pack_value]) {
+                                rcc_error(item->decl->loc,
+                                          "function auto non-type pack type is missing");
+                                return NULL;
+                            }
+                            expanded_arguments[pack_index] =
+                                tmpl->pending_pack_args[
+                                    pack_offset + pack_value];
+                        }
                     }
                     parameter_type = template_substitute_type(
                         tmpl, item->decl->type, expanded_arguments,
@@ -15671,12 +15768,17 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         }
         if (tmpl->pending_pack_count >= 0) {
             bool has_type_pack = false;
+            bool has_value_pack = false;
             for (int parameter_index = 0;
                  parameter_index < tmpl->param_count; ++parameter_index) {
-                if (tmpl->params[parameter_index].is_pack &&
-                    tmpl->params[parameter_index].kind != TPARAM_NONTYPE) {
+                if (!tmpl->params[parameter_index].is_pack) continue;
+                if (tmpl->params[parameter_index].kind == TPARAM_NONTYPE) {
+                    has_value_pack = true;
+                    if (tmpl->params[parameter_index].is_auto) {
+                        has_type_pack = true;
+                    }
+                } else {
                     has_type_pack = true;
-                    break;
                 }
             }
             instance->func_template_pack_count = tmpl->pending_pack_count;
@@ -15688,7 +15790,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                        tmpl->pending_pack_args,
                        sizeof(instance->func_template_pack_args[0]) *
                            (size_t)tmpl->pending_pack_count);
-            } else if (tmpl->pending_pack_count > 0) {
+            }
+            if (tmpl->pending_pack_count > 0 && has_value_pack) {
                 instance->func_template_pack_values = ast_arena_alloc(
                     sizeof(instance->func_template_pack_values[0]) *
                     (size_t)tmpl->pending_pack_count);
