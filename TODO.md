@@ -14902,7 +14902,15 @@ Continue in this order:
       runs do not feed x86_64 objects into i686 links. `test-cxx-modules` links
       these cases on i686 and x86_64. An exported using-declaration exposes its
       nominated type on direct import, while a bridge that does not re-export
-      it keeps the name hidden.
-- [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
-      default constructors and their subobjects. The full `test-cxx` gate
-      currently stops in `test-cxx-type-trait-builtins` on those assertions.
+      it keeps the name hidden. Exported variables also promote on direct
+      import and stay hidden through the bridge. An enumerator from a reachable
+      private enum is usable as `EnumAlias::enumerator` through an exported
+      alias without entering ordinary unqualified lookup.
+- [x] Resolve `__has_trivial_constructor` for deleted default constructors and
+      their subobjects. `test-cxx-type-trait-builtins` compares GCC behavior
+      and passes on i686/x86_64 in C++17/C++20; the full `test-cxx` gate passes.
+- [x] Preserve module ownership when compiling declarations reconstructed from
+      imported BMI records. Consumers emit references to provider-owned
+      function and global definitions rather than duplicate bodies or data;
+      the reachable private helper/global multi-TU link passes on i686/x86_64.
+      `test-cxx-modules` and the full `test-cxx` gate pass.

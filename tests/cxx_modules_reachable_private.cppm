@@ -47,6 +47,8 @@ export struct ReachableOverloadResult {
     char bytes[3];
 };
 
+export int reachable_public_variable = 47;
+
 export ReachableOverloadResult reachable_overload(double value) {
     ReachableOverloadResult result = {{'R', 'I', 'N'}};
     (void)value;

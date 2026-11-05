@@ -867,15 +867,54 @@ static bool parser_enum_constant_name_matches(
                entry->type, namespace_name);
 }
 
+static bool parser_enum_constant_is_qualified_by_visible_type(
+    const ParserEnumConstant* entry, const char* name) {
+    const char* spelling = name;
+    const char* separator;
+    size_t type_name_length;
+    const char* enumerator_name;
+    char type_name[512];
+    Type* qualified_type;
+
+    if (!entry || !entry->type || !spelling) return false;
+    while (spelling[0] == ':' && spelling[1] == ':') spelling += 2;
+    separator = strrchr(spelling, ':');
+    if (!separator || separator <= spelling || separator[-1] != ':') {
+        return false;
+    }
+    enumerator_name = separator + 1;
+    if (!entry->name || strcmp(enumerator_name, entry->name) != 0) {
+        return false;
+    }
+    type_name_length = (size_t)(separator - spelling - 1);
+    if (type_name_length == 0u || type_name_length >= sizeof(type_name)) {
+        return false;
+    }
+    memcpy(type_name, spelling, type_name_length);
+    type_name[type_name_length] = '\0';
+
+    /* An exported alias can make a module-private enum usable without making
+     * its enumerator names ordinary namespace lookup candidates. C++ also
+     * permits an unscoped enumerator to be qualified through its enum type;
+     * accept that form only when the prefix itself resolves to this visible
+     * enum type. Namespace qualification remains subject to declaration
+     * visibility below. */
+    qualified_type = rcc_parser_lookup_type(type_name);
+    return qualified_type == entry->type;
+}
+
 bool rcc_parser_lookup_enum_constant(const char* name, int64_t* value,
                                     Type** type, Type** expression_type,
                                     bool* is_deprecated,
                                     const char** deprecated_message) {
     ParserEnumConstant* entry;
     for (entry = parser_enum_constants; entry; entry = entry->next) {
-        if (rcc_parser_module_entity_lookup_visible(
-                entry->is_module_reachable_private) &&
-            parser_enum_constant_name_matches(entry, name)) {
+        bool visible = rcc_parser_module_entity_lookup_visible(
+            entry->is_module_reachable_private);
+        bool type_qualified =
+            parser_enum_constant_is_qualified_by_visible_type(entry, name);
+        if ((visible && parser_enum_constant_name_matches(entry, name)) ||
+            type_qualified) {
             if (value) *value = entry->value;
             if (type) *type = entry->type;
             if (expression_type) *expression_type = entry->expression_type;
