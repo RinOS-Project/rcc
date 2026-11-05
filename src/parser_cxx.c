@@ -3295,6 +3295,31 @@ static bool cxx_structural_pointer_member_value(
         return cxx_structural_pointer_member_value(
             expression->unary_operand, pointer_type, value_out);
     }
+    if (!pointer_type->cxx_is_member_pointer &&
+        expression->kind == EXPR_IDENT) {
+        bool namespace_scope_target = false;
+        Decl* declaration = cxx_structural_pointer_member_identifier_declaration(
+            expression, &namespace_scope_target);
+        Type* source_type = declaration ? declaration->type : NULL;
+        if (declaration && declaration->kind == DECL_VAR &&
+            declaration->var_is_constexpr && declaration->var_init &&
+            !declaration->var_is_being_constant_evaluated &&
+            source_type && source_type->kind == TYPE_PTR &&
+            !source_type->is_reference &&
+            !source_type->cxx_is_member_pointer && source_type->base &&
+            pointer_type->base &&
+            rcc_parser_cxx_structural_pointer_conversion(
+                source_type->base, pointer_type->base, NULL) &&
+            cxx_structural_pointer_member_declaration_has_static_storage(
+                declaration, namespace_scope_target)) {
+            bool evaluated;
+            declaration->var_is_being_constant_evaluated = true;
+            evaluated = cxx_structural_pointer_member_value(
+                declaration->var_init, pointer_type, value_out);
+            declaration->var_is_being_constant_evaluated = false;
+            return evaluated;
+        }
+    }
     if (pointer_type->is_reference) {
         if (!cxx_structural_pointer_member_location(
                 expression, pointer_type, &location) ||
@@ -4279,10 +4304,23 @@ static bool cxx_structural_class_count_member_values(
     return true;
 }
 
+static void cxx_bind_template_constant_address_argument(Expr* expression);
+
 static void cxx_bind_template_constant_address_identifier(Expr* operand) {
     const char* name;
-    if (!operand || operand->kind != EXPR_IDENT || operand->ident_decl ||
+    if (!operand || operand->kind != EXPR_IDENT ||
         !(name = operand->ident_name)) return;
+    if (operand->ident_decl) {
+        if (operand->ident_decl->kind == DECL_VAR && active_ast) {
+            for (DeclList* item = active_ast->decls; item; item = item->next) {
+                if (item->decl == operand->ident_decl) {
+                    operand->ident_decl->var_is_global = true;
+                    break;
+                }
+            }
+        }
+        return;
+    }
     rcc_parser_cxx_bind_explicit_global_variable(operand);
     if (operand->ident_decl || !active_ast) return;
     if (rcc_parser_in_function_scope() && cxx_parser_value_type(name)) return;
@@ -4345,6 +4383,20 @@ static void cxx_bind_template_constant_address_argument(Expr* expression) {
     if (!expression) return;
     while (expression->kind == EXPR_CAST && expression->cast_expr) {
         expression = expression->cast_expr;
+    }
+    if (expression->kind == EXPR_IDENT) {
+        cxx_bind_template_constant_address_identifier(expression);
+        Decl* declaration = expression->ident_decl;
+        if (declaration && declaration->kind == DECL_VAR &&
+            declaration->var_is_constexpr && declaration->var_init &&
+            declaration->type && declaration->type->kind == TYPE_PTR &&
+            !declaration->var_is_being_constant_evaluated) {
+            declaration->var_is_being_constant_evaluated = true;
+            cxx_bind_template_constant_address_argument(
+                declaration->var_init);
+            declaration->var_is_being_constant_evaluated = false;
+        }
+        return;
     }
     if (expression->kind == EXPR_ADDR) {
         cxx_bind_template_constant_address_target(

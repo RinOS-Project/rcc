@@ -77,6 +77,9 @@ union FunctionTemplateStructuralDirectPointerUnion {
 };
 
 inline constexpr int function_template_structural_union_pointer_target = 23;
+inline constexpr const int*
+    function_template_structural_union_pointer_target_pointer =
+        &function_template_structural_union_pointer_target;
 inline constexpr int function_template_structural_pointer_factory_array[3] = {
     11, 13, 17};
 struct FunctionTemplateStructuralPointerFactoryMemberTarget {
@@ -87,6 +90,9 @@ struct FunctionTemplateStructuralPointerFactoryMemberTarget {
 inline constexpr FunctionTemplateStructuralPointerFactoryMemberTarget
     function_template_structural_pointer_factory_member_target = {
         19, 23, {11, 13, 17}};
+inline constexpr const int*
+    function_template_structural_pointer_factory_member_array_pointer =
+        &function_template_structural_pointer_factory_member_target.elements[1];
 
 struct FunctionTemplateStructuralPointerFactoryValue {
     FunctionTemplateStructuralPointerUnion payload;
@@ -967,10 +973,19 @@ static_assert(function_template_structural_pointer_factory_explicit<
                   function_template_make_structural_pointer_union_value(
                       &function_template_structural_pointer_factory_member_target.elements[1],
                       2)>() == 15);
+static_assert(function_template_structural_pointer_factory_explicit<
+                  function_template_make_structural_pointer_union_value(
+                      function_template_structural_pointer_factory_member_array_pointer,
+                      2)>() == 15);
 static_assert(function_template_structural_union_direct_pointer_explicit<
                   FunctionTemplateStructuralDirectPointerUnion{
                       .pointer =
                           &function_template_structural_union_pointer_target}>() ==
+              23);
+static_assert(function_template_structural_union_direct_pointer_explicit<
+                  FunctionTemplateStructuralDirectPointerUnion{
+                      .pointer =
+                          function_template_structural_union_pointer_target_pointer}>() ==
               23);
 static_assert(function_template_structural_union_direct_pointer_deduced(
                   FunctionTemplateStructuralDirectPointerUnionTag<
@@ -1307,10 +1322,19 @@ int main() {
             function_template_make_structural_pointer_union_value(
                 &function_template_structural_pointer_factory_member_target.elements[1],
                 2)>() != 15 ||
+        function_template_structural_pointer_factory_explicit<
+            function_template_make_structural_pointer_union_value(
+                function_template_structural_pointer_factory_member_array_pointer,
+                2)>() != 15 ||
         function_template_structural_union_direct_pointer_explicit<
             FunctionTemplateStructuralDirectPointerUnion{
                 .pointer =
                     &function_template_structural_union_pointer_target}>() !=
+            23 ||
+        function_template_structural_union_direct_pointer_explicit<
+            FunctionTemplateStructuralDirectPointerUnion{
+                .pointer =
+                    function_template_structural_union_pointer_target_pointer}>() !=
             23 ||
         function_template_structural_union_direct_pointer_deduced(
             FunctionTemplateStructuralDirectPointerUnionTag<

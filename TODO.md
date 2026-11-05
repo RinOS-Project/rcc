@@ -14670,3 +14670,14 @@ remains a separate open item.
       C++20 acceptance, exact ABI-specific Itanium symbols, and both Windows
       and POSIX structural-NTTP gates. All 88 verified-backend functions pass
       at `-O0` and `-O2` with zero fallback.
+
+## RCC continuation (2026-11-05, constexpr pointer variables in aggregate NTTP factories)
+
+- [x] Bind namespace-scope `constexpr` pointer variables through their address
+      initializers before materializing constexpr aggregate-factory calls, and
+      recursively evaluate pointer variables while collecting structural NTTP
+      members. Cover a pointer to an array element inside a namespace-scope
+      object, with a compile-time assertion and host runtime check. Strict GCC
+      and Clang C++20, exact Itanium symbol parity, and Windows/POSIX
+      structural-NTTP gates pass; all 88 verified-backend functions pass at
+      `-O0` and `-O2` with zero fallback.
