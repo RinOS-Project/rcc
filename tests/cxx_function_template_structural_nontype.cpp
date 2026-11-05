@@ -639,6 +639,15 @@ constexpr int function_template_auto_scalar_pointer_value() {
     return *Pointer;
 }
 
+template<const int* Pointer>
+struct FunctionTemplateScalarPointerClass {
+    static constexpr int read() { return *Pointer; }
+};
+
+template<auto Pointer>
+inline constexpr const int* function_template_auto_scalar_pointer_variable =
+    Pointer;
+
 template<FunctionTemplateStructuralPointerArray Value>
 constexpr int function_template_structural_pointer_array_explicit() {
     return *Value.values[0] * 100 + *Value.values[1] * 10 + Value.bias;
@@ -1097,6 +1106,14 @@ static_assert(function_template_scalar_pointer_value<
 static_assert(function_template_auto_scalar_pointer_value<
                   function_template_structural_pointer_factory_member_array_getter()>() ==
               13);
+static_assert(FunctionTemplateScalarPointerClass<
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_getter())>::read() ==
+              13);
+static_assert(*function_template_auto_scalar_pointer_variable<
+                  function_template_structural_pointer_factory_member_array_forwarder(
+                      function_template_structural_pointer_factory_member_array_getter())> ==
+              13);
 static_assert(function_template_scalar_pointer_value<nullptr>() == -1);
 static_assert(function_template_structural_union_direct_pointer_deduced(
                   FunctionTemplateStructuralDirectPointerUnionTag<
@@ -1205,6 +1222,10 @@ static_assert(function_template_structural_union_quint_array_deduced(
                       FUNCTION_TEMPLATE_STRUCTURAL_QUINT_ARRAY_VALUE>{}) ==
               22142);
 int main() {
+    const int* const* auto_pointer_variable =
+        &function_template_auto_scalar_pointer_variable<
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_getter())>;
     if (function_template_structural_value_explicit<
             FunctionTemplateStructuralTarget{37}>() != 37 ||
         function_template_structural_value_deduced(
@@ -1477,6 +1498,11 @@ int main() {
         function_template_auto_scalar_pointer_value<
             function_template_structural_pointer_factory_member_array_getter()>() !=
             13 ||
+        FunctionTemplateScalarPointerClass<
+            function_template_structural_pointer_factory_member_array_forwarder(
+                function_template_structural_pointer_factory_member_array_getter())>::read() !=
+            13 ||
+        !auto_pointer_variable || **auto_pointer_variable != 13 ||
         function_template_scalar_pointer_value<nullptr>() != -1 ||
         function_template_structural_pointer_factory_explicit<
             function_template_make_structural_pointer_union_value(
