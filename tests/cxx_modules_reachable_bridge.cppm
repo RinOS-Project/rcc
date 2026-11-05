@@ -12,6 +12,10 @@ export using BridgeTemplateAlias = ReachableTemplateAlias;
 export template<class T = ReachablePrivate>
 struct BridgePrivateDefaultTemplate {
     T value;
+
+    int private_value_sum() const {
+        return reachable_private_helper(value.value);
+    }
 };
 
 export inline int bridge_private_helper(int value) {

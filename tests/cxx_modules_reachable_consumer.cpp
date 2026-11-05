@@ -16,6 +16,7 @@ int main() {
     return bridge_value(value) == 17 && scoped.scoped_value == 25 &&
             aliased.scoped_value == 27 && introduced.scoped_value == 29 &&
             templated.value == 33 && defaulted.value.value == 37 &&
+            defaulted.private_value_sum() == 41 &&
             bridge_private_default_argument() == 35 &&
             bridge_private_template_helper(value) == 21 &&
             bridge_private_helper(8) == 12 &&
