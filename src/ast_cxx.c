@@ -986,6 +986,38 @@ static bool cxx_mangle_structural_member_pointer_value(
     return true;
 }
 
+static bool cxx_mangle_template_member_pointer_argument(
+    char* buf, size_t* pos, int64_t token, Type* pointer_type,
+    CxxMangleContext* context) {
+    CxxClass* owner = NULL;
+    const char* member_name = NULL;
+    TypeMethod* method = NULL;
+    if (!cxx_structural_member_pointer_value_resolve(
+            token, &owner, &member_name, NULL, &method) || !owner ||
+        !member_name) {
+        return false;
+    }
+    if (!method) {
+        return cxx_mangle_structural_member_pointer_value(
+            buf, pos, token, pointer_type, context);
+    }
+    if (!pointer_type || !type_is_cxx_member_function_pointer(pointer_type) ||
+        !pointer_type->cxx_member_pointer_owner ||
+        pointer_type->cxx_member_pointer_owner->cxx_class != owner) {
+        return false;
+    }
+    if (*pos + 3u >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ member pointer template argument is too long");
+    }
+    cxx_mangle_type_char(buf, pos, 'a');
+    cxx_mangle_type_char(buf, pos, 'd');
+    if (!cxx_mangle_structural_member_function_designator(
+            buf, pos, method, context)) {
+        return false;
+    }
+    return true;
+}
+
 static bool cxx_mangle_structural_pointer_root_expression(
     char* buf, size_t* pos, const char* link_name) {
     cxx_mangle_type_char(buf, pos, 'L');
@@ -1879,8 +1911,7 @@ static void cxx_mangle_template_class_value_argument(
             cxx_structural_class_has_only_pointer_member(value_type)
         ? value : 0;
     if (value_type && value_type->kind == TYPE_PTR &&
-        !value_type->is_reference &&
-        !value_type->cxx_is_member_pointer) {
+        !value_type->is_reference) {
         if (!cxx_mangle_function_template_value_argument(
                 buf, pos, value_type, value, context)) {
             rcc_fatal(
@@ -1901,6 +1932,27 @@ static bool cxx_mangle_function_template_value_argument(
     char* buf, size_t* pos, Type* value_type, int64_t value,
     CxxMangleContext* context) {
     if (!buf || !pos || !value_type || !context) return false;
+    if (value_type->kind == TYPE_PTR && !value_type->is_reference &&
+        value_type->cxx_is_member_pointer) {
+        if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ template function name is too long");
+        }
+        if (value == 0) {
+            buf[(*pos)++] = 'L';
+            cxx_mangle_type_append_context(
+                buf, pos, value_type, context);
+            cxx_mangle_template_value_suffix(
+                buf, pos, value_type, value);
+            return true;
+        }
+        buf[(*pos)++] = 'X';
+        if (!cxx_mangle_template_member_pointer_argument(
+                buf, pos, value, value_type, context)) {
+            return false;
+        }
+        cxx_mangle_type_char(buf, pos, 'E');
+        return true;
+    }
     if (value_type->kind == TYPE_PTR && !value_type->is_reference &&
         !value_type->cxx_is_member_pointer) {
         if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
@@ -4791,10 +4843,9 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
             }
             Type* value_type = cxx_mangle_template_value_type(
                 tmpl, parameter, type_args, tmpl->param_count, index);
-            if (parameter->is_auto && value_type &&
-                value_type->kind == TYPE_PTR &&
+            if (value_type && value_type->kind == TYPE_PTR &&
                 !value_type->is_reference &&
-                !value_type->cxx_is_member_pointer) {
+                (parameter->is_auto || value_type->cxx_is_member_pointer)) {
                 if (!cxx_mangle_function_template_value_argument(
                         buf, &pos, value_type, value_args[index],
                         &argument_context)) {
@@ -14363,6 +14414,29 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 value_present);
             if (value_type && value_type->kind == TYPE_PTR &&
                 !value_type->is_reference &&
+                value_type->cxx_is_member_pointer) {
+                if (value_args[index] == 0) {
+                    bool is_member_function_pointer = value_type->base &&
+                        value_type->base->kind == TYPE_FUNC;
+                    copy = expr_int(
+                        is_member_function_pointer ? 0 : -1,
+                        expression->loc);
+                    copy->is_cxx_nullptr = is_member_function_pointer;
+                    copy->type = value_type;
+                } else {
+                    copy = template_clone_structural_member_pointer_value_expr(
+                        value_args[index], value_type, expression->loc);
+                    if (!copy) {
+                        rcc_error(expression->loc,
+                                  "function template member-pointer argument "
+                                  "has no representable member target");
+                        return expression;
+                    }
+                }
+                return copy;
+            }
+            if (value_type && value_type->kind == TYPE_PTR &&
+                !value_type->is_reference &&
                 !value_type->cxx_is_member_pointer) {
                 if (value_args[index] == 0) {
                     copy = expr_int(0, expression->loc);
@@ -15524,17 +15598,24 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                 value_type->kind == TYPE_PTR &&
                 !value_type->is_reference &&
                 !value_type->cxx_is_member_pointer && value_type->base;
+            bool member_pointer_value = value_type &&
+                value_type->kind == TYPE_PTR &&
+                value_type->cxx_is_member_pointer && value_args &&
+                (value_args[index] == 0 ||
+                 cxx_structural_member_pointer_value_resolve(
+                     value_args[index], NULL, NULL, NULL, NULL));
             if (!value_present || !value_present[index] || !value_args ||
                 !value_type ||
                 (!type_is_integer(value_type) &&
                  value_type->kind != TYPE_ENUM &&
                  value_type->kind != TYPE_NULLPTR && !pointer_value &&
+                 !member_pointer_value &&
                  ((value_type->kind != TYPE_STRUCT &&
                    value_type->kind != TYPE_UNION) ||
                   !cxx_structural_class_value_supported_subset(value_type)))) {
                 rcc_error(template_loc,
                           "function template non-type argument %d requires "
-                          "an integer, pointer, nullptr, or supported structural class constant",
+                          "an integer, pointer, member pointer, nullptr, or supported structural class constant",
                           index + 1);
                 return NULL;
             }

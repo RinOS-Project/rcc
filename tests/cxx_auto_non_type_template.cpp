@@ -12,9 +12,95 @@ signed char auto_pointer_target = -19;
 extern constexpr int auto_class_pointer_target = -23;
 constexpr signed char* auto_pointer_alias = &auto_pointer_target;
 
+struct auto_member_pointer_target {
+    int field;
+    int get() const {
+        return field + 4;
+    }
+};
+
+constexpr int auto_member_pointer_target::* auto_member_data_pointer_alias =
+    &auto_member_pointer_target::field;
+constexpr int (auto_member_pointer_target::*
+                   auto_member_function_pointer_alias)() const =
+    &auto_member_pointer_target::get;
+using auto_member_function_pointer_type =
+    int (auto_member_pointer_target::*)() const;
+auto_member_pointer_target auto_member_pointer_object{5};
+
 template<auto Pointer>
 int auto_pointer_value() {
     return *Pointer;
+}
+
+template<auto Pointer>
+int auto_member_pointer_tag() {
+    return 19;
+}
+
+template<auto Pointer>
+int auto_member_pointer_read() {
+    return auto_member_pointer_object.*Pointer;
+}
+
+template<auto Pointer>
+int auto_member_function_pointer_read() {
+    return (auto_member_pointer_object.*Pointer)();
+}
+
+template<auto Pointer>
+bool auto_member_pointer_is_null() {
+    return Pointer == nullptr;
+}
+
+template<auto_member_function_pointer_type Pointer>
+int auto_typed_member_function_pointer_tag() {
+    return 37;
+}
+
+template<int auto_member_pointer_target::*Pointer>
+bool auto_typed_member_pointer_is_null() {
+    return Pointer == nullptr;
+}
+
+template<auto_member_function_pointer_type Pointer>
+bool auto_typed_member_function_pointer_is_null() {
+    return Pointer == nullptr;
+}
+
+template<auto Pointer>
+inline constexpr int auto_member_pointer_variable = 23;
+
+template<auto Pointer>
+inline constexpr int auto_member_function_pointer_variable = 31;
+
+const int* auto_member_pointer_variable_address() {
+    return &auto_member_pointer_variable<
+        &auto_member_pointer_target::field>;
+}
+
+const int* auto_member_function_pointer_variable_address() {
+    return &auto_member_function_pointer_variable<
+        &auto_member_pointer_target::get>;
+}
+
+template<auto Pointer>
+struct auto_member_pointer_holder {
+    int read() const {
+        return auto_member_pointer_object.*Pointer;
+    }
+};
+
+template<auto Pointer>
+struct auto_member_function_pointer_holder {
+    int read() const {
+        return (auto_member_pointer_object.*Pointer)();
+    }
+};
+
+template<int auto_member_pointer_target::*Pointer>
+int auto_typed_member_pointer_tag() {
+    return 29;
 }
 
 template<auto Pointer>
@@ -107,6 +193,10 @@ struct auto_value_pack_holder {
 };
 
 auto_pointer_holder<&auto_class_pointer_target> auto_pointer_instance;
+auto_member_pointer_holder<&auto_member_pointer_target::field>
+    auto_member_pointer_instance;
+auto_member_function_pointer_holder<&auto_member_pointer_target::get>
+    auto_member_function_pointer_instance;
 auto_value_pack_holder<5, 7u> auto_value_pack_mixed_instance;
 auto_value_pack_holder<5, 7> auto_value_pack_signed_instance;
 auto_value_pack_holder<5u, 7u> auto_value_pack_unsigned_instance;
@@ -149,6 +239,44 @@ extern "C" int main() {
                    auto_pointer_value<&auto_pointer_target>() == -19 &&
                    auto_pointer_value<auto_pointer_alias>() == -19 &&
                    auto_pointer_variable<&auto_class_pointer_target> == -23 &&
+                   auto_member_pointer_tag<
+                       &auto_member_pointer_target::field>() == 19 &&
+                   auto_member_pointer_tag<
+                       auto_member_data_pointer_alias>() == 19 &&
+                   auto_member_pointer_tag<
+                       &auto_member_pointer_target::get>() == 19 &&
+                   auto_member_pointer_tag<static_cast<
+                       int auto_member_pointer_target::*>(nullptr)>() == 19 &&
+                   auto_typed_member_pointer_tag<
+                       &auto_member_pointer_target::field>() == 29 &&
+                   auto_typed_member_pointer_tag<nullptr>() == 29 &&
+                   auto_member_pointer_is_null<static_cast<
+                       int auto_member_pointer_target::*>(nullptr)>() &&
+                   auto_member_pointer_is_null<
+                       static_cast<auto_member_function_pointer_type>(
+                           nullptr)>() &&
+                   auto_typed_member_function_pointer_tag<
+                       &auto_member_pointer_target::get>() == 37 &&
+                   auto_typed_member_function_pointer_tag<
+                       auto_member_function_pointer_alias>() == 37 &&
+                   auto_typed_member_pointer_is_null<nullptr>() &&
+                   auto_typed_member_function_pointer_is_null<nullptr>() &&
+                   auto_member_pointer_variable<
+                       &auto_member_pointer_target::field> == 23 &&
+                   *auto_member_pointer_variable_address() == 23 &&
+                   auto_member_function_pointer_variable<
+                       &auto_member_pointer_target::get> == 31 &&
+                   *auto_member_function_pointer_variable_address() == 31 &&
+                   auto_member_pointer_read<
+                       &auto_member_pointer_target::field>() == 5 &&
+                   auto_member_pointer_read<
+                       auto_member_data_pointer_alias>() == 5 &&
+                   auto_member_function_pointer_read<
+                       &auto_member_pointer_target::get>() == 9 &&
+                   auto_member_function_pointer_read<
+                       auto_member_function_pointer_alias>() == 9 &&
+                   auto_member_pointer_instance.read() == 5 &&
+                   auto_member_function_pointer_instance.read() == 9 &&
                    auto_pointer_holder<&auto_class_pointer_target>::value == -23 &&
                    auto_pointer_instance.read() == -23 &&
                    auto_value_pack_mixed_instance.read() == 12 &&

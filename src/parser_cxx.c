@@ -3322,6 +3322,26 @@ static bool cxx_structural_pointer_member_value(
         return cxx_structural_pointer_member_value(
             expression->unary_operand, pointer_type, value_out);
     }
+    if (pointer_type->cxx_is_member_pointer &&
+        expression->kind == EXPR_IDENT) {
+        bool namespace_scope_target = false;
+        Decl* declaration = cxx_structural_pointer_member_identifier_declaration(
+            expression, &namespace_scope_target);
+        Type* source_type = declaration ? declaration->type : NULL;
+        if (declaration && declaration->kind == DECL_VAR &&
+            declaration->var_is_constexpr && declaration->var_init &&
+            !declaration->var_is_being_constant_evaluated && source_type &&
+            source_type->kind == TYPE_PTR &&
+            source_type->cxx_is_member_pointer &&
+            type_is_compatible(source_type, pointer_type)) {
+            bool evaluated;
+            declaration->var_is_being_constant_evaluated = true;
+            evaluated = cxx_structural_pointer_member_value(
+                declaration->var_init, pointer_type, value_out);
+            declaration->var_is_being_constant_evaluated = false;
+            return evaluated;
+        }
+    }
     if (!pointer_type->cxx_is_member_pointer &&
         expression->kind == EXPR_IDENT) {
         bool namespace_scope_target = false;
@@ -4711,7 +4731,23 @@ static void cxx_bind_template_constant_address_argument(Expr* expression) {
 
 static bool cxx_template_non_type_constant_value(
     const Expr* expression, int64_t* value_out) {
+    Type* expression_type;
     if (!expression || !value_out) return false;
+    expression_type = (Type*)expression->type;
+    if (!expression_type) {
+        expression_type = cxx_parser_expression_type((Expr*)expression);
+    }
+    if (expression_type && expression_type->kind == TYPE_PTR &&
+        !expression_type->is_reference &&
+        expression_type->cxx_is_member_pointer) {
+        ((Expr*)expression)->type = expression_type;
+        if (!cxx_structural_pointer_member_value(
+                expression, expression_type, value_out)) {
+            return false;
+        }
+        if (*value_out == -1) *value_out = 0;
+        return true;
+    }
     if (expr_eval_integer_constant((Expr*)expression, value_out)) return true;
     if (cxx_expr_is_nullptr_constant(expression)) {
         *value_out = 0;
@@ -25877,6 +25913,13 @@ static Type* instantiate_class_template_for_owner(
             !non_type_argument_type->is_reference &&
             !non_type_argument_type->cxx_is_member_pointer &&
             non_type_argument_type->base;
+        bool non_type_member_pointer_argument =
+            non_type_argument_type &&
+            non_type_argument_type->kind == TYPE_PTR &&
+            non_type_argument_type->cxx_is_member_pointer && value_args &&
+            (value_args[index] == 0 ||
+             cxx_structural_member_pointer_value_resolve(
+                 value_args[index], NULL, NULL, NULL, NULL));
         if (parameter->kind == TPARAM_NONTYPE &&
             (!value_args || !value_present || !value_present[index] ||
              !non_type_argument_type || non_type_argument_type->cxx_dependent ||
@@ -25884,6 +25927,7 @@ static Type* instantiate_class_template_for_owner(
              non_type_argument_type->kind != TYPE_ENUM &&
              non_type_argument_type->kind != TYPE_NULLPTR &&
              !non_type_pointer_argument &&
+             !non_type_member_pointer_argument &&
              !cxx_structural_class_value_supported_subset(
                  non_type_argument_type)))) {
             rcc_error(loc,

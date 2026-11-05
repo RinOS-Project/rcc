@@ -13518,12 +13518,60 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z29deduce_variable_argument_packIjJLi2ELj3ELi4EEEi22variable_argument_packIT_JXspT0_EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z28variable_argument_pack_valueIjJLi2ELj3ELi4EEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z28variable_argument_pack_valueIjJLi2ELj3ELi4EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z24auto_member_pointer_readIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z33auto_member_function_pointer_readIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z28auto_member_pointer_variableIXadL_ZN26auto_member_pointer_target5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z38auto_typed_member_function_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z37auto_member_function_pointer_variableIXadL_ZNK26auto_member_pointer_target3getEvEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z33auto_typed_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z42auto_typed_member_function_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z24auto_member_pointer_readIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z33auto_member_function_pointer_readIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z28auto_member_pointer_variableIXadL_ZN26auto_member_pointer_target5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z38auto_typed_member_function_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z37auto_member_function_pointer_variableIXadL_ZNK26auto_member_pointer_target3getEvEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z33auto_typed_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z42auto_typed_member_function_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
 		-o $(TEST_OUT)/cxx-auto-non-type-template/gcc.s \
 		tests/cxx_auto_non_type_template.cpp
 	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z29deduce_variable_argument_packIjJLi2ELj3ELi4EEEi22variable_argument_packIT_JXspT0_EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z28variable_argument_pack_valueIjJLi2ELj3ELi4EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z24auto_member_pointer_readIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z33auto_member_function_pointer_readIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z28auto_member_pointer_variableIXadL_ZN26auto_member_pointer_target5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z38auto_typed_member_function_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z37auto_member_function_pointer_variableIXadL_ZNK26auto_member_pointer_target3getEvEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z33auto_typed_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z42auto_typed_member_function_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z18auto_pointer_valueIXadL_Z19auto_pointer_targetEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z19auto_value_variableILi7EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z19auto_value_variableILj7EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
@@ -13581,6 +13629,22 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-auto-non-type-template/gcc.s \
 		tests/cxx_auto_non_type_template.cpp
 	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z24auto_member_pointer_readIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z33auto_member_function_pointer_readIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z28auto_member_pointer_variableIXadL_ZN26auto_member_pointer_target5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z38auto_typed_member_function_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z37auto_member_function_pointer_variableIXadL_ZNK26auto_member_pointer_target3getEvEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z33auto_typed_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z42auto_typed_member_function_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z29deduce_variable_argument_packIjJLi2ELj3ELi4EEEi22variable_argument_packIT_JXspT0_EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z28variable_argument_pack_valueIjJLi2ELj3ELi4EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z18auto_pointer_valueIXadL_Z19auto_pointer_targetEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
@@ -13610,6 +13674,22 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 		tests/cxx_auto_non_type_template.cpp
 	$(GREP) -F -q "_Z29deduce_variable_argument_packIjJLi2ELj3ELi4EEEi22variable_argument_packIT_JXspT0_EEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z28variable_argument_pack_valueIjJLi2ELj3ELi4EEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z24auto_member_pointer_readIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z33auto_member_function_pointer_readIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z28auto_member_pointer_variableIXadL_ZN26auto_member_pointer_target5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z38auto_typed_member_function_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z37auto_member_function_pointer_variableIXadL_ZNK26auto_member_pointer_target3getEvEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z33auto_typed_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z42auto_typed_member_function_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-auto-non-type-template/x86.o \
 		$(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z18auto_pointer_valueIXadL_Z19auto_pointer_targetEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
@@ -13646,6 +13726,22 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 		tests/cxx_auto_non_type_template.cpp
 	$(GREP) -F -q "_Z29deduce_variable_argument_packIjJLi2ELj3ELi4EEEi22variable_argument_packIT_JXspT0_EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z28variable_argument_pack_valueIjJLi2ELj3ELi4EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z29auto_typed_member_pointer_tagILM26auto_member_pointer_targeti0EEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z24auto_member_pointer_readIXadL_ZN26auto_member_pointer_target5fieldEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z33auto_member_function_pointer_readIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z28auto_member_pointer_variableIXadL_ZN26auto_member_pointer_target5fieldEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_ZNK26auto_member_pointer_holderIXadL_ZN26auto_member_pointer_target5fieldEEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_ZNK35auto_member_function_pointer_holderIXadL_ZNK26auto_member_pointer_target3getEvEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z38auto_typed_member_function_pointer_tagIXadL_ZNK26auto_member_pointer_target3getEvEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z37auto_member_function_pointer_variableIXadL_ZNK26auto_member_pointer_target3getEvEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z27auto_member_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z33auto_typed_member_pointer_is_nullILM26auto_member_pointer_targeti0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z42auto_typed_member_function_pointer_is_nullILM26auto_member_pointer_targetKFivE0EEbv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z18auto_pointer_valueIXadL_Z19auto_pointer_targetEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z19auto_value_variableILi7EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z19auto_value_variableILj7EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
