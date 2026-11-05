@@ -14618,3 +14618,14 @@ remains a separate open item.
       has zero fallback for both targets. The Windows `test-atomic-builtins`
       gate passes; its Linux futex host-runtime executions remain assigned to
       Linux CI.
+
+## RCC continuation (2026-11-05, constexpr function-template aggregate NTTP factories)
+
+- [x] Recover the result type of a parser-bound function-template specialization
+      before constexpr structural-NTTP evaluation, allowing the existing
+      aggregate evaluator to process its returned object and active union
+      members. Add explicit and deduced five-dimensional structural-union NTTPs
+      produced by a constexpr function template, with runtime host checks and
+      exact GCC Itanium symbol comparison. The strict GCC C++20, Windows and
+      POSIX structural-NTTP gates pass; i686/AMD64 assembly matches GCC, and all
+      75 verified-backend functions pass at `-O0` and `-O2` with zero fallback.

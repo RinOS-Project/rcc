@@ -4323,6 +4323,13 @@ static bool cxx_template_non_type_constant_value(
         !expression->call_func->ident_decl) {
         (void)rcc_parser_cxx_bind_resolved_function_call((Expr*)expression);
     }
+    /* Function-template calls are already bound to their specialization by
+     * the expression parser, but expr_call() leaves the result type unset.
+     * Recover it here before deciding whether this is an aggregate NTTP value. */
+    if (expression->kind == EXPR_CALL && !expression->type) {
+        ((Expr*)expression)->type =
+            cxx_parser_expression_type((Expr*)expression);
+    }
     aggregate_value_type = expression->kind == EXPR_COMPOUND &&
             expression->compound_type
         ? expression->compound_type : expression->type;
