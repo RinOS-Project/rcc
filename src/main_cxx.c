@@ -46,6 +46,18 @@ typedef struct CxxModuleBuffer {
     size_t capacity;
 } CxxModuleBuffer;
 
+typedef struct CxxModuleSegment {
+    char visibility;
+    char* header_path;
+    CxxModuleBuffer contents;
+} CxxModuleSegment;
+
+typedef struct CxxModuleSegmentList {
+    CxxModuleSegment* items;
+    size_t count;
+    size_t capacity;
+} CxxModuleSegmentList;
+
 typedef struct CxxModuleNameList {
     char** items;
     size_t count;
@@ -89,12 +101,19 @@ static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
                                           const char* header_name,
                                           const char* importing_path,
                                           CxxModuleBuffer* imports,
-                                          uint64_t* fingerprint_out);
+                                          uint64_t* fingerprint_out,
+                                          CxxModuleSegmentList* segments_out,
+                                          bool exported_visibility);
 static bool cxx_module_expand_header_unit_graph(
     CxxModuleLoadContext* context, const char* header_name,
     const char* importing_path, bool ignore_loaded_headers,
-    CxxModuleNameList* graph_headers, CxxModuleBuffer* expanded,
+    CxxModuleNameList* graph_headers,
+    CxxModuleNameList* graph_exported_headers,
+    CxxModuleBuffer* expanded,
+    CxxModuleSegmentList* segments, bool exported_visibility,
     char** canonical_path_out);
+static bool cxx_module_header_path_equal(const char* left,
+                                         const char* right);
 static uint64_t cxx_module_hash(const void* bytes, size_t length);
 
 typedef struct CxxModuleEvent {
@@ -162,6 +181,76 @@ static bool cxx_module_buffer_append(CxxModuleBuffer* buffer,
 static bool cxx_module_buffer_text(CxxModuleBuffer* buffer,
                                    const char* text) {
     return text && cxx_module_buffer_append(buffer, text, strlen(text));
+}
+
+static bool cxx_module_segments_append(CxxModuleSegmentList* segments,
+                                      char visibility,
+                                      const char* header_path,
+                                      bool promotion_only,
+                                      const char* bytes, size_t length) {
+    CxxModuleSegment* segment;
+    size_t capacity;
+    if (!segments || !header_path || !*header_path || (!bytes && length) ||
+        (visibility != 'E' && visibility != 'P')) return false;
+    if (promotion_only) {
+        bool found = false;
+        for (size_t index = 0; index < segments->count; ++index) {
+            CxxModuleSegment* existing = &segments->items[index];
+            if (!cxx_module_header_path_equal(existing->header_path,
+                                              header_path)) continue;
+            found = true;
+            if (visibility == 'E' && existing->visibility == 'P') {
+                existing->visibility = 'E';
+            }
+        }
+        if (found) return true;
+    }
+    if (length == 0u) return true;
+    if (segments->count > 0u &&
+        segments->items[segments->count - 1u].visibility == visibility &&
+        cxx_module_header_path_equal(
+            segments->items[segments->count - 1u].header_path,
+            header_path)) {
+        return cxx_module_buffer_append(
+            &segments->items[segments->count - 1u].contents, bytes, length);
+    }
+    if (segments->count == segments->capacity) {
+        capacity = segments->capacity ? segments->capacity * 2u : 8u;
+        if (capacity < segments->capacity ||
+            capacity > SIZE_MAX / sizeof(segments->items[0])) return false;
+        CxxModuleSegment* replacement = rcc_realloc(
+            segments->items, capacity * sizeof(segments->items[0]));
+        if (!replacement) return false;
+        segments->items = replacement;
+        segments->capacity = capacity;
+    }
+    segment = &segments->items[segments->count];
+    memset(segment, 0, sizeof(*segment));
+    segment->visibility = visibility;
+    segment->header_path = rcc_strdup(header_path);
+    if (!cxx_module_buffer_append(&segment->contents, bytes, length)) {
+        rcc_free(segment->header_path);
+        rcc_free(segment->contents.data);
+        memset(segment, 0, sizeof(*segment));
+        return false;
+    }
+    if (!segment->header_path) {
+        rcc_free(segment->contents.data);
+        memset(segment, 0, sizeof(*segment));
+        return false;
+    }
+    ++segments->count;
+    return true;
+}
+
+static void cxx_module_segments_clear(CxxModuleSegmentList* segments) {
+    if (!segments) return;
+    for (size_t index = 0; index < segments->count; ++index) {
+        rcc_free(segments->items[index].header_path);
+        rcc_free(segments->items[index].contents.data);
+    }
+    rcc_free(segments->items);
+    memset(segments, 0, sizeof(*segments));
 }
 
 static bool cxx_module_name_valid(const char* name) {
@@ -769,23 +858,45 @@ static bool cxx_module_append_interface_record(CxxModuleBuffer* records,
 
 static bool cxx_module_append_header_unit_records(
     CxxModuleBuffer* records, const char* header_name,
-    const CxxModuleBuffer* expanded, uint64_t fingerprint_hash,
-    char visibility) {
+    const CxxModuleSegmentList* segments, uint64_t fingerprint_hash) {
     CxxModuleBuffer state = {0};
     char hash_text[32];
+    char count_text[32];
     int hash_length;
-    bool ok;
-    if (!records || !header_name || !expanded || expanded->length == 0u ||
-        (visibility != 'E' && visibility != 'P')) return false;
+    int count_length;
+    bool ok = false;
+    if (!records || !header_name || !segments || segments->count == 0u) {
+        return false;
+    }
     hash_length = snprintf(hash_text, sizeof(hash_text), "%016llx",
                            (unsigned long long)fingerprint_hash);
+    count_length = snprintf(count_text, sizeof(count_text), "%lu",
+                            (unsigned long)segments->count);
     ok = hash_length > 0 && (size_t)hash_length < sizeof(hash_text) &&
+        count_length > 0 && (size_t)count_length < sizeof(count_text) &&
         cxx_module_buffer_text(&state, header_name) &&
         cxx_module_buffer_text(&state, "\n") &&
         cxx_module_buffer_append(&state, hash_text, (size_t)hash_length) &&
-        cxx_module_append_interface_record(records, 'H', &state, NULL) &&
-        cxx_module_append_interface_record(records, visibility, expanded,
-                                           NULL);
+        cxx_module_buffer_text(&state, "\n") &&
+        cxx_module_buffer_append(&state, count_text,
+                                 (size_t)count_length) &&
+        cxx_module_buffer_text(&state, "\n");
+    for (size_t index = 0; ok && index < segments->count; ++index) {
+        ok = cxx_module_buffer_text(
+                 &state,
+                 segments->items[index].visibility == 'E' ? "E " : "P ") &&
+            cxx_module_buffer_text(&state,
+                                   segments->items[index].header_path) &&
+            cxx_module_buffer_text(&state, "\n");
+    }
+    if (ok) {
+        ok = cxx_module_append_interface_record(records, 'H', &state, NULL);
+    }
+    for (size_t index = 0; ok && index < segments->count; ++index) {
+        ok = cxx_module_append_interface_record(
+            records, segments->items[index].visibility,
+            &segments->items[index].contents, NULL);
+    }
     rcc_free(state.data);
     return ok;
 }
@@ -1122,7 +1233,8 @@ static bool cxx_module_absolute_path(const char* path, char* output,
 
 static bool cxx_module_canonical_path(const char* path, char* output,
                                       size_t capacity) {
-    if (!path || !*path || !output || capacity == 0u) return false;
+    if (!path || !*path || !output || capacity == 0u ||
+        strchr(path, '\n') || strchr(path, '\r')) return false;
 #if defined(_WIN32)
     return _fullpath(output, path, capacity) != NULL;
 #else
@@ -1234,7 +1346,7 @@ static bool cxx_module_artifact_path(const char* directory,
         slug_length += addition;
     }
     suffix_length = snprintf(suffix, sizeof(suffix),
-                             ".%s.cxx%d.a%u.m%016llx.v10.rmi",
+                             ".%s.cxx%d.a%u.m%016llx.v11.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
                              standard, (unsigned)abi,
                              (unsigned long long)macro_state_hash);
@@ -1340,7 +1452,7 @@ static bool cxx_module_artifact_bytes(const char* module_name,
                                   dependencies, reexports, exports,
                                   exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI10 %u %d %u %016llx %lu %lu %016llx %016llx ",
+                           "RCCBMI11 %u %d %u %016llx %lu %lu %016llx %016llx ",
                            target_bits, standard, (unsigned)abi,
                            (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
@@ -1606,12 +1718,14 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     char* source_input_name = NULL;
     CxxModuleNameList dependencies = {0};
     CxxModuleNameList reexports = {0};
+    CxxModuleSegmentList pending_header_segments = {0};
+    CxxModuleNameList pending_header_visible_paths = {0};
+    size_t pending_header_payload_records = 0u;
     bool private_visible = cxx_module_same_primary(
         requested_name, context ? context->current_module : NULL);
     bool rebuilt_stale_artifact = false;
     bool rebuilt_stale_dependency = false;
     bool rebuilt_stale_header = false;
-    bool skip_header_payload = false;
     bool ok = false;
     for (size_t index = 0; index < context->stack_count; ++index) {
         if (strcmp(context->stack[index], requested_name) == 0) {
@@ -1655,7 +1769,7 @@ reload_artifact:
     }
     pp_record_dependency(context->preprocessor, artifact_path);
     if (sscanf(bytes,
-               "RCCBMI10 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
+               "RCCBMI11 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
                &standard, &abi, &macro_state_hash, &dependency_count_value,
                &payload_size_value, &source_state_hash,
                &dependency_state_hash, &expected_hash, &header_bytes) != 9 ||
@@ -1670,7 +1784,7 @@ reload_artifact:
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI10 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
+        "RCCBMI11 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
         standard, abi, macro_state_hash,
         dependency_count_value, payload_size_value, source_state_hash,
         dependency_state_hash);
@@ -1925,7 +2039,8 @@ reload_artifact:
         if (!line_end || (size_t)(line_end - cursor) < 3u ||
             cursor[1] != ' ' ||
             ((visibility = cursor[0]) != 'E' && visibility != 'P' &&
-             visibility != 'H')) {
+             visibility != 'H') ||
+            (pending_header_payload_records > 0u && visibility == 'H')) {
             snprintf(context->error, sizeof(context->error),
                      "module interface '%s' has a malformed declaration record",
                      requested_name);
@@ -1951,15 +2066,42 @@ reload_artifact:
         cursor = line_end + 1;
         if (visibility == 'H') {
             char* header_name_end = memchr(cursor, '\n', (size_t)record_length);
+            char* header_hash_end = NULL;
+            char* header_count_end = NULL;
+            char* header_segment_cursor = NULL;
             char header_hash_text[32];
+            char header_count_text[32];
             char* parsed_hash_end;
+            char* parsed_count_end;
             unsigned long long recorded_header_hash;
+            unsigned long long header_record_count_value;
             char* header_name;
             if (!header_name_end || header_name_end == cursor ||
-                (size_t)(header_name_end - cursor) >= RCC_MAX_PATH ||
-                (size_t)(cursor + record_length - header_name_end - 1) != 16u) {
+                (size_t)(header_name_end - cursor) >= RCC_MAX_PATH) {
                 snprintf(context->error, sizeof(context->error),
                          "module interface '%s' has an invalid header-unit fingerprint",
+                         requested_name);
+                goto pop;
+            }
+            header_hash_end = memchr(
+                header_name_end + 1, '\n',
+                (size_t)(cursor + record_length - header_name_end - 1));
+            if (!header_hash_end ||
+                (size_t)(header_hash_end - header_name_end - 1) != 16u ||
+                header_hash_end >= cursor + record_length) {
+                snprintf(context->error, sizeof(context->error),
+                         "module interface '%s' has an invalid header-unit fingerprint",
+                         requested_name);
+                goto pop;
+            }
+            header_count_end = memchr(
+                header_hash_end + 1, '\n',
+                (size_t)(cursor + record_length - header_hash_end - 1));
+            if (!header_count_end || header_count_end == header_hash_end + 1 ||
+                (size_t)(header_count_end - header_hash_end - 1) >=
+                    sizeof(header_count_text)) {
+                snprintf(context->error, sizeof(context->error),
+                         "module interface '%s' has an invalid header-unit record count",
                          requested_name);
                 goto pop;
             }
@@ -1974,6 +2116,81 @@ reload_artifact:
                          requested_name);
                 goto pop;
             }
+            {
+                size_t count_length =
+                    (size_t)(header_count_end - header_hash_end - 1);
+                memcpy(header_count_text, header_hash_end + 1,
+                       count_length);
+                header_count_text[count_length] = '\0';
+            }
+            errno = 0;
+            header_record_count_value = strtoull(header_count_text,
+                                                  &parsed_count_end, 10);
+            if (errno || *parsed_count_end || header_record_count_value == 0u ||
+                header_record_count_value > RCC_CXX_MODULE_MAX_TOKENS) {
+                snprintf(context->error, sizeof(context->error),
+                         "module interface '%s' has an invalid header-unit record count",
+                         requested_name);
+                goto pop;
+            }
+            pending_header_segments.items = rcc_alloc(
+                (size_t)header_record_count_value *
+                sizeof(pending_header_segments.items[0]));
+            if (!pending_header_segments.items) {
+                snprintf(context->error, sizeof(context->error),
+                         "out of memory reading header-unit visibility records");
+                goto pop;
+            }
+            memset(pending_header_segments.items, 0,
+                   (size_t)header_record_count_value *
+                   sizeof(pending_header_segments.items[0]));
+            pending_header_segments.capacity =
+                (size_t)header_record_count_value;
+            header_segment_cursor = header_count_end + 1;
+            for (size_t segment_index = 0;
+                 segment_index < (size_t)header_record_count_value;
+                 ++segment_index) {
+                char* segment_line_end = memchr(
+                    header_segment_cursor, '\n',
+                    (size_t)(cursor + record_length - header_segment_cursor));
+                size_t segment_line_length;
+                if (!segment_line_end ||
+                    (size_t)(segment_line_end - header_segment_cursor) < 4u ||
+                    (header_segment_cursor[0] != 'E' &&
+                     header_segment_cursor[0] != 'P') ||
+                    header_segment_cursor[1] != ' ') {
+                    snprintf(context->error, sizeof(context->error),
+                             "module interface '%s' has an invalid header-unit visibility record",
+                             requested_name);
+                    goto pop;
+                }
+                segment_line_length =
+                    (size_t)(segment_line_end - header_segment_cursor) - 2u;
+                if (segment_line_length >= RCC_MAX_PATH) {
+                    snprintf(context->error, sizeof(context->error),
+                             "module interface '%s' has an oversized header-unit path",
+                             requested_name);
+                    goto pop;
+                }
+                pending_header_segments.items[segment_index].visibility =
+                    header_segment_cursor[0];
+                pending_header_segments.items[segment_index].header_path =
+                    cxx_module_copy_span(header_segment_cursor, 2u,
+                                         segment_line_length + 2u);
+                if (!pending_header_segments.items[segment_index].header_path) {
+                    snprintf(context->error, sizeof(context->error),
+                             "out of memory reading header-unit path");
+                    goto pop;
+                }
+                ++pending_header_segments.count;
+                header_segment_cursor = segment_line_end + 1;
+            }
+            if (header_segment_cursor != cursor + record_length) {
+                snprintf(context->error, sizeof(context->error),
+                         "module interface '%s' has trailing header-unit metadata",
+                         requested_name);
+                goto pop;
+            }
             header_name = cxx_module_copy_span(
                 cursor, 0u, (size_t)(header_name_end - cursor));
             if (!header_name) {
@@ -1983,32 +2200,42 @@ reload_artifact:
             }
             {
                 const char* saved_input_path = context->input_path;
-                char* canonical_header_path = NULL;
                 CxxModuleNameList header_paths = {0};
                 CxxModuleBuffer header_expansion = {0};
                 bool expanded;
-                bool header_was_loaded;
+                bool header_paths_match = true;
                 context->input_path = source_path;
                 expanded = cxx_module_expand_header_unit_graph(
                     context, header_name, source_path, true, &header_paths,
-                    &header_expansion, &canonical_header_path);
+                    NULL, &header_expansion, NULL, true, NULL);
                 context->input_path = saved_input_path;
                 if (!expanded) {
                     rcc_free(header_name);
-                    rcc_free(canonical_header_path);
                     cxx_module_names_clear(&header_paths);
                     rcc_free(header_expansion.data);
                     goto pop;
                 }
+                for (size_t segment_index = 0;
+                     segment_index < pending_header_segments.count;
+                     ++segment_index) {
+                    if (!cxx_module_header_paths_contains(
+                            &header_paths,
+                            pending_header_segments.items[segment_index]
+                                .header_path)) {
+                        header_paths_match = false;
+                        break;
+                    }
+                }
                 if (!rebuilt_stale_header &&
-                    cxx_module_hash(header_expansion.data,
-                                    header_expansion.length) !=
-                        (uint64_t)recorded_header_hash) {
+                    (cxx_module_hash(header_expansion.data,
+                                     header_expansion.length) !=
+                         (uint64_t)recorded_header_hash ||
+                     !header_paths_match)) {
                     char module_directory[RCC_MAX_PATH];
                     bool rebuild_ok;
-                    rcc_free(canonical_header_path);
                     cxx_module_names_clear(&header_paths);
                     rcc_free(header_expansion.data);
+                    cxx_module_segments_clear(&pending_header_segments);
                     rcc_free(header_name);
                     if (cxx_module_name_list_contains(
                             &g_cxx_module_rebuilding, requested_name)) {
@@ -2055,26 +2282,10 @@ reload_artifact:
                     cxx_module_names_clear(&reexports);
                     goto reload_artifact;
                 }
-                header_was_loaded = cxx_module_header_paths_contains(
-                    &context->loaded_headers, canonical_header_path);
-                for (size_t header_index = 0;
-                     header_index < header_paths.count; ++header_index) {
-                    if (!cxx_module_header_paths_add(
-                            &context->loaded_headers,
-                            header_paths.items[header_index])) {
-                        snprintf(context->error, sizeof(context->error),
-                                 "out of memory recording imported header-unit paths");
-                        rcc_free(canonical_header_path);
-                        cxx_module_names_clear(&header_paths);
-                        rcc_free(header_expansion.data);
-                        rcc_free(header_name);
-                        goto pop;
-                    }
-                }
-                skip_header_payload = header_was_loaded;
-                rcc_free(canonical_header_path);
-                cxx_module_names_clear(&header_paths);
+                pending_header_payload_records =
+                    (size_t)header_record_count_value;
                 rcc_free(header_expansion.data);
+                cxx_module_names_clear(&header_paths);
             }
             rcc_free(header_name);
         } else {
@@ -2083,7 +2294,22 @@ reload_artifact:
                 : visibility == 'P' && private_visible &&
                     !cxx_module_name_list_contains(
                         &context->private_exposed, requested_name);
-            append_record = append_record && !skip_header_payload;
+            if (pending_header_payload_records > 0u) {
+                size_t segment_index = pending_header_segments.count -
+                    pending_header_payload_records;
+                CxxModuleSegment* segment =
+                    &pending_header_segments.items[segment_index];
+                if (segment->visibility != visibility) {
+                    snprintf(context->error, sizeof(context->error),
+                             "module interface '%s' has mismatched header-unit visibility",
+                             requested_name);
+                    goto pop;
+                }
+                if (cxx_module_header_paths_contains(
+                        &context->loaded_headers, segment->header_path)) {
+                    append_record = false;
+                }
+            }
             if (append_record &&
                 !cxx_module_buffer_append(imports, cursor,
                                           (size_t)record_length)) {
@@ -2091,7 +2317,37 @@ reload_artifact:
                          "out of memory importing module '%s'", requested_name);
                 goto pop;
             }
-            skip_header_payload = false;
+            if (pending_header_payload_records > 0u) {
+                size_t segment_index = pending_header_segments.count -
+                    pending_header_payload_records;
+                CxxModuleSegment* segment =
+                    &pending_header_segments.items[segment_index];
+                if (append_record &&
+                    !cxx_module_header_paths_add(
+                        &pending_header_visible_paths,
+                        segment->header_path)) {
+                    snprintf(context->error, sizeof(context->error),
+                             "out of memory tracking visible header-unit declarations");
+                    goto pop;
+                }
+                --pending_header_payload_records;
+                if (pending_header_payload_records == 0u) {
+                    for (size_t header_index = 0;
+                         header_index < pending_header_visible_paths.count;
+                         ++header_index) {
+                        if (!cxx_module_header_paths_add(
+                                &context->loaded_headers,
+                                pending_header_visible_paths.items[
+                                    header_index])) {
+                            snprintf(context->error, sizeof(context->error),
+                                     "out of memory recording imported header-unit paths");
+                            goto pop;
+                        }
+                    }
+                    cxx_module_segments_clear(&pending_header_segments);
+                    cxx_module_names_clear(&pending_header_visible_paths);
+                }
+            }
         }
         cursor += (size_t)record_length;
         if (cursor >= payload_end || *cursor != '\n') {
@@ -2101,6 +2357,12 @@ reload_artifact:
             goto pop;
         }
         ++cursor;
+    }
+    if (pending_header_payload_records != 0u) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' has truncated header-unit records",
+                 requested_name);
+        goto pop;
     }
     if (visible &&
         !cxx_module_name_list_contains(&context->exposed, requested_name) &&
@@ -2132,6 +2394,8 @@ done:
     rcc_free(source_input_name);
     cxx_module_names_clear(&dependencies);
     cxx_module_names_clear(&reexports);
+    cxx_module_segments_clear(&pending_header_segments);
+    cxx_module_names_clear(&pending_header_visible_paths);
     rcc_free(bytes);
     return ok;
 }
@@ -2286,35 +2550,45 @@ static bool cxx_module_resolve_imports(const char* source,
                     header_unit = true;
                     if (module_interface && load_context) {
                         CxxModuleBuffer expanded_header = {0};
+                        CxxModuleSegmentList header_segments = {0};
                         uint64_t header_fingerprint = 0u;
                         if (!cxx_module_import_header_unit(
                                 load_context, name,
                                 load_context->input_path, &expanded_header,
-                                &header_fingerprint)) {
+                                &header_fingerprint, &header_segments,
+                                exported)) {
                             snprintf(error, error_capacity, "%s",
                                      load_context->error[0]
                                          ? load_context->error
                                          : "could not preprocess module header unit");
+                            rcc_free(expanded_header.data);
                             rcc_free(name);
+                            cxx_module_segments_clear(&header_segments);
                             goto fail;
                         }
-                        if (expanded_header.length > 0u) {
+                        if (expanded_header.length > 0u ||
+                            header_segments.count > 0u) {
                             if (!cxx_module_append_header_unit_records(
-                                    exports, name, &expanded_header,
-                                    header_fingerprint,
-                                    exported ? 'E' : 'P')) {
+                                    exports, name, &header_segments,
+                                    header_fingerprint)) {
                                 rcc_free(expanded_header.data);
                                 rcc_free(name);
+                                cxx_module_segments_clear(&header_segments);
                                 goto allocation_fail;
                             }
-                            replacement = rcc_strdup(expanded_header.data);
-                            if (!replacement) {
-                                rcc_free(expanded_header.data);
-                                rcc_free(name);
-                                goto allocation_fail;
+                            if (expanded_header.length > 0u) {
+                                replacement = rcc_strdup(expanded_header.data);
+                                if (!replacement) {
+                                    rcc_free(expanded_header.data);
+                                    rcc_free(name);
+                                    cxx_module_segments_clear(
+                                        &header_segments);
+                                    goto allocation_fail;
+                                }
                             }
                         }
                         rcc_free(expanded_header.data);
+                        cxx_module_segments_clear(&header_segments);
                         rcc_free(name);
                         name = NULL;
                     }
@@ -2575,7 +2849,11 @@ static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
 static bool cxx_module_expand_header_unit_imports(
     CxxModuleLoadContext* context, const char* source,
     const char* importing_path, bool ignore_loaded_headers,
-    CxxModuleNameList* graph_headers, CxxModuleBuffer* expanded) {
+    CxxModuleNameList* graph_headers,
+    CxxModuleNameList* graph_exported_headers,
+    CxxModuleSegmentList* segments, bool exported_visibility,
+    bool promotion_only,
+    CxxModuleBuffer* expanded) {
     CxxModuleToken* tokens = NULL;
     size_t token_count = 0u;
     size_t cursor = 0u;
@@ -2605,19 +2883,34 @@ static bool cxx_module_expand_header_unit_imports(
                 char* header_name = cxx_module_parse_header_import(
                     source, tokens, keyword_index + 1u, semicolon);
                 CxxModuleBuffer nested = {0};
+                const char* current_header_path =
+                    context->header_stack[context->header_stack_count - 1u];
+                bool current_header_loaded =
+                    !ignore_loaded_headers &&
+                    cxx_module_header_paths_contains(
+                        &context->loaded_headers, current_header_path);
                 if (!header_name) {
                     snprintf(context->error, sizeof(context->error),
                              "invalid nested C++ header-unit import");
                     rcc_free(tokens);
                     return false;
                 }
-                if (!cxx_module_buffer_append(
-                        expanded, source + cursor,
-                        tokens[index].begin - cursor) ||
+                if ((!current_header_loaded &&
+                     !cxx_module_buffer_append(
+                         expanded, source + cursor,
+                         tokens[index].begin - cursor)) ||
+                    (!current_header_loaded && segments &&
+                     !cxx_module_segments_append(
+                        segments, exported_visibility ? 'E' : 'P',
+                        current_header_path,
+                        promotion_only, source + cursor,
+                        tokens[index].begin - cursor)) ||
                     !cxx_module_expand_header_unit_graph(
                         context, header_name, importing_path,
-                        ignore_loaded_headers, graph_headers, &nested,
-                        NULL) ||
+                        ignore_loaded_headers, graph_headers,
+                        graph_exported_headers, &nested,
+                        segments,
+                        exported_visibility && exported, NULL) ||
                     !cxx_module_buffer_append(expanded, nested.data,
                                               nested.length)) {
                     rcc_free(header_name);
@@ -2643,8 +2936,22 @@ static bool cxx_module_expand_header_unit_imports(
             --brace_depth;
         }
     }
-    ok = cxx_module_buffer_append(expanded, source + cursor,
-                                  strlen(source) - cursor);
+    {
+        const char* current_header_path =
+            context->header_stack[context->header_stack_count - 1u];
+        bool current_header_loaded = !ignore_loaded_headers &&
+            cxx_module_header_paths_contains(&context->loaded_headers,
+                                             current_header_path);
+        ok = current_header_loaded ||
+            cxx_module_buffer_append(expanded, source + cursor,
+                                     strlen(source) - cursor);
+        if (ok && segments && !current_header_loaded) {
+        ok = cxx_module_segments_append(
+            segments, exported_visibility ? 'E' : 'P',
+            current_header_path,
+            promotion_only, source + cursor, strlen(source) - cursor);
+        }
+    }
     if (!ok) {
         snprintf(context->error, sizeof(context->error),
                  "out of memory expanding a header unit");
@@ -2656,13 +2963,17 @@ static bool cxx_module_expand_header_unit_imports(
 static bool cxx_module_expand_header_unit_graph(
     CxxModuleLoadContext* context, const char* header_name,
     const char* importing_path, bool ignore_loaded_headers,
-    CxxModuleNameList* graph_headers, CxxModuleBuffer* expanded,
+    CxxModuleNameList* graph_headers,
+    CxxModuleNameList* graph_exported_headers,
+    CxxModuleBuffer* expanded,
+    CxxModuleSegmentList* segments, bool exported_visibility,
     char** canonical_path_out) {
     char* preprocessed = NULL;
     char* resolved_path = NULL;
     char* canonical_path = NULL;
     char* stack_path = NULL;
     CxxModuleBuffer nested = {0};
+    bool promotion_only = false;
     bool ok = false;
     if (canonical_path_out) *canonical_path_out = NULL;
     if (!context || !header_name || !importing_path || !graph_headers ||
@@ -2686,18 +2997,24 @@ static bool cxx_module_expand_header_unit_graph(
         goto done;
     }
     if (cxx_module_header_paths_contains(graph_headers, canonical_path)) {
-        ok = true;
-        goto done;
-    }
-    if (!cxx_module_header_paths_add(graph_headers, canonical_path)) {
+        if (!exported_visibility || !graph_exported_headers ||
+            cxx_module_header_paths_contains(graph_exported_headers,
+                                             canonical_path)) {
+            ok = true;
+            goto done;
+        }
+        promotion_only = true;
+    } else if (!cxx_module_header_paths_add(graph_headers,
+                                             canonical_path)) {
         snprintf(context->error, sizeof(context->error),
                  "out of memory recording header-unit dependency");
         goto done;
     }
-    if (!ignore_loaded_headers && cxx_module_header_paths_contains(
-                                     &context->loaded_headers,
+    if (exported_visibility && graph_exported_headers &&
+        !cxx_module_header_paths_add(graph_exported_headers,
                                      canonical_path)) {
-        ok = true;
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory recording exported header-unit dependency");
         goto done;
     }
     if (context->header_stack_count >= RCC_CXX_MODULE_MAX_IMPORT_DEPTH) {
@@ -2716,10 +3033,11 @@ static bool cxx_module_expand_header_unit_graph(
     stack_path = NULL;
     ok = cxx_module_expand_header_unit_imports(
         context, preprocessed, resolved_path, ignore_loaded_headers,
-        graph_headers, &nested);
+        graph_headers, graph_exported_headers, segments,
+        exported_visibility, promotion_only, &nested);
     rcc_free(context->header_stack[--context->header_stack_count]);
-    if (ok && !cxx_module_buffer_append(expanded, nested.data,
-                                        nested.length)) {
+    if (ok && !promotion_only &&
+        !cxx_module_buffer_append(expanded, nested.data, nested.length)) {
         snprintf(context->error, sizeof(context->error),
                  "out of memory expanding a header unit");
         ok = false;
@@ -2737,8 +3055,11 @@ static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
                                           const char* header_name,
                                           const char* importing_path,
                                           CxxModuleBuffer* imports,
-                                          uint64_t* fingerprint_out) {
+                                          uint64_t* fingerprint_out,
+                                          CxxModuleSegmentList* segments_out,
+                                          bool exported_visibility) {
     CxxModuleNameList fingerprint_headers = {0};
+    CxxModuleNameList fingerprint_exported_headers = {0};
     CxxModuleNameList imported_headers = {0};
     CxxModuleBuffer fingerprint = {0};
     CxxModuleBuffer materialized = {0};
@@ -2746,10 +3067,12 @@ static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
     if (!context || !header_name || !importing_path || !imports) return false;
     if (!cxx_module_expand_header_unit_graph(
             context, header_name, importing_path, true,
-            &fingerprint_headers, &fingerprint, NULL) ||
+            &fingerprint_headers, &fingerprint_exported_headers,
+            &fingerprint, segments_out,
+            exported_visibility, NULL) ||
         !cxx_module_expand_header_unit_graph(
             context, header_name, importing_path, false,
-            &imported_headers, &materialized, NULL)) {
+            &imported_headers, NULL, &materialized, NULL, true, NULL)) {
         goto done;
     }
     if (fingerprint_out) {
@@ -2773,6 +3096,7 @@ static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
     ok = true;
 done:
     cxx_module_names_clear(&fingerprint_headers);
+    cxx_module_names_clear(&fingerprint_exported_headers);
     cxx_module_names_clear(&imported_headers);
     rcc_free(fingerprint.data);
     rcc_free(materialized.data);
@@ -2810,7 +3134,7 @@ static bool cxx_module_rewrite_source(const char* source,
                 ? cxx_module_import_header_unit(load_context,
                                                 event->import_name,
                                                 load_context->input_path,
-                                                &imports, NULL)
+                                                &imports, NULL, NULL, true)
                 : cxx_module_load_artifact(load_context, event->import_name,
                                            &imports, true);
             if (!imported) goto fail;
@@ -2944,7 +3268,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
         goto done;
     }
     load_context->source_directory = source_directory;
-    load_context->input_path = input_path;
+    load_context->input_path = absolute_source_path;
     load_context->argv = argv;
     load_context->current_module = module_name[0] ? module_name : NULL;
     load_context->preprocessor = preprocessor;
