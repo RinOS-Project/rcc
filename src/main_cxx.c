@@ -806,9 +806,62 @@ static bool cxx_module_private_declaration_shareable(
     return true;
 }
 
-static bool cxx_module_export_declaration_valid(
-    const char* source, CxxModuleToken* tokens, size_t first, size_t end) {
-    if (first >= end) return false;
+static bool cxx_module_export_declaration_valid_depth(
+    const char* source, CxxModuleToken* tokens, size_t first, size_t end,
+    unsigned depth);
+
+static bool cxx_module_export_sequence_valid(
+    const char* source, CxxModuleToken* tokens, size_t first, size_t end,
+    unsigned depth) {
+    size_t cursor = first;
+    if (depth > RCC_CXX_MODULE_MAX_IMPORT_DEPTH) return false;
+    while (cursor < end) {
+        size_t declaration_end;
+        size_t body_open;
+        size_t body_close;
+        if (cxx_module_punct(source, &tokens[cursor], ';')) {
+            ++cursor;
+            continue;
+        }
+        if (cxx_module_token_is(source, &tokens[cursor], "export")) {
+            ++cursor;
+            if (cursor >= end) return false;
+            if (cxx_module_punct(source, &tokens[cursor], '{')) {
+                size_t close = cxx_module_find_matching_brace(
+                    source, tokens, end, cursor);
+                if (close == end ||
+                    !cxx_module_export_sequence_valid(
+                        source, tokens, cursor + 1u, close, depth + 1u)) {
+                    return false;
+                }
+                cursor = close + 1u;
+                if (cursor < end &&
+                    cxx_module_punct(source, &tokens[cursor], ';')) {
+                    ++cursor;
+                }
+                continue;
+            }
+        }
+        declaration_end = cxx_module_find_export_declaration_end(
+            source, tokens, end, cursor, &body_open, &body_close);
+        if (declaration_end <= cursor || declaration_end > end ||
+            !cxx_module_export_declaration_valid_depth(
+                source, tokens, cursor, declaration_end, depth + 1u)) {
+            return false;
+        }
+        cursor = declaration_end;
+    }
+    return true;
+}
+
+static bool cxx_module_export_declaration_valid_depth(
+    const char* source, CxxModuleToken* tokens, size_t first, size_t end,
+    unsigned depth) {
+    size_t body_open;
+    size_t body_close;
+    size_t declaration_end;
+    bool namespace_definition = false;
+    if (first >= end || depth > RCC_CXX_MODULE_MAX_IMPORT_DEPTH) return false;
     for (size_t index = first; index < end; ++index) {
         if (cxx_module_token_is(source, &tokens[index], "static")) {
             return false;
@@ -824,7 +877,26 @@ static bool cxx_module_export_declaration_valid(
             break;
         }
     }
-    return true;
+    declaration_end = cxx_module_find_export_declaration_end(
+        source, tokens, end, first, &body_open, &body_close);
+    if (declaration_end != end || body_open >= end || body_close >= end) {
+        return true;
+    }
+    for (size_t index = first; index < body_open; ++index) {
+        if (cxx_module_token_is(source, &tokens[index], "namespace")) {
+            namespace_definition = true;
+            break;
+        }
+    }
+    return !namespace_definition ||
+        cxx_module_export_sequence_valid(source, tokens, body_open + 1u,
+                                         body_close, depth + 1u);
+}
+
+static bool cxx_module_export_declaration_valid(
+    const char* source, CxxModuleToken* tokens, size_t first, size_t end) {
+    return cxx_module_export_declaration_valid_depth(source, tokens, first,
+                                                     end, 0u);
 }
 
 static bool cxx_module_collect_export_block(const char* source,
