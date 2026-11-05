@@ -13512,9 +13512,12 @@ ifeq ($(OS),Windows_NT)
 test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-auto-non-type-template)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-auto-non-type-template,cxx_auto_non_type_template.cpp)
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
 		-o $(TEST_OUT)/cxx-auto-non-type-template/gcc.s \
 		tests/cxx_auto_non_type_template.cpp
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z18auto_pointer_valueIXadL_Z19auto_pointer_targetEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z19auto_value_variableILi7EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z19auto_value_variableILj7EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
@@ -13534,6 +13537,7 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z27auto_deduced_mixed_pack_sumIJLi5ELj7EEEiDp22auto_constant_argumentIDtT_EXT_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z28auto_deduced_nested_pack_sumIJLi5ELj7EEEi18auto_constant_packIJXspT_EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z21auto_pointer_variableIXadL_Z25auto_class_pointer_targetEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_ZNK19auto_pointer_holderIXadL_Z25auto_class_pointer_targetEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z18auto_pointer_valueIXadL_Z19auto_pointer_targetEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
@@ -13555,6 +13559,7 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z27auto_deduced_mixed_pack_sumIJLi5ELj7EEEiDp22auto_constant_argumentIDtT_EXT_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z28auto_deduced_nested_pack_sumIJLi5ELj7EEEi18auto_constant_packIJXspT_EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z21auto_pointer_variableIXadL_Z25auto_class_pointer_targetEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_ZNK19auto_pointer_holderIXadL_Z25auto_class_pointer_targetEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	@echo "C++ auto non-type template tests completed"
@@ -13567,6 +13572,7 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
 		-o $(TEST_OUT)/cxx-auto-non-type-template/gcc.s \
 		tests/cxx_auto_non_type_template.cpp
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z18auto_pointer_valueIXadL_Z19auto_pointer_targetEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z19auto_value_variableILi7EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z19auto_value_variableILj7EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
@@ -13586,6 +13592,7 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z27auto_deduced_mixed_pack_sumIJLi5ELj7EEEiDp22auto_constant_argumentIDtT_EXT_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z28auto_deduced_nested_pack_sumIJLi5ELj7EEEi18auto_constant_packIJXspT_EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z21auto_pointer_variableIXadL_Z25auto_class_pointer_targetEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_ZNK19auto_pointer_holderIXadL_Z25auto_class_pointer_targetEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -13612,6 +13619,7 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z27auto_deduced_mixed_pack_sumIJLi5ELj7EEEiDp22auto_constant_argumentIDtT_EXT_EE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z28auto_deduced_nested_pack_sumIJLi5ELj7EEEi18auto_constant_packIJXspT_EEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z21auto_pointer_variableIXadL_Z25auto_class_pointer_targetEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_ZNK19auto_pointer_holderIXadL_Z25auto_class_pointer_targetEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-auto-non-type-template/start-x86.o \
@@ -13643,6 +13651,7 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z27auto_deduced_mixed_pack_sumIJLi5ELj7EEEiDp22auto_constant_argumentIDtT_EXT_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z28auto_deduced_nested_pack_sumIJLi5ELj7EEEi18auto_constant_packIJXspT_EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z28auto_deduced_zipped_pack_sumIJijEJLi5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z21auto_pointer_variableIXadL_Z25auto_class_pointer_targetEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_ZNK19auto_pointer_holderIXadL_Z25auto_class_pointer_targetEEE4readEv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-auto-non-type-template/x64.o \

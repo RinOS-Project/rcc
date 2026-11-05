@@ -69,6 +69,12 @@ int auto_deduced_nested_pack_sum(auto_constant_pack<Values...>) {
     return (Values + ...);
 }
 
+template<class... Types, auto... Values>
+int auto_deduced_zipped_pack_sum(
+    auto_constant_argument<Types, Values>... arguments) {
+    return (Values + ...) + sizeof...(arguments);
+}
+
 template<auto Pointer>
 struct auto_pointer_holder {
     static constexpr int value = *Pointer;
@@ -116,6 +122,9 @@ extern "C" int main() {
                        auto_constant_argument<unsigned, 7u>{}) == 12 &&
                    auto_deduced_nested_pack_sum(
                        auto_constant_pack<5, 7u>{}) == 12 &&
+                   auto_deduced_zipped_pack_sum(
+                       auto_constant_argument<int, 5>{},
+                       auto_constant_argument<unsigned, 7u>{}) == 14 &&
                    auto_default_constant<>(3) == 7 &&
                    auto_default_constant<-2>(9) == 7 &&
                    auto_pointer_value<&auto_pointer_target>() == -19 &&

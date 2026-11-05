@@ -36029,6 +36029,18 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                                  element_values[pack_index])) {
                             return false;
                         }
+                        if (tmpl->params[pack_index].is_auto) {
+                            Type* deduced_type =
+                                element_arguments[pack_index];
+                            if (!deduced_type ||
+                                (zipped_arguments[element_offset] &&
+                                 !type_is_same_template_argument(
+                                     zipped_arguments[element_offset],
+                                     deduced_type))) {
+                                return false;
+                            }
+                            zipped_arguments[element_offset] = deduced_type;
+                        }
                         zipped_values[element_offset] =
                             element_values[pack_index];
                         zipped_value_present[element_offset] = true;
@@ -36127,6 +36139,13 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                            pack_values[pack_offsets[index] + element] !=
                                zipped_values[element_offset]) {
                     return false;
+                } else if (tmpl->params[index].is_auto &&
+                           (!zipped_arguments[element_offset] ||
+                            !pack_arguments[pack_offsets[index] + element] ||
+                            !type_is_same_template_argument(
+                                pack_arguments[pack_offsets[index] + element],
+                                zipped_arguments[element_offset]))) {
+                    return false;
                 }
             }
             continue;
@@ -36148,6 +36167,11 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                 if (!pack_values || !pack_value_present ||
                     !zipped_value_present[element_offset]) {
                     return false;
+                }
+                if (tmpl->params[index].is_auto) {
+                    if (!zipped_arguments[element_offset]) return false;
+                    pack_arguments[*pack_count + element] =
+                        zipped_arguments[element_offset];
                 }
                 pack_values[*pack_count + element] =
                     zipped_values[element_offset];
