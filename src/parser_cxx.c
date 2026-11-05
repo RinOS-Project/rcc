@@ -33237,6 +33237,21 @@ static bool deduce_function_template_type_with_pack(
                             element_values[function_pack_index] =
                                 actual_value;
                             element_value_present[function_pack_index] = true;
+                            if (function_parameter->is_auto) {
+                                Type* actual_value_type =
+                                    cxx_function_template_class_nontype_argument_type(
+                                        actual, actual_index);
+                                if (!actual_value_type ||
+                                    (element_arguments[function_pack_index] &&
+                                     !type_is_same_template_argument(
+                                         element_arguments[
+                                             function_pack_index],
+                                         actual_value_type))) {
+                                    return false;
+                                }
+                                element_arguments[function_pack_index] =
+                                    actual_value_type;
+                            }
                         } else if (function_template_pack &&
                                    class_pack_parameter->kind ==
                                        TPARAM_TEMPLATE) {
@@ -33282,6 +33297,13 @@ static bool deduce_function_template_type_with_pack(
                                 element_values[function_pack_index];
                             tmpl->pending_pack_value_present[
                                 pack_offset + *deduced_pack_count] = true;
+                            if (tmpl->params[function_pack_index].is_auto) {
+                                pack_element =
+                                    element_arguments[function_pack_index];
+                                if (!pack_element) return false;
+                                deduced_pack_args[*deduced_pack_count] =
+                                    pack_element;
+                            }
                         } else {
                             pack_element =
                                 element_arguments[function_pack_index];

@@ -47,6 +47,9 @@ int auto_pointer_pack_size() {
 template<class Type, Type Value>
 struct auto_constant_argument {};
 
+template<auto... Values>
+struct auto_constant_pack {};
+
 template<class Type, auto... Values>
 int auto_deduced_pack_sum(
     auto_constant_argument<Type, Values>... arguments) {
@@ -58,6 +61,11 @@ template<auto... Values>
 int auto_deduced_mixed_pack_sum(
     auto_constant_argument<decltype(Values), Values>... arguments) {
     (void)sizeof...(arguments);
+    return (Values + ...);
+}
+
+template<auto... Values>
+int auto_deduced_nested_pack_sum(auto_constant_pack<Values...>) {
     return (Values + ...);
 }
 
@@ -106,6 +114,8 @@ extern "C" int main() {
                    auto_deduced_mixed_pack_sum(
                        auto_constant_argument<int, 5>{},
                        auto_constant_argument<unsigned, 7u>{}) == 12 &&
+                   auto_deduced_nested_pack_sum(
+                       auto_constant_pack<5, 7u>{}) == 12 &&
                    auto_default_constant<>(3) == 7 &&
                    auto_default_constant<-2>(9) == 7 &&
                    auto_pointer_value<&auto_pointer_target>() == -19 &&
