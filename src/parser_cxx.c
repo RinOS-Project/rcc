@@ -4316,6 +4316,18 @@ static void cxx_bind_template_constant_address_target(Expr* expression) {
                 expression->index_base);
             return;
         case EXPR_MEMBER:
+            cxx_bind_template_constant_address_target(
+                expression->member_base);
+            if (expression->member_base &&
+                expression->member_base->type) {
+                TypeField* field = cxx_structural_pointer_member_field(
+                    expression->member_base->type, expression);
+                if (field) {
+                    expression->member_field = field;
+                    expression->type = field->type;
+                }
+            }
+            return;
         case EXPR_PTR_MEMBER:
             cxx_bind_template_constant_address_target(
                 expression->member_base);

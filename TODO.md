@@ -14652,3 +14652,12 @@ remains a separate open item.
       Linux GCC, RCC i686, and RCC AMD64), and both Windows and POSIX
       structural-NTTP gates. All 86 verified-backend functions pass at `-O0`
       and `-O2` with zero fallback.
+
+## RCC continuation (2026-11-05, static member addresses in constexpr aggregate NTTP factories)
+
+- [x] Resolve a unique data-member designator on a namespace-scope object and
+      retain its field identity and type when binding address arguments before
+      constexpr aggregate-factory evaluation. Verify strict GCC and Clang C++20
+      acceptance, exact Itanium symbols, and both Windows and POSIX
+      structural-NTTP gates. All 87 verified-backend functions pass at `-O0`
+      and `-O2` with zero fallback.
