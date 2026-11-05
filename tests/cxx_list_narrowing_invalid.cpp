@@ -32,6 +32,7 @@ struct MemberPointerOwner {
 };
 
 enum ListNarrowingEnumValues {
+    list_narrowing_bool_out_of_range = 2,
     list_narrowing_negative = -1,
     list_narrowing_inexact_float = 16777217
 };
@@ -57,6 +58,7 @@ int main() {
     float runtime_narrow{runtime_fraction};
     float floating_overflow{1e100};
     bool nonzero_integer{2};
+    bool enum_out_of_range{list_narrowing_bool_out_of_range};
     signed char signed_overflow{128};
     signed char signed_underflow{-129};
     unsigned char negative_unsigned{-1};

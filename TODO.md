@@ -13502,6 +13502,11 @@ remains a separate open item.
         zero. Preserve the narrowing boundary in
         `test-cxx-list-narrowing` across GCC runtime, RCC i686/AMD64 generation,
         and RCC AMD64 runtime.
+  - [x] Compare direct-list initialization of `bool` from `nullptr_t` and
+        unscoped enum constants with GCC: `nullptr_t`, enum values 0 and 1 are
+        accepted; enum value 2 is rejected as narrowing. The positive runtime
+        and exact 27-diagnostic negative checks pass in Windows/POSIX
+        `test-cxx-list-narrowing`.
 - [x] Verify that initializer-clause side effects run left to right and once
       for aggregate, array, and `std::initializer_list` initialization.
       GCC C++20 and RCC++ AMD64 runtime agree; RCC i686/AMD64 assembly and

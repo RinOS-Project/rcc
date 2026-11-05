@@ -18,6 +18,8 @@ struct FloatingConversion {
 };
 
 enum ListNarrowingEnumValues {
+    list_narrowing_bool_false = 0,
+    list_narrowing_bool_true = 1,
     list_narrowing_byte_max = 255,
     list_narrowing_exact_float = 16777216
 };
@@ -51,6 +53,9 @@ int main() {
     ListValues parenthesized(255u, runtime_narrow, 1.1);
     int scalar{255u};
     bool boolean{1};
+    bool nullptr_boolean{nullptr};
+    bool exact_enum_false{list_narrowing_bool_false};
+    bool exact_enum_true{list_narrowing_bool_true};
     signed char exact_signed_max{127};
     signed char exact_signed_min{-128};
     unsigned char exact_unsigned_max{255};
@@ -82,6 +87,7 @@ int main() {
     if (parenthesized.number != 255 || parenthesized.byte != 0 ||
         parenthesized.fraction != 1.1f) return 2;
     if (!boolean) return 3;
+    if (nullptr_boolean || exact_enum_false || !exact_enum_true) return 22;
     if (exact_signed_max != 127 || exact_signed_min != -128 ||
         exact_unsigned_max != 255) return 16;
     if (rounded_fraction != 1.1f) return 4;
