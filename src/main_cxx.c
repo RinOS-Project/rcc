@@ -2024,6 +2024,12 @@ static bool cxx_module_resolve_imports(const char* source,
                 }
             } else {
                 import_declaration = true;
+                if ((global_fragment && !module_purview) ||
+                    (current_module && !declared_module)) {
+                    snprintf(error, error_capacity,
+                             "a C++ module import must follow the named module declaration and cannot appear in the global module fragment");
+                    goto fail;
+                }
                 size_t import_first = keyword_index + 1u;
                 if (exported && (!module_interface || !declared_module)) {
                     snprintf(error, error_capacity,
