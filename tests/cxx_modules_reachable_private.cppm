@@ -63,6 +63,11 @@ int public_namespace_function(int value) {
 }
 }
 
+export template<class T>
+struct ReachablePublicTemplate {
+    T value;
+};
+
 export using ReachableAlias = ReachablePrivate;
 export using ReachableEnumAlias = ReachablePrivateEnum;
 export using ReachableScopedAlias = reachable_detail::ReachableScoped;

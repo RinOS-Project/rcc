@@ -28959,6 +28959,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call COPY_FILE,tests/cxx_modules_reachable_alias_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-alias-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_public_namespace_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-namespace-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_public_template_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-template-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_template_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-template-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_symbol_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-symbol-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_namespace_alias_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-alias-leak.cpp)
@@ -29040,6 +29041,7 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-late-private-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-namespace-leak.ro $(TEST_OUT)/cxx-modules/reachable-namespace-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-namespace-leak.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-public-namespace-leak.ro $(TEST_OUT)/cxx-modules/reachable-public-namespace-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-namespace-leak.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-public-template-leak.ro $(TEST_OUT)/cxx-modules/reachable-public-template-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-public-template-leak.log)
 	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-namespace-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-template-leak.ro $(TEST_OUT)/cxx-modules/reachable-template-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-template-leak.log)
 	$(GREP) -F -q "expected ;, got 'int'" $(TEST_OUT)/cxx-modules/reachable-template-leak.log

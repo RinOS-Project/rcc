@@ -14894,7 +14894,8 @@ Continue in this order:
       through that intermediate module alone remains hidden. Hidden friends
       from reachable private class definitions remain available to ADL through
       an exported alias and are called by an exported inline function without
-      becoming ordinary namespace names.
+      becoming ordinary namespace names. A public class template is also
+      promoted through direct import and remains hidden through the bridge.
       `test-cxx-modules` links both namespace cases on i686 and x86_64.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate
