@@ -3417,14 +3417,175 @@ static const Macro* pp_find_macro_in_list(const Macro* macros,
     return NULL;
 }
 
+static bool pp_macro_identifier_char(unsigned char value) {
+    return isalnum(value) || value == '_' || value >= 0x80u;
+}
+
+static const char* pp_macro_raw_string_end(const char* start,
+                                           const char* quote) {
+    const char* delimiter = quote + 1;
+    const char* open = strchr(delimiter, '(');
+    char terminator[20];
+    size_t delimiter_length;
+    if (!open || (delimiter_length = (size_t)(open - delimiter)) > 16u) {
+        return quote + 1;
+    }
+    for (size_t index = 0; index < delimiter_length; ++index) {
+        unsigned char value = (unsigned char)delimiter[index];
+        if (isspace(value) || value == '(' || value == ')' || value == '\\') {
+            return quote + 1;
+        }
+    }
+    terminator[0] = ')';
+    memcpy(terminator + 1, delimiter, delimiter_length);
+    terminator[delimiter_length + 1] = '"';
+    terminator[delimiter_length + 2] = '\0';
+    const char* cursor = open + 1;
+    while ((cursor = strstr(cursor, terminator)) != NULL) {
+        return cursor + delimiter_length + 2;
+    }
+    return start + strlen(start);
+}
+
+static const char* pp_macro_literal_end(const char* start) {
+    const char* quote = start;
+    if (strncmp(start, "u8R\"", 4u) == 0) quote = start + 2;
+    else if ((strncmp(start, "uR\"", 3u) == 0) ||
+             (strncmp(start, "UR\"", 3u) == 0) ||
+             (strncmp(start, "LR\"", 3u) == 0)) quote = start + 1;
+    else if (strncmp(start, "R\"", 2u) == 0) quote = start;
+    else if (strncmp(start, "u8\"", 3u) == 0 ||
+             strncmp(start, "u8'", 3u) == 0) quote = start + 2;
+    else if ((*start == 'u' || *start == 'U' || *start == 'L') &&
+             (start[1] == '\"' || start[1] == '\'')) quote = start + 1;
+    else if (*start != '\"' && *start != '\'') return start;
+
+    if (quote[0] == 'R' && quote[1] == '\"') {
+        return pp_macro_raw_string_end(start, quote + 1);
+    }
+    return pp_quoted_token_end(quote);
+}
+
+static const char* pp_macro_token_end(const char* start) {
+    const unsigned char first = (unsigned char)*start;
+    if (!*start) return start;
+    if (*start == '\"' || *start == '\'' ||
+        ((*start == 'u' || *start == 'U' || *start == 'L') &&
+         (start[1] == '\"' || start[1] == '\'')) ||
+        (start[0] == 'u' && start[1] == '8' &&
+         (start[2] == '\"' || start[2] == '\'')) ||
+        (start[0] == 'R' && start[1] == '\"') ||
+        (start[0] == 'u' && start[1] == 'R' && start[2] == '\"') ||
+        (start[0] == 'U' && start[1] == 'R' && start[2] == '\"') ||
+        (start[0] == 'L' && start[1] == 'R' && start[2] == '\"') ||
+        (start[0] == 'u' && start[1] == '8' && start[2] == 'R' &&
+         start[3] == '\"')) {
+        return pp_macro_literal_end(start);
+    }
+    if (isalpha(first) || first == '_' || first >= 0x80u) {
+        const char* cursor = start + 1;
+        while (pp_macro_identifier_char((unsigned char)*cursor)) ++cursor;
+        return cursor;
+    }
+    if (isdigit(first) || (*start == '.' && isdigit((unsigned char)start[1]))) {
+        const char* cursor = start + 1;
+        while (*cursor) {
+            unsigned char value = (unsigned char)*cursor;
+            if (pp_macro_identifier_char(value) || value == '.') {
+                ++cursor;
+                continue;
+            }
+            if (value == '\'' && pp_macro_identifier_char(
+                                      (unsigned char)cursor[1])) {
+                cursor += 2;
+                continue;
+            }
+            if ((value == '+' || value == '-') && cursor > start &&
+                (cursor[-1] == 'e' || cursor[-1] == 'E' ||
+                 cursor[-1] == 'p' || cursor[-1] == 'P')) {
+                ++cursor;
+                continue;
+            }
+            break;
+        }
+        return cursor;
+    }
+    static const char* const punctuators[] = {
+        "%:%:", "<<=", ">>=", "...", "->*", "##", "::", ".*",
+        "->", "++", "--", "<<", ">>", "<=", ">=", "==", "!=",
+        "&&", "||", "*=", "/=", "%=", "+=", "-=", "&=", "^=",
+        "|=", "<:", ":>", "<%", "%>", "%:", NULL
+    };
+    for (size_t index = 0; punctuators[index]; ++index) {
+        size_t length = strlen(punctuators[index]);
+        if (strncmp(start, punctuators[index], length) == 0) {
+            return start + length;
+        }
+    }
+    return start + 1;
+}
+
+static const char* pp_macro_digraph_canonical(const char* token,
+                                              size_t length) {
+    if (length == 2u && memcmp(token, "<:", 2u) == 0) return "[";
+    if (length == 2u && memcmp(token, ":>", 2u) == 0) return "]";
+    if (length == 2u && memcmp(token, "<%", 2u) == 0) return "{";
+    if (length == 2u && memcmp(token, "%>", 2u) == 0) return "}";
+    if (length == 2u && memcmp(token, "%:", 2u) == 0) return "#";
+    if (length == 4u && memcmp(token, "%:%:", 4u) == 0) return "##";
+    return NULL;
+}
+
+static bool pp_macro_replacement_equal(const char* left, const char* right) {
+    left = left ? left : "";
+    right = right ? right : "";
+    for (;;) {
+        while (*left && isspace((unsigned char)*left)) ++left;
+        while (*right && isspace((unsigned char)*right)) ++right;
+        if (!*left || !*right) return *left == *right;
+        const char* left_end = pp_macro_token_end(left);
+        const char* right_end = pp_macro_token_end(right);
+        size_t left_length = (size_t)(left_end - left);
+        size_t right_length = (size_t)(right_end - right);
+        if (left_length == right_length &&
+            memcmp(left, right, left_length) == 0) {
+            left = left_end;
+            right = right_end;
+            continue;
+        }
+        const char* left_canonical = pp_macro_digraph_canonical(
+            left, left_length);
+        const char* right_canonical = pp_macro_digraph_canonical(
+            right, right_length);
+        if (left_canonical && strlen(left_canonical) == right_length &&
+            memcmp(left_canonical, right, right_length) == 0) {
+            left = left_end;
+            right = right_end;
+            continue;
+        }
+        if (right_canonical && strlen(right_canonical) == left_length &&
+            memcmp(right_canonical, left, left_length) == 0) {
+            left = left_end;
+            right = right_end;
+            continue;
+        }
+        if (left_canonical && right_canonical &&
+            strcmp(left_canonical, right_canonical) == 0) {
+            left = left_end;
+            right = right_end;
+            continue;
+        }
+        return false;
+    }
+}
+
 static bool pp_macro_definitions_equal(const Macro* left,
                                        const Macro* right) {
     if (!left || !right || left->param_count != right->param_count) {
         return false;
     }
     if (left->param_count < 0) {
-        return strcmp(left->value ? left->value : "",
-                      right->value ? right->value : "") == 0;
+        return pp_macro_replacement_equal(left->value, right->value);
     }
     for (int index = 0; index < left->param_count; ++index) {
         if (strcmp(left->params[index] ? left->params[index] : "",
@@ -3432,8 +3593,7 @@ static bool pp_macro_definitions_equal(const Macro* left,
             return false;
         }
     }
-    return strcmp(left->body ? left->body : "",
-                  right->body ? right->body : "") == 0;
+    return pp_macro_replacement_equal(left->body, right->body);
 }
 
 static bool pp_import_header_unit_macros(Preprocessor* destination,
