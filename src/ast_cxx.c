@@ -4726,39 +4726,41 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
                         rcc_fatal("C++ variable template name is too long");
                     }
                 } else if (parameter->kind == TPARAM_NONTYPE) {
-                    int written;
+                    Type* value_type;
+                    int64_t value;
                     if (!tmpl->pending_pack_value_present ||
                         !tmpl->pending_pack_value_present[
                             pack_offset + pack_index] ||
                         !tmpl->pending_pack_values || pos + 2u >= sizeof(buf)) {
                         rcc_fatal("C++ variable template non-type pack value is missing");
                     }
-                    buf[pos++] = 'L';
-                    cxx_mangle_type_append_context(
-                        buf, &pos,
-                        cxx_mangle_template_value_type(
-                            tmpl, parameter, type_args, tmpl->param_count,
-                            index),
-                        &argument_context);
-                    if (tmpl->pending_pack_values[
-                            pack_offset + pack_index] < 0) {
-                        uint64_t magnitude = (uint64_t)(
-                            -(tmpl->pending_pack_values[
-                                  pack_offset + pack_index] + 1)) + 1u;
-                        written = snprintf(
-                            buf + pos, sizeof(buf) - pos, "n%lluE",
-                            (unsigned long long)magnitude);
+                    if (parameter->is_auto) {
+                        value_type = tmpl->pending_pack_args
+                            ? tmpl->pending_pack_args[
+                                  pack_offset + pack_index]
+                            : NULL;
+                        if (!value_type) {
+                            rcc_fatal(
+                                "C++ variable template auto pack argument type is missing");
+                        }
                     } else {
-                        written = snprintf(
-                            buf + pos, sizeof(buf) - pos, "%lldE",
-                            (long long)tmpl->pending_pack_values[
-                                pack_offset + pack_index]);
+                        value_type = cxx_mangle_template_value_type(
+                            tmpl, parameter, type_args, tmpl->param_count,
+                            index);
                     }
-                    if (written < 0 ||
-                        (size_t)written >= sizeof(buf) - pos) {
-                        rcc_fatal("C++ variable template non-type pack value is too long");
+                    value = tmpl->pending_pack_values[
+                        pack_offset + pack_index];
+                    if (cxx_structural_class_value_supported_subset(
+                            value_type)) {
+                        cxx_mangle_template_class_value_argument(
+                            buf, &pos, value_type, value,
+                            &argument_context);
+                    } else if (!cxx_mangle_function_template_value_argument(
+                                   buf, &pos, value_type, value,
+                                   &argument_context)) {
+                        rcc_fatal(
+                            "C++ variable template value pack argument has no ABI encoding");
                     }
-                    pos += (size_t)written;
                 } else {
                     rcc_fatal("unsupported C++ variable template parameter kind");
                 }
@@ -15332,7 +15334,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                   !tmpl->pending_pack_value_present ||
                   (parameter->is_auto && !tmpl->pending_pack_args)))) {
                 rcc_error(template_loc,
-                          "function template parameter pack arguments are missing");
+                          "template parameter pack arguments are missing");
                 return NULL;
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -16056,6 +16058,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                 if (!tmpl->params[parameter_index].is_pack) continue;
                 if (tmpl->params[parameter_index].kind == TPARAM_NONTYPE) {
                     has_value_pack = true;
+                    if (tmpl->params[parameter_index].is_auto) {
+                        has_type_pack = true;
+                    }
                 } else {
                     has_type_pack = true;
                 }

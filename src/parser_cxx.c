@@ -49297,7 +49297,8 @@ Expr* rcc_parse_cxx_template_call(void) {
                                           "variable template argument pack is too large");
                                 return expr_int(0, loc);
                             }
-                            if (parameter->kind != TPARAM_NONTYPE) {
+                            if (parameter->kind != TPARAM_NONTYPE ||
+                                parameter->is_auto) {
                                 pack_arguments = ast_arena_grow(
                                     pack_arguments,
                                     sizeof(*pack_arguments) *
@@ -49307,7 +49308,8 @@ Expr* rcc_parse_cxx_template_call(void) {
                                 memset(pack_arguments + pack_capacity, 0,
                                        sizeof(*pack_arguments) *
                                            (size_t)(new_capacity - pack_capacity));
-                            } else {
+                            }
+                            if (parameter->kind == TPARAM_NONTYPE) {
                                 pack_values = ast_arena_grow(
                                     pack_values,
                                     sizeof(*pack_values) *
@@ -49342,6 +49344,9 @@ Expr* rcc_parse_cxx_template_call(void) {
                             pack_values[pack_count] = value_argument;
                             pack_value_present[pack_count] = value_is_present;
                             pack_value_expressions[pack_count] = value_expression;
+                            if (parameter->is_auto) {
+                                pack_arguments[pack_count] = type_argument;
+                            }
                         } else {
                             pack_arguments[pack_count] = type_argument;
                         }

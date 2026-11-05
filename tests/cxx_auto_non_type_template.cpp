@@ -33,6 +33,12 @@ int auto_pack_sum() {
     return (Values + ...);
 }
 
+template<auto... Values>
+constexpr int auto_pack_sum_variable = (Values + ...);
+
+template<auto... Values>
+constexpr int auto_pack_size_variable = sizeof...(Values);
+
 template<auto... Pointers>
 int auto_pointer_pack_size() {
     return sizeof...(Pointers);
@@ -73,6 +79,12 @@ extern "C" int main() {
                    auto_pack_size<7, 7>() == 2 &&
                    auto_pack_size<7u, 7>() == 2 &&
                    auto_pack_sum<5, 7u>() == 12 &&
+                   auto_pack_sum_variable<5, 7u> == 12 &&
+                   auto_pack_sum_variable<5, 7> == 12 &&
+                   auto_pack_sum_variable<5u, 7u> == 12 &&
+                   auto_pack_size_variable<> == 0 &&
+                   auto_pack_size_variable<&auto_pointer_target,
+                                            &auto_class_pointer_target> == 2 &&
                    auto_pointer_pack_size<&auto_pointer_target,
                                           &auto_class_pointer_target>() == 2 &&
                    auto_deduced_pack_sum(

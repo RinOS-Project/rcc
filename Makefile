@@ -13521,6 +13521,11 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLi7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLj7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z13auto_pack_sumIJLi5ELj7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELi7EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLj5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z22auto_pointer_pack_sizeIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIiJLi5ELi7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
@@ -13533,6 +13538,11 @@ test-cxx-auto-non-type-template: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLi7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLj7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z13auto_pack_sumIJLi5ELj7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELi7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLj5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z22auto_pointer_pack_sizeIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIiJLi5ELi7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
@@ -13555,6 +13565,11 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLi7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLj7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z13auto_pack_sumIJLi5ELj7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELi7EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLj5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z22auto_pointer_pack_sizeIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIiJLi5ELi7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/gcc.s
@@ -13572,6 +13587,11 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLi7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLj7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z13auto_pack_sumIJLi5ELj7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELi7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLj5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z22auto_pointer_pack_sizeIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIiJLi5ELi7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x86.s
@@ -13594,6 +13614,11 @@ test-cxx-auto-non-type-template-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLi7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z14auto_pack_sizeIJLj7ELi7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z13auto_pack_sumIJLi5ELj7EEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELi7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLj5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z22auto_pack_sum_variableIJLi5ELj7EEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
+	$(GREP) -F -q "_Z23auto_pack_size_variableIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z22auto_pointer_pack_sizeIJXadL_Z19auto_pointer_targetEEXadL_Z25auto_class_pointer_targetEEEEiv" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIiJLi5ELi7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
 	$(GREP) -F -q "_Z21auto_deduced_pack_sumIjJLj5ELj7EEEiDp22auto_constant_argumentIT_XT0_EE" $(TEST_OUT)/cxx-auto-non-type-template/x64.s
