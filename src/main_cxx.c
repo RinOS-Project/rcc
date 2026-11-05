@@ -55,6 +55,7 @@ typedef struct CxxModuleLoadContext {
     Preprocessor* preprocessor;
     const char* source_directory;
     const char* input_path;
+    const char* current_module;
     const char** include_paths;
     int include_count;
     TargetArch target_arch;
@@ -63,6 +64,7 @@ typedef struct CxxModuleLoadContext {
     uint64_t macro_state_hash;
     CxxModuleNameList loaded;
     CxxModuleNameList exposed;
+    CxxModuleNameList private_exposed;
     CxxModuleNameList loaded_headers;
     char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
     size_t stack_count;
@@ -660,6 +662,38 @@ static bool cxx_module_export_span(const char* source,
     return cxx_module_buffer_text(output, "\n");
 }
 
+static bool cxx_module_append_interface_record(CxxModuleBuffer* records,
+                                               char visibility,
+                                               const CxxModuleBuffer* content) {
+    char header[32];
+    int header_length;
+    if (!records || !content ||
+        (visibility != 'E' && visibility != 'P')) return false;
+    header_length = snprintf(header, sizeof(header), "%c %lu\n", visibility,
+                             (unsigned long)content->length);
+    return header_length > 0 && (size_t)header_length < sizeof(header) &&
+        cxx_module_buffer_append(records, header, (size_t)header_length) &&
+        cxx_module_buffer_append(records, content->data, content->length) &&
+        cxx_module_buffer_text(records, "\n");
+}
+
+static bool cxx_module_private_declaration_shareable(
+    const char* source, CxxModuleToken* tokens, size_t first, size_t end) {
+    if (first >= end) return false;
+    if (cxx_module_token_is(source, &tokens[first], "static")) return false;
+    if (cxx_module_token_is(source, &tokens[first], "namespace") &&
+        first + 1u < end && cxx_module_punct(source, &tokens[first + 1u], '{')) {
+        return false;
+    }
+    if (cxx_module_token_is(source, &tokens[first], "extern") &&
+        first + 2u < end && !tokens[first + 1u].identifier &&
+        source[tokens[first + 1u].begin] == '"' &&
+        cxx_module_punct(source, &tokens[first + 2u], '{')) {
+        return false;
+    }
+    return true;
+}
+
 static bool cxx_module_collect_export_block(const char* source,
                                             CxxModuleToken* tokens,
                                             size_t first, size_t close,
@@ -680,11 +714,15 @@ static bool cxx_module_collect_export_block(const char* source,
         if (cxx_module_punct(source, &tokens[cursor], '{')) return false;
         end = cxx_module_find_export_declaration_end(
             source, tokens, close, cursor, &body_open, &body_close);
+        CxxModuleBuffer declaration = {0};
         if (end <= cursor || end > close ||
             !cxx_module_export_span(source, tokens, cursor, end,
-                                    body_open, body_close, exports)) {
+                                    body_open, body_close, &declaration) ||
+            !cxx_module_append_interface_record(exports, 'E', &declaration)) {
+            rcc_free(declaration.data);
             return false;
         }
+        rcc_free(declaration.data);
         cursor = end;
     }
     return true;
@@ -800,6 +838,20 @@ static bool cxx_module_partition_is_local(const char* import_name,
         memcmp(import_name, current_module, import_primary_length) == 0;
 }
 
+static bool cxx_module_same_primary(const char* left, const char* right) {
+    const char* left_partition = left ? strchr(left, ':') : NULL;
+    const char* right_partition = right ? strchr(right, ':') : NULL;
+    size_t left_length;
+    size_t right_length;
+    if (!left || !right) return false;
+    left_length = left_partition ? (size_t)(left_partition - left)
+                                 : strlen(left);
+    right_length = right_partition ? (size_t)(right_partition - right)
+                                   : strlen(right);
+    return left_length == right_length &&
+        memcmp(left, right, left_length) == 0;
+}
+
 static bool cxx_module_directory_of(const char* path, char* output,
                                     size_t capacity) {
     const char* slash;
@@ -880,7 +932,7 @@ static bool cxx_module_artifact_path(const char* directory,
         slug_length += addition;
     }
     suffix_length = snprintf(suffix, sizeof(suffix),
-                             ".%s.cxx%d.a%u.m%016llx.v3.rmi",
+                             ".%s.cxx%d.a%u.m%016llx.v4.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
                              standard, (unsigned)abi,
                              (unsigned long long)macro_state_hash);
@@ -966,10 +1018,10 @@ static bool cxx_module_artifact_bytes(const char* module_name,
         preprocessed_source, strlen(preprocessed_source));
     uint64_t artifact_checksum;
     bool ok = false;
-    if (!cxx_module_build_payload(module_name, dependencies, reexports, exports,
-                                  exports_size, &payload)) goto done;
+    if (!cxx_module_build_payload(module_name, dependencies, reexports,
+                                  exports, exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI3 %u %d %u %016llx %lu %lu %016llx ",
+                           "RCCBMI4 %u %d %u %016llx %lu %lu %016llx ",
                            target_bits, standard, (unsigned)abi,
                            (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
@@ -1092,6 +1144,8 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     char* module_name = NULL;
     CxxModuleNameList dependencies = {0};
     CxxModuleNameList reexports = {0};
+    bool private_visible = cxx_module_same_primary(
+        requested_name, context ? context->current_module : NULL);
     bool ok = false;
     for (size_t index = 0; index < context->stack_count; ++index) {
         if (strcmp(context->stack[index], requested_name) == 0) {
@@ -1102,9 +1156,15 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
         }
     }
     if ((visible &&
-         cxx_module_name_list_contains(&context->exposed, requested_name)) ||
+         cxx_module_name_list_contains(&context->exposed, requested_name) &&
+         (!private_visible || cxx_module_name_list_contains(
+                                  &context->private_exposed,
+                                  requested_name))) ||
         (!visible &&
-         cxx_module_name_list_contains(&context->loaded, requested_name))) {
+         cxx_module_name_list_contains(&context->loaded, requested_name) &&
+         (!private_visible || cxx_module_name_list_contains(
+                                  &context->private_exposed,
+                                  requested_name)))) {
         return true;
     }
     if (context->stack_count >= RCC_CXX_MODULE_MAX_IMPORT_DEPTH) {
@@ -1124,7 +1184,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     }
     pp_record_dependency(context->preprocessor, artifact_path);
     if (sscanf(bytes,
-               "RCCBMI3 %u %d %u %llx %lu %lu %llx %llx%n", &target_bits,
+               "RCCBMI4 %u %d %u %llx %lu %lu %llx %llx%n", &target_bits,
                &standard, &abi, &macro_state_hash, &dependency_count_value,
                &payload_size_value, &source_state_hash, &expected_hash,
                &header_bytes) != 8 ||
@@ -1139,7 +1199,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI3 %u %d %u %016llx %lu %lu %016llx ", target_bits,
+        "RCCBMI4 %u %d %u %016llx %lu %lu %016llx ", target_bits,
         standard, abi, macro_state_hash,
         dependency_count_value, payload_size_value, source_state_hash);
     if (checksum_prefix_size < 0 ||
@@ -1225,12 +1285,6 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
         rcc_free(dependency);
         cursor = line_end + 1;
     }
-    if (cursor > payload_end) {
-        snprintf(context->error, sizeof(context->error),
-                 "module interface '%s' is missing its export payload",
-                 requested_name);
-        goto done;
-    }
     context->stack[context->stack_count++] = module_name;
     module_name = NULL;
     for (size_t index = 0; index < dependencies.count; ++index) {
@@ -1240,16 +1294,73 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
                                           &reexports,
                                           dependencies.items[index]))) goto pop;
     }
-    if (visible &&
-        !cxx_module_name_list_contains(&context->exposed, requested_name)) {
-        if (!cxx_module_buffer_append(imports, cursor,
-                                      (size_t)(payload_end - cursor)) ||
-            !cxx_module_buffer_text(imports, "\n") ||
-            !cxx_module_names_add(&context->exposed, requested_name)) {
+    while (cursor < payload_end) {
+        char* line_end = memchr(cursor, '\n',
+                                (size_t)(payload_end - cursor));
+        char length_text[32];
+        char* parsed_end;
+        unsigned long long record_length;
+        size_t digit_count;
+        char visibility;
+        bool append_record;
+        if (!line_end || (size_t)(line_end - cursor) < 3u ||
+            cursor[1] != ' ' ||
+            ((visibility = cursor[0]) != 'E' && visibility != 'P')) {
+            snprintf(context->error, sizeof(context->error),
+                     "module interface '%s' has a malformed declaration record",
+                     requested_name);
+            goto pop;
+        }
+        digit_count = (size_t)(line_end - cursor) - 2u;
+        if (digit_count == 0u || digit_count >= sizeof(length_text)) {
+            snprintf(context->error, sizeof(context->error),
+                     "module interface '%s' has an invalid declaration size",
+                     requested_name);
+            goto pop;
+        }
+        memcpy(length_text, cursor + 2u, digit_count);
+        length_text[digit_count] = '\0';
+        errno = 0;
+        record_length = strtoull(length_text, &parsed_end, 10);
+        if (errno || *parsed_end || record_length > (unsigned long long)(payload_end - line_end - 1)) {
+            snprintf(context->error, sizeof(context->error),
+                     "module interface '%s' has an invalid declaration size",
+                     requested_name);
+            goto pop;
+        }
+        cursor = line_end + 1;
+        append_record = visibility == 'E' ? visible : private_visible;
+        if (append_record &&
+            !cxx_module_buffer_append(imports, cursor,
+                                      (size_t)record_length)) {
             snprintf(context->error, sizeof(context->error),
                      "out of memory importing module '%s'", requested_name);
             goto pop;
         }
+        cursor += (size_t)record_length;
+        if (cursor >= payload_end || *cursor != '\n') {
+            snprintf(context->error, sizeof(context->error),
+                     "module interface '%s' has a truncated declaration record",
+                     requested_name);
+            goto pop;
+        }
+        ++cursor;
+    }
+    if (visible &&
+        !cxx_module_name_list_contains(&context->exposed, requested_name) &&
+        !cxx_module_names_add(&context->exposed, requested_name)) {
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory importing module '%s'", requested_name);
+        goto pop;
+    }
+    if (private_visible &&
+        !cxx_module_name_list_contains(&context->private_exposed,
+                                       requested_name) &&
+        !cxx_module_names_add(&context->private_exposed, requested_name)) {
+        snprintf(context->error, sizeof(context->error),
+                 "out of memory importing module-private declarations from '%s'",
+                 requested_name);
+        goto pop;
     }
     if (!cxx_module_names_add(&context->loaded, requested_name)) {
         snprintf(context->error, sizeof(context->error),
@@ -1280,6 +1391,7 @@ static bool cxx_module_resolve_imports(const char* source,
     int brace_depth = 0;
     bool private_fragment = false;
     bool global_fragment = false;
+    bool module_purview = false;
     char* declared_module = NULL;
     for (size_t index = 0; index < token_count; ++index) {
         bool exported = cxx_module_token_is(source, &tokens[index], "export");
@@ -1331,6 +1443,7 @@ static bool cxx_module_resolve_imports(const char* source,
                     }
                     declared_module = name;
                     name = NULL;
+                    module_purview = true;
                     if (global_fragment && strchr(declared_module, ':')) {
                         snprintf(error, error_capacity,
                                  "a module partition cannot follow a global module fragment");
@@ -1457,6 +1570,7 @@ static bool cxx_module_resolve_imports(const char* source,
         }
         if (brace_depth == 0 && declaration_start && !private_fragment &&
             exported) {
+            CxxModuleBuffer declaration = {0};
             size_t body_open;
             size_t body_close;
             if (!module_interface || !declared_module) {
@@ -1474,11 +1588,41 @@ static bool cxx_module_resolve_imports(const char* source,
             }
             if (!cxx_module_export_span(source, tokens, keyword_index + 1u,
                                         end, body_open, body_close,
-                                        exports) ||
+                                        &declaration) ||
+                !cxx_module_append_interface_record(exports, 'E',
+                                                    &declaration) ||
                 !cxx_module_events_add(events, tokens[index].begin,
                                        tokens[index].end, NULL, NULL, false)) {
+                rcc_free(declaration.data);
                 goto allocation_fail;
             }
+            rcc_free(declaration.data);
+            index = end - 1u;
+            continue;
+        }
+        if (brace_depth == 0 && declaration_start && module_purview &&
+            module_interface && !private_fragment && !exported) {
+            size_t body_open;
+            size_t body_close;
+            size_t end = cxx_module_find_export_declaration_end(
+                source, tokens, token_count, index, &body_open, &body_close);
+            CxxModuleBuffer declaration = {0};
+            if (end <= index || end > token_count) {
+                snprintf(error, error_capacity,
+                         "unterminated module-private declaration");
+                goto fail;
+            }
+            if (cxx_module_private_declaration_shareable(
+                    source, tokens, index, end) &&
+                (!cxx_module_export_span(source, tokens, index, end,
+                                         body_open, body_close,
+                                         &declaration) ||
+                 !cxx_module_append_interface_record(exports, 'P',
+                                                     &declaration))) {
+                rcc_free(declaration.data);
+                goto allocation_fail;
+            }
+            rcc_free(declaration.data);
             index = end - 1u;
             continue;
         }
@@ -1666,6 +1810,7 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     }
     load_context->source_directory = source_directory;
     load_context->input_path = input_path;
+    load_context->current_module = module_name[0] ? module_name : NULL;
     load_context->preprocessor = preprocessor;
     load_context->include_paths = g_opts.include_paths;
     load_context->include_count = g_opts.include_count;
@@ -1752,6 +1897,7 @@ done:
     rcc_free(artifact.data);
     cxx_module_names_clear(&load_context->loaded);
     cxx_module_names_clear(&load_context->exposed);
+    cxx_module_names_clear(&load_context->private_exposed);
     cxx_module_names_clear(&load_context->loaded_headers);
     return ok;
 }
