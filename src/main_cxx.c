@@ -74,6 +74,8 @@ typedef struct CxxModuleLoadContext {
     CxxModuleNameList exposed;
     CxxModuleNameList private_exposed;
     CxxModuleNameList loaded_headers;
+    CxxModuleBuffer* interface_records;
+    bool interface_unit;
     char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
     size_t stack_count;
     char error[512];
@@ -85,6 +87,7 @@ typedef struct CxxModuleEvent {
     char* import_name;
     char* replacement;
     bool header_unit;
+    bool exported_import;
 } CxxModuleEvent;
 
 typedef struct CxxModuleEvents {
@@ -203,7 +206,8 @@ static void cxx_module_names_clear(CxxModuleNameList* list) {
 static bool cxx_module_events_add(CxxModuleEvents* events, size_t begin,
                                   size_t end, char* import_name,
                                   char* replacement_text,
-                                  bool header_unit) {
+                                  bool header_unit,
+                                  bool exported_import) {
     CxxModuleEvent* replacement;
     size_t capacity;
     if (!events || end < begin) return false;
@@ -222,6 +226,7 @@ static bool cxx_module_events_add(CxxModuleEvents* events, size_t begin,
     events->items[events->count].import_name = import_name;
     events->items[events->count].replacement = replacement_text;
     events->items[events->count].header_unit = header_unit;
+    events->items[events->count].exported_import = exported_import;
     ++events->count;
     return true;
 }
@@ -1818,9 +1823,14 @@ static bool cxx_module_resolve_imports(const char* source,
                 }
                 if (cxx_module_is_header_import(source, tokens,
                                                 import_first, semicolon)) {
-                    if (exported || module_interface) {
+                    if (exported && (!module_interface || !declared_module)) {
                         snprintf(error, error_capacity,
-                                 "header-unit imports in module interfaces and export-import are not supported yet");
+                                 "exported header-unit import requires a C++ module interface unit");
+                        goto fail;
+                    }
+                    if (module_interface && !declared_module) {
+                        snprintf(error, error_capacity,
+                                 "header-unit import in a module interface must follow its module declaration");
                         goto fail;
                     }
                     name = cxx_module_parse_header_import(
@@ -1861,7 +1871,8 @@ static bool cxx_module_resolve_imports(const char* source,
                 }
             }
             if (!cxx_module_events_add(events, event_begin, event_end,
-                                       name, NULL, header_unit)) {
+                                       name, NULL, header_unit,
+                                       is_import && exported)) {
                 rcc_free(name);
                 goto allocation_fail;
             }
@@ -1892,7 +1903,7 @@ static bool cxx_module_resolve_imports(const char* source,
                 !cxx_module_buffer_text(exports, "\n") ||
                 !cxx_module_events_add(events, tokens[index].begin,
                                        tokens[close].end, NULL,
-                                       replacement.data, false)) {
+                                       replacement.data, false, false)) {
                 rcc_free(replacement.data);
                 goto allocation_fail;
             }
@@ -1924,7 +1935,8 @@ static bool cxx_module_resolve_imports(const char* source,
                 !cxx_module_append_interface_record(exports, 'E',
                                                     &declaration) ||
                 !cxx_module_events_add(events, tokens[index].begin,
-                                       tokens[index].end, NULL, NULL, false)) {
+                                       tokens[index].end, NULL, NULL, false,
+                                       false)) {
                 rcc_free(declaration.data);
                 goto allocation_fail;
             }
@@ -2036,7 +2048,17 @@ static bool cxx_module_rewrite_source(const char* source,
                                                 event->import_name, &imports)
                 : cxx_module_load_artifact(load_context, event->import_name,
                                            &imports, true);
-            if (!imported ||
+            if (!imported) goto fail;
+            if (event->header_unit && load_context->interface_unit &&
+                imports.length > 0u &&
+                !cxx_module_append_interface_record(
+                    load_context->interface_records,
+                    event->exported_import ? 'E' : 'P', &imports)) {
+                snprintf(load_context->error, sizeof(load_context->error),
+                         "could not record header-unit declarations in module interface");
+                goto fail;
+            }
+            if (
                 !cxx_module_buffer_append(&rewritten, imports.data,
                                           imports.length)) goto fail;
         }
@@ -2118,6 +2140,8 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     CxxModuleNameList dependencies = {0};
     CxxModuleNameList reexports = {0};
     CxxModuleBuffer exports = {0};
+    CxxModuleBuffer header_exports = {0};
+    CxxModuleBuffer interface_records = {0};
     CxxModuleBuffer artifact = {0};
     char source_directory[RCC_MAX_PATH];
     char absolute_source_path[RCC_MAX_PATH];
@@ -2157,6 +2181,8 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
     load_context->standard = g_cxx_standard;
     load_context->abi = g_opts.cxx_itanium_abi;
     load_context->macro_state_hash = cxx_module_configuration_hash();
+    load_context->interface_records = &header_exports;
+    load_context->interface_unit = has_interface;
     if (!cxx_module_resolve_imports(source, tokens, token_count,
                                     module_name[0] ? module_name : NULL,
                                     has_interface,
@@ -2197,6 +2223,15 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
         }
     }
     if (has_interface) {
+        if (!cxx_module_buffer_append(&interface_records,
+                                      header_exports.data,
+                                      header_exports.length) ||
+            !cxx_module_buffer_append(&interface_records, exports.data,
+                                      exports.length)) {
+            snprintf(error, sizeof(error),
+                     "could not assemble C++ module interface declarations");
+            goto done;
+        }
         if (!cxx_module_dependency_state_hash(load_context, &dependencies,
                                                &dependency_state_hash)) {
             snprintf(error, sizeof(error),
@@ -2213,8 +2248,9 @@ static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
                                        input_path,
                                        &dependencies,
                                        &reexports,
-                                       exports.data ? exports.data : "",
-                                       exports.length, source,
+                                       interface_records.data ?
+                                           interface_records.data : "",
+                                       interface_records.length, source,
                                        g_opts.target_arch,
                                        g_cxx_standard,
                                        g_opts.cxx_itanium_abi,
@@ -2242,6 +2278,8 @@ done:
     cxx_module_names_clear(&dependencies);
     cxx_module_names_clear(&reexports);
     rcc_free(exports.data);
+    rcc_free(header_exports.data);
+    rcc_free(interface_records.data);
     rcc_free(artifact.data);
     cxx_module_names_clear(&load_context->loaded);
     cxx_module_names_clear(&load_context->exposed);
