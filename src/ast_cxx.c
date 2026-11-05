@@ -12663,6 +12663,35 @@ Expr* cxx_template_clone_pack_expansion(
 static int template_function_parameter_pack_index(
     CxxTemplate* tmpl, const char* pack_name);
 
+static bool template_expression_references_pack(CxxTemplate* tmpl,
+                                                Expr* expression) {
+    DeclList* pack_parameters = template_pack_parameter_list(tmpl);
+    if (!tmpl || !expression) return false;
+    for (DeclList* parameter = pack_parameters; parameter;
+         parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_is_pack &&
+            parameter->decl->name &&
+            (template_expr_contains_identifier(
+                 expression, parameter->decl->name) ||
+             template_expr_contains_type_parameter(
+                 expression, parameter->decl->name, 0))) {
+            return true;
+        }
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->is_pack && parameter->name &&
+            (template_expr_contains_identifier(expression,
+                                               parameter->name) ||
+             (parameter->kind == TPARAM_TYPE &&
+              template_expr_contains_type_parameter(
+                  expression, parameter->name, 0)))) {
+            return true;
+        }
+    }
+    return template_parameter_pack_index_expression(tmpl, expression) >= 0;
+}
+
 static Expr* template_fold_error_recovery(const Expr* expression) {
     SourceLoc loc = expression ? expression->loc
                                : (SourceLoc){"<template>", 0, 0};
@@ -12678,11 +12707,27 @@ static Expr* template_clone_pack_fold(
     Expr* initializer = NULL;
     TemplateParam* value_pack = NULL;
     const char* pack_name = expression ? expression->cxx_fold_pack_name : NULL;
+    Expr* fold_pattern = expression ? expression->cxx_fold_pattern : NULL;
+    Expr* fold_initializer = expression ? expression->cxx_fold_init : NULL;
+    bool fold_left = expression ? expression->cxx_fold_left : false;
     int pattern_pack_matches = 0;
     int pack_parameter_index = -1;
     int pack_length;
     int pack_offset;
     DeclList* pack_parameters = template_pack_parameter_list(tmpl);
+    /* A binary left fold places its pack pattern after the ellipsis.  The
+     * parser's general binary-fold path initially stores the operands in the
+     * right-fold order, so recover the left-fold order when only the trailing
+     * operand references a template pack. */
+    if (tmpl && expression && !pack_name && fold_pattern &&
+        fold_initializer &&
+        !template_expression_references_pack(tmpl, fold_pattern) &&
+        template_expression_references_pack(tmpl, fold_initializer)) {
+        Expr* swap = fold_pattern;
+        fold_pattern = fold_initializer;
+        fold_initializer = swap;
+        fold_left = !fold_left;
+    }
     if (tmpl && expression && !pack_name && expression->cxx_fold_pattern &&
         pack_parameters) {
         for (DeclList* parameter = pack_parameters;
@@ -12690,7 +12735,7 @@ static Expr* template_clone_pack_fold(
             if (parameter->decl && parameter->decl->param_is_pack &&
                 parameter->decl->name &&
                 template_expr_contains_identifier(
-                    expression->cxx_fold_pattern, parameter->decl->name)) {
+                    fold_pattern, parameter->decl->name)) {
                 pack_name = parameter->decl->name;
                 ++pattern_pack_matches;
             }
@@ -12701,10 +12746,10 @@ static Expr* template_clone_pack_fold(
             TemplateParam* parameter = &tmpl->params[index];
             if (parameter->is_pack && parameter->name &&
                 (template_expr_contains_identifier(
-                     expression->cxx_fold_pattern, parameter->name) ||
+                     fold_pattern, parameter->name) ||
                  (parameter->kind == TPARAM_TYPE &&
                   template_expr_contains_type_parameter(
-                      expression->cxx_fold_pattern, parameter->name, 0)))) {
+                      fold_pattern, parameter->name, 0)))) {
                 pack_name = parameter->name;
                 ++pattern_pack_matches;
             }
@@ -12717,7 +12762,7 @@ static Expr* template_clone_pack_fold(
     if (tmpl && expression && expression->cxx_fold_pattern &&
         pattern_pack_matches == 0) {
         int structural_pack_index = template_parameter_pack_index_expression(
-            tmpl, expression->cxx_fold_pattern);
+            tmpl, fold_pattern);
         if (structural_pack_index >= 0 &&
             structural_pack_index < tmpl->param_count) {
             TemplateParam* parameter = &tmpl->params[structural_pack_index];
@@ -12739,9 +12784,9 @@ static Expr* template_clone_pack_fold(
                   "C++ fold expression requires a function-template pack specialization");
         return template_fold_error_recovery(expression);
     }
-    if (expression->cxx_fold_init) {
+    if (fold_initializer) {
         initializer = template_clone_expr(
-            tmpl, expression->cxx_fold_init, args, arg_count,
+            tmpl, fold_initializer, args, arg_count,
             value_args, value_present);
     }
     if (tmpl->params) {
@@ -12799,7 +12844,7 @@ static Expr* template_clone_pack_fold(
         }
         return result;
     }
-    if (expression->cxx_fold_left) {
+    if (fold_left) {
         result = initializer;
         for (int index = 0; index < pack_length; ++index) {
             char name[64];
@@ -12813,9 +12858,9 @@ static Expr* template_clone_pack_fold(
                 return template_fold_error_recovery(expression);
             }
             errors_before = g_error_count;
-            if (expression->cxx_fold_pattern) {
+            if (fold_pattern) {
                 item = template_clone_pack_pattern(
-                    tmpl, expression->cxx_fold_pattern, pack_name, index,
+                    tmpl, fold_pattern, pack_name, index,
                     args, arg_count, value_args, value_present, value_pack);
             } else if (value_pack) {
                 if (!tmpl->pending_pack_value_present ||
@@ -12863,9 +12908,9 @@ static Expr* template_clone_pack_fold(
             return template_fold_error_recovery(expression);
         }
         errors_before = g_error_count;
-        if (expression->cxx_fold_pattern) {
+        if (fold_pattern) {
             item = template_clone_pack_pattern(
-                tmpl, expression->cxx_fold_pattern, pack_name, index,
+                tmpl, fold_pattern, pack_name, index,
                 args, arg_count, value_args, value_present, value_pack);
         } else if (value_pack) {
             if (!tmpl->pending_pack_value_present ||

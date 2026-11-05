@@ -87,7 +87,8 @@ inline constexpr variable_argument_pack<Type, Values...>
 template<class Type, auto... Values>
 int deduce_variable_argument_pack(
     variable_argument_pack<Type, Values...> argument) {
-    return static_cast<int>(argument.count + (Values + ...));
+    return static_cast<int>(
+        argument.count + (0 + ... + static_cast<int>(Values)));
 }
 
 template<auto Pointer>
