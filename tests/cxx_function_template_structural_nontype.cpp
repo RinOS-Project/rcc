@@ -136,6 +136,21 @@ struct FunctionTemplateStructuralUnionQuadArray {
     unsigned char suffix;
 };
 
+struct FunctionTemplateStructuralUnionFiveDimensionalArray {
+    FunctionTemplateStructuralNestedUnion payloads[2][1][1][1][2];
+    unsigned char suffix;
+};
+
+#define FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE( \
+    FIRST, FIRST_TAG, SECOND_TAG, SECOND_VALUE, SUFFIX) \
+    FunctionTemplateStructuralUnionFiveDimensionalArray { \
+        .payloads = { \
+            {{{{{.value = FIRST}, {.tag = FIRST_TAG}}}}}, \
+            {{{{{.tag = SECOND_TAG}, {.value = SECOND_VALUE}}}}}, \
+        }, \
+        .suffix = SUFFIX, \
+    }
+
 struct FunctionTemplateStructuralUnionPayload {
     int code;
     int extra;
@@ -247,6 +262,9 @@ struct FunctionTemplateStructuralUnionTensorTag {};
 
 template<FunctionTemplateStructuralUnionQuadArray Value>
 struct FunctionTemplateStructuralUnionQuadArrayTag {};
+
+template<FunctionTemplateStructuralUnionFiveDimensionalArray Value>
+struct FunctionTemplateStructuralUnionFiveDimensionalArrayTag {};
 
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 struct FunctionTemplateStructuralMixedUnionTag {};
@@ -407,6 +425,19 @@ constexpr int function_template_structural_union_quad_array_deduced(
     FunctionTemplateStructuralUnionQuadArrayTag<Value>) {
     return Value.payloads[1][0][1][0].value * 1000 +
            Value.payloads[0][1][0][1].value * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionFiveDimensionalArray Value>
+constexpr int function_template_structural_union_five_dimensional_array_explicit() {
+    return Value.payloads[1][0][0][0][1].value * 100 +
+           Value.payloads[0][0][0][0][1].tag * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionFiveDimensionalArray Value>
+constexpr int function_template_structural_union_five_dimensional_array_deduced(
+    FunctionTemplateStructuralUnionFiveDimensionalArrayTag<Value>) {
+    return Value.payloads[1][0][0][0][1].value * 100 +
+           Value.payloads[0][0][0][0][1].tag * 10 + Value.suffix;
 }
 
 template<FunctionTemplateStructuralFloatingUnion Value>
@@ -785,6 +816,13 @@ static_assert(function_template_structural_union_quad_array_deduced(
                                       {{.tag = 30}, {.value = 31}},
                                       {{.value = 32}, {.tag = 33}}}}},
                           1}>{}) == 28231);
+static_assert(function_template_structural_union_five_dimensional_array_explicit<
+                  FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+                      3, 7, 4, 17, 9)>() == 1779);
+static_assert(function_template_structural_union_five_dimensional_array_deduced(
+                  FunctionTemplateStructuralUnionFiveDimensionalArrayTag<
+                      FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+                          5, 8, 6, 18, 1)>{}) == 1881);
 static_assert(function_template_structural_union_float_explicit<
                   FunctionTemplateStructuralFloatingUnion{
                       .single = 1.5f}>() == 15);
@@ -1080,6 +1118,13 @@ int main() {
                                 {{.tag = 30}, {.value = 31}},
                                 {{.value = 32}, {.tag = 33}}}}},
                     1}>{}) != 28231 ||
+        function_template_structural_union_five_dimensional_array_explicit<
+            FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+                3, 7, 4, 17, 9)>() != 1779 ||
+        function_template_structural_union_five_dimensional_array_deduced(
+            FunctionTemplateStructuralUnionFiveDimensionalArrayTag<
+                FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE(
+                    5, 8, 6, 18, 1)>{}) != 1881 ||
         function_template_structural_union_float_explicit<
             FunctionTemplateStructuralFloatingUnion{
                 .single = 1.5f}>() != 15 ||

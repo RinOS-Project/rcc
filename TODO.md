@@ -14190,8 +14190,8 @@ remains a separate open item.
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
       layouts, structural packs, structural union-array element layouts beyond
-      the tested four-dimensional 2x2x2x2 case, and unsupported C++20 forms
-      remain open. Direct array rank coverage is tracked below.
+      the tested five-dimensional `[2][1][1][1][2]` case, and unsupported C++20
+      forms remain open. Direct array rank coverage is tracked below.
   - [x] Collect pointer values from direct and nested pointer-bearing active
         union alternatives into fixed-width structural value records, preserve
         pointer identity in typeinfo keys, and match GCC Itanium mangling for
@@ -14241,6 +14241,13 @@ remains a separate open item.
         symbols; host execution, i686/AMD64 output, and 50 fallback-free
         verified-backend functions at `-O0` and `-O2` pass in
         `test-cxx-function-template-structural-nontype`.
+  - [x] Verify a five-dimensional `[2][1][1][1][2]` array of structural union
+        elements with mixed active alternatives and reads through all five
+        indices. Explicit and deduced NTTPs match exact GCC Itanium symbols;
+        strict GCC C++20, host execution, i686/AMD64 output, and all 70
+        verified-backend functions at `-O0`/`-O2` pass with zero fallback in
+        `test-cxx-function-template-structural-nontype`. Other rank-five
+        extents and larger nested union-element layouts remain open.
   - [x] Support direct `float` and `double` union alternatives in structural
         NTTPs. Preserve their IEEE bit patterns through collection, packed value
         records, member reads, and Itanium floating-literal encoding. Verify
