@@ -22,6 +22,7 @@ typedef struct Macro {
     int param_count;             /* -1 for object-like macros */
     const char* body;            /* Body for function-like macros */
     bool is_builtin;
+    uint64_t definition_generation;
     struct Macro* next;
 } Macro;
 
@@ -36,6 +37,7 @@ typedef struct {
     const char** include_paths;  /* Include search paths */
     int include_path_count;
     int include_depth;           /* Current include nesting depth */
+    uint64_t macro_generation;
     const char* current_file;    /* File used for relative include probes. */
     bool cxx_mode;               /* C++ conditional feature probes enabled. */
     int cxx_standard;            /* Active C++ language revision, if any. */
@@ -59,6 +61,8 @@ typedef struct {
     size_t module_macro_snapshot_count;
     size_t module_macro_snapshot_capacity;
     bool module_macro_snapshot_overflow;
+    Macro* module_import_baseline_macros;
+    uint64_t module_import_baseline_generation;
 } Preprocessor;
 
 /* Initialize preprocessor */
@@ -78,8 +82,8 @@ Macro* pp_get_macro(Preprocessor* pp, const char* name);
 /* Process source file - returns preprocessed source */
 char* pp_process_file(Preprocessor* pp, const char* filename);
 char* pp_process_string(Preprocessor* pp, const char* source, const char* filename);
-Preprocessor* pp_snapshot_module_import(const Preprocessor* pp,
-                                        size_t output_offset);
+bool pp_capture_module_import_baseline(Preprocessor* pp);
+Preprocessor* pp_new_module_header_state(const Preprocessor* pp);
 bool pp_module_import_state_hash(const Preprocessor* pp, uint64_t* hash_out);
 bool pp_write_dependencies(Preprocessor* pp, const char* target,
                            const char* source, const char* dependency_file);

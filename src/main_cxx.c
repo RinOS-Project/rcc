@@ -81,10 +81,9 @@ typedef struct CxxModuleLoadContext {
 
 static bool cxx_module_preprocess_header_unit(
     CxxModuleLoadContext* context, const char* header_name,
-    size_t source_offset, char** expanded_out);
+    char** expanded_out);
 static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
                                           const char* header_name,
-                                          size_t source_offset,
                                           CxxModuleBuffer* imports);
 static uint64_t cxx_module_hash(const void* bytes, size_t length);
 
@@ -1750,7 +1749,7 @@ reload_artifact:
                 bool expanded;
                 context->input_path = source_path;
                 expanded = cxx_module_preprocess_header_unit(
-                    context, header_name, SIZE_MAX, &expanded_header);
+                    context, header_name, &expanded_header);
                 context->input_path = saved_input_path;
                 if (!expanded) {
                     rcc_free(header_name);
@@ -1996,8 +1995,7 @@ static bool cxx_module_resolve_imports(const char* source,
                     if (module_interface && load_context) {
                         CxxModuleBuffer expanded_header = {0};
                         if (!cxx_module_import_header_unit(
-                                load_context, name, event_begin,
-                                &expanded_header)) {
+                                load_context, name, &expanded_header)) {
                             snprintf(error, error_capacity, "%s",
                                      load_context->error[0]
                                          ? load_context->error
@@ -2172,7 +2170,6 @@ fail:
 
 static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
                                               const char* header_name,
-                                              size_t source_offset,
                                               char** expanded_out) {
     char directive[RCC_MAX_PATH + 16u];
     char* expanded;
@@ -2191,16 +2188,13 @@ static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
                  "header-unit import name is too long");
         return false;
     }
-    preprocessing_state = context->preprocessor;
-    if (source_offset != SIZE_MAX) {
-        preprocessing_state = pp_snapshot_module_import(
-            context->preprocessor, source_offset);
-        owns_preprocessing_state = true;
-        if (!preprocessing_state) {
-            snprintf(context->error, sizeof(context->error),
-                     "macro snapshot at header-unit import is unavailable");
-            return false;
-        }
+    preprocessing_state = pp_new_module_header_state(
+        context->preprocessor);
+    owns_preprocessing_state = true;
+    if (!preprocessing_state) {
+        snprintf(context->error, sizeof(context->error),
+                 "independent header-unit preprocessing state is unavailable");
+        return false;
     }
     errors_before = g_error_count;
     expanded = pp_process_string(preprocessing_state, directive,
@@ -2226,15 +2220,13 @@ static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
 
 static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
                                           const char* header_name,
-                                          size_t source_offset,
                                           CxxModuleBuffer* imports) {
     char* expanded = NULL;
     if (!context || !header_name || !imports) return false;
     if (cxx_module_name_list_contains(&context->loaded_headers, header_name)) {
         return true;
     }
-    if (!cxx_module_preprocess_header_unit(context, header_name,
-                                           source_offset, &expanded)) {
+    if (!cxx_module_preprocess_header_unit(context, header_name, &expanded)) {
         return false;
     }
     if (!cxx_module_buffer_text(imports, expanded) ||
@@ -2267,8 +2259,7 @@ static bool cxx_module_rewrite_source(const char* source,
             if (imports.data) imports.data[0] = '\0';
             bool imported = event->header_unit
                 ? cxx_module_import_header_unit(load_context,
-                                                event->import_name,
-                                                event->begin, &imports)
+                                                event->import_name, &imports)
                 : cxx_module_load_artifact(load_context, event->import_name,
                                            &imports, true);
             if (!imported) goto fail;
@@ -2634,6 +2625,10 @@ static Preprocessor* cxx_preprocessor_new(char** argv) {
         pp_undef(pp, g_opts.undefines[index]);
     }
     if (g_opts.freestanding) pp_define(pp, "__FREESTANDING__", "1");
+    if (!pp_capture_module_import_baseline(pp)) {
+        pp_free(pp);
+        return NULL;
+    }
     return pp;
 }
 

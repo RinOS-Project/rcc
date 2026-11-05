@@ -153,6 +153,7 @@ Preprocessor* pp_new(void) {
     pp->include_paths = NULL;
     pp->include_path_count = 0;
     pp->include_depth = 0;
+    pp->macro_generation = 0u;
     pp->current_file = NULL;
     pp->cxx_mode = false;
     pp->cxx_standard = 0;
@@ -164,6 +165,12 @@ Preprocessor* pp_new(void) {
     pp->once_files = NULL;
     pp->once_file_count = 0;
     pp->once_file_capacity = 0;
+    pp->module_macro_snapshots = NULL;
+    pp->module_macro_snapshot_count = 0u;
+    pp->module_macro_snapshot_capacity = 0u;
+    pp->module_macro_snapshot_overflow = false;
+    pp->module_import_baseline_macros = NULL;
+    pp->module_import_baseline_generation = 0u;
 
     /* Define built-in macros */
     pp_define(pp, "__RCC__", "1");
@@ -345,6 +352,7 @@ static Macro* macro_list_clone(const Macro* source) {
         copy->name = rcc_strdup(source->name ? source->name : "");
         copy->param_count = source->param_count;
         copy->is_builtin = source->is_builtin;
+        copy->definition_generation = source->definition_generation;
         if (source->param_count >= 0) {
             if (source->param_count > 0) {
                 copy->params = rcc_alloc(sizeof(*copy->params) *
@@ -395,6 +403,7 @@ void pp_free(Preprocessor* pp) {
         macro_list_free(pp->module_macro_snapshots[index].macros);
     }
     rcc_free(pp->module_macro_snapshots);
+    macro_list_free(pp->module_import_baseline_macros);
 
     /* Free include paths */
     if (pp->include_paths) {
@@ -541,6 +550,7 @@ void pp_define(Preprocessor* pp, const char* name, const char* value) {
         macro_release_storage(existing, false);
         existing->value = rcc_strdup(value ? value : "");
         existing->param_count = -1;
+        existing->definition_generation = ++pp->macro_generation;
         return;
     }
 
@@ -551,6 +561,7 @@ void pp_define(Preprocessor* pp, const char* name, const char* value) {
     m->param_count = -1;  /* Object-like macro */
     m->body = NULL;
     m->is_builtin = false;
+    m->definition_generation = ++pp->macro_generation;
     m->next = pp->macros;
     pp->macros = m;
 }
@@ -575,6 +586,7 @@ void pp_define_func(Preprocessor* pp, const char* name, const char** params,
     m->param_count = param_count;
     m->body = rcc_strdup(body);
     m->is_builtin = false;
+    m->definition_generation = ++pp->macro_generation;
 }
 
 void pp_undef(Preprocessor* pp, const char* name) {
@@ -3395,37 +3407,196 @@ static void pp_capture_module_macro_snapshot(Preprocessor* pp,
         (PPModuleMacroSnapshot){output_offset, macros};
 }
 
-Preprocessor* pp_snapshot_module_import(const Preprocessor* pp,
-                                        size_t output_offset) {
-    const PPModuleMacroSnapshot* selected = NULL;
-    Preprocessor* snapshot;
-    Macro* macros;
-    if (!pp || pp->module_macro_snapshot_overflow) return NULL;
-    for (size_t index = 0; index < pp->module_macro_snapshot_count; ++index) {
-        const PPModuleMacroSnapshot* candidate =
-            &pp->module_macro_snapshots[index];
-        if (candidate->output_offset <= output_offset &&
-            (!selected || candidate->output_offset > selected->output_offset)) {
-            selected = candidate;
+static const Macro* pp_find_macro_in_list(const Macro* macros,
+                                          const char* name) {
+    for (; macros; macros = macros->next) {
+        if (macros->name && name && strcmp(macros->name, name) == 0) {
+            return macros;
         }
     }
-    if (!selected) return NULL;
-    snapshot = pp_new();
-    if (!snapshot) return NULL;
-    macro_list_free(snapshot->macros);
-    snapshot->macros = NULL;
-    macros = macro_list_clone(selected->macros);
-    if (!macros) {
-        pp_free(snapshot);
+    return NULL;
+}
+
+static bool pp_macro_definitions_equal(const Macro* left,
+                                       const Macro* right) {
+    if (!left || !right || left->param_count != right->param_count) {
+        return false;
+    }
+    if (left->param_count < 0) {
+        return strcmp(left->value ? left->value : "",
+                      right->value ? right->value : "") == 0;
+    }
+    for (int index = 0; index < left->param_count; ++index) {
+        if (strcmp(left->params[index] ? left->params[index] : "",
+                   right->params[index] ? right->params[index] : "") != 0) {
+            return false;
+        }
+    }
+    return strcmp(left->body ? left->body : "",
+                  right->body ? right->body : "") == 0;
+}
+
+static bool pp_import_header_unit_macros(Preprocessor* destination,
+                                         const Preprocessor* header_state,
+                                         const char* filename,
+                                         int source_line) {
+    const Macro* baseline = destination->module_import_baseline_macros;
+    if (!baseline) return false;
+    for (const Macro* imported = header_state->macros; imported;
+         imported = imported->next) {
+        const Macro* original = pp_find_macro_in_list(baseline,
+                                                       imported->name);
+        Macro* existing;
+        if (original && original->definition_generation ==
+                        imported->definition_generation) continue;
+        if (strcmp(imported->name, "module") == 0 ||
+            strcmp(imported->name, "import") == 0) continue;
+        existing = pp_get_macro(destination, imported->name);
+        if (existing && !pp_macro_definitions_equal(existing, imported)) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "header-unit macro '%s' conflicts with an active definition",
+                      imported->name);
+            return false;
+        }
+        if (existing) continue;
+        if (imported->param_count < 0) {
+            pp_define(destination, imported->name, imported->value);
+        } else {
+            pp_define_func(destination, imported->name, imported->params,
+                           imported->param_count, imported->body);
+        }
+    }
+    return true;
+}
+
+static void pp_apply_header_unit_macros(Preprocessor* pp,
+                                        const char* expanded_line,
+                                        const char* filename,
+                                        int source_line) {
+    const char* cursor = expanded_line;
+    const char* header_begin;
+    const char* header_end;
+    char directive[RCC_MAX_PATH + 16u];
+    char* ignored_output;
+    Preprocessor* header_state;
+    int directive_length;
+    int errors_before;
+    while (*cursor && isspace((unsigned char)*cursor)) ++cursor;
+    if (pp_read_module_word(cursor, cursor + strlen(cursor), "export")) {
+        cursor += strlen("export");
+        while (*cursor && isspace((unsigned char)*cursor)) ++cursor;
+    }
+    if (!pp_read_module_word(cursor, cursor + strlen(cursor), "import")) {
+        return;
+    }
+    cursor += strlen("import");
+    while (*cursor && isspace((unsigned char)*cursor)) ++cursor;
+    if (*cursor == '"') {
+        header_begin = cursor;
+        ++cursor;
+        while (*cursor) {
+            if (*cursor == '\\' && cursor[1]) {
+                cursor += 2;
+                continue;
+            }
+            if (*cursor++ == '"') break;
+        }
+        if (cursor == expanded_line || cursor[-1] != '"') return;
+        header_end = cursor;
+    } else if (*cursor == '<') {
+        header_begin = cursor;
+        header_end = strchr(cursor + 1, '>');
+        if (!header_end) return;
+        ++header_end;
+        cursor = header_end;
+    } else {
+        return;
+    }
+    while (*cursor && isspace((unsigned char)*cursor)) ++cursor;
+    if (*cursor++ != ';') return;
+    while (*cursor && isspace((unsigned char)*cursor)) ++cursor;
+    if (*cursor) return;
+    if ((size_t)(header_end - header_begin) > RCC_MAX_PATH) {
+        rcc_error((SourceLoc){filename, source_line, 0},
+                  "header-unit import name is too long");
+        return;
+    }
+    directive_length = snprintf(directive, sizeof(directive), "#include %.*s\n",
+                                (int)(header_end - header_begin), header_begin);
+    if (directive_length < 0 ||
+        (size_t)directive_length >= sizeof(directive)) {
+        rcc_error((SourceLoc){filename, source_line, 0},
+                  "could not construct header-unit preprocessing directive");
+        return;
+    }
+    header_state = pp_new_module_header_state(pp);
+    if (!header_state) {
+        rcc_error((SourceLoc){filename, source_line, 0},
+                  "could not create independent header-unit macro state");
+        return;
+    }
+    errors_before = g_error_count;
+    ignored_output = pp_process_string(header_state, directive, filename);
+    bool processed = ignored_output != NULL;
+    rcc_free(ignored_output);
+    if (!processed || g_error_count != errors_before) {
+        rcc_error((SourceLoc){filename, source_line, 0},
+                  "could not apply header-unit macros at import point");
+    } else {
+        for (int index = 0; index < header_state->dependency_count; ++index) {
+            pp_record_dependency(pp, header_state->dependencies[index]);
+        }
+        if (!pp_import_header_unit_macros(pp, header_state, filename,
+                                          source_line) &&
+            g_error_count == errors_before) {
+                rcc_error((SourceLoc){filename, source_line, 0},
+                          "could not import header-unit macro definitions");
+        }
+    }
+    pp_free(header_state);
+}
+
+bool pp_capture_module_import_baseline(Preprocessor* pp) {
+    Macro* baseline;
+    if (!pp) return false;
+    baseline = macro_list_clone(pp->macros);
+    if (!baseline) return false;
+    macro_list_free(pp->module_import_baseline_macros);
+    pp->module_import_baseline_macros = baseline;
+    pp->module_import_baseline_generation = pp->macro_generation;
+    return true;
+}
+
+Preprocessor* pp_new_module_header_state(const Preprocessor* pp) {
+    Preprocessor* header_state;
+    Macro* macros;
+    Macro* baseline;
+    if (!pp || !pp->module_import_baseline_macros) return NULL;
+    macros = macro_list_clone(pp->module_import_baseline_macros);
+    if (!macros) return NULL;
+    baseline = macro_list_clone(pp->module_import_baseline_macros);
+    if (!baseline) {
+        macro_list_free(macros);
         return NULL;
     }
-    snapshot->macros = macros;
-    snapshot->cxx_mode = pp->cxx_mode;
-    snapshot->cxx_standard = pp->cxx_standard;
-    for (int index = 0; index < pp->include_path_count; ++index) {
-        pp_add_include_path(snapshot, pp->include_paths[index]);
+    header_state = pp_new();
+    if (!header_state) {
+        macro_list_free(macros);
+        macro_list_free(baseline);
+        return NULL;
     }
-    return snapshot;
+    macro_list_free(header_state->macros);
+    header_state->macros = macros;
+    header_state->macro_generation = pp->module_import_baseline_generation;
+    header_state->module_import_baseline_macros = baseline;
+    header_state->module_import_baseline_generation =
+        pp->module_import_baseline_generation;
+    header_state->cxx_mode = pp->cxx_mode;
+    header_state->cxx_standard = pp->cxx_standard;
+    for (int index = 0; index < pp->include_path_count; ++index) {
+        pp_add_include_path(header_state, pp->include_paths[index]);
+    }
+    return header_state;
 }
 
 static void pp_hash_state_bytes(uint64_t* hash, const void* bytes,
@@ -3453,7 +3624,7 @@ bool pp_module_import_state_hash(const Preprocessor* pp,
         }
         for (const Macro* macro = snapshot->macros; macro;
              macro = macro->next) {
-            if (macro->is_builtin && macro->name &&
+            if (macro->name &&
                 (strcmp(macro->name, "__DATE__") == 0 ||
                  strcmp(macro->name, "__TIME__") == 0 ||
                  strcmp(macro->name, "__TIMESTAMP__") == 0)) {
@@ -3549,8 +3720,9 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
 
         /* Process normal line - expand macros */
         const char* eol = skip_to_eol(p);
-        if (pp->include_depth == 0 &&
-            pp_line_starts_module_import(line_start, eol, source_end)) {
+        bool is_module_import = pp_line_starts_module_import(
+            line_start, eol, source_end);
+        if (pp->include_depth == 0 && is_module_import) {
             pp_capture_module_macro_snapshot(pp, output.size);
         }
         const char* chunk_end = pp_multiline_macro_extent(pp, line_start, eol);
@@ -3569,7 +3741,17 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
 
         /* Expand macros */
         char* expanded = expand_macros(pp, line_buf);
+        if (pp->include_depth == 0 && !is_module_import) {
+            const char* expanded_end = expanded + strlen(expanded);
+            if (pp_line_starts_module_import(expanded, expanded_end,
+                                             expanded_end)) {
+                pp_capture_module_macro_snapshot(pp, output.size);
+            }
+        }
         buf_append_str(&output, expanded);
+        if (pp->include_depth == 0) {
+            pp_apply_header_unit_macros(pp, expanded, filename, line);
+        }
         rcc_free(line_buf);
         rcc_free(expanded);
 
