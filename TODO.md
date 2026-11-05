@@ -14891,7 +14891,10 @@ Continue in this order:
       a compile-time check confirms that only the exported overload enters
       ordinary lookup. An exported nested namespace and class are promoted
       the same way after a non-exporting intermediate import, while lookup
-      through that intermediate module alone remains hidden.
+      through that intermediate module alone remains hidden. Hidden friends
+      from reachable private class definitions remain available to ADL through
+      an exported alias and are called by an exported inline function without
+      becoming ordinary namespace names.
       `test-cxx-modules` links both namespace cases on i686 and x86_64.
 - [ ] Resolve the failing `__has_trivial_constructor` assertions for deleted
       default constructors and their subobjects. The full `test-cxx` gate

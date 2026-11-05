@@ -19,6 +19,8 @@ int main() {
             aliased.scoped_value == 27 && introduced.scoped_value == 29 &&
             templated.value == 33 && defaulted.value.value == 37 &&
             defaulted.private_value_sum() == 41 &&
+            bridge_private_hidden_friend(value) == 26 &&
+            reachable_private_hidden_friend(value) == 26 &&
             bridge_private_default_argument() == 35 &&
             bridge_private_declaration_default() == 43 &&
             bridge_private_overload(8) == 108 &&

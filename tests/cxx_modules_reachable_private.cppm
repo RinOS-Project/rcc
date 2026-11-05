@@ -2,6 +2,10 @@ export module reachable_private;
 
 struct ReachablePrivate {
     int value;
+
+    friend int reachable_private_hidden_friend(ReachablePrivate value) {
+        return value.value + 9;
+    }
 };
 
 enum ReachablePrivateEnum {

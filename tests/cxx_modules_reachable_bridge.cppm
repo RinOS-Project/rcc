@@ -28,6 +28,10 @@ export inline int bridge_private_helper(int value) {
     return reachable_private_helper(value);
 }
 
+export inline int bridge_private_hidden_friend(BridgeAlias value) {
+    return reachable_private_hidden_friend(value);
+}
+
 export inline int bridge_private_namespace_helper(int value) {
     return reachable_detail::reachable_scoped_helper(value);
 }
