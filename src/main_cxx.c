@@ -81,6 +81,10 @@ typedef struct CxxModuleLoadContext {
     char error[512];
 } CxxModuleLoadContext;
 
+static bool cxx_module_preprocess_header_unit(
+    CxxModuleLoadContext* context, const char* header_name,
+    char** expanded_out);
+
 typedef struct CxxModuleEvent {
     size_t begin;
     size_t end;
@@ -683,7 +687,9 @@ static bool cxx_module_append_interface_record(CxxModuleBuffer* records,
     char header[32];
     int header_length;
     if (!records || !content ||
-        (visibility != 'E' && visibility != 'P')) return false;
+        (visibility != 'E' && visibility != 'P' && visibility != 'H')) {
+        return false;
+    }
     header_length = snprintf(header, sizeof(header), "%c %lu\n", visibility,
                              (unsigned long)content->length);
     return header_length > 0 && (size_t)header_length < sizeof(header) &&
@@ -967,7 +973,7 @@ static bool cxx_module_artifact_path(const char* directory,
         slug_length += addition;
     }
     suffix_length = snprintf(suffix, sizeof(suffix),
-                             ".%s.cxx%d.a%u.m%016llx.v6.rmi",
+                             ".%s.cxx%d.a%u.m%016llx.v7.rmi",
                              target_arch == ARCH_X64 ? "x64" : "x86",
                              standard, (unsigned)abi,
                              (unsigned long long)macro_state_hash);
@@ -1066,7 +1072,7 @@ static bool cxx_module_artifact_bytes(const char* module_name,
                                   dependencies, reexports, exports,
                                   exports_size, &payload)) goto done;
     prefix_size = snprintf(prefix, sizeof(prefix),
-                           "RCCBMI6 %u %d %u %016llx %lu %lu %016llx %016llx ",
+                           "RCCBMI7 %u %d %u %016llx %lu %lu %016llx %016llx ",
                            target_bits, standard, (unsigned)abi,
                            (unsigned long long)macro_state_hash,
                            (unsigned long)dependencies->count,
@@ -1328,6 +1334,7 @@ static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
         requested_name, context ? context->current_module : NULL);
     bool rebuilt_stale_artifact = false;
     bool rebuilt_stale_dependency = false;
+    bool rebuilt_stale_header = false;
     bool ok = false;
     for (size_t index = 0; index < context->stack_count; ++index) {
         if (strcmp(context->stack[index], requested_name) == 0) {
@@ -1371,7 +1378,7 @@ reload_artifact:
     }
     pp_record_dependency(context->preprocessor, artifact_path);
     if (sscanf(bytes,
-               "RCCBMI6 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
+               "RCCBMI7 %u %d %u %llx %lu %lu %llx %llx %llx%n", &target_bits,
                &standard, &abi, &macro_state_hash, &dependency_count_value,
                &payload_size_value, &source_state_hash,
                &dependency_state_hash, &expected_hash, &header_bytes) != 9 ||
@@ -1386,7 +1393,7 @@ reload_artifact:
     }
     checksum_prefix_size = snprintf(
         checksum_prefix, sizeof(checksum_prefix),
-        "RCCBMI6 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
+        "RCCBMI7 %u %d %u %016llx %lu %lu %016llx %016llx ", target_bits,
         standard, abi, macro_state_hash,
         dependency_count_value, payload_size_value, source_state_hash,
         dependency_state_hash);
@@ -1640,7 +1647,8 @@ reload_artifact:
         bool append_record;
         if (!line_end || (size_t)(line_end - cursor) < 3u ||
             cursor[1] != ' ' ||
-            ((visibility = cursor[0]) != 'E' && visibility != 'P')) {
+            ((visibility = cursor[0]) != 'E' && visibility != 'P' &&
+             visibility != 'H')) {
             snprintf(context->error, sizeof(context->error),
                      "module interface '%s' has a malformed declaration record",
                      requested_name);
@@ -1664,13 +1672,115 @@ reload_artifact:
             goto pop;
         }
         cursor = line_end + 1;
-        append_record = visibility == 'E' ? visible : private_visible;
-        if (append_record &&
-            !cxx_module_buffer_append(imports, cursor,
-                                      (size_t)record_length)) {
-            snprintf(context->error, sizeof(context->error),
-                     "out of memory importing module '%s'", requested_name);
-            goto pop;
+        if (visibility == 'H') {
+            char* header_name_end = memchr(cursor, '\n', (size_t)record_length);
+            char header_hash_text[32];
+            char* parsed_hash_end;
+            unsigned long long recorded_header_hash;
+            char* header_name;
+            if (!header_name_end || header_name_end == cursor ||
+                (size_t)(header_name_end - cursor) >= RCC_MAX_PATH ||
+                (size_t)(cursor + record_length - header_name_end - 1) != 16u) {
+                snprintf(context->error, sizeof(context->error),
+                         "module interface '%s' has an invalid header-unit fingerprint",
+                         requested_name);
+                goto pop;
+            }
+            memcpy(header_hash_text, header_name_end + 1, 16u);
+            header_hash_text[16] = '\0';
+            errno = 0;
+            recorded_header_hash = strtoull(header_hash_text,
+                                             &parsed_hash_end, 16);
+            if (errno || *parsed_hash_end) {
+                snprintf(context->error, sizeof(context->error),
+                         "module interface '%s' has an invalid header-unit hash",
+                         requested_name);
+                goto pop;
+            }
+            header_name = cxx_module_copy_span(
+                cursor, 0u, (size_t)(header_name_end - cursor));
+            if (!header_name) {
+                snprintf(context->error, sizeof(context->error),
+                         "out of memory reading module header-unit identity");
+                goto pop;
+            }
+            if (!rebuilt_stale_header) {
+                const char* saved_input_path = context->input_path;
+                char* expanded_header = NULL;
+                bool expanded;
+                context->input_path = source_path;
+                expanded = cxx_module_preprocess_header_unit(
+                    context, header_name, &expanded_header);
+                context->input_path = saved_input_path;
+                if (!expanded) {
+                    rcc_free(header_name);
+                    rcc_free(expanded_header);
+                    goto pop;
+                }
+                if (cxx_module_hash(expanded_header,
+                                    strlen(expanded_header)) !=
+                    (uint64_t)recorded_header_hash) {
+                    char module_directory[RCC_MAX_PATH];
+                    bool rebuild_ok;
+                    rcc_free(expanded_header);
+                    rcc_free(header_name);
+                    if (cxx_module_name_list_contains(
+                            &g_cxx_module_rebuilding, requested_name)) {
+                        snprintf(context->error, sizeof(context->error),
+                                 "cyclic stale C++ module rebuild involving '%s'",
+                                 requested_name);
+                        goto pop;
+                    }
+                    if (!cxx_module_names_add(&g_cxx_module_rebuilding,
+                                              requested_name)) {
+                        snprintf(context->error, sizeof(context->error),
+                                 "out of memory tracking stale module rebuild '%s'",
+                                 requested_name);
+                        goto pop;
+                    }
+                    rebuild_ok = cxx_module_rebuild_source(
+                        context, source_path, source_input_name);
+                    cxx_module_name_list_remove(&g_cxx_module_rebuilding,
+                                                requested_name);
+                    if (!rebuild_ok ||
+                        !cxx_module_directory_of(source_path,
+                                                 module_directory,
+                                                 sizeof(module_directory)) ||
+                        !cxx_module_artifact_path(
+                            module_directory, requested_name,
+                            context->target_arch, context->standard,
+                            context->abi, context->macro_state_hash,
+                            artifact_path, sizeof(artifact_path))) {
+                        snprintf(context->error, sizeof(context->error),
+                                 "automatic rebuild of module '%s' with changed header units failed",
+                                 requested_name);
+                        goto pop;
+                    }
+                    rcc_free(context->stack[--context->stack_count]);
+                    rebuilt_stale_header = true;
+                    rcc_free(source_path);
+                    source_path = NULL;
+                    rcc_free(source_input_name);
+                    source_input_name = NULL;
+                    rcc_free(bytes);
+                    bytes = NULL;
+                    size = 0u;
+                    cxx_module_names_clear(&dependencies);
+                    cxx_module_names_clear(&reexports);
+                    goto reload_artifact;
+                }
+                rcc_free(expanded_header);
+            }
+            rcc_free(header_name);
+        } else {
+            append_record = visibility == 'E' ? visible : private_visible;
+            if (append_record &&
+                !cxx_module_buffer_append(imports, cursor,
+                                          (size_t)record_length)) {
+                snprintf(context->error, sizeof(context->error),
+                         "out of memory importing module '%s'", requested_name);
+                goto pop;
+            }
         }
         cursor += (size_t)record_length;
         if (cursor >= payload_end || *cursor != '\n') {
@@ -1986,18 +2096,16 @@ fail:
     return false;
 }
 
-static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
-                                          const char* header_name,
-                                          CxxModuleBuffer* imports) {
+static bool cxx_module_preprocess_header_unit(CxxModuleLoadContext* context,
+                                              const char* header_name,
+                                              char** expanded_out) {
     char directive[RCC_MAX_PATH + 16u];
     char* expanded;
     int directive_length;
     int errors_before;
+    if (expanded_out) *expanded_out = NULL;
     if (!context || !context->preprocessor || !context->input_path ||
-        !header_name || !imports) return false;
-    if (cxx_module_name_list_contains(&context->loaded_headers, header_name)) {
-        return true;
-    }
+        !header_name || !expanded_out) return false;
     directive_length = snprintf(directive, sizeof(directive),
                                 "#include %s\n", header_name);
     if (directive_length < 0 ||
@@ -2013,6 +2121,21 @@ static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
         rcc_free(expanded);
         snprintf(context->error, sizeof(context->error),
                  "could not preprocess header unit %s", header_name);
+        return false;
+    }
+    *expanded_out = expanded;
+    return true;
+}
+
+static bool cxx_module_import_header_unit(CxxModuleLoadContext* context,
+                                          const char* header_name,
+                                          CxxModuleBuffer* imports) {
+    char* expanded = NULL;
+    if (!context || !header_name || !imports) return false;
+    if (cxx_module_name_list_contains(&context->loaded_headers, header_name)) {
+        return true;
+    }
+    if (!cxx_module_preprocess_header_unit(context, header_name, &expanded)) {
         return false;
     }
     if (!cxx_module_buffer_text(imports, expanded) ||
@@ -2050,16 +2173,33 @@ static bool cxx_module_rewrite_source(const char* source,
                                            &imports, true);
             if (!imported) goto fail;
             if (event->header_unit && load_context->interface_unit &&
-                imports.length > 0u &&
-                !cxx_module_append_interface_record(
-                    load_context->interface_records,
-                    event->exported_import ? 'E' : 'P', &imports)) {
-                snprintf(load_context->error, sizeof(load_context->error),
-                         "could not record header-unit declarations in module interface");
-                goto fail;
+                imports.length > 0u) {
+                CxxModuleBuffer header_state = {0};
+                char hash_text[32];
+                int hash_length = snprintf(
+                    hash_text, sizeof(hash_text), "%016llx",
+                    (unsigned long long)cxx_module_hash(
+                        imports.data, imports.length));
+                bool recorded = hash_length > 0 &&
+                    (size_t)hash_length < sizeof(hash_text) &&
+                    cxx_module_buffer_text(&header_state,
+                                           event->import_name) &&
+                    cxx_module_buffer_text(&header_state, "\n") &&
+                    cxx_module_buffer_append(&header_state, hash_text,
+                                             (size_t)hash_length) &&
+                    cxx_module_append_interface_record(
+                        load_context->interface_records, 'H', &header_state) &&
+                    cxx_module_append_interface_record(
+                        load_context->interface_records,
+                        event->exported_import ? 'E' : 'P', &imports);
+                rcc_free(header_state.data);
+                if (!recorded) {
+                    snprintf(load_context->error, sizeof(load_context->error),
+                             "could not record header-unit declarations in module interface");
+                    goto fail;
+                }
             }
-            if (
-                !cxx_module_buffer_append(&rewritten, imports.data,
+            if (!cxx_module_buffer_append(&rewritten, imports.data,
                                           imports.length)) goto fail;
         }
         if (event->replacement &&
