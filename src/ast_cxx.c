@@ -4731,13 +4731,15 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
     argument_context.namespace_scope = mangling_namespace;
     cxx_mangle_seed_namespace_substitutions(
         &argument_context, mangling_namespace);
-    base = cxx_mangle_name(variable->name, ns, NULL);
+    base = cxx_mangle_name(variable->name, ns, tmpl->enclosing_class);
     if (!base || strlen(base) + 2u >= sizeof(buf)) {
         rcc_fatal("C++ variable template name is too long");
     }
     strcpy(buf, base);
     pos = strlen(buf);
-    if (ns && ns != g_global_namespace && pos > 0u && buf[pos - 1u] == 'E') {
+    if ((tmpl->enclosing_class ||
+         (ns && ns != g_global_namespace)) &&
+        pos > 0u && buf[pos - 1u] == 'E') {
         /* The template arguments belong before the enclosing-name terminator. */
         --pos;
     }
@@ -4887,7 +4889,7 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
         rcc_fatal("C++ variable template name is too long");
     }
     buf[pos++] = 'E';
-    if (ns && ns != g_global_namespace) {
+    if (tmpl->enclosing_class || (ns && ns != g_global_namespace)) {
         if (pos + 1u >= sizeof(buf)) {
             rcc_fatal("C++ variable template name is too long");
         }
@@ -16816,6 +16818,66 @@ CxxNestedClassTemplate* cxx_class_find_nested_template(
         if (nested->declaration && nested->declaration->name &&
             strcmp(nested->declaration->name, name) == 0) {
             return nested;
+        }
+    }
+    return NULL;
+}
+
+CxxMemberVariableTemplate* cxx_class_add_member_variable_template(
+    CxxClass* cls, CxxTemplate* declaration, AccessSpec access,
+    SourceLoc loc) {
+    CxxMemberVariableTemplate* member_template;
+    CxxMemberVariableTemplate** tail;
+    if (!cls || !declaration || declaration->kind != TMPL_VARIABLE ||
+        !declaration->var_def || !declaration->name ||
+        !*declaration->name) {
+        return NULL;
+    }
+    if (cxx_class_find_type_alias(cls, declaration->name) ||
+        cxx_class_find_alias_template(cls, declaration->name) ||
+        cxx_class_find_nested_template(cls, declaration->name)) {
+        rcc_error(loc, "duplicate class member template name '%s'",
+                  declaration->name);
+        return NULL;
+    }
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        if (member->decl && member->decl->name &&
+            strcmp(member->decl->name, declaration->name) == 0) {
+            rcc_error(loc, "duplicate class member name '%s'",
+                      declaration->name);
+            return NULL;
+        }
+    }
+    for (CxxMemberVariableTemplate* current = cls->member_variable_templates;
+         current; current = current->next) {
+        if (current->declaration && current->declaration->name &&
+            strcmp(current->declaration->name, declaration->name) == 0) {
+            rcc_error(loc, "duplicate class member variable template '%s'",
+                      declaration->name);
+            return NULL;
+        }
+    }
+    member_template = ast_arena_alloc(sizeof(*member_template));
+    member_template->declaration = declaration;
+    member_template->access = access;
+    member_template->next = NULL;
+    tail = &cls->member_variable_templates;
+    while (*tail) tail = &(*tail)->next;
+    *tail = member_template;
+    return member_template;
+}
+
+CxxMemberVariableTemplate* cxx_class_find_member_variable_template(
+    CxxClass* cls, const char* name) {
+    if (!cls || !name) return NULL;
+    for (CxxMemberVariableTemplate* member_template =
+             cls->member_variable_templates;
+         member_template; member_template = member_template->next) {
+        if (member_template->declaration &&
+            member_template->declaration->name &&
+            strcmp(member_template->declaration->name, name) == 0) {
+            return member_template;
         }
     }
     return NULL;

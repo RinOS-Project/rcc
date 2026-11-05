@@ -14546,6 +14546,35 @@ static bool cxx_class_function_template_starts(void) {
     return cxx_member_function_declaration_starts(declaration);
 }
 
+static bool cxx_class_variable_template_starts(void) {
+    Token* declaration;
+    Token* saved_cur;
+    Token* saved_prev;
+    Token* token;
+    bool has_static = false;
+    bool result;
+    if (!check(TOK_TEMPLATE)) return false;
+    declaration = cxx_template_parameter_list_end(parser.cur);
+    if (!declaration || declaration->type == TOK_REQUIRES) return false;
+    for (token = declaration; token; token = token->next) {
+        if (token->type == TOK_STATIC) has_static = true;
+        if (token->type == TOK_ASSIGN || token->type == TOK_LBRACE ||
+            token->type == TOK_SEMICOLON) {
+            break;
+        }
+        if (token->type == TOK_LPAREN) return false;
+    }
+    if (!has_static) return false;
+    saved_cur = parser.cur;
+    saved_prev = parser.prev;
+    parser.cur = declaration;
+    parser.prev = NULL;
+    result = cxx_template_variable_starts();
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return result;
+}
+
 /* Parse the body and ABI metadata of a class after its source name has
  * already been consumed.  Explicit template specializations use this same
  * path so their class body cannot be mistaken for a primary-template body. */
@@ -14769,6 +14798,26 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                               "class-scope nested class template is invalid");
                 } else {
                     cxx_class_add_nested_template(
+                        cls, member_template, current_access, template_loc);
+                }
+                continue;
+            }
+
+            if (cxx_class_variable_template_starts()) {
+                SourceLoc template_loc = peek()->loc;
+                CxxTemplate* member_template;
+                advance(); /* template */
+                member_template = parse_cxx_template(current_access);
+                if (!member_template ||
+                    member_template->kind != TMPL_VARIABLE ||
+                    !member_template->var_def) {
+                    rcc_error(template_loc,
+                              "class-scope static member variable template is invalid");
+                } else {
+                    member_template->ns = active_namespace
+                        ? active_namespace : g_global_namespace;
+                    member_template->enclosing_class = cls;
+                    (void)cxx_class_add_member_variable_template(
                         cls, member_template, current_access, template_loc);
                 }
                 continue;
@@ -18785,7 +18834,45 @@ static CxxTemplate* find_template_template_argument(
 }
 
 static CxxTemplate* find_variable_template(const char* qualified_name) {
-    return find_template(qualified_name, TMPL_VARIABLE);
+    CxxTemplate* result = find_template(qualified_name, TMPL_VARIABLE);
+    const char* separator;
+    if (result) return result;
+    if (!qualified_name) return NULL;
+    if ((separator = strrchr(qualified_name, ':')) != NULL &&
+        separator > qualified_name && separator[-1] == ':') {
+        size_t owner_length = (size_t)(separator - qualified_name - 1);
+        char* owner_name = cxx_copy_name_span(qualified_name, owner_length);
+        CxxClass* owner = find_class(owner_name);
+        CxxMemberVariableTemplate* member_template;
+        if (!owner && active_class && active_class->name &&
+            strcmp(active_class->name, owner_name) == 0) {
+            owner = active_class;
+        }
+        member_template = owner
+            ? cxx_class_find_member_variable_template(owner, separator + 1)
+            : NULL;
+        if (member_template && member_template->declaration &&
+            (member_template->access == ACCESS_PUBLIC ||
+             owner == active_class ||
+             (member_template->access == ACCESS_PROTECTED &&
+              cxx_class_is_same_or_derived_from(active_class, owner)))) {
+            return member_template->declaration;
+        }
+        return NULL;
+    }
+    for (CxxClass* owner = active_class; owner;
+         owner = owner->enclosing_class) {
+        CxxMemberVariableTemplate* member_template =
+            cxx_class_find_member_variable_template(owner, qualified_name);
+        if (member_template && member_template->declaration &&
+            (member_template->access == ACCESS_PUBLIC ||
+             owner == active_class ||
+             (member_template->access == ACCESS_PROTECTED &&
+              cxx_class_is_same_or_derived_from(active_class, owner)))) {
+            return member_template->declaration;
+        }
+    }
+    return NULL;
 }
 
 static CxxTemplate* find_concept(const char* qualified_name) {

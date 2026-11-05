@@ -104,6 +104,11 @@ template<auto... Values>
 inline constexpr int auto_structural_member_pointer_pack_variable =
     sizeof...(Values);
 
+struct auto_structural_member_pointer_variable_owner {
+    template<auto Value>
+    inline static constexpr int member = 43;
+};
+
 const int* auto_member_pointer_variable_address() {
     return &auto_member_pointer_variable<
         &auto_member_pointer_target::field>;
@@ -136,6 +141,12 @@ const int* auto_structural_member_pointer_pack_variable_address() {
         auto_data_member_pointer_constant{
             &auto_member_pointer_target::field},
         auto_data_member_pointer_constant{nullptr}>;
+}
+
+const int* auto_nested_structural_member_pointer_variable_address() {
+    return &auto_structural_member_pointer_variable_owner::member<
+        auto_data_member_pointer_constant{
+            &auto_member_pointer_target::field}>;
 }
 
 template<auto Pointer>
@@ -390,6 +401,11 @@ extern "C" int main() {
                    auto_structural_member_pointer_pack_variable<> == 0 &&
                    *auto_structural_member_pointer_pack_variable_address() ==
                        2 &&
+                   auto_structural_member_pointer_variable_owner::member<
+                       auto_data_member_pointer_constant{
+                           &auto_member_pointer_target::field}> == 43 &&
+                   *auto_nested_structural_member_pointer_variable_address() ==
+                       43 &&
                    auto_member_pointer_read<
                        &auto_member_pointer_target::field>() == 5 &&
                    auto_member_pointer_read<

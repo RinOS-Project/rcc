@@ -21,6 +21,7 @@ typedef struct CxxSecondaryVtable CxxSecondaryVtable;
 typedef struct CxxTypeAlias CxxTypeAlias;
 typedef struct CxxClassAliasTemplate CxxClassAliasTemplate;
 typedef struct CxxNestedClassTemplate CxxNestedClassTemplate;
+typedef struct CxxMemberVariableTemplate CxxMemberVariableTemplate;
 typedef struct CxxLocalClassTemplate CxxLocalClassTemplate;
 
 typedef struct CxxVirtualBaseInfo {
@@ -54,6 +55,12 @@ struct CxxNestedClassTemplate {
     CxxTemplate* declaration;
     AccessSpec access;
     CxxNestedClassTemplate* next;
+};
+
+struct CxxMemberVariableTemplate {
+    CxxTemplate* declaration;
+    AccessSpec access;
+    CxxMemberVariableTemplate* next;
 };
 
 /* Constructor facts retained until all class fields are known.  Only the
@@ -222,6 +229,8 @@ struct CxxClass {
     CxxClassAliasTemplate* alias_templates;
     /* Class templates declared directly in this class scope. */
     CxxNestedClassTemplate* nested_class_templates;
+    /* Static data member templates declared directly in this class scope. */
+    CxxMemberVariableTemplate* member_variable_templates;
 
     /* Namespace context */
     CxxNamespace* ns;
@@ -643,6 +652,11 @@ CxxNestedClassTemplate* cxx_class_add_nested_template(
     CxxClass* cls, CxxTemplate* declaration, AccessSpec access,
     SourceLoc loc);
 CxxNestedClassTemplate* cxx_class_find_nested_template(
+    CxxClass* cls, const char* name);
+CxxMemberVariableTemplate* cxx_class_add_member_variable_template(
+    CxxClass* cls, CxxTemplate* declaration, AccessSpec access,
+    SourceLoc loc);
+CxxMemberVariableTemplate* cxx_class_find_member_variable_template(
     CxxClass* cls, const char* name);
 CxxClassAliasTemplate* cxx_class_find_inherited_alias_template(
     CxxClass* cls, const char* name, CxxClass* access_context,
