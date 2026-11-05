@@ -71,5 +71,6 @@ char* pp_process_file(Preprocessor* pp, const char* filename);
 char* pp_process_string(Preprocessor* pp, const char* source, const char* filename);
 bool pp_write_dependencies(Preprocessor* pp, const char* target,
                            const char* source, const char* dependency_file);
+void pp_record_dependency(Preprocessor* pp, const char* path);
 
 #endif /* PREPROC_H */

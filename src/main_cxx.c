@@ -14,11 +14,1503 @@
 #include "preproc.h"
 #include "build_manifest.h"
 #include "verified_codegen.h"
+#include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <getopt.h>
 
 /* C++ specific options */
 static int g_cxx_standard = 20;  /* C++20 is the RinOS v3 language contract. */
+
+#define RCC_CXX_MODULE_MAX_ARTIFACT (16u * 1024u * 1024u)
+#define RCC_CXX_MODULE_MAX_TOKENS 1048576u
+#define RCC_CXX_MODULE_MAX_IMPORT_DEPTH 128u
+
+typedef struct CxxModuleToken {
+    size_t begin;
+    size_t end;
+    bool identifier;
+} CxxModuleToken;
+
+typedef struct CxxModuleBuffer {
+    char* data;
+    size_t length;
+    size_t capacity;
+} CxxModuleBuffer;
+
+typedef struct CxxModuleNameList {
+    char** items;
+    size_t count;
+    size_t capacity;
+} CxxModuleNameList;
+
+typedef struct CxxModulePendingArtifact {
+    char path[RCC_MAX_PATH];
+    char* bytes;
+    size_t size;
+} CxxModulePendingArtifact;
+
+typedef struct CxxModuleLoadContext {
+    Preprocessor* preprocessor;
+    const char* source_directory;
+    const char** include_paths;
+    int include_count;
+    TargetArch target_arch;
+    int standard;
+    RccCxxItaniumAbi abi;
+    CxxModuleNameList loaded;
+    char* stack[RCC_CXX_MODULE_MAX_IMPORT_DEPTH];
+    size_t stack_count;
+    char error[512];
+} CxxModuleLoadContext;
+
+typedef struct CxxModuleEvent {
+    size_t begin;
+    size_t end;
+    char* import_name;
+    char* replacement;
+} CxxModuleEvent;
+
+typedef struct CxxModuleEvents {
+    CxxModuleEvent* items;
+    size_t count;
+    size_t capacity;
+} CxxModuleEvents;
+
+static bool cxx_module_buffer_reserve(CxxModuleBuffer* buffer,
+                                      size_t additional) {
+    size_t needed;
+    size_t capacity;
+    char* replacement;
+    if (additional > SIZE_MAX - buffer->length - 1u) return false;
+    needed = buffer->length + additional + 1u;
+    if (needed <= buffer->capacity) return true;
+    capacity = buffer->capacity ? buffer->capacity : 256u;
+    while (capacity < needed) {
+        if (capacity > SIZE_MAX / 2u) {
+            capacity = needed;
+            break;
+        }
+        capacity *= 2u;
+    }
+    replacement = rcc_realloc(buffer->data, capacity);
+    if (!replacement) return false;
+    buffer->data = replacement;
+    buffer->capacity = capacity;
+    return true;
+}
+
+static bool cxx_module_buffer_append(CxxModuleBuffer* buffer,
+                                     const char* bytes, size_t length) {
+    if ((!bytes && length) || !cxx_module_buffer_reserve(buffer, length)) {
+        return false;
+    }
+    if (length) memcpy(buffer->data + buffer->length, bytes, length);
+    buffer->length += length;
+    buffer->data[buffer->length] = '\0';
+    return true;
+}
+
+static bool cxx_module_buffer_text(CxxModuleBuffer* buffer,
+                                   const char* text) {
+    return text && cxx_module_buffer_append(buffer, text, strlen(text));
+}
+
+static bool cxx_module_name_valid(const char* name) {
+    const unsigned char* cursor = (const unsigned char*)name;
+    bool need_identifier = true;
+    if (!name || !*name) return false;
+    for (; *cursor; ++cursor) {
+        if (*cursor == '.' || *cursor == ':') {
+            if (need_identifier) return false;
+            need_identifier = true;
+        } else if (isalnum(*cursor) || *cursor == '_') {
+            need_identifier = false;
+        } else {
+            return false;
+        }
+    }
+    return !need_identifier;
+}
+
+static bool cxx_module_names_add(CxxModuleNameList* list,
+                                 const char* name) {
+    char** replacement;
+    size_t capacity;
+    if (!list || !name || !*name) return false;
+    for (size_t index = 0; index < list->count; ++index) {
+        if (strcmp(list->items[index], name) == 0) return true;
+    }
+    if (list->count == list->capacity) {
+        capacity = list->capacity ? list->capacity * 2u : 8u;
+        if (capacity < list->capacity ||
+            capacity > SIZE_MAX / sizeof(list->items[0])) return false;
+        replacement = rcc_realloc(list->items,
+                                  capacity * sizeof(list->items[0]));
+        if (!replacement) return false;
+        list->items = replacement;
+        list->capacity = capacity;
+    }
+    list->items[list->count] = rcc_strdup(name);
+    if (!list->items[list->count]) return false;
+    ++list->count;
+    return true;
+}
+
+static bool cxx_module_name_list_contains(const CxxModuleNameList* list,
+                                          const char* name) {
+    if (!list || !name) return false;
+    for (size_t index = 0; index < list->count; ++index) {
+        if (strcmp(list->items[index], name) == 0) return true;
+    }
+    return false;
+}
+
+static void cxx_module_names_clear(CxxModuleNameList* list) {
+    if (!list) return;
+    for (size_t index = 0; index < list->count; ++index) {
+        rcc_free(list->items[index]);
+    }
+    rcc_free(list->items);
+    memset(list, 0, sizeof(*list));
+}
+
+static bool cxx_module_events_add(CxxModuleEvents* events, size_t begin,
+                                  size_t end, char* import_name,
+                                  char* replacement_text) {
+    CxxModuleEvent* replacement;
+    size_t capacity;
+    if (!events || end < begin) return false;
+    if (events->count == events->capacity) {
+        capacity = events->capacity ? events->capacity * 2u : 8u;
+        if (capacity < events->capacity ||
+            capacity > SIZE_MAX / sizeof(events->items[0])) return false;
+        replacement = rcc_realloc(events->items,
+                                  capacity * sizeof(events->items[0]));
+        if (!replacement) return false;
+        events->items = replacement;
+        events->capacity = capacity;
+    }
+    events->items[events->count].begin = begin;
+    events->items[events->count].end = end;
+    events->items[events->count].import_name = import_name;
+    events->items[events->count].replacement = replacement_text;
+    ++events->count;
+    return true;
+}
+
+static void cxx_module_events_clear(CxxModuleEvents* events) {
+    if (!events) return;
+    for (size_t index = 0; index < events->count; ++index) {
+        rcc_free(events->items[index].import_name);
+        rcc_free(events->items[index].replacement);
+    }
+    rcc_free(events->items);
+    memset(events, 0, sizeof(*events));
+}
+
+static bool cxx_module_identifier_start(unsigned char value) {
+    return isalpha(value) || value == '_';
+}
+
+static bool cxx_module_identifier_part(unsigned char value) {
+    return isalnum(value) || value == '_';
+}
+
+static bool cxx_module_tokens_add(CxxModuleToken** tokens, size_t* count,
+                                  size_t* capacity, size_t begin,
+                                  size_t end, bool identifier) {
+    CxxModuleToken* replacement;
+    size_t new_capacity;
+    if (*count >= RCC_CXX_MODULE_MAX_TOKENS) return false;
+    if (*count == *capacity) {
+        new_capacity = *capacity ? *capacity * 2u : 256u;
+        if (new_capacity < *capacity ||
+            new_capacity > SIZE_MAX / sizeof((*tokens)[0])) return false;
+        replacement = rcc_realloc(*tokens,
+                                  new_capacity * sizeof((*tokens)[0]));
+        if (!replacement) return false;
+        *tokens = replacement;
+        *capacity = new_capacity;
+    }
+    (*tokens)[*count].begin = begin;
+    (*tokens)[*count].end = end;
+    (*tokens)[*count].identifier = identifier;
+    ++*count;
+    return true;
+}
+
+static size_t cxx_module_skip_quoted(const char* source, size_t length,
+                                    size_t quote) {
+    char delimiter = source[quote];
+    size_t cursor = quote + 1u;
+    while (cursor < length) {
+        if (source[cursor] == '\\') {
+            cursor += cursor + 1u < length ? 2u : 1u;
+        } else if (source[cursor++] == delimiter) {
+            break;
+        }
+    }
+    return cursor;
+}
+
+static size_t cxx_module_skip_raw_string(const char* source, size_t length,
+                                         size_t quote) {
+    size_t open = quote + 1u;
+    size_t delimiter_length;
+    size_t cursor;
+    while (open < length && source[open] != '(' && source[open] != '\n' &&
+           source[open] != '\\' && source[open] != ')') {
+        ++open;
+    }
+    if (open == length || source[open] != '(') return quote + 1u;
+    delimiter_length = open - quote - 1u;
+    cursor = open + 1u;
+    while (cursor < length) {
+        if (source[cursor] == ')' &&
+            delimiter_length <= length - cursor - 1u &&
+            memcmp(source + cursor + 1u, source + quote + 1u,
+                   delimiter_length) == 0 &&
+            cursor + delimiter_length + 1u < length &&
+            source[cursor + delimiter_length + 1u] == '"') {
+            return cursor + delimiter_length + 2u;
+        }
+        ++cursor;
+    }
+    return length;
+}
+
+static bool cxx_module_lex(const char* source, CxxModuleToken** tokens_out,
+                           size_t* count_out) {
+    size_t length = strlen(source);
+    size_t cursor = 0u;
+    size_t count = 0u;
+    size_t capacity = 0u;
+    CxxModuleToken* tokens = NULL;
+    while (cursor < length) {
+        size_t begin;
+        unsigned char value = (unsigned char)source[cursor];
+        if (isspace(value)) {
+            ++cursor;
+            continue;
+        }
+        if (source[cursor] == '#') {
+            size_t line_begin = cursor;
+            while (line_begin > 0u && source[line_begin - 1u] != '\n') {
+                --line_begin;
+            }
+            while (line_begin < cursor &&
+                   (source[line_begin] == ' ' || source[line_begin] == '\t' ||
+                    source[line_begin] == '\r')) ++line_begin;
+            if (line_begin == cursor &&
+                cursor + 5u <= length &&
+                memcmp(source + cursor, "#line", 5u) == 0) {
+                while (cursor < length && source[cursor] != '\n') ++cursor;
+                continue;
+            }
+        }
+        if (source[cursor] == '/' && cursor + 1u < length &&
+            source[cursor + 1u] == '/') {
+            cursor += 2u;
+            while (cursor < length && source[cursor] != '\n') ++cursor;
+            continue;
+        }
+        if (source[cursor] == '/' && cursor + 1u < length &&
+            source[cursor + 1u] == '*') {
+            cursor += 2u;
+            while (cursor + 1u < length &&
+                   !(source[cursor] == '*' && source[cursor + 1u] == '/')) {
+                ++cursor;
+            }
+            if (cursor + 1u < length) cursor += 2u;
+            continue;
+        }
+        if (source[cursor] == 'R' && cursor + 1u < length &&
+            source[cursor + 1u] == '"') {
+            begin = cursor;
+            cursor = cxx_module_skip_raw_string(source, length, cursor + 1u);
+            if (cursor <= begin + 1u ||
+                !cxx_module_tokens_add(&tokens, &count, &capacity, begin,
+                                       cursor, false)) goto fail;
+            continue;
+        }
+        if (source[cursor] == '"' || source[cursor] == '\'') {
+            begin = cursor;
+            cursor = cxx_module_skip_quoted(source, length, cursor);
+            if (!cxx_module_tokens_add(&tokens, &count, &capacity, begin,
+                                       cursor, false)) goto fail;
+            continue;
+        }
+        if (cxx_module_identifier_start(value)) {
+            begin = cursor++;
+            while (cursor < length &&
+                   cxx_module_identifier_part(
+                       (unsigned char)source[cursor])) ++cursor;
+            if (cursor < length && source[cursor] == '"' &&
+                ((cursor - begin == 1u && source[begin] == 'R') ||
+                 (cursor - begin == 3u &&
+                  memcmp(source + begin, "u8R", 3u) == 0) ||
+                 (cursor - begin == 2u &&
+                  (source[begin] == 'u' || source[begin] == 'U' ||
+                   source[begin] == 'L') && source[begin + 1u] == 'R'))) {
+                cursor = cxx_module_skip_raw_string(source, length, cursor);
+                if (!cxx_module_tokens_add(&tokens, &count, &capacity, begin,
+                                           cursor, false)) goto fail;
+                continue;
+            }
+            if (!cxx_module_tokens_add(&tokens, &count, &capacity, begin,
+                                       cursor, true)) goto fail;
+            continue;
+        }
+        begin = cursor++;
+        if (!cxx_module_tokens_add(&tokens, &count, &capacity, begin,
+                                   cursor, false)) goto fail;
+    }
+    *tokens_out = tokens;
+    *count_out = count;
+    return true;
+fail:
+    rcc_free(tokens);
+    return false;
+}
+
+static bool cxx_module_token_is(const char* source,
+                                const CxxModuleToken* token,
+                                const char* spelling) {
+    size_t length;
+    if (!source || !token || !spelling || !token->identifier) return false;
+    length = strlen(spelling);
+    return token->end - token->begin == length &&
+           memcmp(source + token->begin, spelling, length) == 0;
+}
+
+static bool cxx_module_append_without_export(const char* source,
+                                             size_t begin, size_t end,
+                                             CxxModuleBuffer* output) {
+    CxxModuleToken* tokens = NULL;
+    size_t count = 0u;
+    size_t cursor = begin;
+    if (end < begin) return false;
+    if (!cxx_module_lex(source + begin, &tokens, &count)) return false;
+    for (size_t index = 0; index < count; ++index) {
+        CxxModuleToken* token = &tokens[index];
+        size_t absolute_begin = begin + token->begin;
+        size_t absolute_end = begin + token->end;
+        if (cxx_module_token_is(source + begin, token, "export")) {
+            if (!cxx_module_buffer_append(output, source + cursor,
+                                          absolute_begin - cursor)) {
+                rcc_free(tokens);
+                return false;
+            }
+            cursor = absolute_end;
+        }
+    }
+    if (!cxx_module_buffer_append(output, source + cursor, end - cursor)) {
+        rcc_free(tokens);
+        return false;
+    }
+    rcc_free(tokens);
+    return true;
+}
+
+static char* cxx_module_copy_span(const char* source, size_t begin,
+                                  size_t end) {
+    char* copy;
+    if (!source || end < begin || end - begin == SIZE_MAX) return NULL;
+    copy = rcc_alloc(end - begin + 1u);
+    if (!copy) return NULL;
+    memcpy(copy, source + begin, end - begin);
+    copy[end - begin] = '\0';
+    return copy;
+}
+
+static bool cxx_module_parse_name(const char* source,
+                                 CxxModuleToken* tokens,
+                                 size_t first, size_t semicolon,
+                                 char** name_out, bool* private_fragment) {
+    CxxModuleBuffer name = {0};
+    if (!source || !tokens || first > semicolon || !name_out) return false;
+    *name_out = NULL;
+    if (private_fragment) *private_fragment = false;
+    if (first == semicolon) return true; /* global module fragment */
+    if (first + 1u < semicolon &&
+        source[tokens[first].begin] == ':' &&
+        cxx_module_token_is(source, &tokens[first + 1u], "private")) {
+        if (private_fragment) *private_fragment = true;
+        return true;
+    }
+    for (size_t index = first; index < semicolon; ++index) {
+        if (!tokens[index].identifier &&
+            !(tokens[index].end - tokens[index].begin == 1u &&
+              (source[tokens[index].begin] == '.' ||
+               source[tokens[index].begin] == ':'))) {
+            rcc_free(name.data);
+            return false;
+        }
+        if (!cxx_module_buffer_append(&name,
+                                      source + tokens[index].begin,
+                                      tokens[index].end - tokens[index].begin)) {
+            rcc_free(name.data);
+            return false;
+        }
+    }
+    if (!name.data || !cxx_module_name_valid(name.data)) {
+        rcc_free(name.data);
+        return false;
+    }
+    *name_out = name.data;
+    return true;
+}
+
+static bool cxx_module_punct(const char* source,
+                             const CxxModuleToken* token, char punct) {
+    return source && token && !token->identifier &&
+           token->end - token->begin == 1u &&
+           source[token->begin] == punct;
+}
+
+static size_t cxx_module_find_next_semicolon(const char* source,
+                                             CxxModuleToken* tokens,
+                                             size_t count, size_t first) {
+    for (size_t index = first; index < count; ++index) {
+        if (cxx_module_punct(source, &tokens[index], ';')) return index;
+    }
+    return count;
+}
+
+static size_t cxx_module_find_matching_brace(const char* source,
+                                             CxxModuleToken* tokens,
+                                             size_t count, size_t open) {
+    size_t depth = 0u;
+    for (size_t index = open; index < count; ++index) {
+        if (cxx_module_punct(source, &tokens[index], '{')) {
+            ++depth;
+        } else if (cxx_module_punct(source, &tokens[index], '}')) {
+            if (depth == 0u) return count;
+            if (--depth == 0u) return index;
+        }
+    }
+    return count;
+}
+
+static bool cxx_module_prefix_has(CxxModuleToken* tokens, size_t first,
+                                  size_t last, const char* source,
+                                  const char* word) {
+    for (size_t index = first; index < last; ++index) {
+        if (cxx_module_token_is(source, &tokens[index], word)) return true;
+    }
+    return false;
+}
+
+static size_t cxx_module_find_export_declaration_end(
+    const char* source, CxxModuleToken* tokens, size_t count,
+    size_t first, size_t* body_open_out, size_t* body_close_out) {
+    int paren = 0;
+    int bracket = 0;
+    int brace = 0;
+    bool saw_paren = false;
+    bool saw_assignment = false;
+    bool type_or_namespace = false;
+    if (body_open_out) *body_open_out = count;
+    if (body_close_out) *body_close_out = count;
+    for (size_t index = first; index < count; ++index) {
+        CxxModuleToken* token = &tokens[index];
+        if (paren == 0 && bracket == 0 && brace == 0) {
+            type_or_namespace = type_or_namespace ||
+                cxx_module_token_is(source, token, "class") ||
+                cxx_module_token_is(source, token, "struct") ||
+                cxx_module_token_is(source, token, "union") ||
+                cxx_module_token_is(source, token, "enum") ||
+                cxx_module_token_is(source, token, "namespace");
+            if (cxx_module_punct(source, token, '=')) {
+                saw_assignment = true;
+            }
+            if (cxx_module_punct(source, token, ';')) return index + 1u;
+        }
+        if (cxx_module_punct(source, token, '(')) {
+            if (paren == 0 && brace == 0) saw_paren = true;
+            ++paren;
+        } else if (cxx_module_punct(source, token, ')') && paren > 0) {
+            --paren;
+        } else if (cxx_module_punct(source, token, '[')) {
+            ++bracket;
+        } else if (cxx_module_punct(source, token, ']') && bracket > 0) {
+            --bracket;
+        } else if (cxx_module_punct(source, token, '{')) {
+            if (paren == 0 && bracket == 0 && brace == 0 &&
+                saw_paren && !saw_assignment && !type_or_namespace) {
+                size_t close = cxx_module_find_matching_brace(
+                    source, tokens, count, index);
+                if (close == count) return count;
+                if (body_open_out) *body_open_out = index;
+                if (body_close_out) *body_close_out = close;
+                return close + 1u;
+            }
+            ++brace;
+        } else if (cxx_module_punct(source, token, '}') && brace > 0) {
+            --brace;
+            if (brace == 0 && paren == 0 && bracket == 0 &&
+                type_or_namespace) {
+                return index + 1u < count &&
+                       cxx_module_punct(source, &tokens[index + 1u], ';')
+                    ? index + 2u : index + 1u;
+            }
+        }
+    }
+    return count;
+}
+
+static bool cxx_module_export_span(const char* source,
+                                   CxxModuleToken* tokens,
+                                   size_t first, size_t end,
+                                   size_t body_open, size_t body_close,
+                                   CxxModuleBuffer* output) {
+    size_t begin_byte;
+    size_t end_byte;
+    bool preserve_body;
+    bool is_type_or_alias;
+    bool is_function;
+    bool is_inline;
+    size_t initializer = end;
+    if (first >= end || end > SIZE_MAX) return false;
+    begin_byte = tokens[first].begin;
+    end_byte = tokens[end - 1u].end;
+    if (body_open < end && body_close < end && body_open < body_close) {
+        preserve_body = cxx_module_prefix_has(
+            tokens, first, body_open, source, "template") ||
+            cxx_module_prefix_has(tokens, first, body_open, source, "inline") ||
+            cxx_module_prefix_has(tokens, first, body_open, source, "constexpr") ||
+            cxx_module_prefix_has(tokens, first, body_open, source, "consteval");
+        if (!preserve_body) {
+            if (!cxx_module_buffer_append(
+                    output, source + begin_byte,
+                    tokens[body_open].begin - begin_byte) ||
+                !cxx_module_buffer_text(output, ";\n")) return false;
+            return true;
+        }
+    }
+    if (body_open >= end) {
+        is_type_or_alias = cxx_module_prefix_has(tokens, first, end, source,
+                                                  "template") ||
+            cxx_module_prefix_has(tokens, first, end, source, "class") ||
+            cxx_module_prefix_has(tokens, first, end, source, "struct") ||
+            cxx_module_prefix_has(tokens, first, end, source, "union") ||
+            cxx_module_prefix_has(tokens, first, end, source, "enum") ||
+            cxx_module_prefix_has(tokens, first, end, source, "namespace") ||
+            cxx_module_prefix_has(tokens, first, end, source, "using") ||
+            cxx_module_prefix_has(tokens, first, end, source, "typedef") ||
+            cxx_module_prefix_has(tokens, first, end, source, "concept") ||
+            cxx_module_prefix_has(tokens, first, end, source, "static_assert");
+        is_function = false;
+        for (size_t index = first; index < end; ++index) {
+            if ((cxx_module_punct(source, &tokens[index], '=') ||
+                 cxx_module_punct(source, &tokens[index], '{')) &&
+                !is_function) {
+                break;
+            }
+            if (cxx_module_punct(source, &tokens[index], '(')) {
+                is_function = true;
+                break;
+            }
+        }
+        is_inline = cxx_module_prefix_has(tokens, first, end, source, "inline");
+        if (!is_type_or_alias && !is_function) {
+            for (size_t index = first; index < end; ++index) {
+                if (cxx_module_punct(source, &tokens[index], '=') ||
+                    cxx_module_punct(source, &tokens[index], '{')) {
+                    initializer = index;
+                    break;
+                }
+            }
+            if (cxx_module_prefix_has(tokens, first, end, source,
+                                      "constexpr") || is_inline) {
+                if (!is_inline &&
+                    !cxx_module_buffer_text(output, "inline ")) return false;
+                if (!cxx_module_buffer_append(output, source + begin_byte,
+                                              end_byte - begin_byte)) return false;
+                return cxx_module_buffer_text(output, "\n");
+            }
+            if (!cxx_module_prefix_has(tokens, first, end, source, "extern") &&
+                !cxx_module_buffer_text(output, "extern ")) return false;
+            if (initializer < end) {
+                if (!cxx_module_buffer_append(
+                        output, source + begin_byte,
+                        tokens[initializer].begin - begin_byte)) return false;
+                return cxx_module_buffer_text(output, ";\n");
+            }
+        }
+    }
+    if (!cxx_module_buffer_append(output, source + begin_byte,
+                                  end_byte - begin_byte)) return false;
+    return cxx_module_buffer_text(output, "\n");
+}
+
+static bool cxx_module_collect_export_block(const char* source,
+                                            CxxModuleToken* tokens,
+                                            size_t first, size_t close,
+                                            CxxModuleBuffer* exports) {
+    size_t cursor = first;
+    while (cursor < close) {
+        size_t end;
+        size_t body_open;
+        size_t body_close;
+        if (cxx_module_punct(source, &tokens[cursor], ';')) {
+            ++cursor;
+            continue;
+        }
+        if (cxx_module_token_is(source, &tokens[cursor], "export")) {
+            ++cursor;
+            if (cursor >= close) return false;
+        }
+        if (cxx_module_punct(source, &tokens[cursor], '{')) return false;
+        end = cxx_module_find_export_declaration_end(
+            source, tokens, close, cursor, &body_open, &body_close);
+        if (end <= cursor || end > close ||
+            !cxx_module_export_span(source, tokens, cursor, end,
+                                    body_open, body_close, exports)) {
+            return false;
+        }
+        cursor = end;
+    }
+    return true;
+}
+
+static bool cxx_module_is_header_import(const char* source,
+                                        CxxModuleToken* tokens,
+                                        size_t first, size_t semicolon) {
+    if (first >= semicolon) return false;
+    return !tokens[first].identifier ||
+        cxx_module_punct(source, &tokens[first], '<');
+}
+
+static char* cxx_module_resolve_relative_import(const char* source,
+                                                CxxModuleToken* tokens,
+                                                size_t first, size_t end,
+                                                const char* current_module) {
+    CxxModuleBuffer name_buffer = {0};
+    char* name;
+    size_t length;
+    const char* colon;
+    size_t prefix_length;
+    for (size_t index = first; index < end; ++index) {
+        if (!tokens[index].identifier &&
+            !(tokens[index].end - tokens[index].begin == 1u &&
+              (source[tokens[index].begin] == '.' ||
+               source[tokens[index].begin] == ':'))) {
+            rcc_free(name_buffer.data);
+            return NULL;
+        }
+        if (!cxx_module_buffer_append(&name_buffer,
+                                      source + tokens[index].begin,
+                                      tokens[index].end - tokens[index].begin)) {
+            rcc_free(name_buffer.data);
+            return NULL;
+        }
+    }
+    name = name_buffer.data;
+    length = name_buffer.length;
+    if (!name || length >= RCC_MAX_PATH) {
+        rcc_free(name);
+        return NULL;
+    }
+    if (name[0] == ':') {
+        colon = current_module ? strchr(current_module, ':') : NULL;
+        prefix_length = colon ? (size_t)(colon - current_module)
+                              : (current_module ? strlen(current_module) : 0u);
+        if (prefix_length == 0u || prefix_length + length >= RCC_MAX_PATH) {
+            rcc_free(name);
+            return NULL;
+        }
+        {
+            char* full = rcc_alloc(prefix_length + length + 1u);
+            if (!full) {
+                rcc_free(name);
+                return NULL;
+            }
+            memcpy(full, current_module, prefix_length);
+            memcpy(full + prefix_length, name, length + 1u);
+            rcc_free(name);
+            name = full;
+        }
+    }
+    return name;
+}
+
+static bool cxx_module_directory_of(const char* path, char* output,
+                                    size_t capacity) {
+    const char* slash;
+    const char* backslash;
+    const char* separator;
+    size_t length;
+    if (!path || !output || capacity == 0u) return false;
+    slash = strrchr(path, '/');
+    backslash = strrchr(path, '\\');
+    separator = slash;
+    if (backslash && (!separator || backslash > separator)) {
+        separator = backslash;
+    }
+    if (!separator) return rcc_copy_path(output, capacity, ".");
+    length = (size_t)(separator - path);
+    if (length == 0u) length = 1u;
+    if (length + 1u > capacity) return false;
+    memcpy(output, path, length);
+    output[length] = '\0';
+    return true;
+}
+
+static bool cxx_module_artifact_path(const char* directory,
+                                     const char* module_name,
+                                     TargetArch target_arch, int standard,
+                                     RccCxxItaniumAbi abi,
+                                     char* output, size_t capacity) {
+    size_t directory_length;
+    size_t name_length;
+    size_t slug_length = 0u;
+    char suffix[64];
+    int suffix_length;
+    size_t needed;
+    size_t cursor;
+    if (!directory || !module_name || !output || capacity == 0u ||
+        !cxx_module_name_valid(module_name)) return false;
+    directory_length = strlen(directory);
+    name_length = strlen(module_name);
+    for (size_t index = 0; index < name_length; ++index) {
+        size_t addition = module_name[index] == ':' ? 3u : 1u;
+        if (slug_length > SIZE_MAX - addition) return false;
+        slug_length += addition;
+    }
+    suffix_length = snprintf(suffix, sizeof(suffix), ".%s.cxx%d.a%u.rmi",
+                             target_arch == ARCH_X64 ? "x64" : "x86",
+                             standard, (unsigned)abi);
+    if (suffix_length < 0 || (size_t)suffix_length >= sizeof(suffix) ||
+        directory_length > SIZE_MAX - slug_length -
+                           (size_t)suffix_length - 2u) return false;
+    needed = directory_length + slug_length + (size_t)suffix_length + 2u;
+    if (needed >= capacity) return false;
+    memcpy(output, directory, directory_length);
+    cursor = directory_length;
+    if (cursor && output[cursor - 1u] != '/' && output[cursor - 1u] != '\\') {
+        output[cursor++] = '/';
+    }
+    for (size_t index = 0; index < name_length; ++index) {
+        if (module_name[index] == ':') {
+            memcpy(output + cursor, "%3A", 3u);
+            cursor += 3u;
+        } else {
+            output[cursor++] = module_name[index];
+        }
+    }
+    memcpy(output + cursor, suffix, (size_t)suffix_length + 1u);
+    return true;
+}
+
+static uint64_t cxx_module_hash(const void* bytes, size_t length) {
+    const unsigned char* cursor = bytes;
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (size_t index = 0; index < length; ++index) {
+        hash ^= cursor[index];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static uint64_t cxx_module_hash_prefixed(const char* prefix,
+                                         const void* bytes,
+                                         size_t length) {
+    const unsigned char* cursor = bytes;
+    uint64_t hash = cxx_module_hash(prefix, strlen(prefix));
+    for (size_t index = 0; index < length; ++index) {
+        hash ^= cursor[index];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static bool cxx_module_build_payload(const char* module_name,
+                                     const CxxModuleNameList* dependencies,
+                                     const char* exports, size_t exports_size,
+                                     CxxModuleBuffer* payload) {
+    if (!cxx_module_buffer_text(payload, module_name) ||
+        !cxx_module_buffer_text(payload, "\n")) return false;
+    for (size_t index = 0; index < dependencies->count; ++index) {
+        if (!cxx_module_buffer_text(payload, dependencies->items[index]) ||
+            !cxx_module_buffer_text(payload, "\n")) return false;
+    }
+    return cxx_module_buffer_append(payload, exports, exports_size);
+}
+
+static bool cxx_module_artifact_bytes(const char* module_name,
+                                      const CxxModuleNameList* dependencies,
+                                      const char* exports, size_t exports_size,
+                                      const char* preprocessed_source,
+                                      TargetArch target_arch, int standard,
+                                      RccCxxItaniumAbi abi,
+                                      CxxModuleBuffer* artifact) {
+    CxxModuleBuffer payload = {0};
+    char prefix[128];
+    char header[128];
+    int prefix_size;
+    int header_size;
+    unsigned target_bits = target_arch == ARCH_X64 ? 64u : 32u;
+    uint64_t source_state_hash = cxx_module_hash(
+        preprocessed_source, strlen(preprocessed_source));
+    uint64_t artifact_checksum;
+    bool ok = false;
+    if (!cxx_module_build_payload(module_name, dependencies, exports,
+                                  exports_size, &payload)) goto done;
+    prefix_size = snprintf(prefix, sizeof(prefix),
+                           "RCCBMI1 %u %d %u %lu %lu %016llx ",
+                           target_bits, standard, (unsigned)abi,
+                           (unsigned long)dependencies->count,
+                           (unsigned long)payload.length,
+                           (unsigned long long)source_state_hash);
+    if (prefix_size < 0 || (size_t)prefix_size >= sizeof(prefix)) goto done;
+    artifact_checksum = cxx_module_hash_prefixed(
+        prefix, payload.data, payload.length);
+    header_size = snprintf(header, sizeof(header), "%s%016llx\n", prefix,
+                           (unsigned long long)artifact_checksum);
+    if (header_size < 0 || (size_t)header_size >= sizeof(header) ||
+        !cxx_module_buffer_append(artifact, header, (size_t)header_size) ||
+        !cxx_module_buffer_append(artifact, payload.data, payload.length)) {
+        goto done;
+    }
+    ok = true;
+done:
+    rcc_free(payload.data);
+    return ok;
+}
+
+static bool cxx_module_read_all(const char* path, char** bytes_out,
+                                size_t* size_out) {
+    FILE* file;
+    long end;
+    char* bytes;
+    if (!path || !bytes_out || !size_out) return false;
+    *bytes_out = NULL;
+    *size_out = 0u;
+    file = fopen(path, "rb");
+    if (!file) return false;
+    if (fseek(file, 0, SEEK_END) != 0 || (end = ftell(file)) < 0 ||
+        (unsigned long)end > RCC_CXX_MODULE_MAX_ARTIFACT ||
+        fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return false;
+    }
+    bytes = rcc_alloc((size_t)end + 1u);
+    if (!bytes) {
+        fclose(file);
+        return false;
+    }
+    {
+        bool read_ok = fread(bytes, 1u, (size_t)end, file) == (size_t)end;
+        bool close_ok = fclose(file) == 0;
+        if (!read_ok || !close_ok) {
+            rcc_free(bytes);
+            return false;
+        }
+    }
+    bytes[end] = '\0';
+    *bytes_out = bytes;
+    *size_out = (size_t)end;
+    return true;
+}
+
+static bool cxx_module_find_artifact_path(CxxModuleLoadContext* context,
+                                          const char* module_name,
+                                          char* path, size_t capacity) {
+    char candidate[RCC_MAX_PATH];
+    if (cxx_module_artifact_path(context->source_directory, module_name,
+                                 context->target_arch, context->standard,
+                                 context->abi,
+                                 candidate, sizeof(candidate))) {
+        FILE* file = fopen(candidate, "rb");
+        if (file) {
+            fclose(file);
+            return rcc_copy_path(path, capacity, candidate);
+        }
+    }
+    for (int index = 0; index < context->include_count; ++index) {
+        if (!cxx_module_artifact_path(context->include_paths[index],
+                                      module_name, context->target_arch,
+                                      context->standard, context->abi, candidate,
+                                      sizeof(candidate))) continue;
+        FILE* file = fopen(candidate, "rb");
+        if (file) {
+            fclose(file);
+            return rcc_copy_path(path, capacity, candidate);
+        }
+    }
+    if (cxx_module_artifact_path(".", module_name, context->target_arch,
+                                 context->standard, context->abi, candidate,
+                                 sizeof(candidate))) {
+        FILE* file = fopen(candidate, "rb");
+        if (file) {
+            fclose(file);
+            return rcc_copy_path(path, capacity, candidate);
+        }
+    }
+    return false;
+}
+
+static bool cxx_module_load_artifact(CxxModuleLoadContext* context,
+                                     const char* requested_name,
+                                     CxxModuleBuffer* imports) {
+    char artifact_path[RCC_MAX_PATH];
+    char* bytes = NULL;
+    size_t size = 0u;
+    unsigned target_bits;
+    unsigned abi;
+    int standard;
+    unsigned long dependency_count_value;
+    unsigned long payload_size_value;
+    size_t dependency_count;
+    size_t payload_size;
+    unsigned long long expected_hash;
+    unsigned long long source_state_hash;
+    int header_bytes = 0;
+    char checksum_prefix[128];
+    int checksum_prefix_size;
+    char* payload;
+    char* cursor;
+    char* payload_end;
+    char* name_end;
+    char* module_name = NULL;
+    CxxModuleNameList dependencies = {0};
+    bool ok = false;
+    if (cxx_module_name_list_contains(&context->loaded, requested_name)) {
+        return true;
+    }
+    for (size_t index = 0; index < context->stack_count; ++index) {
+        if (strcmp(context->stack[index], requested_name) == 0) {
+            snprintf(context->error, sizeof(context->error),
+                     "cyclic C++ module dependency involving '%s'",
+                     requested_name);
+            return false;
+        }
+    }
+    if (context->stack_count >= RCC_CXX_MODULE_MAX_IMPORT_DEPTH) {
+        snprintf(context->error, sizeof(context->error),
+                 "C++ module dependency depth exceeds %u",
+                 (unsigned)RCC_CXX_MODULE_MAX_IMPORT_DEPTH);
+        return false;
+    }
+    if (!cxx_module_find_artifact_path(context, requested_name,
+                                       artifact_path,
+                                       sizeof(artifact_path)) ||
+        !cxx_module_read_all(artifact_path, &bytes, &size)) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' was not found (expected %s.rmi)",
+                 requested_name, requested_name);
+        return false;
+    }
+    pp_record_dependency(context->preprocessor, artifact_path);
+    if (sscanf(bytes, "RCCBMI1 %u %d %u %lu %lu %llx %llx%n", &target_bits,
+               &standard, &abi, &dependency_count_value, &payload_size_value,
+               &source_state_hash, &expected_hash, &header_bytes) != 7 ||
+        header_bytes <= 0 ||
+        payload_size_value > RCC_CXX_MODULE_MAX_ARTIFACT ||
+        (size_t)header_bytes >= size || bytes[header_bytes] != '\n' ||
+        (size_t)payload_size_value != size - (size_t)header_bytes - 1u) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' is corrupt or has an invalid header",
+                 requested_name);
+        goto done;
+    }
+    checksum_prefix_size = snprintf(
+        checksum_prefix, sizeof(checksum_prefix),
+        "RCCBMI1 %u %d %u %lu %lu %016llx ", target_bits, standard, abi,
+        dependency_count_value, payload_size_value, source_state_hash);
+    if (checksum_prefix_size < 0 ||
+        (size_t)checksum_prefix_size >= sizeof(checksum_prefix) ||
+        cxx_module_hash_prefixed(checksum_prefix, bytes + header_bytes + 1,
+                                 (size_t)payload_size_value) !=
+            (uint64_t)expected_hash) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' is corrupt or has an invalid checksum",
+                 requested_name);
+        goto done;
+    }
+    dependency_count = (size_t)dependency_count_value;
+    payload_size = (size_t)payload_size_value;
+    if (target_bits != (context->target_arch == ARCH_X64 ? 64u : 32u) ||
+        standard != context->standard || abi != (unsigned)context->abi) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' was built for a different target, C++ mode, or ABI",
+                 requested_name);
+        goto done;
+    }
+    payload = bytes + header_bytes + 1;
+    payload_end = payload + payload_size;
+    if (memchr(payload, '\0', payload_size)) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' contains a truncated source payload",
+                 requested_name);
+        goto done;
+    }
+    name_end = memchr(payload, '\n', (size_t)(payload_end - payload));
+    if (!name_end || name_end == payload ||
+        (size_t)(name_end - payload) >= RCC_MAX_PATH) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' has an invalid module identity",
+                 requested_name);
+        goto done;
+    }
+    module_name = cxx_module_copy_span(payload, 0u,
+                                       (size_t)(name_end - payload));
+    if (!module_name || strcmp(module_name, requested_name) != 0) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface identity does not match import '%s'",
+                 requested_name);
+        goto done;
+    }
+    cursor = name_end + 1;
+    for (size_t dependency_index = 0;
+         dependency_index < dependency_count; ++dependency_index) {
+        char* line_end = memchr(cursor, '\n', (size_t)(payload_end - cursor));
+        char* dependency;
+        if (!line_end || line_end == cursor ||
+            (size_t)(line_end - cursor) >= RCC_MAX_PATH) {
+            snprintf(context->error, sizeof(context->error),
+                     "module interface '%s' has an invalid dependency list",
+                     requested_name);
+            goto done;
+        }
+        dependency = cxx_module_copy_span(
+            cursor, 0u, (size_t)(line_end - cursor));
+        if (!dependency || !cxx_module_name_valid(dependency) ||
+            !cxx_module_names_add(&dependencies, dependency)) {
+            rcc_free(dependency);
+            snprintf(context->error, sizeof(context->error),
+                     "module interface '%s' has an invalid dependency name",
+                     requested_name);
+            goto done;
+        }
+        rcc_free(dependency);
+        cursor = line_end + 1;
+    }
+    if (cursor > payload_end) {
+        snprintf(context->error, sizeof(context->error),
+                 "module interface '%s' is missing its export payload",
+                 requested_name);
+        goto done;
+    }
+    context->stack[context->stack_count++] = module_name;
+    module_name = NULL;
+    for (size_t index = 0; index < dependencies.count; ++index) {
+        if (!cxx_module_load_artifact(context, dependencies.items[index],
+                                      imports)) goto pop;
+    }
+    if (!cxx_module_name_list_contains(&context->loaded, requested_name)) {
+        if (!cxx_module_buffer_append(imports, cursor,
+                                      (size_t)(payload_end - cursor)) ||
+            !cxx_module_buffer_text(imports, "\n") ||
+            !cxx_module_names_add(&context->loaded, requested_name)) {
+            snprintf(context->error, sizeof(context->error),
+                     "out of memory importing module '%s'", requested_name);
+            goto pop;
+        }
+    }
+    ok = true;
+pop:
+    rcc_free(context->stack[--context->stack_count]);
+done:
+    rcc_free(module_name);
+    cxx_module_names_clear(&dependencies);
+    rcc_free(bytes);
+    return ok;
+}
+
+static bool cxx_module_resolve_imports(const char* source,
+                                       CxxModuleToken* tokens,
+                                       size_t token_count,
+                                       const char* current_module,
+                                       bool module_interface,
+                                       CxxModuleEvents* events,
+                                       CxxModuleNameList* dependencies,
+                                       CxxModuleBuffer* exports,
+                                       char* error, size_t error_capacity) {
+    int brace_depth = 0;
+    bool private_fragment = false;
+    char* declared_module = NULL;
+    for (size_t index = 0; index < token_count; ++index) {
+        bool exported = cxx_module_token_is(source, &tokens[index], "export");
+        size_t keyword_index = exported ? index + 1u : index;
+        bool declaration_start = index == 0u ||
+            cxx_module_punct(source, &tokens[index - 1u], ';') ||
+            cxx_module_punct(source, &tokens[index - 1u], '}');
+        bool is_module = keyword_index < token_count &&
+            cxx_module_token_is(source, &tokens[keyword_index], "module");
+        bool is_import = keyword_index < token_count &&
+            cxx_module_token_is(source, &tokens[keyword_index], "import");
+        if (brace_depth == 0 && declaration_start && !private_fragment &&
+            (is_module || is_import)) {
+            size_t semicolon = cxx_module_find_next_semicolon(
+                source, tokens, token_count, keyword_index + 1u);
+            size_t event_begin = tokens[index].begin;
+            size_t event_end;
+            char* name = NULL;
+            if (semicolon == token_count) {
+                snprintf(error, error_capacity,
+                         "unterminated C++ module or import declaration");
+                goto fail;
+            }
+            event_end = tokens[semicolon].end;
+            if (is_module) {
+                bool private_marker = false;
+                if (!cxx_module_parse_name(source, tokens,
+                                           keyword_index + 1u, semicolon,
+                                           &name, &private_marker)) {
+                    snprintf(error, error_capacity,
+                             "invalid C++ module declaration");
+                    goto fail;
+                }
+                if (private_marker) {
+                    private_fragment = true;
+                } else if (name) {
+                    if (declared_module) {
+                        snprintf(error, error_capacity,
+                                 "a translation unit may declare only one named module");
+                        rcc_free(name);
+                        goto fail;
+                    }
+                    declared_module = name;
+                    name = NULL;
+                }
+                if (!exported && declared_module &&
+                    strcmp(declared_module, current_module ? current_module : "") == 0) {
+                    /* Module implementation units see the primary interface. */
+                    name = rcc_strdup(declared_module);
+                    if (!name) goto allocation_fail;
+                }
+            } else {
+                size_t import_first = keyword_index + 1u;
+                if (exported && (!module_interface || !declared_module)) {
+                    snprintf(error, error_capacity,
+                             "export import requires a C++ module interface unit");
+                    goto fail;
+                }
+                if (cxx_module_is_header_import(source, tokens,
+                                                import_first, semicolon)) {
+                    snprintf(error, error_capacity,
+                             "C++ header-unit imports are not supported yet");
+                    goto fail;
+                }
+                if (import_first >= semicolon) {
+                    snprintf(error, error_capacity,
+                             "empty C++ module import declaration");
+                    goto fail;
+                }
+                name = cxx_module_resolve_relative_import(
+                    source, tokens, import_first, semicolon,
+                    declared_module ? declared_module : current_module);
+                if (!name || !cxx_module_name_valid(name)) {
+                    rcc_free(name);
+                    snprintf(error, error_capacity,
+                             "invalid C++ module import name");
+                    goto fail;
+                }
+                if (!cxx_module_names_add(dependencies, name)) {
+                    rcc_free(name);
+                    goto allocation_fail;
+                }
+            }
+            if (!cxx_module_events_add(events, event_begin, event_end,
+                                       name, NULL)) {
+                rcc_free(name);
+                goto allocation_fail;
+            }
+            index = semicolon;
+            continue;
+        }
+        if (brace_depth == 0 && declaration_start && !private_fragment && exported &&
+            keyword_index < token_count &&
+            cxx_module_punct(source, &tokens[keyword_index], '{')) {
+            size_t close = cxx_module_find_matching_brace(
+                source, tokens, token_count, keyword_index);
+            CxxModuleBuffer replacement = {0};
+            if (!module_interface || !declared_module) {
+                snprintf(error, error_capacity,
+                         "export declaration requires a C++ module interface unit");
+                goto fail;
+            }
+            if (close == token_count) {
+                snprintf(error, error_capacity,
+                         "unterminated C++ export block");
+                goto fail;
+            }
+            if (!cxx_module_collect_export_block(
+                    source, tokens, keyword_index + 1u, close, exports) ||
+                !cxx_module_append_without_export(
+                    source, tokens[keyword_index].end,
+                    tokens[close].begin, &replacement) ||
+                !cxx_module_buffer_text(exports, "\n") ||
+                !cxx_module_events_add(events, tokens[index].begin,
+                                       tokens[close].end, NULL,
+                                       replacement.data)) {
+                rcc_free(replacement.data);
+                goto allocation_fail;
+            }
+            replacement.data = NULL;
+            index = close;
+            continue;
+        }
+        if (brace_depth == 0 && declaration_start && !private_fragment &&
+            exported) {
+            size_t body_open;
+            size_t body_close;
+            if (!module_interface || !declared_module) {
+                snprintf(error, error_capacity,
+                         "export declaration requires a C++ module interface unit");
+                goto fail;
+            }
+            size_t end = cxx_module_find_export_declaration_end(
+                source, tokens, token_count, keyword_index + 1u,
+                &body_open, &body_close);
+            if (end == token_count) {
+                snprintf(error, error_capacity,
+                         "unterminated C++ export declaration");
+                goto fail;
+            }
+            if (!cxx_module_export_span(source, tokens, keyword_index + 1u,
+                                        end, body_open, body_close,
+                                        exports) ||
+                !cxx_module_events_add(events, tokens[index].begin,
+                                       tokens[index].end, NULL, NULL)) {
+                goto allocation_fail;
+            }
+            index = end - 1u;
+            continue;
+        }
+        if (cxx_module_punct(source, &tokens[index], '{')) {
+            ++brace_depth;
+        } else if (cxx_module_punct(source, &tokens[index], '}') &&
+                   brace_depth > 0) {
+            --brace_depth;
+        }
+    }
+    rcc_free(declared_module);
+    return true;
+allocation_fail:
+    snprintf(error, error_capacity, "out of memory processing C++ modules");
+fail:
+    rcc_free(declared_module);
+    return false;
+}
+
+static bool cxx_module_rewrite_source(const char* source,
+                                      CxxModuleEvents* events,
+                                      CxxModuleLoadContext* load_context,
+                                      char** rewritten_out) {
+    CxxModuleBuffer rewritten = {0};
+    CxxModuleBuffer imports = {0};
+    size_t cursor = 0u;
+    if (!source || !events || !rewritten_out) return false;
+    *rewritten_out = NULL;
+    for (size_t index = 0; index < events->count; ++index) {
+        CxxModuleEvent* event = &events->items[index];
+        if (event->begin < cursor || event->end > strlen(source)) goto fail;
+        if (!cxx_module_buffer_append(&rewritten, source + cursor,
+                                      event->begin - cursor)) goto fail;
+        if (event->import_name) {
+            imports.length = 0u;
+            if (imports.data) imports.data[0] = '\0';
+            if (!cxx_module_load_artifact(load_context, event->import_name,
+                                          &imports) ||
+                !cxx_module_buffer_append(&rewritten, imports.data,
+                                          imports.length)) goto fail;
+        }
+        if (event->replacement &&
+            !cxx_module_buffer_text(&rewritten, event->replacement)) goto fail;
+        cursor = event->end;
+    }
+    if (!cxx_module_buffer_append(&rewritten, source + cursor,
+                                  strlen(source) - cursor)) goto fail;
+    *rewritten_out = rewritten.data;
+    rcc_free(imports.data);
+    return true;
+fail:
+    rcc_free(imports.data);
+    rcc_free(rewritten.data);
+    return false;
+}
+
+static bool cxx_module_prepare(const char* source, Preprocessor* preprocessor,
+                               const char* input_path,
+                               char** rewritten_out,
+                               CxxModulePendingArtifact* pending,
+                               CxxModuleLoadContext* load_context) {
+    CxxModuleToken* tokens = NULL;
+    size_t token_count = 0u;
+    CxxModuleEvents events = {0};
+    CxxModuleNameList dependencies = {0};
+    CxxModuleBuffer exports = {0};
+    CxxModuleBuffer artifact = {0};
+    char source_directory[RCC_MAX_PATH];
+    char module_name[RCC_MAX_PATH] = {0};
+    char error[512] = {0};
+    bool has_interface = false;
+    bool ok = false;
+    if (!source || !input_path || !rewritten_out || !pending ||
+        !load_context) return false;
+    memset(pending, 0, sizeof(*pending));
+    *rewritten_out = NULL;
+    if (!cxx_module_directory_of(input_path, source_directory,
+                                 sizeof(source_directory)) ||
+        !cxx_module_lex(source, &tokens, &token_count)) {
+        snprintf(error, sizeof(error), "could not scan C++ module source");
+        goto done;
+    }
+    /* Find a named interface declaration first so relative partition imports
+     * can resolve even when they precede its export block. */
+    for (size_t index = 0; index + 1u < token_count; ++index) {
+        bool exported = cxx_module_token_is(source, &tokens[index], "export");
+        size_t keyword = exported ? index + 1u : index;
+        bool declaration_start = index == 0u ||
+            cxx_module_punct(source, &tokens[index - 1u], ';') ||
+            cxx_module_punct(source, &tokens[index - 1u], '}');
+        if (!declaration_start || keyword >= token_count ||
+            !cxx_module_token_is(source, &tokens[keyword], "module")) continue;
+        size_t semicolon = cxx_module_find_next_semicolon(
+            source, tokens, token_count, keyword + 1u);
+        char* parsed_name = NULL;
+        bool private_marker = false;
+        if (semicolon == token_count ||
+            !cxx_module_parse_name(source, tokens, keyword + 1u,
+                                   semicolon, &parsed_name,
+                                   &private_marker)) {
+            snprintf(error, sizeof(error), "invalid C++ module declaration");
+            goto done;
+        }
+        if (parsed_name) {
+            if (strlen(parsed_name) >= sizeof(module_name)) {
+                rcc_free(parsed_name);
+                snprintf(error, sizeof(error), "C++ module name is too long");
+                goto done;
+            }
+            memcpy(module_name, parsed_name, strlen(parsed_name) + 1u);
+            has_interface = exported;
+            rcc_free(parsed_name);
+            break;
+        }
+    }
+    load_context->source_directory = source_directory;
+    load_context->preprocessor = preprocessor;
+    load_context->include_paths = g_opts.include_paths;
+    load_context->include_count = g_opts.include_count;
+    load_context->target_arch = g_opts.target_arch;
+    load_context->standard = g_cxx_standard;
+    load_context->abi = g_opts.cxx_itanium_abi;
+    if (!cxx_module_resolve_imports(source, tokens, token_count,
+                                    module_name[0] ? module_name : NULL,
+                                    has_interface,
+                                    &events, &dependencies, &exports,
+                                    error, sizeof(error))) {
+        goto done;
+    }
+    if (has_interface) {
+        if (load_context->stack_count >= RCC_CXX_MODULE_MAX_IMPORT_DEPTH) {
+            snprintf(error, sizeof(error),
+                     "C++ module dependency depth exceeds %u",
+                     (unsigned)RCC_CXX_MODULE_MAX_IMPORT_DEPTH);
+            goto done;
+        }
+        load_context->stack[load_context->stack_count] =
+            rcc_strdup(module_name);
+        if (!load_context->stack[load_context->stack_count]) {
+            snprintf(error, sizeof(error),
+                     "out of memory recording C++ module identity");
+            goto done;
+        }
+        ++load_context->stack_count;
+    }
+    {
+        bool rewrite_ok = cxx_module_rewrite_source(
+            source, &events, load_context, rewritten_out);
+        if (has_interface) {
+            rcc_free(load_context->stack[--load_context->stack_count]);
+        }
+        if (!rewrite_ok) {
+            if (!error[0]) {
+                snprintf(error, sizeof(error), "%s",
+                         load_context->error[0] ? load_context->error
+                                                : "could not rewrite C++ module source");
+            }
+            goto done;
+        }
+    }
+    if (has_interface) {
+        if (!cxx_module_artifact_path(source_directory, module_name,
+                                      g_opts.target_arch, g_cxx_standard,
+                                      g_opts.cxx_itanium_abi,
+                                      pending->path,
+                                      sizeof(pending->path)) ||
+            !cxx_module_artifact_bytes(module_name, &dependencies,
+                                       exports.data ? exports.data : "",
+                                       exports.length, source,
+                                       g_opts.target_arch,
+                                       g_cxx_standard,
+                                       g_opts.cxx_itanium_abi, &artifact)) {
+            snprintf(error, sizeof(error),
+                     "could not create the C++ module interface artifact");
+            goto done;
+        }
+        pending->bytes = artifact.data;
+        pending->size = artifact.length;
+        artifact.data = NULL;
+    }
+    ok = true;
+done:
+    if (!ok) {
+        fprintf(stderr, "rcc++: error: %s\n", error[0] ? error :
+                "C++ module processing failed");
+        rcc_free(*rewritten_out);
+        *rewritten_out = NULL;
+    }
+    rcc_free(tokens);
+    cxx_module_events_clear(&events);
+    cxx_module_names_clear(&dependencies);
+    rcc_free(exports.data);
+    rcc_free(artifact.data);
+    cxx_module_names_clear(&load_context->loaded);
+    return ok;
+}
+
+static bool cxx_module_publish(CxxModulePendingArtifact* pending) {
+    char staged_path[RCC_MAX_PATH];
+    FILE* file;
+    bool ok;
+    if (!pending || !pending->bytes) return true;
+    if (!rcc_create_signing_temp(pending->path, "rcc-module", staged_path,
+                                 sizeof(staged_path))) return false;
+    file = fopen(staged_path, "wb");
+    if (!file) {
+        (void)remove(staged_path);
+        return false;
+    }
+    ok = fwrite(pending->bytes, 1u, pending->size, file) == pending->size;
+    if (fclose(file) != 0) ok = false;
+    if (ok) {
+#if defined(_WIN32)
+        if (remove(pending->path) != 0 && errno != ENOENT) {
+            (void)remove(staged_path);
+            return false;
+        }
+#endif
+        if (rename(staged_path, pending->path) != 0) {
+            (void)remove(staged_path);
+            return false;
+        }
+    }
+    if (!ok) (void)remove(staged_path);
+    return ok;
+}
+
+static void cxx_module_pending_clear(CxxModulePendingArtifact* pending) {
+    if (!pending) return;
+    rcc_free(pending->bytes);
+    memset(pending, 0, sizeof(*pending));
+}
 
 static void define_cxx_feature_test_macros(Preprocessor* pp) {
     int standard = g_cxx_standard;
@@ -465,6 +1957,7 @@ static int parse_cxx_args(int argc, char** argv) {
 
 /* C++ main function */
 static int compile_current_input(char** argv) {
+    CxxModulePendingArtifact module_pending = {0};
     type_configure_target(g_opts.target_arch);
 
     /* Initialize C++ subsystem */
@@ -587,6 +2080,31 @@ static int compile_current_input(char** argv) {
         return 0;
     }
 
+    if (g_cxx_standard >= 20) {
+        CxxModuleLoadContext module_context = {0};
+        char* module_source = NULL;
+        if (!cxx_module_prepare(pp_source, pp, g_opts.input_file,
+                                &module_source, &module_pending,
+                                &module_context)) {
+            rcc_free(pp_source);
+            pp_free(pp);
+            cxx_module_pending_clear(&module_pending);
+            return 1;
+        }
+        rcc_free(pp_source);
+        pp_source = module_source;
+        if (g_opts.emit_dependencies &&
+            !pp_write_dependencies(pp, g_opts.output_file, g_opts.input_file,
+                                   g_opts.dependency_file)) {
+            fprintf(stderr, "rcc++: error: cannot update module dependencies: %s\n",
+                    g_opts.dependency_file);
+            rcc_free(pp_source);
+            pp_free(pp);
+            cxx_module_pending_clear(&module_pending);
+            return 1;
+        }
+    }
+
     /* Phase 1: Lexical analysis */
     rcc_lexer_set_cxx_mode(true);
     rcc_lexer_set_cxx_standard(g_cxx_standard);
@@ -599,6 +2117,7 @@ static int compile_current_input(char** argv) {
         tokenlist_free(tokens);
         rcc_free(pp_source);
         pp_free(pp);
+        cxx_module_pending_clear(&module_pending);
         return 1;
     }
 
@@ -617,6 +2136,7 @@ static int compile_current_input(char** argv) {
         tokenlist_free(tokens);
         rcc_free(pp_source);
         pp_free(pp);
+        cxx_module_pending_clear(&module_pending);
         return 1;
     }
 
@@ -639,6 +2159,7 @@ static int compile_current_input(char** argv) {
         tokenlist_free(tokens);
         rcc_free(pp_source);
         pp_free(pp);
+        cxx_module_pending_clear(&module_pending);
         return 1;
     }
     if (g_opts.output_format == OUTPUT_DRV &&
@@ -647,6 +2168,7 @@ static int compile_current_input(char** argv) {
         tokenlist_free(tokens);
         rcc_free(pp_source);
         pp_free(pp);
+        cxx_module_pending_clear(&module_pending);
         return 1;
     }
     if (g_opts.opt_level > 0) {
@@ -672,6 +2194,7 @@ static int compile_current_input(char** argv) {
         tokenlist_free(tokens);
         rcc_free(pp_source);
         pp_free(pp);
+        cxx_module_pending_clear(&module_pending);
         return 1;
     }
 
@@ -699,6 +2222,7 @@ static int compile_current_input(char** argv) {
             tokenlist_free(tokens);
             rcc_free(pp_source);
             pp_free(pp);
+            cxx_module_pending_clear(&module_pending);
             return 1;
         }
         emit_path = unsigned_path;
@@ -751,12 +2275,19 @@ static int compile_current_input(char** argv) {
         remove(emit_path);
     }
 
+    if (emit_ok && !cxx_module_publish(&module_pending)) {
+        fprintf(stderr, "rcc++: failed to publish C++ module interface '%s'\n",
+                module_pending.path);
+        emit_ok = false;
+    }
+
     if (!emit_ok) {
         fprintf(stderr, "rcc++: failed to write output\n");
         codegen_free(mod);
         tokenlist_free(tokens);
         rcc_free(pp_source);
         pp_free(pp);
+        cxx_module_pending_clear(&module_pending);
         return 1;
     }
 
@@ -776,6 +2307,7 @@ static int compile_current_input(char** argv) {
     tokenlist_free(tokens);
     rcc_free(pp_source);
     pp_free(pp);
+    cxx_module_pending_clear(&module_pending);
     return 0;
 }
 

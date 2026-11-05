@@ -982,6 +982,10 @@ static void pp_add_dependency(Preprocessor* pp, const char* path) {
     pp->dependencies[pp->dependency_count++] = rcc_strdup(path);
 }
 
+void pp_record_dependency(Preprocessor* pp, const char* path) {
+    if (pp && path && *path) pp_add_dependency(pp, path);
+}
+
 static const char* pp_expr_skip(const char* p) {
     while (*p && isspace((unsigned char)*p)) p++;
     return p;
