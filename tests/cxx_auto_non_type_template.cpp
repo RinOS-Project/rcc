@@ -109,6 +109,12 @@ struct auto_structural_member_pointer_variable_owner {
     inline static constexpr int member = 43;
 };
 
+template<typename Owner>
+struct auto_structural_member_pointer_variable_template_owner {
+    template<auto Value>
+    inline static constexpr int member = 47;
+};
+
 const int* auto_member_pointer_variable_address() {
     return &auto_member_pointer_variable<
         &auto_member_pointer_target::field>;
@@ -145,6 +151,18 @@ const int* auto_structural_member_pointer_pack_variable_address() {
 
 const int* auto_nested_structural_member_pointer_variable_address() {
     return &auto_structural_member_pointer_variable_owner::member<
+        auto_data_member_pointer_constant{
+            &auto_member_pointer_target::field}>;
+}
+
+const int* auto_class_template_structural_member_pointer_variable_address() {
+    return &auto_structural_member_pointer_variable_template_owner<int>::member<
+        auto_data_member_pointer_constant{
+            &auto_member_pointer_target::field}>;
+}
+
+const int* auto_long_class_template_structural_member_pointer_variable_address() {
+    return &auto_structural_member_pointer_variable_template_owner<long>::member<
         auto_data_member_pointer_constant{
             &auto_member_pointer_target::field}>;
 }
@@ -406,6 +424,16 @@ extern "C" int main() {
                            &auto_member_pointer_target::field}> == 43 &&
                    *auto_nested_structural_member_pointer_variable_address() ==
                        43 &&
+                   auto_structural_member_pointer_variable_template_owner<
+                       int>::member<auto_data_member_pointer_constant{
+                       &auto_member_pointer_target::field}> == 47 &&
+                   *auto_class_template_structural_member_pointer_variable_address() ==
+                       47 &&
+                   auto_structural_member_pointer_variable_template_owner<
+                       long>::member<auto_data_member_pointer_constant{
+                       &auto_member_pointer_target::field}> == 47 &&
+                   *auto_long_class_template_structural_member_pointer_variable_address() ==
+                       47 &&
                    auto_member_pointer_read<
                        &auto_member_pointer_target::field>() == 5 &&
                    auto_member_pointer_read<

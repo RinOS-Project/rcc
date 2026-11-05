@@ -33,6 +33,7 @@ static CxxNamespace* active_namespace;
 static CxxClass* active_class;
 static CxxClass* active_template_class_definition;
 static AST* active_ast;
+static CxxTemplate* qualified_variable_template_candidate;
 
 void rcc_parser_cxx_set_active_ast(AST* ast) {
     active_ast = ast;
@@ -18834,10 +18835,17 @@ static CxxTemplate* find_template_template_argument(
 }
 
 static CxxTemplate* find_variable_template(const char* qualified_name) {
-    CxxTemplate* result = find_template(qualified_name, TMPL_VARIABLE);
+    CxxTemplate* result;
     const char* separator;
-    if (result) return result;
     if (!qualified_name) return NULL;
+    if (qualified_variable_template_candidate &&
+        qualified_variable_template_candidate->name &&
+        strcmp(qualified_variable_template_candidate->name,
+               qualified_name) == 0) {
+        return qualified_variable_template_candidate;
+    }
+    result = find_template(qualified_name, TMPL_VARIABLE);
+    if (result) return result;
     if ((separator = strrchr(qualified_name, ':')) != NULL &&
         separator > qualified_name && separator[-1] == ':') {
         size_t owner_length = (size_t)(separator - qualified_name - 1);
@@ -26259,6 +26267,8 @@ static Type* instantiate_class_template_for_owner(
     instance->enclosing_class = owner_class
         ? owner_class : definition->enclosing_class;
     instance->nested_class_templates = definition->nested_class_templates;
+    instance->member_variable_templates =
+        definition->member_variable_templates;
     instance->has_user_constructor = definition->has_user_constructor;
     instance->has_nonpublic_field = definition->has_nonpublic_field;
     instance->has_static_field = definition->has_static_field;
@@ -49388,10 +49398,15 @@ Expr* rcc_parse_cxx_template_call(void) {
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
     name = parse_qualified_name();
     qualified_call = strstr(name, "::") != NULL;
-    if (!cxx_collect_function_template_candidates(
-            name, &candidate_templates, &candidate_count,
-            &candidate_capacity, loc)) {
-        return expr_int(0, loc);
+    candidate_count = 0;
+    if (!qualified_variable_template_candidate ||
+        !qualified_variable_template_candidate->name ||
+        strcmp(qualified_variable_template_candidate->name, name) != 0) {
+        if (!cxx_collect_function_template_candidates(
+                name, &candidate_templates, &candidate_count,
+                &candidate_capacity, loc)) {
+            return expr_int(0, loc);
+        }
     }
     if (candidate_count <= 0) {
         CxxTemplate* variable_template = find_variable_template(name);
@@ -52528,6 +52543,8 @@ Expr* rcc_parse_cxx_qualified_template_member(void) {
     Type* type;
     const char* member_name;
     CxxClass* cls;
+    Token* member_token;
+    Token* member_previous;
     Expr* result = NULL;
 
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
@@ -52544,6 +52561,8 @@ Expr* rcc_parse_cxx_qualified_template_member(void) {
         parser.prev = saved_prev;
         return NULL;
     }
+    member_previous = parser.prev;
+    member_token = parser.cur;
     member_name = advance()->value.str_val;
     if (type->cxx_dependent) {
         Expr* base = expr_ident(name, loc);
@@ -52558,6 +52577,38 @@ Expr* rcc_parse_cxx_qualified_template_member(void) {
         return NULL;
     }
     cls = type->cxx_class;
+    {
+        CxxMemberVariableTemplate* member_template =
+            cxx_class_find_member_variable_template(cls, member_name);
+        if (member_template && member_template->declaration &&
+            check(TOK_LT)) {
+            CxxTemplate* declaration = member_template->declaration;
+            CxxTemplate* saved_candidate =
+                qualified_variable_template_candidate;
+            CxxClass* saved_owner =
+                declaration->pending_variable_template_owner_class;
+            bool accessible = member_template->access == ACCESS_PUBLIC ||
+                cls == active_class ||
+                (member_template->access == ACCESS_PROTECTED &&
+                 cxx_class_is_same_or_derived_from(active_class, cls));
+            if (!accessible) {
+                rcc_error(loc,
+                          "member variable template '%s' is inaccessible",
+                          member_name);
+            }
+            qualified_variable_template_candidate = declaration;
+            declaration->pending_variable_template_owner_class = cls;
+            parser.cur = member_token;
+            parser.prev = member_previous;
+            result = rcc_parse_cxx_template_call();
+            declaration->pending_variable_template_owner_class = saved_owner;
+            qualified_variable_template_candidate = saved_candidate;
+            if (result) return result;
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return NULL;
+        }
+    }
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
         const char* final_name;

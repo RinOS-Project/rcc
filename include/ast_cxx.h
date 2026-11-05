@@ -476,6 +476,9 @@ struct CxxTemplate {
     Type** pending_variable_template_args;
     int64_t* pending_variable_template_values;
     bool* pending_variable_template_value_present;
+    /* The selected specialization of a class-template owner for a static
+     * member variable-template-id being instantiated. */
+    CxxClass* pending_variable_template_owner_class;
     /* Candidate matching substitutes signatures before overload selection;
      * member-function bodies are cloned only for the selected candidate. */
     bool defer_function_body_clone;

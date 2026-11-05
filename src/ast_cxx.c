@@ -43,6 +43,7 @@ typedef struct CxxStructuralClassValueRecord {
 static CxxStructuralClassValueRecord* cxx_structural_class_value_records;
 static size_t cxx_structural_class_value_record_count;
 static size_t cxx_structural_class_value_record_capacity;
+static unsigned int cxx_variable_template_instance_serial;
 
 static CxxNamespace** cxx_collect_namespace_components(
     CxxNamespace* ns, bool include_anonymous, size_t* count_out) {
@@ -4722,22 +4723,26 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
     static char buf[CXX_MANGLE_BUFFER_SIZE];
     char* base;
     size_t pos;
+    CxxClass* owner_class;
     CxxMangleContext argument_context = { 0 };
     CxxNamespace* mangling_namespace = ns == g_global_namespace ? NULL : ns;
 
     if (!variable || !tmpl) return NULL;
+    owner_class = tmpl->pending_variable_template_owner_class
+        ? tmpl->pending_variable_template_owner_class
+        : tmpl->enclosing_class;
     argument_context.class_type_index_base =
         cxx_mangle_free_template_substitution_base(mangling_namespace);
     argument_context.namespace_scope = mangling_namespace;
     cxx_mangle_seed_namespace_substitutions(
         &argument_context, mangling_namespace);
-    base = cxx_mangle_name(variable->name, ns, tmpl->enclosing_class);
+    base = cxx_mangle_name(variable->name, ns, owner_class);
     if (!base || strlen(base) + 2u >= sizeof(buf)) {
         rcc_fatal("C++ variable template name is too long");
     }
     strcpy(buf, base);
     pos = strlen(buf);
-    if ((tmpl->enclosing_class ||
+    if ((owner_class ||
          (ns && ns != g_global_namespace)) &&
         pos > 0u && buf[pos - 1u] == 'E') {
         /* The template arguments belong before the enclosing-name terminator. */
@@ -4889,7 +4894,7 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
         rcc_fatal("C++ variable template name is too long");
     }
     buf[pos++] = 'E';
-    if (tmpl->enclosing_class || (ns && ns != g_global_namespace)) {
+    if (owner_class || (ns && ns != g_global_namespace)) {
         if (pos + 1u >= sizeof(buf)) {
             rcc_fatal("C++ variable template name is too long");
         }
@@ -9557,6 +9562,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->pending_variable_template_args = NULL;
     tmpl->pending_variable_template_values = NULL;
     tmpl->pending_variable_template_value_present = NULL;
+    tmpl->pending_variable_template_owner_class = NULL;
     tmpl->active_pack_parameters = NULL;
     tmpl->active_pack_expansion = false;
     tmpl->active_pack_expansion_index = 0;
@@ -15451,6 +15457,11 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
         tmpl->instances[instance_index].arg_count != arg_count) {
         return false;
     }
+    if (tmpl->kind == TMPL_VARIABLE &&
+        tmpl->pending_variable_template_owner_class !=
+            tmpl->instances[instance_index].owner_class) {
+        return false;
+    }
     for (int index = 0; index < arg_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->is_pack) {
@@ -16231,12 +16242,19 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         Decl* instance;
         char generated_name[128];
         int written;
+        unsigned int instance_serial;
 
         if (!variable_type) {
             rcc_error(definition->loc,
                       "variable template type substitution failed");
             return NULL;
         }
+        if (cxx_variable_template_instance_serial == UINT_MAX) {
+            rcc_error(definition->loc,
+                      "translation unit has too many variable template instances");
+            return NULL;
+        }
+        instance_serial = cxx_variable_template_instance_serial++;
         if (tmpl->primary_template) {
             int specialization_index = 0;
             for (int index = 0;
@@ -16249,13 +16267,13 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             }
             written = snprintf(
                 generated_name, sizeof(generated_name),
-                "__rcc_variable_template_spec_%d_%d_%s",
-                specialization_index, tmpl->instance_count,
+                "__rcc_variable_template_spec_%d_%u_%s",
+                specialization_index, instance_serial,
                 definition->name);
         } else {
             written = snprintf(generated_name, sizeof(generated_name),
-                               "__rcc_variable_template_%d_%s",
-                               tmpl->instance_count, definition->name);
+                               "__rcc_variable_template_%u_%s",
+                               instance_serial, definition->name);
         }
         if (written < 0 || (size_t)written >= sizeof(generated_name)) {
             rcc_error(definition->loc,
@@ -16315,7 +16333,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                    sizeof(int) * (size_t)tmpl->param_count);
         }
         tmpl->instances[tmpl->instance_count].arg_count = arg_count;
-        tmpl->instances[tmpl->instance_count].owner_class = NULL;
+        tmpl->instances[tmpl->instance_count].owner_class =
+            tmpl->pending_variable_template_owner_class;
         if (arg_count > 0) {
             tmpl->instances[tmpl->instance_count].value_args = ast_arena_alloc(
                 sizeof(int64_t) * (size_t)arg_count);
