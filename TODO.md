@@ -14761,9 +14761,9 @@ remains a separate open item.
 
 ## RCC continuation (2026-11-05, structural floating-point NTTPs)
 
-- [x] Accept C++20 structural class NTTPs containing a `float` member or a
-      two-element `float` array through fixed and deduced `auto` function-
-      template parameters and class-template specializations. GCC and RCC emit
-      matching Itanium symbols; strict GCC, i686/AMD64 assembly and object
-      generation, and GCC/RCC host execution pass in the Windows and POSIX
-      gates.
+- [x] Accept C++20 structural class and union NTTPs containing a `float`
+      member, a two-element `float` array, or an active floating union member
+      through fixed and deduced `auto` function-template parameters and
+      class-template specializations. GCC and RCC emit matching Itanium
+      symbols; strict GCC, i686/AMD64 assembly and object generation, and
+      GCC/RCC host execution pass in the Windows and POSIX gates.
