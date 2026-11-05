@@ -20,6 +20,7 @@ int main() {
     return bridge_value(value) == 19 &&
             reachable_public_detail::public_namespace_function(5) == 75 &&
             reachable_public_variable == 47 &&
+            reachable_public_constrained(value) == 23 &&
             nested.value == 27 && public_template.value == 31 &&
             public_alias_template.value == 37 &&
             promoted_using.scoped_value == 39 &&

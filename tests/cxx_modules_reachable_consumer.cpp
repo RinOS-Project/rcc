@@ -5,6 +5,9 @@ int main() {
     value.value = 17;
     BridgePublicNested public_nested{};
     public_nested.value = 17;
+    BridgePublicDerived public_derived{};
+    public_derived.inherited_value = 18;
+    public_derived.own_value = 19;
     BridgeScopedAlias scoped{};
     scoped.scoped_value = 25;
     BridgeNamespaceAliasType aliased{};
@@ -19,6 +22,8 @@ int main() {
             reachable_public_api::namespace_function(8) == 19 &&
             public_nested.initialized_by_private_helper == 6 &&
             public_nested.private_helper_value() == 21 &&
+            public_derived.inherited_value == 18 &&
+            public_derived.own_value == 19 &&
             scoped.scoped_value == 25 &&
             aliased.scoped_value == 27 && introduced.scoped_value == 29 &&
             templated.value == 33 && defaulted.value.value == 37 &&

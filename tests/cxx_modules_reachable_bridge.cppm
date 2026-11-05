@@ -16,6 +16,7 @@ export using BridgeUsingType = ReachableUsingType;
 export using BridgeTemplateAlias = ReachableTemplateAlias;
 export using BridgePublicNested =
     reachable_public_detail::ReachablePublicNested;
+export using BridgePublicDerived = ReachablePublicDerived;
 
 export template<class T = ReachablePrivate>
 struct BridgePrivateDefaultTemplate {

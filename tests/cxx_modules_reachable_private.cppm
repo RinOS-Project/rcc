@@ -1,5 +1,15 @@
 export module reachable_private;
 
+struct ReachablePrivateBase {
+    int inherited_value;
+};
+
+constexpr int reachable_private_concept_minimum_size = 4;
+
+template<class T>
+concept ReachablePrivateConcept =
+    sizeof(T) >= reachable_private_concept_minimum_size;
+
 struct ReachablePrivate {
     int value;
 
@@ -46,6 +56,16 @@ int reachable_private_adl(ReachablePrivate value) {
 export struct ReachableOverloadResult {
     char bytes[3];
 };
+
+export struct ReachablePublicDerived : ReachablePrivateBase {
+    int own_value;
+};
+
+export template<class T>
+    requires ReachablePrivateConcept<T>
+int reachable_public_constrained(T value) {
+    return reachable_private_helper(value.value);
+}
 
 export int reachable_public_variable = 47;
 

@@ -14919,3 +14919,9 @@ Continue in this order:
       class can call a private helper from an inline method and its default
       initializer through an alias re-exported by a private bridge;
       `test-cxx-modules` compiles and links the case for i686 and x86_64.
+- [x] Preserve reachable private base-class definitions for exported derived
+      classes and reachable private concept constraints on exported function
+      templates. Consumers can lay out and use an exported derived class
+      without ordinary lookup exposing its private base name, and a private
+      concept constraint remains evaluable while its name stays hidden.
+      `test-cxx-modules` compiles and links both cases for i686 and x86_64.

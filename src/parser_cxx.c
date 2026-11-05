@@ -4771,7 +4771,33 @@ static void cxx_bind_template_constant_address_argument(Expr* expression) {
     cxx_bind_template_constant_address_argument_impl(expression, NULL);
 }
 
+static bool cxx_template_non_type_constant_value_impl(
+    const Expr* expression, int64_t* value_out);
+
 static bool cxx_template_non_type_constant_value(
+    const Expr* expression, int64_t* value_out) {
+    bool saved_private_record;
+    bool saved_lookup_enabled;
+    bool evaluated;
+
+    if (!expression || !expression->has_module_reachable_lookup_context) {
+        return cxx_template_non_type_constant_value_impl(
+            expression, value_out);
+    }
+
+    saved_private_record =
+        rcc_parser_module_reachable_current_record_private();
+    saved_lookup_enabled = rcc_parser_module_reachable_lookup_enabled();
+    rcc_parser_set_module_reachable_record(
+        expression->module_reachable_private_context, true);
+    evaluated = cxx_template_non_type_constant_value_impl(
+        expression, value_out);
+    rcc_parser_set_module_reachable_record(saved_private_record,
+                                           saved_lookup_enabled);
+    return evaluated;
+}
+
+static bool cxx_template_non_type_constant_value_impl(
     const Expr* expression, int64_t* value_out) {
     Type* expression_type;
     if (!expression || !value_out) return false;
@@ -4801,6 +4827,23 @@ static bool cxx_template_non_type_constant_value(
             Symbol* symbol = g_symtab
                 ? symtab_lookup(g_symtab, expression->ident_name) : NULL;
             declaration = symbol ? symbol->decl : NULL;
+        }
+        if (!declaration && expression->ident_name) {
+            for (CxxNamespace* scope = active_namespace; scope;
+                 scope = scope->parent) {
+                for (DeclList* item = scope->decls; item; item = item->next) {
+                    Decl* candidate = item->decl;
+                    if (candidate && candidate->kind == DECL_VAR &&
+                        rcc_parser_module_entity_lookup_visible(
+                            candidate->is_module_reachable_private) &&
+                        candidate->name && cxx_decl_leaf_matches(
+                            candidate->name, expression->ident_name)) {
+                        declaration = candidate;
+                        break;
+                    }
+                }
+                if (declaration) break;
+            }
         }
         if (!declaration && expression->ident_name && active_ast) {
             for (DeclList* item = active_ast->decls; item;
@@ -6202,6 +6245,26 @@ static Decl* cxx_template_integer_call_function(
             (Expr*)expression, candidates, candidate_count);
     }
     return direct_declaration;
+}
+
+static Decl* cxx_template_lookup_namespace_declaration(
+    CxxTemplate* tmpl, const char* name) {
+    if (!tmpl || !name || !*name) return NULL;
+    for (CxxNamespace* ns = tmpl->ns; ns; ns = ns->parent) {
+        for (DeclList* item = ns->decls; item; item = item->next) {
+            Decl* declaration = item->decl;
+            const char* unqualified_name;
+            const char* separator;
+            if (!declaration || !declaration->name) continue;
+            unqualified_name = declaration->name;
+            separator = strrchr(unqualified_name, ':');
+            if (separator && separator > unqualified_name &&
+                separator[-1] == ':') unqualified_name = separator + 1;
+            if (strcmp(unqualified_name, name) != 0) continue;
+            return declaration;
+        }
+    }
+    return NULL;
 }
 
 static bool eval_template_integer_expression(Expr* expression,
@@ -37357,6 +37420,21 @@ static bool eval_template_integer_expression(Expr* expression,
                 }
             }
         }
+        Decl* declaration = expression->ident_decl
+            ? expression->ident_decl
+            : cxx_template_lookup_namespace_declaration(
+                  tmpl, expression->ident_name);
+        if (declaration && declaration->kind == DECL_ENUM_CONST) {
+            *result = declaration->enum_val;
+            return true;
+        }
+        if (declaration && declaration->kind == DECL_VAR &&
+            declaration->var_is_constexpr) {
+            Expr resolved_identifier = *expression;
+            resolved_identifier.ident_decl = declaration;
+            if (cxx_template_non_type_constant_value(
+                    &resolved_identifier, result)) return true;
+        }
         return false;
     }
     if (expression->kind == EXPR_CALL && expression->cxx_concept_template) {
@@ -37371,6 +37449,7 @@ static bool eval_template_integer_expression(Expr* expression,
         bool* pack_expansions = NULL;
         int* pack_offsets = NULL;
         int* pack_counts = NULL;
+        CxxNamespace* saved_active_namespace = active_namespace;
         Type** saved_pack_arguments = NULL;
         int64_t* saved_pack_values = NULL;
         bool* saved_pack_value_present = NULL;
@@ -37602,8 +37681,10 @@ static bool eval_template_integer_expression(Expr* expression,
                 concept, concept->constraint, concept_types,
                 concept->param_count, concept_values,
                 concept_value_present);
+            if (concept->ns) active_namespace = concept->ns;
             bool satisfied = instantiated &&
                 rcc_sema_cxx_requires_satisfied(instantiated);
+            active_namespace = saved_active_namespace;
             if (pack_parameter_index >= 0) {
                 concept->pending_pack_args = saved_pack_arguments;
                 concept->pending_pack_values = saved_pack_values;
@@ -37622,9 +37703,11 @@ static bool eval_template_integer_expression(Expr* expression,
         Expr* instantiated = cxx_template_clone_expr_with_values(
             concept, concept->constraint, concept_types,
             concept->param_count, concept_values, concept_value_present);
+        if (concept->ns) active_namespace = concept->ns;
         bool evaluated = instantiated && eval_template_integer_expression(
             instantiated, concept, concept_values, concept_value_present,
             result);
+        active_namespace = saved_active_namespace;
         if (pack_parameter_index >= 0) {
             concept->pending_pack_args = saved_pack_arguments;
             concept->pending_pack_values = saved_pack_values;

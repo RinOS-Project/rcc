@@ -28975,6 +28975,8 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call COPY_FILE,tests/cxx_modules_reachable_enum_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-enum-leak.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_late_direct.cpp,$(TEST_OUT)/cxx-modules/reachable-late-direct.cpp)
 	$(call COPY_FILE,tests/cxx_modules_reachable_late_private_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-late-private-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_private_base_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-private-base-leak.cpp)
+	$(call COPY_FILE,tests/cxx_modules_reachable_private_concept_leak.cpp,$(TEST_OUT)/cxx-modules/reachable-private-concept-leak.cpp)
 	$(call REMOVE_MATCHING_FILES,$(TEST_OUT)/cxx-modules/*.ro)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		$(TEST_OUT)/cxx-modules/consumer.cpp \
@@ -29097,6 +29099,12 @@ test-cxx-modules: $(RCXX_TARGET) $(RLD_TARGET)
 	$(call CHECK_NONEMPTY,$(TEST_OUT)/cxx-modules/reachable-late-direct-x64.rin)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-private-leak.ro $(TEST_OUT)/cxx-modules/reachable-private-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-private-leak.log)
 	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-private-leak.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-private-base-leak.ro $(TEST_OUT)/cxx-modules/reachable-private-base-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-private-base-leak.log)
+	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-private-base-leak.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-modules/reachable-private-base-leak.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-private-concept-leak.ro $(TEST_OUT)/cxx-modules/reachable-private-concept-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-private-concept-leak.log)
+	$(GREP) -F -q "unknown C++ type name 'ReachablePrivateConcept'" $(TEST_OUT)/cxx-modules/reachable-private-concept-leak.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-modules/reachable-private-concept-leak.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-modules/reachable-alias-leak.ro $(TEST_OUT)/cxx-modules/reachable-alias-leak.cpp,$(TEST_OUT)/cxx-modules/reachable-alias-leak.log)
 	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-modules/reachable-alias-leak.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c $(TEST_OUT)/cxx-modules/cycle-a.cppm $(TEST_OUT)/cxx-modules/cycle-b.cppm,$(TEST_OUT)/cxx-modules/cycle.log)
