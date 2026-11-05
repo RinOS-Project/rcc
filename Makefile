@@ -736,6 +736,10 @@ CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_NESTED_FIVE_D_UNION_SYMBOLS = \
 	_Z66function_template_structural_union_five_dimensional_array_explicitIXtl51FunctionTemplateStructuralUnionFiveDimensionalArraytlA2_A1_A1_A1_A2_37FunctionTemplateStructuralNestedUniontlS5_tlS4_tlS3_tlS2_tlS1_di5valueLi3EEtlS1_di3tagLh7EEEEEEtlS5_tlS4_tlS3_tlS2_tlS1_di3tagLh4EEtlS1_di5valueLi17EEEEEEELh9EEEEiv \
 	_Z65function_template_structural_union_five_dimensional_array_deducedIXtl51FunctionTemplateStructuralUnionFiveDimensionalArraytlA2_A1_A1_A1_A2_37FunctionTemplateStructuralNestedUniontlS5_tlS4_tlS3_tlS2_tlS1_di5valueLi5EEtlS1_di3tagLh8EEEEEEtlS5_tlS4_tlS3_tlS2_tlS1_di3tagLh6EEtlS1_di5valueLi18EEEEEEELh1EEEEi54FunctionTemplateStructuralUnionFiveDimensionalArrayTagIXT_EE
 
+CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS = \
+	_Z65function_template_structural_union_six_dimensional_array_explicitIXtl50FunctionTemplateStructuralUnionSixDimensionalArraytlA2_A1_A1_A1_A1_A2_37FunctionTemplateStructuralNestedUniontlS6_tlS5_tlS4_tlS3_tlS2_tlS1_di5valueLi7EEtlS1_di3tagLh3EEEEEEEtlS6_tlS5_tlS4_tlS3_tlS2_tlS1_di3tagLh4EEtlS1_di5valueLi17EEEEEEEELh9EEEEiv \
+	_Z64function_template_structural_union_six_dimensional_array_deducedIXtl50FunctionTemplateStructuralUnionSixDimensionalArraytlA2_A1_A1_A1_A1_A2_37FunctionTemplateStructuralNestedUniontlS6_tlS5_tlS4_tlS3_tlS2_tlS1_di5valueLi7EEtlS1_di3tagLh3EEEEEEEtlS6_tlS5_tlS4_tlS3_tlS2_tlS1_di3tagLh4EEtlS1_di5valueLi17EEEEEEEELh9EEEEi53FunctionTemplateStructuralUnionSixDimensionalArrayTagIXT_EE
+
 CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_TEMPLATE_FACTORY_SYMBOLS = \
 	_Z66function_template_structural_union_five_dimensional_array_explicitIXtl51FunctionTemplateStructuralUnionFiveDimensionalArraytlA2_A1_A1_A1_A2_37FunctionTemplateStructuralNestedUniontlS5_tlS4_tlS3_tlS2_tlS1_di5valueLi5EEtlS1_di3tagLh7EEEEEEtlS5_tlS4_tlS3_tlS2_tlS1_di3tagLh4EEtlS1_di5valueLi19EEEEEEELh9EEEEiv \
 	_Z65function_template_structural_union_five_dimensional_array_deducedIXtl51FunctionTemplateStructuralUnionFiveDimensionalArraytlA2_A1_A1_A1_A2_37FunctionTemplateStructuralNestedUniontlS5_tlS4_tlS3_tlS2_tlS1_di5valueLi8EEtlS1_di3tagLh8EEEEEEtlS5_tlS4_tlS3_tlS2_tlS1_di3tagLh6EEtlS1_di5valueLi21EEEEEEELh1EEEEi54FunctionTemplateStructuralUnionFiveDimensionalArrayTagIXT_EE
@@ -6368,6 +6372,9 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_FIVE_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_FIVE_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_FIVE_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_ARRAY_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
@@ -6380,7 +6387,7 @@ test-cxx-function-template-structural-nontype-posix: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_CONSTEXPR_CTOR_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,88)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,90)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -8357,7 +8364,10 @@ test-cxx-function-template-structural-nontype: $(RCXX_TARGET)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_MEMBER_ARRAY_SYMBOL_GCC_WINDOWS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_MEMBER_ARRAY_SYMBOL_X86),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
 	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_POINTER_FACTORY_MEMBER_ARRAY_SYMBOL_X64),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,88)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/gcc-symbols.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x86.s)
+	$(call CHECK_TEXTS,$(CXX_FUNCTION_TEMPLATE_STRUCTURAL_NONTYPE_SIX_D_UNION_SYMBOLS),$(TEST_OUT)/cxx-function-template-structural-nontype/x64.s)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-function-template-structural-nontype,cxx_function_template_structural_nontype.cpp,90)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid test-cxx-adl-function-template-specialization
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)

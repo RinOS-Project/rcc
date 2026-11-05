@@ -195,6 +195,22 @@ struct FunctionTemplateStructuralUnionFiveDimensionalArray {
     unsigned char suffix;
 };
 
+struct FunctionTemplateStructuralUnionSixDimensionalArray {
+    FunctionTemplateStructuralNestedUnion payloads[2][1][1][1][1][2];
+    unsigned char suffix;
+};
+
+inline constexpr FunctionTemplateStructuralUnionSixDimensionalArray
+    function_template_structural_union_six_dimensional_array_value = {
+        .payloads = {
+            {{{{{FunctionTemplateStructuralNestedUnion{.value = 7},
+                 FunctionTemplateStructuralNestedUnion{.tag = 3}}}}}},
+            {{{{{FunctionTemplateStructuralNestedUnion{.tag = 4},
+                 FunctionTemplateStructuralNestedUnion{.value = 17}}}}}},
+        },
+        .suffix = 9,
+    };
+
 #define FUNCTION_TEMPLATE_STRUCTURAL_FIVE_D_UNION_VALUE( \
     FIRST, FIRST_TAG, SECOND_TAG, SECOND_VALUE, SUFFIX) \
     FunctionTemplateStructuralUnionFiveDimensionalArray { \
@@ -347,6 +363,9 @@ struct FunctionTemplateStructuralUnionQuadArrayTag {};
 
 template<FunctionTemplateStructuralUnionFiveDimensionalArray Value>
 struct FunctionTemplateStructuralUnionFiveDimensionalArrayTag {};
+
+template<FunctionTemplateStructuralUnionSixDimensionalArray Value>
+struct FunctionTemplateStructuralUnionSixDimensionalArrayTag {};
 
 template<FunctionTemplateStructuralMixedUnionContainer Value>
 struct FunctionTemplateStructuralMixedUnionTag {};
@@ -520,6 +539,19 @@ constexpr int function_template_structural_union_five_dimensional_array_deduced(
     FunctionTemplateStructuralUnionFiveDimensionalArrayTag<Value>) {
     return Value.payloads[1][0][0][0][1].value * 100 +
            Value.payloads[0][0][0][0][1].tag * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionSixDimensionalArray Value>
+constexpr int function_template_structural_union_six_dimensional_array_explicit() {
+    return Value.payloads[1][0][0][0][0][1].value * 100 +
+           Value.payloads[0][0][0][0][0][1].tag * 10 + Value.suffix;
+}
+
+template<FunctionTemplateStructuralUnionSixDimensionalArray Value>
+constexpr int function_template_structural_union_six_dimensional_array_deduced(
+    FunctionTemplateStructuralUnionSixDimensionalArrayTag<Value>) {
+    return Value.payloads[1][0][0][0][0][1].value * 100 +
+           Value.payloads[0][0][0][0][0][1].tag * 10 + Value.suffix;
 }
 
 template<FunctionTemplateStructuralFloatingUnion Value>
@@ -931,6 +963,14 @@ static_assert(function_template_structural_union_five_dimensional_array_deduced(
                       function_template_make_structural_five_d_union_deduced_value(
                           static_cast<unsigned char>(2), 9, 4, 14, 3)>{}) ==
               1693);
+static_assert(
+    function_template_structural_union_six_dimensional_array_explicit<
+        function_template_structural_union_six_dimensional_array_value>() ==
+    1739);
+static_assert(function_template_structural_union_six_dimensional_array_deduced(
+                  FunctionTemplateStructuralUnionSixDimensionalArrayTag<
+                      function_template_structural_union_six_dimensional_array_value>{}) ==
+              1739);
 static_assert(function_template_structural_union_float_explicit<
                   FunctionTemplateStructuralFloatingUnion{
                       .single = 1.5f}>() == 15);
@@ -1286,6 +1326,13 @@ int main() {
             FunctionTemplateStructuralUnionFiveDimensionalArrayTag<
                 function_template_make_structural_five_d_union_deduced_value(
                     static_cast<unsigned char>(2), 9, 4, 14, 3)>{}) != 1693 ||
+        function_template_structural_union_six_dimensional_array_explicit<
+            function_template_structural_union_six_dimensional_array_value>() !=
+            1739 ||
+        function_template_structural_union_six_dimensional_array_deduced(
+            FunctionTemplateStructuralUnionSixDimensionalArrayTag<
+                function_template_structural_union_six_dimensional_array_value>{}) !=
+            1739 ||
         function_template_structural_union_float_explicit<
             FunctionTemplateStructuralFloatingUnion{
                 .single = 1.5f}>() != 15 ||

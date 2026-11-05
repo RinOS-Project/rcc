@@ -14189,9 +14189,9 @@ remains a separate open item.
       i686/AMD64 output, and all 15 verified-backend functions at `-O0` and
       `-O2` with zero fallback.
 - [ ] Full structural non-type argument equivalence, remaining legal member
-      layouts, structural packs, structural union-array element layouts beyond
-      the tested five-dimensional `[2][1][1][1][2]` case, and unsupported C++20
-      forms remain open. Direct array rank coverage is tracked below.
+      layouts, structural packs, untested union-array extents and ranks, and
+      unsupported C++20 forms remain open. Direct array rank coverage is
+      tracked below.
   - [x] Collect pointer values from direct and nested pointer-bearing active
         union alternatives into fixed-width structural value records, preserve
         pointer identity in typeinfo keys, and match GCC Itanium mangling for
@@ -14249,8 +14249,14 @@ remains a separate open item.
         Exact GCC Itanium symbols match. Strict GCC C++20, host execution,
         i686/AMD64 output, and all 71 verified-backend functions at `-O0`/`-O2`
         pass with zero fallback in
-        `test-cxx-function-template-structural-nontype`. Other rank-five
-        extents and larger nested union-element layouts remain open.
+        `test-cxx-function-template-structural-nontype`. Other rank-five and
+        rank-six extents, and ranks above six, remain open.
+  - [x] Verify six-dimensional `[2][1][1][1][1][2]` arrays of structural union
+        elements with mixed active alternatives and member reads through all
+        six indices. Cover explicit and deduced NTTPs, strict GCC/Clang C++20,
+        exact Itanium symbols, host execution, i686/AMD64 generation, and all
+        90 verified-backend functions at `-O0`/`-O2` with zero fallback in the
+        Windows/POSIX structural-NTTP gates.
   - [x] Support direct `float` and `double` union alternatives in structural
         NTTPs. Preserve their IEEE bit patterns through collection, packed value
         records, member reads, and Itanium floating-literal encoding. Verify
