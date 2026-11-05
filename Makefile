@@ -28895,15 +28895,39 @@ test-cxx-structural-floating-nontype: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
 	$(GREP) -F -q \
 		"_Z27fixed_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x86.s
+	$(GREP) -F -q \
+		"_Z29deduced_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x86.s
+	$(GREP) -F -q \
+		"_Z27structural_float_array_nttpIXtl18FloatingArrayValuetlA2_fLf3fa00000ELfc0200000EEEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x86.s
+	$(GREP) -F -q \
+		"_Z35deduced_structural_float_array_nttpIXtl18FloatingArrayValuetlA2_fLf3fa00000ELfc0200000EEEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x86.s
+	$(GREP) -F -q \
+		"_Z27fixed_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
 		$(TEST_OUT)/cxx-structural-floating-nontype/gcc-symbols.txt
 	$(GREP) -F -q \
 		"_Z29deduced_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q \
+		"_Z27structural_float_array_nttpIXtl18FloatingArrayValuetlA2_fLf3fa00000ELfc0200000EEEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/gcc-symbols.txt
+	$(GREP) -F -q \
+		"_Z35deduced_structural_float_array_nttpIXtl18FloatingArrayValuetlA2_fLf3fa00000ELfc0200000EEEEEiv" \
 		$(TEST_OUT)/cxx-structural-floating-nontype/gcc-symbols.txt
 	$(GREP) -F -q \
 		"_Z27fixed_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
 		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
 	$(GREP) -F -q \
 		"_Z29deduced_structural_float_nttpIXtl13FloatingValueLf3fa00000EEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
+	$(GREP) -F -q \
+		"_Z27structural_float_array_nttpIXtl18FloatingArrayValuetlA2_fLf3fa00000ELfc0200000EEEEEiv" \
+		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
+	$(GREP) -F -q \
+		"_Z35deduced_structural_float_array_nttpIXtl18FloatingArrayValuetlA2_fLf3fa00000ELfc0200000EEEEEiv" \
 		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-structural-floating-nontype/rcc-host \
 		$(TEST_OUT)/cxx-structural-floating-nontype/x64.s
