@@ -778,7 +778,16 @@ static bool cxx_module_append_header_unit_records(
 static bool cxx_module_private_declaration_shareable(
     const char* source, CxxModuleToken* tokens, size_t first, size_t end) {
     if (first >= end) return false;
-    if (cxx_module_token_is(source, &tokens[first], "static")) return false;
+    for (size_t index = first; index < end; ++index) {
+        if (cxx_module_token_is(source, &tokens[index], "static")) {
+            return false;
+        }
+        if (cxx_module_punct(source, &tokens[index], '{') ||
+            cxx_module_punct(source, &tokens[index], '=') ||
+            cxx_module_punct(source, &tokens[index], ';')) {
+            break;
+        }
+    }
     if (cxx_module_token_is(source, &tokens[first], "namespace") &&
         first + 1u < end && cxx_module_punct(source, &tokens[first + 1u], '{')) {
         return false;
