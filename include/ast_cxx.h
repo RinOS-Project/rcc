@@ -314,6 +314,8 @@ typedef struct {
     } kind;
     const char* name;
     Type* type;              /* For non-type parameters */
+    /* `template<auto N>` deduces this type from each supplied value. */
+    bool is_auto;
     bool is_pack;            /* `typename... Ts` / supported type pack. */
     bool has_default;
     CxxTemplate* template_signature; /* TPARAM_TEMPLATE parameter list. */

@@ -1868,12 +1868,26 @@ static bool cxx_mangle_supported_structural_value(
     return true;
 }
 
+static bool cxx_mangle_function_template_value_argument(
+    char* buf, size_t* pos, Type* value_type, int64_t value,
+    CxxMangleContext* context);
+
 static void cxx_mangle_template_class_value_argument(
     char* buf, size_t* pos, Type* value_type, int64_t value,
     CxxMangleContext* context) {
     int64_t pointer_token = value != 0 &&
             cxx_structural_class_has_only_pointer_member(value_type)
         ? value : 0;
+    if (value_type && value_type->kind == TYPE_PTR &&
+        !value_type->is_reference &&
+        !value_type->cxx_is_member_pointer) {
+        if (!cxx_mangle_function_template_value_argument(
+                buf, pos, value_type, value, context)) {
+            rcc_fatal(
+                "C++ class template pointer argument has no ABI encoding");
+        }
+        return;
+    }
     if (cxx_mangle_supported_structural_value(
             buf, pos, value_type, value, context, pointer_token)) {
         return;
@@ -4754,15 +4768,26 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
             if (!value_args || !value_present || !value_present[index]) {
                 rcc_fatal("C++ variable template value argument is missing");
             }
+            Type* value_type = cxx_mangle_template_value_type(
+                tmpl, parameter, type_args, tmpl->param_count, index);
+            if (parameter->is_auto && value_type &&
+                value_type->kind == TYPE_PTR &&
+                !value_type->is_reference &&
+                !value_type->cxx_is_member_pointer) {
+                if (!cxx_mangle_function_template_value_argument(
+                        buf, &pos, value_type, value_args[index],
+                        &argument_context)) {
+                    rcc_fatal(
+                        "C++ variable template pointer argument has no ABI encoding");
+                }
+                continue;
+            }
             if (pos + 34u >= sizeof(buf)) {
                 rcc_fatal("C++ variable template name is too long");
             }
             buf[pos++] = 'L';
             cxx_mangle_type_append_context(
-                buf, &pos,
-                cxx_mangle_template_value_type(
-                    tmpl, parameter, type_args, tmpl->param_count, index),
-                &argument_context);
+                buf, &pos, value_type, &argument_context);
             if (value_args[index] < 0) {
                 uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;
                 written = snprintf(buf + pos, sizeof(buf) - pos,
@@ -8434,7 +8459,8 @@ static bool cxx_template_template_signature_matches(
         }
         if (left_parameter->kind == TPARAM_TYPE) continue;
         if (left_parameter->kind == TPARAM_NONTYPE) {
-            if (!cxx_template_redeclaration_type_matches(
+            if (left_parameter->is_auto != right_parameter->is_auto ||
+                !cxx_template_redeclaration_type_matches(
                     left_parameter->type, left,
                     right_parameter->type, right, 0)) {
                 return false;
@@ -11095,7 +11121,9 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             TemplateParam* actual_parameter =
                 &actual_template->params[nested_index];
             if (signature_parameter->kind != actual_parameter->kind ||
-                signature_parameter->is_pack != actual_parameter->is_pack) {
+                signature_parameter->is_pack != actual_parameter->is_pack ||
+                (signature_parameter->kind == TPARAM_NONTYPE &&
+                 signature_parameter->is_auto != actual_parameter->is_auto)) {
                 rcc_error((SourceLoc){"<template>", 0, 0},
                           "template-template argument does not match its "
                           "parameter list");
@@ -12895,6 +12923,20 @@ static int template_function_parameter_pack_index(
     return -1;
 }
 
+static Type* template_clone_value_parameter_type(
+    CxxTemplate* tmpl, TemplateParam* parameter, int index, Type** args,
+    int arg_count, const int64_t* value_args, const bool* value_present) {
+    if (!parameter) return NULL;
+    if (parameter->is_auto && args && index >= 0 && index < arg_count &&
+        args[index]) {
+        return args[index];
+    }
+    return parameter->type
+        ? template_substitute_type(tmpl, parameter->type, args, arg_count,
+                                   value_args, value_present)
+        : type_int;
+}
+
 static int template_function_parameter_index(
     CxxTemplate* tmpl, const char* pack_name) {
     if (!tmpl || !pack_name) return -1;
@@ -13521,12 +13563,16 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         tmpl, parameter_name, arg_count, &parameter);
                     int64_t value;
                     Type* value_type = NULL;
+                    Type* parameter_value_type =
+                        template_clone_value_parameter_type(
+                            tmpl, parameter, parameter_index, args,
+                            arg_count, value_args, value_present);
                     if (parameter_index >= 0 && parameter &&
                         cxx_structural_class_value_supported_subset(
-                            parameter->type) &&
+                            parameter_value_type) &&
                         value_present[parameter_index] &&
                         cxx_structural_class_unpack_multidimensional_array_path(
-                            parameter->type, value_args[parameter_index],
+                            parameter_value_type, value_args[parameter_index],
                             member_names, member_count, indices, index_depth,
                             &value, &value_type)) {
                         if (value_type && type_is_floating(value_type)) {
@@ -13605,12 +13651,16 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     &parameter_name) && path_array_element_index < 0) {
                 int index = template_clone_value_parameter_index(
                     tmpl, parameter_name, arg_count, &parameter);
+                Type* parameter_value_type =
+                    template_clone_value_parameter_type(
+                        tmpl, parameter, index, args, arg_count,
+                        value_args, value_present);
                 if (index >= 0 && parameter &&
                     cxx_structural_class_value_supported_subset(
-                        parameter->type) &&
+                        parameter_value_type) &&
                     value_present[index] &&
                     cxx_structural_class_unpack_array_member_path(
-                        parameter->type, value_args[index], member_names,
+                        parameter_value_type, value_args[index], member_names,
                         member_count, (int)array_element_index,
                         &value, &value_type)) {
                     if (value_type && type_is_floating(value_type)) {
@@ -13681,6 +13731,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 template_clone_structural_member_index_count(expression);
             TemplateParam* parameter = NULL;
             int index = -1;
+            Type* parameter_value_type = NULL;
             if (member_capacity > 0) {
                 member_names = ast_arena_alloc(
                     sizeof(*member_names) * (size_t)member_capacity);
@@ -13705,24 +13756,28 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 if (collected_path) {
                     index = template_clone_value_parameter_index(
                         tmpl, parameter_name, arg_count, &parameter);
+                    parameter_value_type =
+                        template_clone_value_parameter_type(
+                            tmpl, parameter, index, args, arg_count,
+                            value_args, value_present);
                 }
             }
             if (index >= 0 && parameter &&
                 cxx_structural_class_value_supported_subset(
-                    parameter->type) &&
+                    parameter_value_type) &&
                 value_present[index] &&
                 (array_index_count > 0
                      ? cxx_structural_class_unpack_multidimensional_array_path(
-                           parameter->type, value_args[index], member_names,
+                           parameter_value_type, value_args[index], member_names,
                            member_count, array_indices, array_index_count,
                            &value, &value_type)
                      : array_element_index >= 0
                      ? cxx_structural_class_unpack_array_member_path(
-                           parameter->type, value_args[index], member_names,
+                           parameter_value_type, value_args[index], member_names,
                            member_count, array_element_index, &value,
                            &value_type)
                      : cxx_structural_class_unpack_member_path(
-                           parameter->type, value_args[index], member_names,
+                           parameter_value_type, value_args[index], member_names,
                            member_count, &value, &value_type))) {
                 if (value_type && type_is_floating(value_type)) {
                     double floating_value;
@@ -14049,11 +14104,9 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         int index = template_clone_value_parameter_index(
             tmpl, expression->ident_name, arg_count, &parameter);
         if (index >= 0 && value_present[index]) {
-            Type* value_type = parameter && parameter->type
-                ? template_substitute_type(
-                      tmpl, parameter->type, args, arg_count, value_args,
-                      value_present)
-                : type_int;
+            Type* value_type = template_clone_value_parameter_type(
+                tmpl, parameter, index, args, arg_count, value_args,
+                value_present);
             if (value_type && value_type->kind == TYPE_PTR &&
                 !value_type->is_reference &&
                 !value_type->cxx_is_member_pointer) {
@@ -15142,6 +15195,15 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                     value_args[index]) {
                 return false;
             }
+            if (parameter->is_auto &&
+                (!args || !args[index] ||
+                 !tmpl->instances[instance_index].args ||
+                 !tmpl->instances[instance_index].args[index] ||
+                 !type_is_same_template_argument(
+                     tmpl->instances[instance_index].args[index],
+                     args[index]))) {
+                return false;
+            }
         } else if (!args || !args[index] ||
                    !type_is_same_template_argument(
                        tmpl->instances[instance_index].args[index],
@@ -15177,7 +15239,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                 return NULL;
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
-            Type* value_type = parameter->type
+            Type* value_type = parameter->is_auto
+                ? args[index]
+                : parameter->type
                 ? template_substitute_type(
                       tmpl, parameter->type, args, arg_count, value_args,
                       value_present)
@@ -17007,6 +17071,7 @@ void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* typ
     tmpl->params[tmpl->param_count].kind = TPARAM_NONTYPE;
     tmpl->params[tmpl->param_count].name = name ? rcc_strdup(name) : NULL;
     tmpl->params[tmpl->param_count].type = type;
+    tmpl->params[tmpl->param_count].is_auto = false;
     tmpl->params[tmpl->param_count].is_pack = false;
     tmpl->params[tmpl->param_count].has_default = false;
     tmpl->params[tmpl->param_count].template_signature = NULL;

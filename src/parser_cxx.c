@@ -2089,6 +2089,31 @@ static Type* cxx_parser_expression_type(Expr* expression) {
     }
 }
 
+/* `template<auto>` uses by-value deduction for the argument's type.  Keep
+ * the expression's pointee qualifiers, but remove top-level cv qualifiers;
+ * arrays and functions follow the ordinary auto decay rules. */
+static Type* cxx_parser_auto_template_argument_type(Expr* expression) {
+    Type* type = cxx_parser_expression_type(expression);
+    if (!type) return NULL;
+    type = type_remove_reference(type);
+    if (!type) return NULL;
+    if (type->kind == TYPE_ARRAY && type->base) {
+        type = type_ptr(type->base);
+    } else if (type->kind == TYPE_FUNC) {
+        type = type_ptr(type);
+    }
+    if (type->is_const || type->is_volatile || type->is_atomic) {
+        Type* unqualified = ast_arena_alloc(sizeof(*unqualified));
+        if (!unqualified) return NULL;
+        *unqualified = *type;
+        unqualified->is_const = false;
+        unqualified->is_volatile = false;
+        unqualified->is_atomic = false;
+        type = unqualified;
+    }
+    return type;
+}
+
 /* Reference captures are represented by pointer parameters in the lowered
  * immediate-call ABI.  Rewrite an occurrence in the lambda body to a real
  * dereference so reads and writes observe the original object. */
@@ -16039,6 +16064,7 @@ static bool parse_cxx_lambda_template_parameters(CxxTemplate* tmpl) {
                               "lambda non-type template parameter requires a name");
                 }
                 cxx_template_add_value_param(tmpl, name, type_int);
+                tmpl->params[tmpl->param_count - 1].is_auto = true;
                 tmpl->params[tmpl->param_count - 1].is_pack = parameter_pack;
             } else {
                 Type* type = parse_cxx_type_spec();
@@ -16906,6 +16932,7 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
                               "name");
                 }
                 cxx_template_add_value_param(signature, nested_name, type_int);
+                signature->params[signature->param_count - 1].is_auto = true;
                 signature->params[signature->param_count - 1].is_pack =
                     nested_parameter_pack;
             } else {
@@ -17129,6 +17156,7 @@ static CxxTemplate* parse_cxx_nested_template_parameter_head(
                 parameter_pack = match(TOK_ELLIPSIS);
                 if (check(TOK_IDENT)) name = advance()->value.str_val;
                 cxx_template_add_value_param(tmpl, name, type_int);
+                tmpl->params[tmpl->param_count - 1].is_auto = true;
             } else {
                 Type* parameter_type = parse_cxx_type_spec();
                 const char* name = NULL;
@@ -17341,11 +17369,9 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     tmpl, param_name, signature, parameter_pack);
                 template_parameter = true;
             } else if (match(TOK_AUTO)) {
-                /* C++17 `template<auto N>` is represented by the existing
-                 * integral non-type path.  The bounded RinOS profile accepts
-                 * only values that evaluate as target-independent integers;
-                 * keeping the parameter's ABI type as int preserves the
-                 * existing substitution, constraint, and mangling rules. */
+                /* The declared placeholder type is used while parsing the
+                 * template pattern; each specialization records the actual
+                 * deduced argument type. */
                 const char* param_name = NULL;
                 if (!rcc_parser_cxx_standard_at_least(17)) {
                     rcc_error(peek()->loc,
@@ -17359,6 +17385,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                               "auto non-type template parameter requires a name");
                 }
                 cxx_template_add_value_param(tmpl, param_name, type_int);
+                tmpl->params[tmpl->param_count - 1].is_auto = true;
                 parameter_pack = parameter_pack || match(TOK_ELLIPSIS);
             } else {
                 /* Non-type parameter */
@@ -22026,7 +22053,8 @@ static bool template_template_parameter_signatures_match(
             return false;
         }
         if (expected_parameter->kind == TPARAM_NONTYPE &&
-            (!expected_parameter->type || !actual_parameter->type ||
+            (expected_parameter->is_auto != actual_parameter->is_auto ||
+             !expected_parameter->type || !actual_parameter->type ||
              !type_is_compatible(expected_parameter->type,
                                  actual_parameter->type))) {
             return false;
@@ -22066,7 +22094,8 @@ static bool template_template_argument_parameter_lists_match(
             return false;
         }
         if (expected_parameter->kind == TPARAM_NONTYPE &&
-            (!expected_parameter->type || !actual_parameter->type ||
+            (expected_parameter->is_auto != actual_parameter->is_auto ||
+             !expected_parameter->type || !actual_parameter->type ||
              !type_is_compatible(expected_parameter->type,
                                  actual_parameter->type))) {
             return false;
@@ -22084,7 +22113,8 @@ static bool template_template_argument_parameter_lists_match(
             const TemplateParam* actual_parameter = &actual->params[index];
             if (expected_pack->kind != actual_parameter->kind) return false;
             if (expected_pack->kind == TPARAM_NONTYPE &&
-                (!expected_pack->type || !actual_parameter->type ||
+                (expected_pack->is_auto != actual_parameter->is_auto ||
+                 !expected_pack->type || !actual_parameter->type ||
                  !type_is_compatible(expected_pack->type,
                                      actual_parameter->type))) {
                 return false;
@@ -25732,12 +25762,18 @@ static Type* instantiate_class_template_for_owner(
             ? arguments && arguments[index]
                 ? arguments[index] : parameter->type
             : NULL;
+        bool non_type_pointer_argument = non_type_argument_type &&
+            non_type_argument_type->kind == TYPE_PTR &&
+            !non_type_argument_type->is_reference &&
+            !non_type_argument_type->cxx_is_member_pointer &&
+            non_type_argument_type->base;
         if (parameter->kind == TPARAM_NONTYPE &&
             (!value_args || !value_present || !value_present[index] ||
              !non_type_argument_type || non_type_argument_type->cxx_dependent ||
              (!type_is_integer(non_type_argument_type) &&
              non_type_argument_type->kind != TYPE_ENUM &&
              non_type_argument_type->kind != TYPE_NULLPTR &&
+             !non_type_pointer_argument &&
              !cxx_structural_class_value_supported_subset(
                  non_type_argument_type)))) {
             rcc_error(loc,
@@ -30716,12 +30752,16 @@ static Type* parse_class_template_specialization_with_owner_type(
                     values[argument_count] = value;
                     value_present[argument_count] = true;
                 }
-                arguments[argument_count] = substitute_template_type(
-                    tmpl, parameter->type, arguments, argument_count,
-                    values, value_present);
+                arguments[argument_count] = parameter->is_auto
+                    ? cxx_parser_auto_template_argument_type(value_expression)
+                    : substitute_template_type(
+                          tmpl, parameter->type, arguments, argument_count,
+                          values, value_present);
                 if (!arguments[argument_count]) {
                     rcc_error(loc,
-                              "class template non-type parameter type could not be substituted");
+                              parameter->is_auto
+                                  ? "class template auto argument type could not be deduced"
+                                  : "class template non-type parameter type could not be substituted");
                     arguments[argument_count] = parameter->type;
                 }
                 if (match(TOK_ELLIPSIS)) {
@@ -30868,12 +30908,16 @@ static Type* parse_class_template_specialization_with_owner_type(
             }
             value_expressions[argument_count] = default_expression
                 ? default_expression : parameter->default_value;
-            arguments[argument_count] = substitute_template_type(
-                tmpl, parameter->type, arguments, argument_count,
-                values, value_present);
+            arguments[argument_count] = parameter->is_auto
+                ? cxx_parser_auto_template_argument_type(default_expression)
+                : substitute_template_type(
+                      tmpl, parameter->type, arguments, argument_count,
+                      values, value_present);
             if (!arguments[argument_count]) {
                 rcc_error(loc,
-                          "class template non-type default type could not be substituted");
+                          parameter->is_auto
+                              ? "class template auto default type could not be deduced"
+                              : "class template non-type default type could not be substituted");
                 arguments[argument_count] = parameter->type;
             }
             if (eval_template_integer_expression(
@@ -40147,6 +40191,13 @@ bool rcc_parse_cxx_member_template_arguments(Expr* member) {
                 rcc_parser_set_cxx_template_default_mode(true);
                 argument->value_expression = parse_assignment_expression();
                 rcc_parser_set_cxx_template_default_mode(false);
+                if (member_template &&
+                    argument_count - 1 < member_template->param_count &&
+                    member_template->params[argument_count - 1].is_auto) {
+                    argument->type =
+                        cxx_parser_auto_template_argument_type(
+                            argument->value_expression);
+                }
                 if (match(TOK_ELLIPSIS)) {
                     if (!argument->value_expression) {
                         rcc_error(peek()->loc,
@@ -45434,7 +45485,9 @@ static bool prepare_cxx_function_template_match_impl(
                          &explicit_value))) {
                     return false;
                 }
-                match->arguments[parameter_index] = parameter->type;
+                match->arguments[parameter_index] = parameter->is_auto
+                    ? explicit_arguments[index].type : parameter->type;
+                if (!match->arguments[parameter_index]) return false;
                 match->values[parameter_index] = explicit_value;
                 match->value_present[parameter_index] = true;
             }
@@ -45480,7 +45533,10 @@ static bool prepare_cxx_function_template_match_impl(
                         match->value_present, &match->values[index])) {
                     return false;
                 }
-                match->arguments[index] = parameter->type;
+                match->arguments[index] = parameter->is_auto
+                    ? cxx_parser_auto_template_argument_type(
+                          parameter->default_value)
+                    : parameter->type;
                 match->value_present[index] = true;
             } else if (parameter->kind == TPARAM_TEMPLATE &&
                        parameter->default_type &&
@@ -45943,7 +45999,15 @@ static bool prepare_cxx_function_template_match_impl(
                     match->value_present[index] = true;
                 }
                 if (!match->value_present[index]) return false;
-                match->arguments[index] = parameter->type;
+                if (parameter->is_auto) {
+                    if (!match->arguments[index]) {
+                        match->arguments[index] =
+                            cxx_parser_auto_template_argument_type(
+                                parameter->default_value);
+                    }
+                } else {
+                    match->arguments[index] = parameter->type;
+                }
             } else if (!match->arguments[index] &&
                        parameter->has_default && parameter->default_type) {
                 match->arguments[index] =
@@ -46459,6 +46523,11 @@ static bool cxx_parse_explicit_function_template_argument_list(
                 argument->value_valid = argument->value_expression &&
                     cxx_template_non_type_constant_value(
                         argument->value_expression, &argument->value);
+                if (parameter->is_auto) {
+                    argument->type =
+                        cxx_parser_auto_template_argument_type(
+                            argument->value_expression);
+                }
                 if (!argument->value_valid &&
                     !cxx_expression_is_dependent(
                         argument->value_expression, active_template)) {
@@ -47043,6 +47112,11 @@ static bool cxx_parse_explicit_member_function_template_specialization(
                         argument->value_expression &&
                         expr_eval_integer_constant(
                             argument->value_expression, &argument->value);
+                    if (parameter->is_auto) {
+                        argument->type =
+                            cxx_parser_auto_template_argument_type(
+                                argument->value_expression);
+                    }
                     if (!argument->value_valid) {
                         rcc_error(
                             argument->value_expression
@@ -49004,10 +49078,21 @@ Expr* rcc_parse_cxx_template_call(void) {
                         rcc_parser_set_cxx_template_default_mode(true);
                         value_expression = parse_assignment_expression();
                         rcc_parser_set_cxx_template_default_mode(false);
-                        if (!expr_eval_integer_constant(value_expression,
-                                                        &value_argument)) {
+                        if (parameter->is_auto) {
+                            type_argument =
+                                cxx_parser_auto_template_argument_type(
+                                    value_expression);
+                        }
+                        if (!type_argument && parameter->is_auto) {
+                            rcc_error(value_expression
+                                          ? value_expression->loc : loc,
+                                      "variable template auto argument type could not be deduced");
+                        } else if (!cxx_template_non_type_constant_value(
+                                       value_expression, &value_argument)) {
                             rcc_error(value_expression ? value_expression->loc : loc,
-                                      "variable template argument must be an integer constant expression");
+                                      parameter->is_auto
+                                          ? "variable template auto argument must be a constant expression"
+                                          : "variable template argument must be an integer constant expression");
                         } else {
                             value_is_present = true;
                         }
@@ -49079,6 +49164,9 @@ Expr* rcc_parse_cxx_template_call(void) {
                     } else if (parameter->kind == TPARAM_NONTYPE) {
                         values[parameter_index] = value_argument;
                         value_present[parameter_index] = value_is_present;
+                        if (parameter->is_auto) {
+                            arguments[parameter_index] = type_argument;
+                        }
                     } else {
                         arguments[parameter_index] = type_argument;
                     }
