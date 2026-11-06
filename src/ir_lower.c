@@ -25205,9 +25205,9 @@ static bool lower_cxx_union_array_default_member_initializer_supported(
 }
 
 static bool lower_cxx_value_initialized_union_supported(
-    const Type* type, unsigned depth);
+    RccIrLowerContext* context, const Type* type, unsigned depth);
 static bool lower_cxx_value_initialized_subobject_supported(
-    const Type* type, unsigned depth);
+    RccIrLowerContext* context, const Type* type, unsigned depth);
 static bool lower_cxx_initialize_implicit_default_member_subobjects(
     RccIrLowerContext* context, RccIrValue object, const Type* type,
     unsigned depth, bool initialize_virtual_bases);
@@ -25218,7 +25218,8 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
  * destructor cleanup need no partial-object registration; bases that do need
  * cleanup remain outside this path. */
 static bool lower_cxx_throwing_constructor_with_bases_supported(
-    const CxxClass* cls, const Decl* declaration) {
+    RccIrLowerContext* context, const CxxClass* cls,
+    const Decl* declaration) {
     if (!cls || !declaration || declaration->func_is_noexcept) return true;
     if (cls->virtual_base_count < 0 ||
         (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
@@ -25248,7 +25249,7 @@ static bool lower_cxx_throwing_constructor_with_bases_supported(
         if (member->type && type_is_scalar(member->type)) continue;
         if (member->type &&
             lower_cxx_value_initialized_subobject_supported(
-                member->type, 0u)) {
+                context, member->type, 0u)) {
             continue;
         }
         member_class = member->type &&
@@ -25324,8 +25325,36 @@ static bool lower_cxx_integer_default_initializer_constant(
     return true;
 }
 
+static bool lower_cxx_value_initialized_scalar_initializer_supported(
+    RccIrLowerContext* context, const Expr* initializer,
+    const Type* type) {
+    const Expr* expression;
+    int64_t integer_value;
+    if (!context || !initializer || !type ||
+        !type_is_scalar((Type*)type) || type->is_reference ||
+        type->is_atomic || type_is_cxx_member_function_pointer(type)) {
+        return false;
+    }
+    if (type_is_integer((Type*)type) &&
+        lower_cxx_integer_default_initializer_constant(
+            initializer, type, &integer_value)) {
+        return true;
+    }
+    expression = lower_scalar_initializer_expression(initializer);
+    if (!expression) {
+        return initializer->kind == EXPR_COMPOUND &&
+            initializer->compound_value_init &&
+            !initializer->compound_init;
+    }
+    return lower_cxx_constructor_initializer_expression_supported(
+               context, expression, 0u) &&
+        (lower_noexcept_expression(expression) ||
+         lower_cxx_throwing_scalar_default_member_initializer_supported(
+             context, expression));
+}
+
 static bool lower_cxx_value_initialized_union_supported(
-    const Type* type, unsigned depth) {
+    RccIrLowerContext* context, const Type* type, unsigned depth) {
     const CxxClass* cls;
     const TypeField* active;
     if (!type || type->kind != TYPE_UNION || !type->is_complete ||
@@ -25345,23 +25374,22 @@ static bool lower_cxx_value_initialized_union_supported(
         return false;
     }
     if (active->initializer) {
-        int64_t value;
-        return lower_cxx_integer_default_initializer_constant(
-            active->initializer, active->type, &value);
+        return lower_cxx_value_initialized_scalar_initializer_supported(
+            context, active->initializer, active->type);
     }
     if (active->type->kind == TYPE_UNION) {
         return lower_cxx_value_initialized_union_supported(
-            active->type, depth + 1u);
+            context, active->type, depth + 1u);
     }
     if (active->type->kind == TYPE_STRUCT) {
         return lower_cxx_value_initialized_subobject_supported(
-            active->type, depth + 1u);
+            context, active->type, depth + 1u);
     }
     return type_is_scalar(active->type);
 }
 
 static bool lower_cxx_value_initialized_subobject_supported(
-    const Type* type, unsigned depth) {
+    RccIrLowerContext* context, const Type* type, unsigned depth) {
     const CxxClass* cls;
     if (!type || depth >= 64u || type->size <= 0 ||
         type->cleanup_function || type->cleanup_field) {
@@ -25375,10 +25403,11 @@ static bool lower_cxx_value_initialized_subobject_supported(
         return type->is_complete && type->array_len > 0 &&
             type->array_len <= 4096 && type->size <= 65536 && type->base &&
             lower_cxx_value_initialized_subobject_supported(
-                type->base, depth + 1u);
+                context, type->base, depth + 1u);
     }
     if (type->kind == TYPE_UNION) {
-        return lower_cxx_value_initialized_union_supported(type, depth);
+        return lower_cxx_value_initialized_union_supported(
+            context, type, depth);
     }
     if (type->kind != TYPE_STRUCT || !type->is_complete ||
         !lower_storage_type_supported_ignoring_volatile_internal(type, 0u) ||
@@ -25398,17 +25427,61 @@ static bool lower_cxx_value_initialized_subobject_supported(
         }
         covered_size += field->type->size;
         if (field->initializer) {
-            int64_t value;
-            if (!lower_cxx_integer_default_initializer_constant(
-                    field->initializer, field->type, &value)) {
+            if (!lower_cxx_value_initialized_scalar_initializer_supported(
+                    context, field->initializer, field->type)) {
                 return false;
             }
         } else if (!lower_cxx_value_initialized_subobject_supported(
-                       field->type, depth + 1u)) {
+                       context, field->type, depth + 1u)) {
             return false;
         }
     }
     return !type->fields || covered_size == type->size;
+}
+
+static bool lower_cxx_store_value_initialized_scalar(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const Type* type, const Expr* initializer) {
+    const Expr* expression;
+    int64_t integer_value;
+    if (!context || !address.valid ||
+        address.type.kind != RCC_IR_TYPE_POINTER || !type || !initializer) {
+        return false;
+    }
+    if (type_is_integer((Type*)type) &&
+        lower_cxx_integer_default_initializer_constant(
+            initializer, type, &integer_value)) {
+        RccIrType member_type;
+        RccIrLowerValue value;
+        if (!lower_type((Type*)type, &member_type) ||
+            member_type.kind != RCC_IR_TYPE_INTEGER) {
+            return false;
+        }
+        value = lower_integer_constant(
+            context, member_type, type->is_unsigned,
+            (uint64_t)integer_value);
+        return value.valid && lower_store_address(context, address, value);
+    }
+    expression = lower_scalar_initializer_expression(initializer);
+    if (!expression) {
+        if (initializer->kind != EXPR_COMPOUND ||
+            !initializer->compound_value_init ||
+            initializer->compound_init) {
+            return false;
+        }
+        RccIrLowerValue zero = lower_zero_initializer(context, (Type*)type);
+        return zero.valid && lower_store_address(context, address, zero);
+    }
+    if (lower_i686_wide_scalar_type(type)) {
+        RccIrLowerWideValue value;
+        return lower_wide_scalar_expression(context, expression, &value) &&
+            lower_wide_scalar_store(context, address, value);
+    }
+    {
+        RccIrLowerValue value = lower_expression(context, expression);
+        value = lower_cast(context, value, (Type*)type);
+        return value.valid && lower_store_address(context, address, value);
+    }
 }
 
 static bool lower_cxx_constructor_initializer_value_initializes(
@@ -25465,7 +25538,8 @@ static bool lower_cxx_zero_value_initialized_subobject(
     if (type->kind == TYPE_UNION) {
         const TypeField* active;
         RccIrLowerValue member;
-        if (!lower_cxx_value_initialized_union_supported(type, depth) ||
+        if (!lower_cxx_value_initialized_union_supported(
+                context, type, depth) ||
             !(active = lower_cxx_value_initialized_union_member(type))) {
             return false;
         }
@@ -25473,19 +25547,8 @@ static bool lower_cxx_zero_value_initialized_subobject(
             context, address, (uint64_t)active->offset);
         if (!member.valid) return false;
         if (active->initializer) {
-            int64_t constant_value;
-            RccIrType member_type;
-            RccIrLowerValue value;
-            if (!lower_cxx_integer_default_initializer_constant(
-                    active->initializer, active->type, &constant_value) ||
-                !lower_type(active->type, &member_type) ||
-                member_type.kind != RCC_IR_TYPE_INTEGER) {
-                return false;
-            }
-            value = lower_integer_constant(
-                context, member_type, active->type->is_unsigned,
-                (uint64_t)constant_value);
-            return value.valid && lower_store_address(context, member, value);
+            return lower_cxx_store_value_initialized_scalar(
+                context, member, active->type, active->initializer);
         }
         return lower_cxx_zero_value_initialized_subobject(
             context, member, active->type, depth + 1u);
@@ -25496,7 +25559,7 @@ static bool lower_cxx_zero_value_initialized_subobject(
         Type unqualified_type = *type;
         unqualified_type.is_volatile = false;
         if (!lower_cxx_value_initialized_subobject_supported(
-                type, depth) ||
+                context, type, depth) ||
             !lower_struct_type_supported(&unqualified_type) || !cls ||
             cls->base_count != 0 || cls->virtual_base_count != 0 ||
             cls->has_user_constructor ||
@@ -25517,19 +25580,8 @@ static bool lower_cxx_zero_value_initialized_subobject(
                 member.volatile_access = true;
             }
             if (field->initializer) {
-                int64_t constant_value;
-                RccIrType member_type;
-                RccIrLowerValue value;
-                if (!lower_cxx_integer_default_initializer_constant(
-                        field->initializer, field->type, &constant_value) ||
-                    !lower_type(field->type, &member_type) ||
-                    member_type.kind != RCC_IR_TYPE_INTEGER) {
-                    return false;
-                }
-                value = lower_integer_constant(
-                    context, member_type, field->type->is_unsigned,
-                    (uint64_t)constant_value);
-                if (!value.valid || !lower_store_address(context, member, value)) {
+                if (!lower_cxx_store_value_initialized_scalar(
+                        context, member, field->type, field->initializer)) {
                     return false;
                 }
             } else if (!lower_cxx_zero_value_initialized_subobject(
@@ -25587,7 +25639,7 @@ static bool lower_cxx_initialize_constructor_members(
         (!is_delegating_constructor && cls->base_count != 0 &&
          (!cls->bases || !cls->base_offsets ||
           !lower_cxx_throwing_constructor_with_bases_supported(
-              cls, declaration))) ||
+              context, cls, declaration))) ||
         !declaration->func_this_param ||
         !(this_local = lower_find_local(
               context, declaration->func_this_param))) {
@@ -25966,7 +26018,7 @@ static bool lower_cxx_initialize_constructor_members(
                     field->type, 0u) ||
                 (field->type->cxx_nontrivial &&
                  !lower_cxx_value_initialized_subobject_supported(
-                     field->type, 0u)) ||
+                     context, field->type, 0u)) ||
                 field->type->cleanup_function || field->type->cleanup_field) {
                 context->unsupported = true;
                 return false;
@@ -26047,7 +26099,7 @@ static bool lower_cxx_initialize_constructor_members(
         }
         if (value_initialize && field->type->kind == TYPE_UNION) {
             if (!lower_cxx_value_initialized_union_supported(
-                    field->type, 0u)) {
+                    context, field->type, 0u)) {
                 context->unsupported = true;
                 return false;
             }
@@ -26058,7 +26110,7 @@ static bool lower_cxx_initialize_constructor_members(
             unqualified_type.is_const = false;
             unqualified_type.is_volatile = false;
             if (!lower_cxx_value_initialized_subobject_supported(
-                    &unqualified_type, 0u)) {
+                    context, &unqualified_type, 0u)) {
                 context->unsupported = true;
                 return false;
             }
