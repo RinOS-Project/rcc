@@ -14557,6 +14557,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_volatile_tls_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 80 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_volatile_static_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 81 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_volatile_static_xor_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -14990,6 +14998,30 @@ static void verify_inline_integer_expression_parameter(
         const char* divisor_suffix = remainder
             ? "signed_static_xor_remainder_divisor"
             : "signed_static_xor_divisor";
+        const char* static_source = find_rcc_static_local_symbol(
+            object, source_suffix);
+        const char* static_divisor = find_rcc_static_local_symbol(
+            object, divisor_suffix);
+        assert(static_source && static_divisor);
+        verify_inline_i686_s64_xor_variable_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            strings, locations, static_source, static_divisor, remainder,
+            false);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+        divisor_source_name &&
+        (expected_constant == INT64_MIN + 80 ||
+         expected_constant == INT64_MIN + 81) &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        bool remainder = expected_operation == 0x1du;
+        const char* source_suffix = remainder
+            ? "signed_volatile_static_xor_remainder_dividend"
+            : "signed_volatile_static_xor_dividend";
+        const char* divisor_suffix = remainder
+            ? "signed_volatile_static_xor_remainder_divisor"
+            : "signed_volatile_static_xor_divisor";
         const char* static_source = find_rcc_static_local_symbol(
             object, source_suffix);
         const char* static_divisor = find_rcc_static_local_symbol(
@@ -21669,6 +21701,30 @@ int main(int argc, char** argv)
             false, 0x1du, 8u, INT64_MIN + 79,
             "debug_inline_nonconstant_signed_long_long_volatile_tls_divisor",
             false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "signed_volatile_static_xor_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 80,
+            "signed_volatile_static_xor_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "signed_volatile_static_xor_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 80,
+            "signed_volatile_static_xor_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "signed_volatile_static_xor_remainder_dividend",
+            false, 0x1du, 8u, INT64_MIN + 81,
+            "signed_volatile_static_xor_remainder_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "signed_volatile_static_xor_remainder_dividend",
+            false, 0x1du, 8u, INT64_MIN + 81,
+            "signed_volatile_static_xor_remainder_divisor", false);
         verify_inline_i686_global_u64_constant_division_expression(
             argv[6],
             "debug_inline_nonconstant_unsigned_long_long_global_div7_entry",

@@ -2361,6 +2361,32 @@ debug_inline_nonconstant_signed_long_long_static_xor_remainder_entry(void)
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_xor_divide_entry(
+    void)
+{
+    static volatile long long signed_volatile_static_xor_dividend =
+        -0x7123456789abcdefLL;
+    static volatile long long signed_volatile_static_xor_divisor =
+        -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (signed_volatile_static_xor_dividend ^ 0x100000001LL) /
+        signed_volatile_static_xor_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_xor_remainder_entry(
+    void)
+{
+    static volatile long long signed_volatile_static_xor_remainder_dividend =
+        -0x7123456789abcdefLL;
+    static volatile long long signed_volatile_static_xor_remainder_divisor =
+        -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (signed_volatile_static_xor_remainder_dividend ^ 0x100000001LL) %
+        signed_volatile_static_xor_remainder_divisor);
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_static_pair_divide_entry(void)
 {
     static long long dividend = -0x7123456789abcdefLL;
