@@ -39130,22 +39130,6 @@ static Expr* sema_cxx_default_initialization_expression(
             return NULL;
         }
     }
-    /* Mixed virtual and non-virtual direct-base lists need a distinct base
-     * initializer representation.  Keep that shape rejected until it can be
-     * lowered without confusing the base entries with member initializers. */
-    if (cls->virtual_base_count != 0) {
-        if (!cls->has_field_initializer) {
-            *supported = false;
-            return NULL;
-        }
-        for (int index = 0; index < cls->base_count; ++index) {
-            if (!cls->bases[index].is_virtual) {
-                *supported = false;
-                return NULL;
-            }
-        }
-    }
-
     /* Build the implicit default constructor's base/member work as a regular
      * aggregate initializer.  Untouched scalar members stay absent so their
      * indeterminate values are not overwritten by zero initialization. */
@@ -39213,6 +39197,7 @@ static Expr* sema_cxx_default_initialization_expression(
             for (TypeField* candidate = type->fields; candidate;
                  candidate = candidate->next) {
                 if (candidate->name && member->name &&
+                    candidate->cxx_declaring_class == cls &&
                     strcmp(candidate->name, member->name) == 0) {
                     field = candidate;
                     break;

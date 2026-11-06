@@ -21781,6 +21781,119 @@ static bool gen_local_initializer_with_temporary_cleanup32(
     return true;
 }
 
+static TypeField* gen_cxx_default_init_member_field32(
+    Type* type, CxxClass* cls, const char* name) {
+    if (!type || !cls || !name) return NULL;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (field->cxx_declaring_class == cls && field->name &&
+            strcmp(field->name, name) == 0) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
+static bool gen_cxx_default_init_virtual_bases32(
+    Module* mod, Type* type, Expr* initializer, int32_t displacement) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    ExprList* item = initializer ? initializer->compound_init : NULL;
+    if (!mod || !type || !cls || !initializer ||
+        cls->virtual_base_count <= 0 || cls->base_count < 0 ||
+        (cls->base_count > 0 && (!cls->bases || !cls->base_offsets))) {
+        return false;
+    }
+
+    /* The normalized list contains one positional item per direct
+     * non-virtual base. Virtual bases have already been proven trivial and
+     * work-free by sema and are constructed by the most-derived layout. */
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        int offset = cls->base_offsets[index];
+        int64_t target = (int64_t)displacement + offset;
+        if (cls->bases[index].is_virtual) continue;
+        if (!base || !base->type || base->type->size <= 0 || offset < 0 ||
+            offset > type->size || base->type->size > type->size - offset ||
+            target < INT32_MIN || target > INT32_MAX || !item ||
+            item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr ||
+            (item->expr->type &&
+             !type_is_compatible(base->type, item->expr->type)) ||
+            !gen_local_initializer(mod, base->type, item->expr,
+                                   (int32_t)target)) {
+            return false;
+        }
+        gen_cxx_exception_change_local_subobject32(
+            mod, base->type, (int32_t)target, false);
+        item = item->next;
+    }
+
+    /* Member entries are field-designated and may omit members whose
+     * default initialization has no work. Resolve only fields declared by
+     * this class so a hidden base member cannot capture the initializer. */
+    for (TypeParam* member = cls->fields; member; member = member->next) {
+        TypeField* field;
+        int64_t target;
+        if (member->is_static) continue;
+        field = gen_cxx_default_init_member_field32(
+            type, cls, member->name);
+        if (!field || !field->type || field->offset < 0 ||
+            field->offset > type->size ||
+            field->type->size > type->size - field->offset) {
+            return false;
+        }
+        if (!item) continue;
+        if (item->designator_kind != INIT_DESIGNATOR_FIELD ||
+            !item->designator_field) {
+            return false;
+        }
+        if (strcmp(item->designator_field, member->name) != 0) continue;
+        target = (int64_t)displacement + field->offset;
+        if (target < INT32_MIN || target > INT32_MAX || !item->expr ||
+            (field->is_bitfield
+                 ? !gen_bitfield_initializer32(
+                       mod, field, item->expr, (int32_t)target)
+                 : !gen_local_initializer_with_temporary_cleanup32(
+                       mod, field->type, item->expr, (int32_t)target, item))) {
+            return false;
+        }
+        if (!field->is_bitfield) {
+            gen_cxx_exception_change_local_subobject32(
+                mod, field->type, (int32_t)target, false);
+        }
+        item = item->next;
+    }
+    if (item) return false;
+
+    /* Retire cleanup records only after every subobject initializer has
+     * succeeded, preserving reverse destruction on an exception. */
+    item = initializer->compound_init;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        int64_t target = (int64_t)displacement + cls->base_offsets[index];
+        if (cls->bases[index].is_virtual) continue;
+        gen_cxx_exception_change_local_subobject32(
+            mod, base->type, (int32_t)target, true);
+        item = item->next;
+    }
+    for (TypeParam* member = cls->fields; member; member = member->next) {
+        TypeField* field;
+        int64_t target;
+        if (member->is_static) continue;
+        field = gen_cxx_default_init_member_field32(
+            type, cls, member->name);
+        if (item && item->designator_kind == INIT_DESIGNATOR_FIELD &&
+            item->designator_field &&
+            strcmp(item->designator_field, member->name) == 0) {
+            target = (int64_t)displacement + field->offset;
+            if (!field->is_bitfield) {
+                gen_cxx_exception_change_local_subobject32(
+                    mod, field->type, (int32_t)target, true);
+            }
+            item = item->next;
+        }
+    }
+    return item == NULL;
+}
+
 static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                   int32_t displacement) {
     Expr* string = codegen_character_array_string(type, initializer);
@@ -21932,6 +22045,16 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         return true;
     }
     if (initializer->kind == EXPR_COMPOUND) {
+        if (type->kind == TYPE_STRUCT && type->cxx_class &&
+            initializer->compound_cxx_default_member_normalized &&
+            initializer->compound_cxx_default_member_init_only &&
+            !initializer->compound_value_init &&
+            !initializer->compound_constructor &&
+            !initializer->compound_copy_init &&
+            type->cxx_class->virtual_base_count > 0) {
+            return gen_cxx_default_init_virtual_bases32(
+                mod, type, initializer, displacement);
+        }
         if (type->kind == TYPE_ARRAY) {
             int64_t cursor = 0;
             for (ExprList* item = initializer->compound_init; item;
