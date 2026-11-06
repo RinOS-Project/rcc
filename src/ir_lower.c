@@ -3291,6 +3291,10 @@ static bool lower_dynamic_static_array_member_initializer_supported(
                      (element_type->kind == TYPE_PTR &&
                       !element_type->cxx_is_member_pointer))) {
             return false;
+        } else if (!lower_cleanup_initializer_supported(item->expr) &&
+                   !lower_cleanup_scalar_call_initializer_supported(
+                       item->expr)) {
+            return false;
         }
     }
     return true;
@@ -31025,18 +31029,25 @@ static bool lower_cxx_initialize_array_object_vtables(
     const Type* array_type, unsigned depth) {
     const Type* element_type;
     if (!context || !array_type || depth >= 32u ||
-        array_type->kind != TYPE_ARRAY || !array_type->base ||
-        array_type->array_len < 0 || array_type->array_len > 4096) {
+        array_type->kind != TYPE_ARRAY || !array_type->base) {
         if (context) context->unsupported = true;
         return false;
     }
     element_type = array_type;
     while (element_type && element_type->kind == TYPE_ARRAY) {
+        if (!element_type->base) {
+            context->unsupported = true;
+            return false;
+        }
         element_type = element_type->base;
     }
     if (!element_type || element_type->kind != TYPE_STRUCT ||
         !element_type->cxx_class) {
         return true;
+    }
+    if (array_type->array_len < 0 || array_type->array_len > 4096) {
+        context->unsupported = true;
+        return false;
     }
     for (int64_t index = 0; index < array_type->array_len; ++index) {
         RccIrLowerValue address = lower_array_element_address(

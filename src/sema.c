@@ -17023,6 +17023,8 @@ static bool sema_cxx_default_member_constant(Type* field_type,
 
 static bool sema_cxx_throwing_scalar_default_member_initializer_supported(
     Type* field_type, Expr* initializer);
+static bool sema_cxx_scalar_array_default_member_initializer_supported(
+    Type* array_type, Expr* initializer, unsigned depth);
 
 static bool sema_cxx_default_member_initializer_supported(
     Type* field_type, Expr* initializer) {
@@ -17037,6 +17039,10 @@ static bool sema_cxx_default_member_initializer_supported(
     }
     if (sema_cxx_throwing_scalar_default_member_initializer_supported(
             field_type, initializer)) {
+        return true;
+    }
+    if (sema_cxx_scalar_array_default_member_initializer_supported(
+            field_type, initializer, 0u)) {
         return true;
     }
     if (!field_type || field_type->kind != TYPE_STRUCT || !initializer ||
@@ -17110,6 +17116,47 @@ static bool sema_cxx_throwing_scalar_default_member_initializer_supported(
             !sema_noexcept_expr(argument->expr)) {
             return false;
         }
+    }
+    return true;
+}
+
+/* Scalar array DMIs use aggregate initialization: omitted elements are
+ * zero-initialized by the storage initializer, while each explicit scalar
+ * expression is evaluated in source order and may throw only through a
+ * bounded direct call. */
+static bool sema_cxx_scalar_array_default_member_initializer_supported(
+    Type* array_type, Expr* initializer, unsigned depth) {
+    int64_t count = 0;
+    if (!array_type || depth >= 32u || array_type->kind != TYPE_ARRAY ||
+        array_type->array_len <= 0 || array_type->array_len > 4096 ||
+        !array_type->base || !initializer ||
+        initializer->kind != EXPR_COMPOUND) {
+        return false;
+    }
+    for (ExprList* item = initializer->compound_init; item;
+         item = item->next) {
+        Type* element_type = array_type->base;
+        if (!item->expr || item->designator_kind != INIT_DESIGNATOR_NONE ||
+            item->cxx_temporary_owner || item->cxx_temporary_cleanups ||
+            item->expr->cxx_temporary_owner ||
+            item->expr->cxx_temporary_cleanups ||
+            count >= array_type->array_len) {
+            return false;
+        }
+        if (element_type->kind == TYPE_ARRAY) {
+            if (!sema_cxx_scalar_array_default_member_initializer_supported(
+                    element_type, item->expr, depth + 1u)) {
+                return false;
+            }
+        } else if (!type_is_scalar(element_type) ||
+                   !sema_expr(item->expr) || !item->expr->type ||
+                   cxx_conversion_rank(item->expr, element_type) < 0 ||
+                   (!sema_noexcept_expr(item->expr) &&
+                    !sema_cxx_throwing_scalar_default_member_initializer_supported(
+                        element_type, item->expr))) {
+            return false;
+        }
+        ++count;
     }
     return true;
 }

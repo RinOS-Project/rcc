@@ -5112,15 +5112,26 @@ static bool gen64_cxx_default_init_bases(
         }
         if (strcmp(item->designator_field, member->name) != 0) continue;
         target = (int64_t)displacement + field->offset;
-        if (target < INT32_MIN || target > INT32_MAX || !item->expr ||
-            (field->is_bitfield
-                 ? !gen64_bitfield_initializer(
-                       mod, field, item->expr, (int32_t)target)
-                 : !gen64_local_initializer_with_temporary_cleanup(
-                       mod, field->type, item->expr, (int32_t)target, item))) {
+        if (target < INT32_MIN || target > INT32_MAX || !item->expr) {
             return false;
         }
-        if (!field->is_bitfield) {
+        if (field->is_bitfield) {
+            if (!gen64_bitfield_initializer(
+                    mod, field, item->expr, (int32_t)target)) {
+                return false;
+            }
+        } else {
+            if (initializer->compound_cxx_default_member_init_only &&
+                field->type->kind == TYPE_ARRAY &&
+                item->expr->kind == EXPR_COMPOUND &&
+                field->type->size > 0) {
+                gen64_zero_local_storage(
+                    mod, (int32_t)target, (size_t)field->type->size);
+            }
+            if (!gen64_local_initializer_with_temporary_cleanup(
+                    mod, field->type, item->expr, (int32_t)target, item)) {
+                return false;
+            }
             gen64_cxx_exception_change_local_subobject(
                 mod, field->type, (int32_t)target, false);
         }
@@ -5426,10 +5437,20 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                                 (int32_t)target_offset)) {
                             return false;
                         }
-                    } else if (!gen64_local_initializer_with_temporary_cleanup(
-                                   mod, element_type, item->expr,
-                                   (int32_t)target_offset, item)) {
-                        return false;
+                    } else {
+                        if (initializer->compound_cxx_default_member_init_only &&
+                            field && field->type->kind == TYPE_ARRAY &&
+                            item->expr->kind == EXPR_COMPOUND &&
+                            field->type->size > 0) {
+                            gen64_zero_local_storage(
+                                mod, (int32_t)target_offset,
+                                (size_t)field->type->size);
+                        }
+                        if (!gen64_local_initializer_with_temporary_cleanup(
+                                mod, element_type, item->expr,
+                                (int32_t)target_offset, item)) {
+                            return false;
+                        }
                     }
                     gen64_cxx_exception_change_local_subobject(
                         mod, element_type, (int32_t)target_offset, false);
@@ -5483,17 +5504,29 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                     return false;
                 }
                 field_offset = (int64_t)displacement + field->offset;
-                if (field_offset < INT32_MIN || field_offset > INT32_MAX ||
-                    (field->is_bitfield
-                         ? !gen64_bitfield_initializer(
-                               mod, field, item->expr,
-                               (int32_t)field_offset)
-                         : !gen64_local_initializer_with_temporary_cleanup(
-                               mod, field->type, item->expr,
-                               (int32_t)field_offset, item))) {
+                if (field_offset < INT32_MIN || field_offset > INT32_MAX) {
                     return false;
                 }
-                if (!field->is_bitfield) {
+                if (field->is_bitfield) {
+                    if (!gen64_bitfield_initializer(
+                            mod, field, item->expr,
+                            (int32_t)field_offset)) {
+                        return false;
+                    }
+                } else {
+                    if (initializer->compound_cxx_default_member_init_only &&
+                        field->type->kind == TYPE_ARRAY &&
+                        item->expr->kind == EXPR_COMPOUND &&
+                        field->type->size > 0) {
+                        gen64_zero_local_storage(
+                            mod, (int32_t)field_offset,
+                            (size_t)field->type->size);
+                    }
+                    if (!gen64_local_initializer_with_temporary_cleanup(
+                            mod, field->type, item->expr,
+                            (int32_t)field_offset, item)) {
+                        return false;
+                    }
                     gen64_cxx_exception_change_local_subobject(
                         mod, field->type, (int32_t)field_offset, false);
                 }
