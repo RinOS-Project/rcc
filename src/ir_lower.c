@@ -11393,6 +11393,14 @@ static bool lower_cleanup_constructor_call_supported(
     argument = initializer->compound_init;
     while (parameter || parameter_declaration || argument) {
         RccIrType ir_type;
+        bool temporary_cleanup_may_throw = !declaration->func_is_noexcept;
+        for (const ExprList* later = argument ? argument->next : NULL;
+             later; later = later->next) {
+            if (!lower_noexcept_expression(later->expr)) {
+                temporary_cleanup_may_throw = true;
+                break;
+            }
+        }
         const Type* reference_argument_type = argument && argument->expr
             ? argument->expr->type : NULL;
         bool reference_parameter = parameter && parameter->type &&
@@ -11422,6 +11430,13 @@ static bool lower_cleanup_constructor_call_supported(
             !type_is_compatible(parameter->type, abi_parameter->type) ||
             !argument || argument->designator_kind != INIT_DESIGNATOR_NONE ||
             !argument->expr ||
+            (!argument->cxx_temporary_owner &&
+             argument->cxx_temporary_cleanups) ||
+            (argument->cxx_temporary_is_parameter_object &&
+             !argument->cxx_temporary_owner) ||
+            (argument->cxx_temporary_owner &&
+             !lower_temporary_cleanup_plan_supported(
+                 argument, temporary_cleanup_may_throw)) ||
             (reference_parameter
                  ? (!parameter->type->base || !reference_argument_type ||
                     !type_is_compatible(
@@ -24843,15 +24858,17 @@ static bool lower_cxx_constructor_initializer_expression_supported(
 }
 
 /* Constructor arguments may call a scalar function that throws. The caller's
- * already-registered completed-subobject cleanups remain active while the
- * argument is evaluated; keep each argument free of temporary cleanup work. */
+ * completed-subobject cleanups and any earlier argument temporaries remain
+ * registered while later arguments are evaluated. */
 static bool lower_cxx_constructor_initializer_arguments_supported(
     RccIrLowerContext* context, const ExprList* arguments) {
     for (const ExprList* argument = arguments; argument;
          argument = argument->next) {
         if (argument->designator_kind != INIT_DESIGNATOR_NONE ||
-            argument->cxx_temporary_owner ||
-            argument->cxx_temporary_cleanups || !argument->expr ||
+            (!argument->cxx_temporary_owner &&
+             argument->cxx_temporary_cleanups) || !argument->expr ||
+            (argument->cxx_temporary_owner &&
+             !lower_temporary_cleanup_plan_supported(argument, true)) ||
             !lower_cxx_constructor_initializer_expression_supported(
                 context, argument->expr, 0u)) {
             return false;
@@ -29110,11 +29127,14 @@ static bool lower_cxx_emit_constructor_call(
         ? constructor->method->decl : NULL;
     const TypeParam* parameter;
     const ExprList* argument;
+    const ExprList* temporary_cleanups[64];
+    size_t temporary_cleanup_count = 0u;
     RccIrValue* operands;
     RccIrInstruction* call;
     RccSysvMemoryArgument* memory_arguments = NULL;
     size_t memory_argument_count = 0u;
     RccIrType receiver_type = rcc_ir_type_pointer(0u);
+    Expr cleanup_expression;
     size_t word_size = lower_abi_chunk_size();
     size_t operand_count = 1u;
     size_t index = 1u;
@@ -29139,6 +29159,7 @@ static bool lower_cxx_emit_constructor_call(
     parameter = constructor->parameters;
     argument = initializer->compound_init;
     while (parameter && argument) {
+        RccIrLowerValue temporary_address = lower_invalid_value();
         if (lower_abi_indirect_class_parameter(parameter->type)) {
             RccIrLowerValue value = lower_expression(
                 context, argument->expr);
@@ -29149,6 +29170,7 @@ static bool lower_cxx_emit_constructor_call(
                 context->unsupported = true;
                 return false;
             }
+            temporary_address = value;
             operands[index++] = value.value;
         } else if (lower_abi_is_aggregate(parameter->type)) {
             RccIrLowerValue aggregate = lower_expression(
@@ -29171,6 +29193,7 @@ static bool lower_cxx_emit_constructor_call(
                 context->unsupported = true;
                 return false;
             }
+            temporary_address = aggregate;
             if (lower_type_has_volatile_subobject(
                     argument->expr->type, 0u)) {
                 RccIrInstruction* staging = lower_append(
@@ -29221,10 +29244,20 @@ static bool lower_cxx_emit_constructor_call(
             operands[index++] = value.low.value;
             operands[index++] = value.high.value;
         } else {
-            RccIrLowerValue value = parameter->type &&
-                    parameter->type->is_reference
-                ? lower_lvalue_address(context, argument->expr)
-                : lower_expression(context, argument->expr);
+            RccIrLowerValue value;
+            if (parameter->type && parameter->type->is_reference &&
+                argument->cxx_temporary_owner) {
+                bool previous_conditional_permission =
+                    context->allow_nontrivial_temporary_conditional;
+                context->allow_nontrivial_temporary_conditional = true;
+                value = lower_expression(context, argument->expr);
+                context->allow_nontrivial_temporary_conditional =
+                    previous_conditional_permission;
+            } else {
+                value = parameter->type && parameter->type->is_reference
+                    ? lower_lvalue_address(context, argument->expr)
+                    : lower_expression(context, argument->expr);
+            }
             value = lower_cast(context, value, parameter->type);
             if (!value.valid || index >= operand_count) {
                 rcc_free(operands);
@@ -29232,7 +29265,33 @@ static bool lower_cxx_emit_constructor_call(
                 context->unsupported = true;
                 return false;
             }
+            temporary_address = value;
             operands[index++] = value.value;
+        }
+        if (argument->cxx_temporary_owner) {
+            if (temporary_cleanup_count >=
+                    sizeof(temporary_cleanups) /
+                        sizeof(temporary_cleanups[0]) ||
+                !temporary_address.valid ||
+                temporary_address.type.kind != RCC_IR_TYPE_POINTER ||
+                !lower_bind_temporary_owner(
+                    context, argument->cxx_temporary_owner,
+                    temporary_address)) {
+                rcc_free(operands);
+                rcc_free(memory_arguments);
+                context->unsupported = true;
+                return false;
+            }
+            temporary_cleanups[temporary_cleanup_count++] = argument;
+            if (!lower_register_call_temporary_cleanups(
+                    context,
+                    &temporary_cleanups[temporary_cleanup_count - 1u],
+                    1u)) {
+                rcc_free(operands);
+                rcc_free(memory_arguments);
+                context->unsupported = true;
+                return false;
+            }
         }
         parameter = parameter->next;
         argument = argument->next;
@@ -29241,6 +29300,16 @@ static bool lower_cxx_emit_constructor_call(
         rcc_free(operands);
         rcc_free(memory_arguments);
         context->unsupported = true;
+        return false;
+    }
+    memset(&cleanup_expression, 0, sizeof(cleanup_expression));
+    cleanup_expression.kind = EXPR_CALL;
+    cleanup_expression.call_args = (ExprList*)initializer->compound_init;
+    if (!lower_transfer_by_value_argument_cleanups(
+            context, initializer->compound_init,
+            temporary_cleanup_count != 0u)) {
+        rcc_free(operands);
+        rcc_free(memory_arguments);
         return false;
     }
     call = lower_append(context, RCC_IR_CALL, rcc_ir_type_void(),
@@ -29253,6 +29322,12 @@ static bool lower_cxx_emit_constructor_call(
     rcc_ir_set_callee(call, decl_link_name(declaration));
     call->sysv_memory_arguments = memory_arguments;
     call->sysv_memory_argument_count = memory_argument_count;
+    if (temporary_cleanup_count != 0u &&
+        !lower_emit_call_temporary_cleanups(
+            context, &cleanup_expression, temporary_cleanups,
+            temporary_cleanup_count, true)) {
+        return false;
+    }
     return true;
 }
 
