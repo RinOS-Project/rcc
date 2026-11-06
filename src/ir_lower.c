@@ -27750,6 +27750,39 @@ static bool lower_cxx_implicit_class_value_initializer_supported(
         !lower_cleanup_initializer_may_throw(initializer);
 }
 
+/* Implicit default construction can bind a reference member to an existing
+ * glvalue. Keep temporary lifetime extension out of this path until its owner
+ * cleanup can be represented by implicit-constructor lowering. */
+static bool lower_cxx_implicit_reference_default_member_initializer_supported(
+    const Type* reference_type, const Expr* initializer) {
+    const Expr* source = initializer;
+    const Type* source_type;
+    while (source && source->kind == EXPR_COMPOUND) {
+        const ExprList* item = source->compound_init;
+        if (source->cxx_temporary_owner || source->cxx_temporary_cleanups ||
+            !item || item->next ||
+            item->designator_kind != INIT_DESIGNATOR_NONE ||
+            item->cxx_temporary_owner || item->cxx_temporary_cleanups) {
+            return false;
+        }
+        source = item->expr;
+    }
+    if (!reference_type || reference_type->kind != TYPE_PTR ||
+        !reference_type->is_reference || !reference_type->base ||
+        reference_type->base->is_reference || !source ||
+        source->cxx_temporary_owner || source->cxx_temporary_cleanups ||
+        !lower_noexcept_expression(source)) {
+        return false;
+    }
+    source_type = source->type;
+    if (source_type && source_type->kind == TYPE_PTR &&
+        source_type->is_reference) {
+        source_type = source_type->base;
+    }
+    return source_type && type_is_compatible(
+        (Type*)reference_type->base, (Type*)source_type);
+}
+
 static bool lower_cxx_implicit_default_member_subobject_supported(
     const Type* type, unsigned depth, bool* has_initializers) {
     const CxxClass* cls;
@@ -27864,19 +27897,22 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
     }
     for (field = type->fields; field; field = field->next) {
         bool nested_initializer = false;
+        bool reference_initializer = field->initializer &&
+            lower_cxx_implicit_reference_default_member_initializer_supported(
+                field->type, field->initializer);
         bool explicit_class_value = field->initializer &&
             lower_cxx_implicit_class_value_initializer_supported(
                 field->type, field->initializer);
         if (!field->type ||
             (field->is_bitfield &&
              !type_is_scalar((Type*)field->type)) ||
-            (!explicit_class_value &&
+            (!explicit_class_value && !reference_initializer &&
              !lower_cxx_implicit_default_member_subobject_supported(
                  field->type, depth + 1u, &nested_initializer))) {
             return false;
         }
         if (field->initializer) {
-            if (!explicit_class_value &&
+            if (!explicit_class_value && !reference_initializer &&
                 type_is_scalar((Type*)field->type) &&
                 !lower_noexcept_expression(field->initializer)) {
                 return false;
@@ -27954,19 +27990,22 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
     }
     for (const TypeField* field = type->fields; field; field = field->next) {
         bool nested_initializer = false;
+        bool reference_initializer = field->initializer &&
+            lower_cxx_implicit_reference_default_member_initializer_supported(
+                field->type, field->initializer);
         bool explicit_class_value = field->initializer &&
             lower_cxx_implicit_class_value_initializer_supported(
                 field->type, field->initializer);
         if (!field->type ||
             (field->is_bitfield &&
              !type_is_scalar((Type*)field->type)) ||
-            (!explicit_class_value &&
+            (!explicit_class_value && !reference_initializer &&
              !lower_cxx_implicit_default_member_subobject_supported(
                  field->type, 0u, &nested_initializer))) {
             return false;
         }
         if (field->initializer) {
-            if (!explicit_class_value &&
+            if (!explicit_class_value && !reference_initializer &&
                 type_is_scalar((Type*)field->type) &&
                 !lower_noexcept_expression(field->initializer)) {
                 return false;
@@ -28145,7 +28184,27 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
                 context, base, (uint64_t)field->offset);
             if (!address.valid) return false;
             if (field->initializer) {
-                if (field->is_bitfield) {
+                if (field->type->is_reference) {
+                    const Expr* reference_initializer =
+                        lower_scalar_initializer_expression(
+                            field->initializer);
+                    RccIrLowerValue referent;
+                    if (!lower_cxx_implicit_reference_default_member_initializer_supported(
+                            field->type,
+                            field->initializer) ||
+                        !reference_initializer) {
+                        context->unsupported = true;
+                        return false;
+                    }
+                    referent = lower_lvalue_address(
+                        context, reference_initializer);
+                    if (!referent.valid ||
+                        referent.type.kind != RCC_IR_TYPE_POINTER ||
+                        !lower_store_address(context, address, referent)) {
+                        context->unsupported = true;
+                        return false;
+                    }
+                } else if (field->is_bitfield) {
                     if (!lower_initialize_bitfield_storage(
                             context, object, field,
                             field->initializer)) return false;
