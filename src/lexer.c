@@ -1068,6 +1068,7 @@ static uint32_t lex_escape_value(Lexer* lex, bool* numeric_escape) {
             }
             return (uint32_t)value;
         default:
+            rcc_error(make_loc(lex), "unsupported escape sequence");
             return (uint8_t)c;
     }
 }

@@ -14983,3 +14983,6 @@ Continue in this order:
       eight lvalue/rvalue combinations in the conversion-operator suite, which
       passes i686/AMD64 generation, GCC execution, and generated AMD64
       execution in `test-cxx-conversion-operator`.
+
+## RCC continuation (2026-11-06, unsupported literal escapes)
+- [x] Diagnose unknown backslash escapes in character and string literals instead of silently dropping the backslash. C17 requires a diagnostic; RCC explicitly rejects conditionally-supported escape forms it does not implement for C++20. GCC C17/C++20 `-pedantic-errors` plus RCC i686/AMD64 `test-language-boundaries` and `test-cxx-utf8-literals` pass; invalid inputs emit no objects.

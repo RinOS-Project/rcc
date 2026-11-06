@@ -22012,6 +22012,22 @@ test-long-double-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 
 test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/language-boundaries)
+	$(call EXPECT_FAILURE,gcc -std=c17 -pedantic-errors -fsyntax-only tests/c_unknown_escape_invalid.c,$(TEST_OUT)/language-boundaries/c-unknown-escape-gcc.log)
+	$(GREP) -F -q "unknown escape sequence" $(TEST_OUT)/language-boundaries/c-unknown-escape-gcc.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/c-unknown-escape-x86.ro tests/c_unknown_escape_invalid.c,$(TEST_OUT)/language-boundaries/c-unknown-escape-x86.log)
+	$(GREP) -F -q "unsupported escape sequence" $(TEST_OUT)/language-boundaries/c-unknown-escape-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/language-boundaries/c-unknown-escape-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/c-unknown-escape-x64.ro tests/c_unknown_escape_invalid.c,$(TEST_OUT)/language-boundaries/c-unknown-escape-x64.log)
+	$(GREP) -F -q "unsupported escape sequence" $(TEST_OUT)/language-boundaries/c-unknown-escape-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/language-boundaries/c-unknown-escape-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_unknown_escape_invalid.cpp,$(TEST_OUT)/language-boundaries/cxx-unknown-escape-gcc.log)
+	$(GREP) -F -q "unknown escape sequence" $(TEST_OUT)/language-boundaries/cxx-unknown-escape-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-unknown-escape-x86.ro tests/cxx_unknown_escape_invalid.cpp,$(TEST_OUT)/language-boundaries/cxx-unknown-escape-x86.log)
+	$(GREP) -F -q "unsupported escape sequence" $(TEST_OUT)/language-boundaries/cxx-unknown-escape-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/language-boundaries/cxx-unknown-escape-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-unknown-escape-x64.ro tests/cxx_unknown_escape_invalid.cpp,$(TEST_OUT)/language-boundaries/cxx-unknown-escape-x64.log)
+	$(GREP) -F -q "unsupported escape sequence" $(TEST_OUT)/language-boundaries/cxx-unknown-escape-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/language-boundaries/cxx-unknown-escape-x64.ro)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/language-boundaries/c-ucn-x86.s \
 		tests/c_string_ucn_utf8.c
