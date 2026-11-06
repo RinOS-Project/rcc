@@ -2142,6 +2142,68 @@ static bool inline_scalar_argument_safe_evaluation_tree(
     }
 }
 
+static bool inline_scalar_atomic_read_evaluation_tree(
+    const Expr* expression) {
+    if (!expression || !expression->type ||
+        !type_is_integer((Type*)expression->type)) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_IDENT: {
+            const Decl* declaration = expression->ident_decl;
+            return declaration &&
+                (declaration->kind == DECL_VAR ||
+                 declaration->kind == DECL_PARAM) &&
+                declaration->type && !declaration->type->is_reference &&
+                type_is_integer(declaration->type);
+        }
+        case EXPR_INT_LIT:
+        case EXPR_CHAR_LIT:
+            return true;
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return inline_scalar_atomic_read_evaluation_tree(
+                expression->unary_operand);
+        case EXPR_CAST:
+            return inline_scalar_atomic_read_evaluation_tree(
+                expression->cast_expr);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+            return inline_scalar_atomic_read_evaluation_tree(
+                       expression->binary_lhs) &&
+                inline_scalar_atomic_read_evaluation_tree(
+                    expression->binary_rhs);
+        case EXPR_COND:
+            return inline_scalar_atomic_read_evaluation_tree(
+                       expression->cond_test) &&
+                inline_scalar_atomic_read_evaluation_tree(
+                    expression->cond_then) &&
+                inline_scalar_atomic_read_evaluation_tree(
+                    expression->cond_else);
+        default:
+            return false;
+    }
+}
+
 static bool inline_scalar_parameter_conversion(
     Type* parameter_type, Type* argument_type) {
     bool function_pointer_decay = parameter_type && argument_type &&
@@ -3545,6 +3607,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             ExprList* argument = arguments;
             size_t offset;
             bool reference_parameter;
+            bool debug_identity_argument_safe;
             for (offset = 0u; offset < index; ++offset) {
                 parameter = parameter->next;
                 argument = argument ? argument->next : NULL;
@@ -3552,6 +3615,13 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             reference_parameter = parameter && parameter->decl &&
                 parameter->decl->type &&
                 parameter->decl->type->is_reference;
+            debug_identity_argument_safe = operation_count == 0u &&
+                parameter_count == 1u && returned &&
+                returned->kind == EXPR_IDENT &&
+                parameter && parameter->decl &&
+                returned->ident_decl == parameter->decl && argument &&
+                argument->expr &&
+                inline_scalar_atomic_read_evaluation_tree(argument->expr);
             if (!parameter || !parameter->decl || !argument ||
                 !argument->expr || parameter->decl->kind != DECL_PARAM ||
                 !inline_scalar_parameter_type_supported(
@@ -3565,8 +3635,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                             parameter->decl->type, argument->expr->type))) ||
                 (expression_has_side_effect(argument->expr) &&
                  (!g_opts.debug_info || parameter_count != 1u ||
-                 !inline_scalar_argument_safe_evaluation_tree(
-                      argument->expr)))) {
+                  (!inline_scalar_argument_safe_evaluation_tree(
+                       argument->expr) &&
+                   !debug_identity_argument_safe)))) {
                 return false;
             }
             has_reference_parameter |= reference_parameter;

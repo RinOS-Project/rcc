@@ -3257,7 +3257,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_atomic_divisor,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_tls_atomic_dividend@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,4)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_tls_atomic_divisor@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
-	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,32)
+	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,34)
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -S \
 		-o $(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s \
 		tests/debug_info_atomic_store.c
@@ -3269,19 +3269,19 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_atomic_divisor,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_tls_atomic_dividend@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,4)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_tls_atomic_divisor@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
-	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,32)
+	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,34)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -g -O1 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.ro \
 		tests/debug_info_atomic_store.c \
 		>$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.log
-	$(GREP) -F -q 'Verified backend: 30 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 32 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -g -O2 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.ro \
 		tests/debug_info_atomic_store.c \
 		>$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.log
-	$(GREP) -F -q 'Verified backend: 30 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 32 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -g -O1 -fverified-backend -v -c \

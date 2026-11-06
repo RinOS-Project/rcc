@@ -14774,6 +14774,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 98 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 99 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -15212,15 +15220,27 @@ static void verify_inline_integer_expression_parameter(
     if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
         divisor_source_name &&
         (expected_constant == INT64_MIN + 96 ||
-         expected_constant == INT64_MIN + 97) &&
+         expected_constant == INT64_MIN + 97 ||
+         expected_constant == INT64_MIN + 98 ||
+         expected_constant == INT64_MIN + 99) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
         bool remainder = expected_operation == 0x1du;
-        const char* source_name = remainder
-            ? "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_dividend"
-            : "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_dividend";
-        const char* divisor_name = remainder
-            ? "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_divisor"
-            : "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_divisor";
+        bool volatile_atomic = expected_constant == INT64_MIN + 98 ||
+            expected_constant == INT64_MIN + 99;
+        const char* source_name = volatile_atomic
+            ? remainder
+                ? "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_dividend"
+                : "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_dividend"
+            : remainder
+                ? "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_dividend"
+                : "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_dividend";
+        const char* divisor_name = volatile_atomic
+            ? remainder
+                ? "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_divisor"
+                : "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_divisor"
+            : remainder
+                ? "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_divisor"
+                : "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_divisor";
         verify_inline_i686_s64_xor_local_variable_division_expression(
             object, info->data, expression_end, expression_start, info,
             strings, locations, source_name, divisor_name, remainder);
@@ -21166,6 +21186,20 @@ int main(int argc, char** argv)
                 "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_dividend",
                 false, 0x1du, 8u, INT64_MIN + 97,
                 "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_signed_long_long_parameter_inline",
+                "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_dividend",
+                false, 0x1bu, 8u, INT64_MIN + 98,
+                "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_signed_long_long_parameter_inline",
+                "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_dividend",
+                false, 0x1du, 8u, INT64_MIN + 99,
+                "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_divisor",
                 false);
         }
         return 0;

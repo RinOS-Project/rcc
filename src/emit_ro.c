@@ -7514,8 +7514,7 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
         if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
             source->var_is_vla || !source->type ||
             (source->type->is_volatile &&
-             (!debug_inline_i686_relocations_allow_volatile(relocations) ||
-              (!source->var_is_global && !source->var_is_static_local))) ||
+             !debug_inline_i686_relocations_allow_volatile(relocations)) ||
             (source->type->is_atomic &&
              !debug_inline_i686_relocations_allow_atomic(relocations)) ||
             source->type->is_reference ||
@@ -12280,8 +12279,10 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
                  declaration->kind != DECL_PARAM) ||
                 declaration->var_is_vla || !declaration->type ||
                 (declaration->type->is_volatile &&
-                 !declaration->var_is_global &&
-                 !declaration->var_is_static_local) ||
+                 !debug_inline_integer_expression_type_allow_volatile(
+                     declaration->type) &&
+                 !debug_inline_integer_expression_type_allow_atomic(
+                     declaration->type)) ||
                 (declaration->type->is_atomic &&
                  !debug_inline_integer_expression_type_allow_atomic(
                      declaration->type)) ||

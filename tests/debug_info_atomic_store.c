@@ -75,6 +75,40 @@ debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_entry(
 }
 
 long long
+debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_divide_entry(
+    long long computed_volatile_atomic_local_dividend,
+    long long computed_volatile_atomic_local_divisor)
+{
+    volatile _Atomic long long
+        debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_dividend =
+            computed_volatile_atomic_local_dividend;
+    volatile _Atomic long long
+        debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_divisor =
+            computed_volatile_atomic_local_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_dividend ^
+         0x100000001ll) /
+        debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_divisor);
+}
+
+long long
+debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_entry(
+    long long computed_volatile_atomic_local_dividend,
+    long long computed_volatile_atomic_local_divisor)
+{
+    volatile _Atomic long long
+        debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_dividend =
+            computed_volatile_atomic_local_dividend;
+    volatile _Atomic long long
+        debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_divisor =
+            computed_volatile_atomic_local_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_dividend ^
+         0x100000001ll) %
+        debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_divisor);
+}
+
+long long
 debug_inline_nonconstant_signed_long_long_atomic_load_xor_divide_entry(void)
 {
     return debug_nonconstant_signed_long_long_parameter_inline(
