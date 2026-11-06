@@ -1123,9 +1123,11 @@ static Token* lex_char_encoded(Lexer* lex, SourceLoc loc,
                              << (byte * 8u);
             }
             if (code_unit_count == 0u || is_wide) {
-                /* C permits multi-character wide constants with an
-                 * implementation-defined value. RinOS chooses the last
-                 * UTF-32 code unit. C++ wide character literals are scalar. */
+                /* C permits multi-code-unit wide constants with an
+                 * implementation-defined value. RinOS chooses the first
+                 * code unit for u/U and the last for L. C++ rejects multiple
+                 * code units for u/U, while L keeps an implementation-defined
+                 * value. */
                 encoded_value = code_unit;
             }
             if (code_unit_count < UINT_MAX) ++code_unit_count;
@@ -1140,8 +1142,7 @@ static Token* lex_char_encoded(Lexer* lex, SourceLoc loc,
     if (!saw_content) {
         rcc_error(loc, "empty character literal");
     }
-    if (code_unit_count > 1u &&
-        (element_width == 2u || !is_wide || lexer_cxx_mode)) {
+    if (code_unit_count > 1u && lexer_cxx_mode && !is_wide) {
         rcc_error(loc,
                   element_width == 2u
                       ? "UTF-16 character literal must encode exactly one code unit"
@@ -1450,7 +1451,7 @@ static Token* lex_token(Lexer* lex) {
         } else if ((c == 'u' || c == 'U') &&
                    (!lexer_cxx_mode || lexer_cxx_standard >= 11) &&
                    (peek_next(lex) == '"' ||
-                    (lexer_cxx_mode && peek_next(lex) == '\''))) {
+                    peek_next(lex) == '\'')) {
             prefixed_literal = true;
             prefix_length = 1u;
             element_width = c == 'u' ? 2u : 4u;
