@@ -11435,8 +11435,17 @@ static bool lower_cleanup_constructor_call_supported(
             (argument->cxx_temporary_is_parameter_object &&
              !argument->cxx_temporary_owner) ||
             (argument->cxx_temporary_owner &&
-             !lower_temporary_cleanup_plan_supported(
-                 argument, temporary_cleanup_may_throw)) ||
+             (!lower_temporary_cleanup_plan_supported(
+                  argument, temporary_cleanup_may_throw) ||
+              !argument->cxx_temporary_owner->type ||
+              !argument->cxx_temporary_owner->type->base ||
+              !reference_argument_type ||
+              !type_is_compatible(
+                  argument->cxx_temporary_owner->type->base,
+                  (Type*)reference_argument_type) ||
+              !type_is_compatible(
+                  (Type*)reference_argument_type,
+                  argument->cxx_temporary_owner->type->base))) ||
             (reference_parameter
                  ? (!parameter->type->base || !reference_argument_type ||
                     !type_is_compatible(
