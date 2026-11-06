@@ -10157,10 +10157,9 @@ static bool lower_cxx_empty_trivial_subobject(
     return true;
 }
 
-/* Default-initializing these subobjects has no generated work: implicit
- * default constructors begin their lifetime but leave scalar storage alone.
- * Keep the proof recursive and exclude user constructors, default member
- * initializers, virtual dispatch, and cleanup-bearing objects. */
+/* Default-initializing these subobjects leaves scalar storage alone.  The
+ * enclosing constructor installs dispatch tables after its bases finish and
+ * before its members are initialized. */
 static bool lower_cxx_implicit_default_subobject_supported(
     const Type* type, unsigned depth) {
     const CxxClass* cls;
@@ -10177,7 +10176,6 @@ static bool lower_cxx_implicit_default_subobject_supported(
     if (!type->is_complete || type->kind != TYPE_STRUCT ||
         !(cls = type->cxx_class) ||
         cls->has_user_constructor || cls->has_field_initializer ||
-        cls->vtable_size != 0 ||
         cls->virtual_base_count != 0 || type->cleanup_function ||
         type->cleanup_field) {
         return false;
@@ -25396,8 +25394,7 @@ static bool lower_cxx_initialize_constructor_members(
             }
         } else {
             Expr base_expression;
-            if (base->base_count != 0 || base->virtual_base_count != 0 ||
-                base->vtable_size != 0) {
+            if (base->base_count != 0 || base->virtual_base_count != 0) {
                 context->unsupported = true;
                 return false;
             }
@@ -25431,8 +25428,7 @@ static bool lower_cxx_initialize_constructor_members(
         bool duplicate_initializer = false;
         if (cls->bases[base_index].is_virtual) continue;
         if (!base || cls->base_offsets[base_index] < 0 ||
-            base->virtual_base_count != 0 ||
-            base->vtable_size != 0 || !base->type) {
+            base->virtual_base_count != 0 || !base->type) {
             context->unsupported = true;
             return false;
         }
@@ -25551,8 +25547,7 @@ static bool lower_cxx_initialize_constructor_members(
                     }
                     if (!virtual_base ||
                         virtual_base->base_count != 0 ||
-                        virtual_base->virtual_base_count != 0 ||
-                        virtual_base->vtable_size != 0) {
+                        virtual_base->virtual_base_count != 0) {
                         context->unsupported = true;
                         return false;
                     }
@@ -25861,6 +25856,13 @@ static bool lower_cxx_initialize_constructor_members(
             return false;
         }
     }
+    /* Base constructors run with their own dispatch tables.  Switch to this
+     * class after all bases finish and before member initializer expressions
+     * can make virtual calls through the object under construction. */
+    if (!lower_cxx_initialize_object_vtables(
+            context, object.value, cls->type)) {
+        return false;
+    }
     /* C++ initializes members in declaration order, independently of the
      * order in which member initializers appear in the constructor. */
     for (const TypeParam* member = cls->fields; member;
@@ -26024,11 +26026,7 @@ static bool lower_cxx_initialize_constructor_members(
             return false;
         }
     }
-    /* Base constructors install their own dispatch tables while they run.
-     * After this class's bases and members are complete, install the tables
-     * for this constructor's dynamic type before lowering its body. */
-    return lower_cxx_initialize_object_vtables(
-        context, object.value, cls->type);
+    return true;
 }
 
 static bool lower_cxx_unregister_constructor_partial_member_cleanups(
