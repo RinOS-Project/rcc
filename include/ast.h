@@ -1678,6 +1678,10 @@ struct Decl {
             bool func_is_inline;
             bool func_is_naked;
             bool func_is_defined;
+            /* Set when C++20 coroutine syntax occurs in this function. */
+            bool func_is_coroutine;
+            /* Resolved from the coroutine return type's promise_type. */
+            Type* func_coroutine_promise_type;
             bool func_is_template_instance;
             bool func_is_explicit_template_specialization;
             /* Member-function template candidates defer body substitution

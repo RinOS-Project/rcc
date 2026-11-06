@@ -1664,6 +1664,9 @@ static Type* cxx_lambda_capture_expression_type(Expr* expression) {
         }
         case EXPR_CAST:
             return expression->cast_type;
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
+            return expression->type;
         case EXPR_ADDR:
             left = cxx_lambda_capture_expression_type(
                 expression->unary_operand);
@@ -2049,6 +2052,10 @@ static Type* cxx_parser_expression_type(Expr* expression) {
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
             return cxx_parser_expression_type(expression->unary_operand);
+
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
+            return expression->type;
 
         case EXPR_ADD:
         case EXPR_SUB:
@@ -11201,6 +11208,9 @@ static bool cxx_constructor_dmi_expression_is_lowerable(
                        cls, initialized_field, expression->binary_lhs) &&
                    cxx_constructor_dmi_expression_is_lowerable(
                        cls, initialized_field, expression->binary_rhs);
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
+            return false;
         case EXPR_PREINC:
         case EXPR_PREDEC:
         case EXPR_POSTINC:
@@ -29359,6 +29369,8 @@ static bool cxx_resolve_dependent_function_template_calls(
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return cxx_resolve_dependent_function_template_calls(
                 expression->unary_operand, depth + 1u);
         case EXPR_CAST:
@@ -29999,6 +30011,8 @@ static bool cxx_partial_owner_expression_equal(
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return cxx_partial_owner_expression_equal(
                 left->unary_operand, right->unary_operand, depth + 1u);
         case EXPR_ADD:
@@ -30491,6 +30505,8 @@ static bool cxx_expression_is_dependent(
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
         case EXPR_NOEXCEPT:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return cxx_expression_is_dependent(
                 expression->unary_operand, expression_template);
         case EXPR_CAST:
@@ -37710,6 +37726,9 @@ static bool cxx_template_expression_is_nothrow(
         case EXPR_ALIGNOF:
             return cxx_template_expression_is_nothrow(
                 expression->unary_operand, depth + 1u);
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
+            return false;
         case EXPR_CAST:
             if (expression->cast_type &&
                 (expression->cast_type->kind == TYPE_STRUCT ||

@@ -41,6 +41,9 @@ extern CxxNamespace* cxx_namespace_for_decl_name(
     CxxNamespace*, const char*) __attribute__((weak));
 extern const char* cxx_namespace_qualified_name(
     CxxNamespace*) __attribute__((weak));
+extern bool cxx_class_resolve_nested_type_path(
+    CxxClass*, const char*, CxxClass*, Type**, bool*, bool*)
+    __attribute__((weak));
 extern bool cxx_class_is_abstract(
     const CxxClass*) __attribute__((weak));
 extern CxxClass* rcc_parser_cxx_find_class(
@@ -65,6 +68,9 @@ extern bool rcc_parser_cxx_has_constructor_template(
 extern bool rcc_parser_cxx_normalize_constructor_body(
     CxxClass*, CxxConstructorInfo*) __attribute__((weak));
 extern Type* rcc_parser_cxx_expression_type(Expr*) __attribute__((weak));
+#elif defined(RCC_BOOTSTRAP)
+extern bool cxx_class_resolve_nested_type_path(
+    CxxClass*, const char*, CxxClass*, Type**, bool*, bool*);
 #endif
 
 static bool sema_cxx_class_is_abstract(const CxxClass* cls) {
@@ -23204,6 +23210,8 @@ static TypeMethod* sema_cxx_type_trait_assignment_method(
         parameter->type = parameter_type;
         declaration = ast_arena_alloc(sizeof(*declaration));
         declaration->kind = DECL_FUNC;
+        declaration->func_is_coroutine = false;
+        declaration->func_coroutine_promise_type = NULL;
         declaration->name = rcc_intern("__rcc_type_trait_operator_assign");
         declaration->loc = loc;
         declaration->func_params = decllist_new(parameter_declaration);
@@ -31885,6 +31893,12 @@ static Type* sema_expr_impl(Expr* expr) {
 
         case EXPR_CXX_CO_AWAIT:
         case EXPR_CXX_CO_YIELD:
+            if (current_cxx_function_decl) {
+                current_cxx_function_decl->func_is_coroutine = true;
+            } else {
+                rcc_error(expr->loc,
+                          "coroutine expression is not within a function");
+            }
             sema_expr(expr->unary_operand);
             rcc_error(expr->loc,
                       "coroutine expression requires coroutine lowering");
@@ -34760,6 +34774,12 @@ static void sema_stmt(Stmt* stmt) {
 
         case STMT_RETURN:
             if (stmt->cxx_is_co_return) {
+                if (current_cxx_function_decl) {
+                    current_cxx_function_decl->func_is_coroutine = true;
+                } else {
+                    rcc_error(stmt->loc,
+                              "co_return is not within a function");
+                }
                 if (stmt->return_val) sema_expr(stmt->return_val);
                 rcc_error(stmt->loc,
                           "co_return requires coroutine lowering");
@@ -40512,6 +40532,60 @@ static void sema_validate_cxx_operator_co_await(Decl* declaration) {
     }
 }
 
+static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
+    Type* return_type;
+    Type* promise_type = NULL;
+    bool ambiguous = false;
+    bool accessible = false;
+    bool resolved = false;
+    if (!declaration || !declaration->func_is_coroutine ||
+        !declaration->type || declaration->type->kind != TYPE_FUNC) {
+        return;
+    }
+    return_type = type_remove_reference(declaration->type->ret_type);
+    if (!return_type || return_type->cxx_dependent) return;
+    if (!rcc_parser_is_cxx_mode() ||
+        !rcc_parser_cxx_standard_at_least(20)) {
+        rcc_error(declaration->loc,
+                  "coroutine syntax requires C++20 mode");
+        return;
+    }
+#if defined(__GNUC__) || defined(__clang__)
+    if (cxx_class_resolve_nested_type_path && return_type->cxx_class) {
+        resolved = cxx_class_resolve_nested_type_path(
+            return_type->cxx_class, "promise_type", NULL,
+            &promise_type, &ambiguous, &accessible);
+    }
+#elif defined(RCC_BOOTSTRAP)
+    if (return_type->cxx_class) {
+        resolved = cxx_class_resolve_nested_type_path(
+            return_type->cxx_class, "promise_type", NULL,
+            &promise_type, &ambiguous, &accessible);
+    }
+#endif
+    if (!resolved || !promise_type) {
+        if (ambiguous) {
+            rcc_error(declaration->loc,
+                      "coroutine return type has an ambiguous promise_type");
+        } else if (!accessible) {
+            rcc_error(declaration->loc,
+                      "coroutine return type has no accessible promise_type");
+        } else {
+            rcc_error(declaration->loc,
+                      "coroutine_traits promise_type lookup is unavailable for this return type");
+        }
+        return;
+    }
+    if ((promise_type->kind != TYPE_STRUCT &&
+         promise_type->kind != TYPE_UNION) ||
+        !promise_type->cxx_class || !type_is_complete(promise_type)) {
+        rcc_error(declaration->loc,
+                  "coroutine promise_type must be a complete class type");
+        return;
+    }
+    declaration->func_coroutine_promise_type = promise_type;
+}
+
 static void sema_validate_global_allocation_operator(Decl* declaration) {
     const char* leaf_name;
     bool is_allocation;
@@ -41264,6 +41338,7 @@ analyze_function_body:
                         sema_validate_auto_return_stmt(decl->func_body);
                     }
                 }
+                sema_resolve_cxx_coroutine_promise_type(decl);
 
                 /* Check for undefined labels */
                 for (Symbol* label = g_symtab->labels; label; label = label->next) {
