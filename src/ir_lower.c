@@ -23092,7 +23092,10 @@ static bool lower_array_initializer(
         context->unsupported = true;
         return false;
     }
-    if (!lower_zero_array_storage(context, base, array_type)) return false;
+    if (!initializer->compound_cxx_default_member_init_only &&
+        !lower_zero_array_storage(context, base, array_type)) {
+        return false;
+    }
     if (string) {
         uint8_t width = string->str_element_width
             ? string->str_element_width : 1u;

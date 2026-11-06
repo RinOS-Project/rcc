@@ -39079,6 +39079,7 @@ static Expr* sema_cxx_default_initialization_expression(
         }
         initializer = expr_initializer_list(items, loc);
         initializer->compound_type = type;
+        initializer->compound_cxx_default_member_init_only = true;
         *needs_initialization = true;
         return initializer;
     }
