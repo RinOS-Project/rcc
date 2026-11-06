@@ -12142,8 +12142,8 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
                     declaration->type, type, 0u)) {
                 return false;
             }
-            if (declaration->var_is_static_local) return false;
-            if (declaration->var_is_global) {
+            if (declaration->var_is_global ||
+                declaration->var_is_static_local) {
                 const ModuleSymbol* symbol;
                 if (declaration->kind != DECL_VAR ||
                     declaration->type->size != 8) {

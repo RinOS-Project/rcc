@@ -1007,6 +1007,26 @@ debug_inline_nonconstant_unsigned_long_long_global_add_runtime_mod_entry(void)
 }
 
 extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_local_add_runtime_div_entry(
+    void)
+{
+    static unsigned long long static_div_src = 0x7ffffffffffffff0ULL;
+    static unsigned long long static_divisor = 0x8000000100000003ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (static_div_src + 0x100000001ULL) / static_divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_local_add_runtime_mod_entry(
+    void)
+{
+    static unsigned long long static_mod_src = 0x7ffffffffffffff0ULL;
+    static unsigned long long static_mod_divisor = 0x8000000100000003ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (static_mod_src + 0x100000001ULL) % static_mod_divisor);
+}
+
+extern "C" unsigned long long
 debug_inline_nonconstant_unsigned_long_long_tls_add_runtime_div_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(

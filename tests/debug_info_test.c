@@ -10454,6 +10454,36 @@ static void verify_inline_i686_u64_constant_division_expression(
 static uint64_t verify_inline_global_storage(
     ObjectFile* object, const char* name, uint8_t width);
 
+static const char* find_rcc_static_local_symbol(
+    ObjectFile* object, const char* variable_suffix) {
+    const ObjSymbol* match = NULL;
+    size_t suffix_size;
+
+    assert(object != NULL && variable_suffix != NULL);
+    suffix_size = strlen(variable_suffix);
+    for (const ObjSymbol* symbol = object->symbols; symbol;
+         symbol = symbol->next) {
+        size_t name_size;
+        if (!symbol->name || symbol->section < 0 ||
+            !strstr(symbol->name, "__rcc_static_")) {
+            continue;
+        }
+        name_size = strlen(symbol->name);
+        if (name_size < suffix_size ||
+            strcmp(symbol->name + name_size - suffix_size,
+                   variable_suffix) != 0) {
+            continue;
+        }
+        assert(match == NULL);
+        match = symbol;
+    }
+    if (!match)
+        fprintf(stderr, "missing RCC static local symbol suffix %s\n",
+                variable_suffix);
+    assert(match != NULL);
+    return match->name;
+}
+
 static void verify_inline_i686_global_u64_constant_division_expression_for_inline(
     const char* path, const char* call_site_name, const char* source_name,
     const char* inline_name, uint64_t divisor, bool remainder) {
@@ -11114,7 +11144,7 @@ static void verify_inline_i686_u64_global_variable_division_expression(
     }
 }
 
-static void verify_inline_i686_u64_global_add_variable_division_expression(
+static void verify_inline_i686_u64_storage_add_variable_division_expression(
     ObjectFile* object, const uint8_t* data, uint64_t expression_end,
     uint64_t expression_start, const ObjSection* info,
     const char* source_name, const char* divisor_name, bool remainder,
@@ -11178,7 +11208,7 @@ static void verify_inline_i686_u64_global_add_variable_division_expression(
                     divisor_name);
             if (actual != expected) {
                 fprintf(stderr,
-                        "i686 u64 computed-global %s mismatch: value=%#llx "
+                        "i686 u64 computed-storage %s mismatch: value=%#llx "
                         "divisor=%#llx actual=%#llx expected=%#llx\n",
                         remainder ? "remainder" : "division",
                         (unsigned long long)dividend,
@@ -14433,6 +14463,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_unsigned_long_long_tls_add_runtime_mod_entry";
+    } else if (expected_constant == INT64_MIN + 68 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_static_local_add_runtime_div_entry";
+    } else if (expected_constant == INT64_MIN + 69 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_static_local_add_runtime_mod_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -14770,6 +14808,26 @@ static void verify_inline_integer_expression_parameter(
     }
     if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
         divisor_source_name &&
+        (expected_constant == INT64_MIN + 68 ||
+         expected_constant == INT64_MIN + 69) &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        bool remainder = expected_constant == INT64_MIN + 69;
+        const char* source_suffix = remainder
+            ? "static_mod_src" : "static_div_src";
+        const char* divisor_suffix = remainder
+            ? "static_mod_divisor" : "static_divisor";
+        const char* static_source = find_rcc_static_local_symbol(
+            object, source_suffix);
+        const char* static_divisor = find_rcc_static_local_symbol(
+            object, divisor_suffix);
+        verify_inline_i686_u64_storage_add_variable_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            static_source, static_divisor, expected_operation == 0x1du, false);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
+        divisor_source_name &&
         (expected_constant == INT64_MIN + 64 ||
          expected_constant == INT64_MIN + 65 ||
          expected_constant == INT64_MIN + 66 ||
@@ -14777,7 +14835,7 @@ static void verify_inline_integer_expression_parameter(
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
         bool is_tls = expected_constant == INT64_MIN + 66 ||
             expected_constant == INT64_MIN + 67;
-        verify_inline_i686_u64_global_add_variable_division_expression(
+        verify_inline_i686_u64_storage_add_variable_division_expression(
             object, info->data, expression_end, expression_start, info,
             source_name, divisor_source_name, expected_operation == 0x1du,
             is_tls);
@@ -21323,6 +21381,30 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_unsigned_long_long_tls_dividend",
             true, 0x1du, 8u, INT64_MIN + 67,
             "debug_inline_nonconstant_unsigned_long_long_tls_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "static_div_src",
+            true, 0x1bu, 8u, INT64_MIN + 68,
+            "static_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "static_div_src",
+            true, 0x1bu, 8u, INT64_MIN + 68,
+            "static_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "static_mod_src",
+            true, 0x1du, 8u, INT64_MIN + 69,
+            "static_mod_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "static_mod_src",
+            true, 0x1du, 8u, INT64_MIN + 69,
+            "static_mod_divisor", false);
         verify_inline_i686_global_u64_constant_division_expression(
             argv[6],
             "debug_inline_nonconstant_unsigned_long_long_global_div7_entry",
