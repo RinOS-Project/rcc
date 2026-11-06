@@ -31258,7 +31258,8 @@ static bool lower_cxx_initialize_array_object_vtables(
     const Type* array_type, unsigned depth) {
     const Type* element_type;
     if (!context || !array_type || depth >= 32u ||
-        array_type->kind != TYPE_ARRAY || !array_type->base) {
+        array_type->kind != TYPE_ARRAY || !array_type->base ||
+        array_type->array_len < 0) {
         if (context) context->unsupported = true;
         return false;
     }
@@ -31274,7 +31275,7 @@ static bool lower_cxx_initialize_array_object_vtables(
         !element_type->cxx_class) {
         return true;
     }
-    if (array_type->array_len < 0 || array_type->array_len > 4096) {
+    if (array_type->array_len > 4096) {
         context->unsupported = true;
         return false;
     }
