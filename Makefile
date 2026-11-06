@@ -4269,6 +4269,10 @@ endif
 
 test-cxx20-unsupported-boundaries: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-unsupported-boundaries)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-x86.ro tests/cxx20_operator_co_await.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-x64.ro tests/cxx20_operator_co_await.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-cxx17.ro tests/cxx20_operator_co_await.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-cxx17.log)
+	$(GREP) -F -q "operator co_await requires C++20 mode" $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-cxx17.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro tests/cxx20_modules_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.log)
 	$(GREP) -F -q "module interface 'rcc_unsupported_dependency' was not found" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log

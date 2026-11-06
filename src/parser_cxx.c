@@ -8581,6 +8581,15 @@ static const char* parse_operator_name(void) {
         }
         return rcc_intern("operator delete");
     }
+    if (check(TOK_IDENT) && peek()->value.str_val &&
+        strcmp(peek()->value.str_val, "co_await") == 0) {
+        Token* keyword = advance();
+        if (!rcc_parser_cxx_standard_at_least(20)) {
+            rcc_error(keyword->loc,
+                      "operator co_await requires C++20 mode");
+        }
+        return rcc_intern("operator co_await");
+    }
     operation = peek()->type;
     switch (operation) {
         case TOK_ASSIGN:
