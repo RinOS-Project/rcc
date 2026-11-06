@@ -27865,6 +27865,49 @@ static bool lower_cxx_implicit_reference_default_member_initializer_supported(
         (Type*)reference_type->base, (Type*)source_type);
 }
 
+static bool lower_cxx_implicit_type_has_cleanup(
+    const Type* type, unsigned depth) {
+    if (!type || depth >= 32u) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return lower_cxx_implicit_type_has_cleanup(
+            type->base, depth + 1u);
+    }
+    return lower_cxx_type_has_destructor_cleanup(type);
+}
+
+static bool lower_cxx_implicit_default_member_has_prior_cleanup(
+    const Type* owner_type, const TypeField* target) {
+    const CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
+    if (!owner_type || !cls || !target) return true;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxVirtualBaseInfo* base = cls->virtual_bases
+            ? &cls->virtual_bases[index] : NULL;
+        if (!base || !base->base || !base->base->type ||
+            lower_cxx_implicit_type_has_cleanup(base->base->type, 0u)) {
+            return true;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases ? cls->bases[index].base : NULL;
+        if (!base || !base->type ||
+            lower_cxx_implicit_type_has_cleanup(base->type, 0u)) {
+            return true;
+        }
+    }
+    for (const TypeField* field = owner_type->fields;
+         field && field != target; field = field->next) {
+        if (field->cxx_declaring_class &&
+            field->cxx_declaring_class != cls) {
+            continue;
+        }
+        if (!field->type ||
+            lower_cxx_implicit_type_has_cleanup(field->type, 0u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool lower_cxx_implicit_default_member_subobject_supported(
     const Type* type, unsigned depth, bool* has_initializers) {
     const CxxClass* cls;
@@ -27979,6 +28022,16 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
     }
     for (field = type->fields; field; field = field->next) {
         bool nested_initializer = false;
+        const Expr* scalar_initializer = field->initializer && field->type
+            ? lower_scalar_initializer_expression(field->initializer) : NULL;
+        bool throwing_scalar_initializer = field->type &&
+            !field->type->is_reference &&
+            type_is_scalar((Type*)field->type) && scalar_initializer &&
+            !lower_noexcept_expression(scalar_initializer) &&
+            lower_cleanup_scalar_call_initializer_supported(
+                scalar_initializer) &&
+            !lower_cxx_implicit_default_member_has_prior_cleanup(
+                type, field);
         bool reference_initializer = field->initializer &&
             lower_cxx_implicit_reference_default_member_initializer_supported(
                 field->type, field->initializer);
@@ -27994,9 +28047,8 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
             return false;
         }
         if (field->initializer) {
-            if (!explicit_class_value && !reference_initializer &&
-                type_is_scalar((Type*)field->type) &&
-                !lower_noexcept_expression(field->initializer)) {
+            if (!lower_noexcept_expression(field->initializer) &&
+                !throwing_scalar_initializer) {
                 return false;
             }
             if (has_initializers) *has_initializers = true;
@@ -28072,6 +28124,16 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
     }
     for (const TypeField* field = type->fields; field; field = field->next) {
         bool nested_initializer = false;
+        const Expr* scalar_initializer = field->initializer && field->type
+            ? lower_scalar_initializer_expression(field->initializer) : NULL;
+        bool throwing_scalar_initializer = field->type &&
+            !field->type->is_reference &&
+            type_is_scalar((Type*)field->type) && scalar_initializer &&
+            !lower_noexcept_expression(scalar_initializer) &&
+            lower_cleanup_scalar_call_initializer_supported(
+                scalar_initializer) &&
+            !lower_cxx_implicit_default_member_has_prior_cleanup(
+                type, field);
         bool reference_initializer = field->initializer &&
             lower_cxx_implicit_reference_default_member_initializer_supported(
                 field->type, field->initializer);
@@ -28087,9 +28149,8 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
             return false;
         }
         if (field->initializer) {
-            if (!explicit_class_value && !reference_initializer &&
-                type_is_scalar((Type*)field->type) &&
-                !lower_noexcept_expression(field->initializer)) {
+            if (!lower_noexcept_expression(field->initializer) &&
+                !throwing_scalar_initializer) {
                 return false;
             }
             has_initializer = true;

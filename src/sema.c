@@ -17044,7 +17044,7 @@ static bool sema_cxx_default_member_constant(Type* field_type,
 
 static bool sema_cxx_throwing_scalar_default_member_initializer_supported(
     Type* field_type, Expr* initializer);
-static bool sema_cxx_scalar_array_default_member_initializer_supported(
+static bool sema_cxx_array_default_member_initializer_supported(
     Type* array_type, Expr* initializer, unsigned depth);
 
 static bool sema_cxx_default_member_initializer_supported(
@@ -17062,7 +17062,7 @@ static bool sema_cxx_default_member_initializer_supported(
             field_type, initializer)) {
         return true;
     }
-    if (sema_cxx_scalar_array_default_member_initializer_supported(
+    if (sema_cxx_array_default_member_initializer_supported(
             field_type, initializer, 0u)) {
         return true;
     }
@@ -17141,19 +17141,25 @@ static bool sema_cxx_throwing_scalar_default_member_initializer_supported(
     return true;
 }
 
-/* Scalar array DMIs use aggregate initialization: omitted elements are
- * zero-initialized by the storage initializer, while each explicit scalar
- * expression is evaluated in source order and may throw only through a
- * bounded direct call. */
-static bool sema_cxx_scalar_array_default_member_initializer_supported(
+static bool sema_cxx_array_default_member_initializer_supported(
     Type* array_type, Expr* initializer, unsigned depth) {
     int64_t count = 0;
+    Type* leaf_type;
+    unsigned leaf_depth;
+    bool requires_explicit_elements;
     if (!array_type || depth >= 32u || array_type->kind != TYPE_ARRAY ||
         array_type->array_len <= 0 || array_type->array_len > 4096 ||
         !array_type->base || !initializer ||
         initializer->kind != EXPR_COMPOUND) {
         return false;
     }
+    leaf_type = array_type->base;
+    leaf_depth = depth + 1u;
+    while (leaf_type && leaf_type->kind == TYPE_ARRAY &&
+           leaf_depth++ < 32u) {
+        leaf_type = leaf_type->base;
+    }
+    requires_explicit_elements = !leaf_type || !type_is_scalar(leaf_type);
     for (ExprList* item = initializer->compound_init; item;
          item = item->next) {
         Type* element_type = array_type->base;
@@ -17165,21 +17171,28 @@ static bool sema_cxx_scalar_array_default_member_initializer_supported(
             return false;
         }
         if (element_type->kind == TYPE_ARRAY) {
-            if (!sema_cxx_scalar_array_default_member_initializer_supported(
+            if (!sema_cxx_array_default_member_initializer_supported(
                     element_type, item->expr, depth + 1u)) {
                 return false;
             }
-        } else if (!type_is_scalar(element_type) ||
-                   !sema_expr(item->expr) || !item->expr->type ||
-                   cxx_conversion_rank(item->expr, element_type) < 0 ||
-                   (!sema_noexcept_expr(item->expr) &&
-                    !sema_cxx_throwing_scalar_default_member_initializer_supported(
-                        element_type, item->expr))) {
+        } else if (type_is_scalar(element_type)) {
+            if (!sema_expr(item->expr) || !item->expr->type ||
+                cxx_conversion_rank(item->expr, element_type) < 0 ||
+                (!sema_noexcept_expr(item->expr) &&
+                 !sema_cxx_throwing_scalar_default_member_initializer_supported(
+                     element_type, item->expr))) {
+                return false;
+            }
+        } else if (element_type->kind == TYPE_STRUCT &&
+                   sema_cxx_default_member_initializer_supported(
+                       element_type, item->expr)) {
+            requires_explicit_elements = true;
+        } else {
             return false;
         }
         ++count;
     }
-    return true;
+    return !requires_explicit_elements || count == array_type->array_len;
 }
 
 static bool sema_cxx_type_has_default_member_initializers(
@@ -17885,7 +17898,9 @@ static bool sema_cxx_default_initialization_needs_lowering(
         if (field->initializer) {
             if (!sema_cxx_default_member_initializer_supported(
                     field->type, field->initializer) ||
-                !sema_noexcept_expr(field->initializer)) {
+                (!sema_noexcept_expr(field->initializer) &&
+                 !sema_cxx_throwing_scalar_default_member_initializer_supported(
+                     field->type, field->initializer))) {
                 return true;
             }
             continue;
