@@ -367,6 +367,9 @@ static RccIrLowerValue lower_load_bitfield_value(
 static bool lower_store_bitfield_value(
     RccIrLowerContext* context, RccIrLowerValue address,
     const TypeField* field, RccIrLowerValue value);
+static bool lower_initialize_bitfield_storage(
+    RccIrLowerContext* context, RccIrValue base,
+    const TypeField* field, const Expr* initializer);
 static bool lower_volatile_local_aggregate_supported(
     const Decl* declaration);
 static bool lower_static_volatile_aggregate_supported(
@@ -26036,7 +26039,10 @@ static bool lower_cxx_initialize_constructor_members(
         }
         field = lower_struct_declared_field(
             cls->type, cls, initializer->field);
-        if (!field || field->is_bitfield || !field->type) {
+        if (!field || !field->type ||
+            (field->is_bitfield &&
+             (!type_is_scalar(field->type) ||
+              field->type->is_reference || field->type->is_atomic))) {
             context->unsupported = true;
             return false;
         }
@@ -26506,6 +26512,18 @@ static bool lower_cxx_initialize_constructor_members(
                         field->initializer->kind == EXPR_COMPOUND &&
                         field->initializer->compound_value_init,
                     address, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
+        if (field->is_bitfield) {
+            source = initializer->is_default_member_initializer ||
+                    !initializer->arguments
+                ? initializer->value : initializer->arguments->expr;
+            if (value_initialize || !source || !address.valid ||
+                !lower_initialize_bitfield_storage(
+                    context, object.value, field, source)) {
                 context->unsupported = true;
                 return false;
             }
