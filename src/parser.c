@@ -903,6 +903,54 @@ static bool parser_enum_constant_is_qualified_by_visible_type(
     return qualified_type == entry->type;
 }
 
+static bool parser_lookup_enum_constant_through_type_alias(
+    const char* name, int64_t* value, Type** type, Type** expression_type,
+    bool* is_deprecated, const char** deprecated_message) {
+    const char* spelling = name;
+    const char* separator;
+    size_t type_name_length;
+    const char* enumerator_name;
+    char type_name[512];
+    Type* enum_type;
+
+    if (!spelling) return false;
+    while (spelling[0] == ':' && spelling[1] == ':') spelling += 2;
+    separator = strrchr(spelling, ':');
+    if (!separator || separator <= spelling || separator[-1] != ':') {
+        return false;
+    }
+    enumerator_name = separator + 1;
+    type_name_length = (size_t)(separator - spelling - 1);
+    if (!*enumerator_name || type_name_length == 0u ||
+        type_name_length >= sizeof(type_name)) {
+        return false;
+    }
+    memcpy(type_name, spelling, type_name_length);
+    type_name[type_name_length] = '\0';
+    enum_type = rcc_parser_lookup_type(type_name);
+    if (!enum_type || enum_type->kind != TYPE_ENUM) return false;
+
+    /* Imported BMI enum types retain their enumerator table even when the
+     * names themselves are not reachable through ordinary lookup. Resolving
+     * the qualifier first makes `PublicEnumAlias::enumerator` available while
+     * keeping a private enumerator hidden as a bare identifier. */
+    for (int index = 0; index < enum_type->enum_constant_count; ++index) {
+        const EnumConstantInfo* item = &enum_type->enum_constants[index];
+        if (!item->name || strcmp(item->name, enumerator_name) != 0) {
+            continue;
+        }
+        if (value) *value = item->value;
+        if (type) *type = enum_type;
+        if (expression_type) *expression_type = enum_type;
+        if (is_deprecated) *is_deprecated = item->is_deprecated;
+        if (deprecated_message) {
+            *deprecated_message = item->deprecated_message;
+        }
+        return true;
+    }
+    return false;
+}
+
 bool rcc_parser_lookup_enum_constant(const char* name, int64_t* value,
                                     Type** type, Type** expression_type,
                                     bool* is_deprecated,
@@ -925,7 +973,9 @@ bool rcc_parser_lookup_enum_constant(const char* name, int64_t* value,
             return true;
         }
     }
-    return false;
+    return parser_lookup_enum_constant_through_type_alias(
+        name, value, type, expression_type, is_deprecated,
+        deprecated_message);
 }
 
 /* ═══════════════════════════════════════

@@ -3299,6 +3299,18 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                               MODULE_SYMBOL_DATA, true);
             continue;
         }
+        if (declaration->is_module_imported_record) {
+            module_add_symbol(
+                mod, decl_link_name(declaration), 0u, false,
+                declaration->var_is_thread_local
+                    ? MODULE_SYMBOL_TLS : MODULE_SYMBOL_DATA,
+                true);
+            if (declaration->is_weak) {
+                module_mark_symbol_weak_any(
+                    mod, decl_link_name(declaration));
+            }
+            continue;
+        }
         if (declaration->var_init &&
             !codegen_emit_static_aggregate_reference_temporaries_expr(
                 mod, declaration, declaration->var_init, 0u, false)) {
@@ -3553,7 +3565,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
     }
     for (DeclList* item = ast->decls; item; item = item->next) {
         if (item->decl && item->decl->kind == DECL_FUNC &&
-            item->decl->func_body) {
+            item->decl->func_body &&
+            !item->decl->is_module_imported_record) {
             codegen_emit_static_locals(mod, item->decl->func_body);
         }
     }
@@ -25329,7 +25342,9 @@ Module* rcc_codegen(AST* ast) {
 
     /* First pass: add undefined symbols for external declarations */
     for (DeclList* d = ast->decls; d; d = d->next) {
-        if (d->decl->kind == DECL_FUNC && !d->decl->func_body) {
+        if (d->decl->kind == DECL_FUNC &&
+            (!d->decl->func_body ||
+             d->decl->is_module_imported_record)) {
             /* External function declaration */
             module_add_symbol(mod, decl_link_name(d->decl), 0, false,
                               MODULE_SYMBOL_CODE, true);
@@ -25341,7 +25356,8 @@ Module* rcc_codegen(AST* ast) {
 
     /* Second pass: generate code for each defined function */
     for (DeclList* d = ast->decls; d; d = d->next) {
-        if (d->decl->kind == DECL_FUNC && d->decl->func_body) {
+        if (d->decl->kind == DECL_FUNC && d->decl->func_body &&
+            !d->decl->is_module_imported_record) {
             /* Itanium member-function pointers reserve the low bit of a
              * direct function address to distinguish virtual slots. */
             if ((code_offset(mod) & 1u) != 0u) {

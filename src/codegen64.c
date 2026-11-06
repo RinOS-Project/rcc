@@ -19185,7 +19185,9 @@ Module* rcc_codegen64(AST* ast) {
 
     /* First pass: add undefined symbols for external declarations */
     for (DeclList* d = ast->decls; d; d = d->next) {
-        if (d->decl->kind == DECL_FUNC && !d->decl->func_body) {
+        if (d->decl->kind == DECL_FUNC &&
+            (!d->decl->func_body ||
+             d->decl->is_module_imported_record)) {
             /* External function declaration */
             module_add_symbol(mod, decl_link_name(d->decl), 0, false,
                               MODULE_SYMBOL_CODE, true);
@@ -19197,7 +19199,8 @@ Module* rcc_codegen64(AST* ast) {
 
     /* Second pass: generate code for each defined function */
     for (DeclList* d = ast->decls; d; d = d->next) {
-        if (d->decl->kind == DECL_FUNC && d->decl->func_body) {
+        if (d->decl->kind == DECL_FUNC && d->decl->func_body &&
+            !d->decl->is_module_imported_record) {
             /* Itanium member-function pointers reserve the low bit of a
              * direct function address to distinguish virtual slots. */
             if ((code_offset(mod) & 1u) != 0u) {

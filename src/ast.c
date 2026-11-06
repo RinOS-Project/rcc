@@ -1319,6 +1319,10 @@ Type* type_common(Type* a, Type* b) {
 static Expr* expr_allocate(SourceLoc loc) {
     Expr* expression = rcc_alloc(sizeof(*expression));
     expression->loc = loc;
+    expression->has_module_reachable_lookup_context =
+        rcc_parser_module_reachable_lookup_enabled();
+    expression->module_reachable_private_context =
+        rcc_parser_module_reachable_current_record_private();
     expression->fenv_round_mode = g_opts.fenv_round_mode;
     expression->float_literal_spelling = NULL;
     return expression;
@@ -2207,6 +2211,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->is_module_imported_record = false;
     d->is_weak = false;
     d->param_default = NULL;
     d->var_init = init;
@@ -2260,6 +2265,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->link_name = name;
     d->type = type;
     d->loc = loc;
+    d->is_module_imported_record = false;
     d->is_weak = false;
     d->param_default = NULL;
     d->func_params = params;

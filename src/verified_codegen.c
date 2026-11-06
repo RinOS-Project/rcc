@@ -307,7 +307,8 @@ static void verified_emit_typeinfo_ast(Module* module, const AST* ast) {
          item = item->next) {
         const Decl* declaration = item->decl;
         if (!declaration) continue;
-        if (declaration->kind == DECL_FUNC) {
+        if (declaration->kind == DECL_FUNC &&
+            !declaration->is_module_imported_record) {
             verified_emit_typeinfo_stmt(module, declaration->func_body);
         } else if (declaration->kind == DECL_VAR) {
             verified_emit_typeinfo_expr(module, declaration->var_init);
@@ -1875,7 +1876,8 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         char pipeline_error[256];
         memset(&encoded, 0, sizeof(encoded));
         if (!declaration || declaration->kind != DECL_FUNC ||
-            !declaration->func_body) continue;
+            !declaration->func_body ||
+            declaration->is_module_imported_record) continue;
         verified_clear_statement_debug_ranges(declaration->func_body);
         lower_status = rcc_ir_lower_function(
             declaration, &module, pipeline_error,

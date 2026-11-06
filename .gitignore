@@ -54,6 +54,7 @@
 # Generated RinOS compiler/linker fixtures
 *.ro
 *.ra
+*.rmi
 *.rin
 *.rll
 *.drv
