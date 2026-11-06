@@ -12629,8 +12629,9 @@ static void gen_cxx_initialize_object32_with_zero(
 static bool gen_cxx_value_initialization_zeroes_constructor(
     const CxxConstructorInfo* constructor, bool value_initialization) {
     return value_initialization && constructor &&
-        (constructor->is_defaulted ||
-         (constructor->method && constructor->method->is_defaulted));
+        (constructor->method && constructor->method->decl
+             ? !constructor->method->decl->func_is_user_provided
+             : constructor->is_defaulted);
 }
 static int active_cxx_exception_cleanup_frame_offset;
 

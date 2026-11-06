@@ -7712,8 +7712,9 @@ static void gen64_cxx_initialize_object_with_zero(
 static bool gen64_cxx_value_initialization_zeroes_constructor(
     const CxxConstructorInfo* constructor, bool value_initialization) {
     return value_initialization && constructor &&
-        (constructor->is_defaulted ||
-         (constructor->method && constructor->method->is_defaulted));
+        (constructor->method && constructor->method->decl
+             ? !constructor->method->decl->func_is_user_provided
+             : constructor->is_defaulted);
 }
 static void gen64_cxx_exception_change_subobject(
     Module* mod, Type* object_type, int address_reg, int frame_offset,

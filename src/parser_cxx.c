@@ -9695,6 +9695,8 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     method->explicit_condition = source->method->explicit_condition;
     method->is_noexcept = source->method->is_noexcept;
     method->is_constexpr = source->method->is_constexpr;
+    method->decl->func_is_user_provided =
+        source->method->decl->func_is_user_provided;
     method->decl->func_is_cxx_method = true;
     method->decl->func_has_cxx_linkage = true;
     method->decl->func_is_cxx_constructor = true;
@@ -14418,6 +14420,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_pure_virtual = is_pure;
         method->is_deleted = is_deleted;
         method->is_defaulted = is_defaulted;
+        method->decl->func_is_user_provided = is_constructor && body &&
+            !is_defaulted && !is_deleted;
         method->decl->func_is_deleted = is_deleted;
         method->is_constructor = is_constructor;
         method->is_destructor = is_destructor;
@@ -21226,6 +21230,7 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
     Expr* noexcept_expr = NULL;
     bool declaration_noexcept = false;
     bool definition_noexcept = false;
+    bool is_defaulted_definition = false;
     int64_t noexcept_value = 0;
     ParsedConstructorInitializer constructor_initializer;
     Stmt* body;
@@ -21276,6 +21281,15 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
     rcc_parser_cxx_begin_constructor_initializer_parameters(parameters);
     constructor_initializer = parse_ctor_initializer();
     rcc_parser_cxx_end_constructor_initializer_parameters();
+    if (match(TOK_ASSIGN)) {
+        if (match(TOK_DEFAULT)) {
+            is_defaulted_definition = true;
+            expect(TOK_SEMICOLON, ";");
+        } else {
+            rcc_error(peek()->loc,
+                      "expected default after '=' in out-of-class constructor definition");
+        }
+    }
 
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
@@ -21328,6 +21342,9 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
             } else {
                 definition_noexcept = noexcept_value != 0;
             }
+        } else if (is_defaulted_definition && !noexcept_expr &&
+                   !is_noexcept) {
+            definition_noexcept = declaration_noexcept;
         } else {
             definition_noexcept = is_noexcept;
         }
@@ -21350,8 +21367,14 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
         }
     }
 
-    body = cxx_parse_qualified_member_definition_body(
-        cls, selected, parameters, loc);
+    if (is_defaulted_definition && constructor_initializer.count != 0) {
+        rcc_error(loc,
+                  "an out-of-class defaulted constructor cannot have a mem-initializer list");
+    }
+    body = is_defaulted_definition
+        ? stmt_block(NULL, loc)
+        : cxx_parse_qualified_member_definition_body(
+              cls, selected, parameters, loc);
     if (!body) {
         rcc_error(peek()->loc,
                   "expected body for out-of-class constructor '%s'",
@@ -21365,6 +21388,8 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
     selected->decl->loc = loc;
     selected->decl->func_is_defined = true;
     selected->decl->func_is_inline = is_inline;
+    selected->is_defaulted = is_defaulted_definition;
+    selected->decl->func_is_user_provided = true;
     if (selected->constructor_info) {
         CxxConstructorInfo* info = selected->constructor_info;
         info->parameters = constructor_parameters_from_method(
@@ -21378,7 +21403,7 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
         info->body_is_empty = body->kind == STMT_BLOCK &&
                               body->block_stmts == NULL;
         info->is_deleted = false;
-        info->is_defaulted = false;
+        info->is_defaulted = is_defaulted_definition;
         (void)lowerable_constructor_body(cls, info);
         complete_cxx_default_member_initializers(cls);
     }
@@ -24885,6 +24910,8 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->decl->func_has_local_linkage =
         method->decl->func_has_local_linkage;
     copy->decl->func_is_cxx_method = method->decl->func_is_cxx_method;
+    copy->decl->func_is_user_provided =
+        method->decl->func_is_user_provided;
     copy->decl->func_friend_access = method->decl->func_friend_access;
     copy->decl->func_is_constexpr = method->decl->func_is_constexpr;
     copy->decl->func_is_consteval = method->decl->func_is_consteval;
@@ -49046,6 +49073,8 @@ static TypeMethod* cxx_materialize_member_function_template(
         owner_type->cxx_scope_identity != NULL;
     instance->func_is_cxx_constructor = method->is_constructor;
     instance->func_is_cxx_destructor = method->is_destructor;
+    instance->func_is_user_provided =
+        method->decl->func_is_user_provided;
     if (!method->is_static && !instance->func_this_param) {
         Type* qualified_owner = owner_type;
         Type* object_type;

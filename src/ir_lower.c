@@ -28534,8 +28534,10 @@ static bool lower_cxx_emit_class_array_constructors(
         element = lower_value(
             element_address->result, rcc_ir_type_pointer(0u), true);
         if (value_initialize &&
-            (!constructor || constructor->is_defaulted ||
-             (constructor->method && constructor->method->is_defaulted)) &&
+            (!constructor ||
+             (constructor->method && constructor->method->decl
+                  ? !constructor->method->decl->func_is_user_provided
+                  : constructor->is_defaulted)) &&
             !lower_zero_struct_storage(
                 context, element.value, element_type)) {
             return false;
@@ -29226,8 +29228,9 @@ static bool lower_struct_initializer(
         const CxxConstructorInfo* constructor =
             initializer->compound_constructor;
         zero_storage = initializer->compound_value_init &&
-            (constructor->is_defaulted ||
-             (constructor->method && constructor->method->is_defaulted));
+            (constructor->method && constructor->method->decl
+                 ? !constructor->method->decl->func_is_user_provided
+                 : constructor->is_defaulted);
     }
     if (zero_storage &&
         !lower_cxx_constructed_volatile_object_supported(type, initializer) &&
