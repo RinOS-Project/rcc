@@ -24393,14 +24393,29 @@ static bool lower_cxx_value_initialized_subobject_supported(
 
 /* A potentially-throwing exception specification does not itself add a
  * throwing operation. Completed direct bases are registered before the body
- * is lowered, so body throws unwind those bases. Scalar default-member
- * initializers are checked individually; virtual bases and non-scalar
- * derived fields remain outside this partial-construction path. */
+ * is lowered, so body throws unwind those bases. Virtual bases without
+ * destructor cleanup need no partial-object registration; bases that do need
+ * cleanup remain outside this path. */
 static bool lower_cxx_throwing_constructor_with_bases_supported(
     const CxxClass* cls, const Decl* declaration) {
     if (!cls || !declaration || declaration->func_is_noexcept) return true;
-    if (cls->virtual_base_count != 0) {
+    if (cls->virtual_base_count < 0 ||
+        (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
         return false;
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
+        const CxxClass* base = virtual_base->base;
+        int subobject_size = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || !base->type || subobject_size <= 0 ||
+            virtual_base->offset < 0 || !cls->type ||
+            virtual_base->offset > cls->type->size ||
+            subobject_size > cls->type->size - virtual_base->offset ||
+            lower_cxx_type_has_destructor_cleanup(base->type)) {
+            return false;
+        }
     }
     for (const TypeParam* member = cls->fields; member;
          member = member->next) {
