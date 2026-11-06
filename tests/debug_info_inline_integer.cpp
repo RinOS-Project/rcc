@@ -2453,6 +2453,30 @@ debug_inline_nonconstant_signed_long_long_reference_parameter_xor_remainder_entr
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_indirect_reference_initializer_xor_divide_entry(
+    long long* indirect_dividend_parameter,
+    long long* indirect_divisor_parameter)
+{
+    long long& indirect_dividend_reference = *indirect_dividend_parameter;
+    long long& indirect_divisor_reference = *indirect_divisor_parameter;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (indirect_dividend_reference ^ 0x100000001LL) /
+        indirect_divisor_reference);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_indirect_reference_initializer_xor_remainder_entry(
+    long long* indirect_dividend_parameter,
+    long long* indirect_divisor_parameter)
+{
+    long long& indirect_dividend_reference = *indirect_dividend_parameter;
+    long long& indirect_divisor_reference = *indirect_divisor_parameter;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (indirect_dividend_reference ^ 0x100000001LL) %
+        indirect_divisor_reference);
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_volatile_tls_reference_xor_divide_entry(
     void)
 {

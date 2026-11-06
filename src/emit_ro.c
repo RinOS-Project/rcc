@@ -7449,7 +7449,6 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
             }
             if (source->kind == DECL_VAR) {
                 if (!reference_source ||
-                    reference_source->kind != EXPR_IDENT ||
                     !reference_source->type ||
                     !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                         reference_source->type, value->type, 0u)) {
@@ -12247,7 +12246,6 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
                             mod, declaration, &frame_offset);
                 }
                 if (!reference_source ||
-                    reference_source->kind != EXPR_IDENT ||
                     !reference_source->type ||
                     !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                         reference_source->type, type, 0u)) {
