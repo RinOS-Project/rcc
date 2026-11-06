@@ -9895,12 +9895,56 @@ static bool gen_cxx_indirect_parameter32(const Type* type) {
 }
 
 /* Generate lvalue address in EAX */
+static TypeField* gen_cxx_dmi_member_field32(Module* mod,
+                                             const char* name) {
+    Type* owner_type = mod && mod->cxx_dmi_owner_active
+        ? mod->cxx_dmi_owner_type : NULL;
+    CxxClass* owner = owner_type ? owner_type->cxx_class : NULL;
+    TypeParam* direct_member = NULL;
+    TypeField* match = NULL;
+    if (!owner || !name) return NULL;
+    for (TypeParam* member = owner->fields; member; member = member->next) {
+        if (member->name && strcmp(member->name, name) == 0) {
+            if (direct_member) return NULL;
+            direct_member = member;
+        }
+    }
+    if (direct_member && direct_member->is_static) return NULL;
+    if (direct_member) {
+        for (TypeField* field = owner_type->fields; field;
+             field = field->next) {
+            if (field->cxx_declaring_class == owner && field->name &&
+                strcmp(field->name, name) == 0) {
+                if (match) return NULL;
+                match = field;
+            }
+        }
+        if (match) return match;
+    }
+    for (TypeField* field = owner_type->fields; field; field = field->next) {
+        if (!field->name || !field->cxx_declaring_class ||
+            field->cxx_declaring_class == owner || field->from_virtual_base ||
+            field->virtual_base_owner || strcmp(field->name, name) != 0) {
+            continue;
+        }
+        if (match) return NULL;
+        match = field;
+    }
+    return match;
+}
+
 static void gen_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
         case EXPR_STRING_LIT:
             gen_expr(mod, expr);
             break;
         case EXPR_CXX_THIS:
+            if (mod->cxx_dmi_owner_active) {
+                emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                emit_byte(mod, modrm(2, EAX, EBP));
+                emit_dword(mod, (uint32_t)mod->cxx_dmi_owner_offset);
+                break;
+            }
             if (expr->cxx_this_stack_offset < 0) {
                 rcc_fatal("constructor this argument has no saved object");
             }
@@ -9922,6 +9966,26 @@ static void gen_lvalue(Module* mod, Expr* expr) {
         case EXPR_IDENT: {
             /* Use decl set during semantic analysis */
             Decl* decl = expr->ident_decl;
+            if (!decl && mod->cxx_dmi_owner_active && expr->ident_name) {
+                TypeField* field = gen_cxx_dmi_member_field32(
+                    mod, expr->ident_name);
+                int64_t offset = field
+                    ? (int64_t)mod->cxx_dmi_owner_offset + field->offset
+                    : -1;
+                if (field && field->type && field->offset >= 0 &&
+                    field->offset <= mod->cxx_dmi_owner_type->size &&
+                    field->type->size <=
+                        mod->cxx_dmi_owner_type->size - field->offset &&
+                    offset >= INT32_MIN && offset <= INT32_MAX) {
+                    emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                    emit_byte(mod, modrm(2, EAX, EBP));
+                    emit_dword(mod, (uint32_t)(int32_t)offset);
+                    if (field->type->is_reference) {
+                        emit_mov_reg_mem(mod, EAX, EAX, 0);
+                    }
+                    return;
+                }
+            }
             if (!decl) {
                 rcc_error(expr->loc,
                           "identifier has no semantic declaration in i686 code generation");
@@ -10076,6 +10140,33 @@ static void gen_lvalue(Module* mod, Expr* expr) {
 
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
+            if (expr->kind == EXPR_PTR_MEMBER &&
+                mod->cxx_dmi_owner_active &&
+                mod->cxx_dmi_owner_type && expr->member_base &&
+                expr->member_base->kind == EXPR_IDENT &&
+                expr->member_base->ident_name &&
+                strcmp(expr->member_base->ident_name, "this") == 0 &&
+                expr->member_field && expr->member_field->type &&
+                !expr->member_field->from_virtual_base &&
+                !expr->member_field->virtual_base_owner &&
+                expr->member_field->offset >= 0 &&
+                expr->member_field->offset <=
+                    mod->cxx_dmi_owner_type->size &&
+                expr->member_field->type->size <=
+                    mod->cxx_dmi_owner_type->size -
+                        expr->member_field->offset) {
+                int64_t offset = (int64_t)mod->cxx_dmi_owner_offset +
+                    expr->member_field->offset;
+                if (offset >= INT32_MIN && offset <= INT32_MAX) {
+                    emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                    emit_byte(mod, modrm(2, EAX, EBP));
+                    emit_dword(mod, (uint32_t)(int32_t)offset);
+                    if (expr->member_field->type->is_reference) {
+                        emit_mov_reg_mem(mod, EAX, EAX, 0);
+                    }
+                    break;
+                }
+            }
             if (expr->kind == EXPR_PTR_MEMBER) {
                 gen_expr(mod, expr->member_base);
             } else {
@@ -12114,6 +12205,7 @@ static void gen_cxx_initialize_default_members32(Module* mod, Type* object_type)
             gen_copy_aggregate_to_address32(
                 mod, ECX, EDX, field->type->size);
             emit_pop_reg(mod, EDX);
+            emit_pop_reg(mod, ECX);
             continue;
         }
         emit_push_reg(mod, ECX);
@@ -12161,7 +12253,12 @@ static void gen_cxx_init_default_member_array32(Module* mod, Expr* expr) {
     if (expr->call_new_value_init) {
         gen_cxx_zero_object32(mod, object_type, ECX);
     }
+    /* Member initializer expressions may clobber both volatile registers. */
+    emit_push_reg(mod, EDX);
+    emit_push_reg(mod, ECX);
     gen_cxx_initialize_default_members32(mod, object_type);
+    emit_pop_reg(mod, ECX);
+    emit_pop_reg(mod, EDX);
     emit_add_reg_imm(mod, ECX, (uint32_t)object_type->size);
     emit_sub_reg_imm(mod, EDX, 1);
     emit_cmp_reg_imm(mod, EDX, 0);
@@ -14107,7 +14204,8 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
         emit_label(mod, loop);
         emit_mov_reg_mem(mod, ECX, ESP, 4);
         gen_cxx_initialize_object32_with_zero(
-            mod, object_type, expr->call_new_constructor, NULL,
+            mod, object_type, expr->call_new_constructor,
+            expr->call_new_default_args,
             gen_cxx_value_initialization_zeroes_constructor(
                 expr->call_new_constructor, expr->call_new_value_init));
         if (destructor_name) {
@@ -14187,16 +14285,22 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
     emit_cmp_reg_imm(mod, EDX, 0);
     emit_jcc_label(mod, CC_E, done);
     emit_label(mod, loop);
+    /* The constructor body may clobber the loop cursor and count. */
+    emit_push_reg(mod, EDX);
+    emit_push_reg(mod, ECX);
     gen_cxx_initialize_object32_with_zero(
-        mod, object_type, expr->call_new_constructor, NULL,
+        mod, object_type, expr->call_new_constructor,
+        expr->call_new_default_args,
         gen_cxx_value_initialization_zeroes_constructor(
             expr->call_new_constructor, expr->call_new_value_init));
+    emit_pop_reg(mod, ECX);
+    emit_pop_reg(mod, EDX);
     emit_add_reg_imm(mod, ECX, (uint32_t)object_type->size);
     emit_sub_reg_imm(mod, EDX, 1);
     emit_cmp_reg_imm(mod, EDX, 0);
     emit_jcc_label(mod, CC_NE, loop);
     emit_label(mod, done);
-    emit_mov_reg_mem(mod, EAX, ESP, 8);
+    emit_mov_reg_mem(mod, EAX, ESP, 4);
     emit_add_reg_imm(mod, ESP, 12);
 }
 
@@ -21929,6 +22033,41 @@ static bool gen_local_initializer_with_temporary_cleanup32(
     return true;
 }
 
+typedef struct {
+    Type* owner_type;
+    int32_t owner_offset;
+    bool active;
+} GenCxxDmiOwnerContext32;
+
+static GenCxxDmiOwnerContext32 gen_cxx_dmi_owner_context_begin32(
+    Module* mod, Type* owner_type, int32_t owner_offset,
+    Expr* compound, TypeField* field, ExprList* item) {
+    GenCxxDmiOwnerContext32 saved = {
+        mod->cxx_dmi_owner_type,
+        mod->cxx_dmi_owner_offset,
+        mod->cxx_dmi_owner_active};
+    if (owner_type && owner_type->cxx_class && compound &&
+        compound->kind == EXPR_COMPOUND &&
+        compound->compound_cxx_default_member_normalized && field &&
+        field->cxx_declaring_class == owner_type->cxx_class &&
+        field->initializer && item && item->expr == field->initializer &&
+        item->designator_kind == INIT_DESIGNATOR_FIELD &&
+        item->designator_field && field->name &&
+        strcmp(item->designator_field, field->name) == 0) {
+        mod->cxx_dmi_owner_type = owner_type;
+        mod->cxx_dmi_owner_offset = owner_offset;
+        mod->cxx_dmi_owner_active = true;
+    }
+    return saved;
+}
+
+static void gen_cxx_dmi_owner_context_restore32(
+    Module* mod, GenCxxDmiOwnerContext32 saved) {
+    mod->cxx_dmi_owner_type = saved.owner_type;
+    mod->cxx_dmi_owner_offset = saved.owner_offset;
+    mod->cxx_dmi_owner_active = saved.active;
+}
+
 static TypeField* gen_cxx_default_init_member_field32(
     Type* type, CxxClass* cls, const char* name) {
     if (!type || !cls || !name) return NULL;
@@ -22040,11 +22179,13 @@ static bool gen_cxx_default_init_bases32(
         if (target < INT32_MIN || target > INT32_MAX || !item->expr) {
             return false;
         }
+        GenCxxDmiOwnerContext32 dmi_context =
+            gen_cxx_dmi_owner_context_begin32(
+                mod, type, displacement, initializer, field, item);
+        bool member_initialized;
         if (field->is_bitfield) {
-            if (!gen_bitfield_initializer32(
-                    mod, field, item->expr, (int32_t)target)) {
-                return false;
-            }
+            member_initialized = gen_bitfield_initializer32(
+                mod, field, item->expr, (int32_t)target);
         } else {
             if (initializer->compound_cxx_default_member_init_only &&
                 field->type->kind == TYPE_ARRAY &&
@@ -22053,11 +22194,11 @@ static bool gen_cxx_default_init_bases32(
                 gen_zero_local_storage(
                     mod, (int32_t)target, (size_t)field->type->size);
             }
-            if (!gen_local_initializer_with_temporary_cleanup32(
-                    mod, field->type, item->expr, (int32_t)target, item)) {
-                return false;
-            }
+            member_initialized = gen_local_initializer_with_temporary_cleanup32(
+                mod, field->type, item->expr, (int32_t)target, item);
         }
+        gen_cxx_dmi_owner_context_restore32(mod, dmi_context);
+        if (!member_initialized) return false;
         if (!field->is_bitfield) {
             gen_cxx_exception_change_local_subobject32(
                 mod, field->type, (int32_t)target, false);
@@ -22337,12 +22478,14 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                         field_offset > INT32_MAX) {
                         return false;
                     }
+                    GenCxxDmiOwnerContext32 dmi_context =
+                        gen_cxx_dmi_owner_context_begin32(
+                            mod, type, displacement, initializer, field, item);
+                    bool element_initialized;
                     if (field && field->is_bitfield) {
-                        if (!gen_bitfield_initializer32(
-                                mod, field, item->expr,
-                                (int32_t)field_offset)) {
-                            return false;
-                        }
+                        element_initialized = gen_bitfield_initializer32(
+                            mod, field, item->expr,
+                            (int32_t)field_offset);
                     } else {
                         if (initializer->compound_cxx_default_member_init_only &&
                             field && field->type->kind == TYPE_ARRAY &&
@@ -22352,12 +22495,13 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                 mod, (int32_t)field_offset,
                                 (size_t)field->type->size);
                         }
-                        if (!gen_local_initializer_with_temporary_cleanup32(
+                        element_initialized =
+                            gen_local_initializer_with_temporary_cleanup32(
                                 mod, element_type, item->expr,
-                                (int32_t)field_offset, item)) {
-                            return false;
-                        }
+                                (int32_t)field_offset, item);
                     }
+                    gen_cxx_dmi_owner_context_restore32(mod, dmi_context);
+                    if (!element_initialized) return false;
                     gen_cxx_exception_change_local_subobject32(
                         mod, element_type, (int32_t)field_offset, false);
                 }
@@ -22413,12 +22557,13 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                 if (field_offset < INT32_MIN || field_offset > INT32_MAX) {
                     return false;
                 }
+                GenCxxDmiOwnerContext32 dmi_context =
+                    gen_cxx_dmi_owner_context_begin32(
+                        mod, type, displacement, initializer, field, item);
+                bool member_initialized;
                 if (field->is_bitfield) {
-                    if (!gen_bitfield_initializer32(
-                            mod, field, item->expr,
-                            (int32_t)field_offset)) {
-                        return false;
-                    }
+                    member_initialized = gen_bitfield_initializer32(
+                        mod, field, item->expr, (int32_t)field_offset);
                 } else {
                     if (initializer->compound_cxx_default_member_init_only &&
                         field->type->kind == TYPE_ARRAY &&
@@ -22428,11 +22573,14 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                             mod, (int32_t)field_offset,
                             (size_t)field->type->size);
                     }
-                    if (!gen_local_initializer_with_temporary_cleanup32(
+                    member_initialized =
+                        gen_local_initializer_with_temporary_cleanup32(
                             mod, field->type, item->expr,
-                            (int32_t)field_offset, item)) {
-                        return false;
-                    }
+                            (int32_t)field_offset, item);
+                }
+                gen_cxx_dmi_owner_context_restore32(mod, dmi_context);
+                if (!member_initialized) return false;
+                if (!field->is_bitfield) {
                     gen_cxx_exception_change_local_subobject32(
                         mod, field->type, (int32_t)field_offset, false);
                 }

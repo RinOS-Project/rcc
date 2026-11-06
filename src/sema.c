@@ -17050,6 +17050,8 @@ static bool sema_cxx_union_default_member_initializer_supported(
     Type* union_type, Expr* initializer);
 static bool sema_cxx_array_default_member_initializer_supported(
     Type* array_type, Expr* initializer, unsigned depth);
+static bool sema_cxx_default_member_initializer_supported_in_owner(
+    Type* owner_type, Type* field_type, Expr* initializer);
 
 static bool sema_cxx_default_member_initializer_supported(
     Type* field_type, Expr* initializer) {
@@ -17073,6 +17075,16 @@ static bool sema_cxx_default_member_initializer_supported(
     if (sema_cxx_union_default_member_initializer_supported(
             field_type, initializer)) {
         return true;
+    }
+    if (field_type && field_type->kind == TYPE_STRUCT &&
+        field_type->cxx_class && ast_cxx_is_aggregate(field_type) &&
+        initializer && initializer->kind == EXPR_COMPOUND) {
+        Expr* normalized = sema_cxx_default_member_initializer(
+            field_type, initializer, initializer->loc);
+        if (normalized) *initializer = *normalized;
+        sema_initializer(field_type, initializer);
+        return initializer->type &&
+            type_is_compatible(field_type, initializer->type);
     }
     if (!field_type || field_type->kind != TYPE_STRUCT || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
@@ -17118,6 +17130,28 @@ static bool sema_cxx_default_member_initializer_supported(
         argument = argument->next;
     }
     return parameter_count == (unsigned)constructor->parameter_count;
+}
+
+static bool sema_cxx_default_member_initializer_supported_in_owner(
+    Type* owner_type, Type* field_type, Expr* initializer) {
+    Type* previous_owner = current_cxx_method_owner;
+    Decl* previous_this = current_cxx_this_param;
+    Decl* this_parameter = NULL;
+    bool supported;
+    if (owner_type && owner_type->cxx_class) {
+        this_parameter = ast_arena_alloc(sizeof(*this_parameter));
+        memset(this_parameter, 0, sizeof(*this_parameter));
+        this_parameter->kind = DECL_PARAM;
+        this_parameter->name = rcc_intern("this");
+        this_parameter->type = type_ptr(owner_type);
+        current_cxx_method_owner = owner_type;
+        current_cxx_this_param = this_parameter;
+    }
+    supported = sema_cxx_default_member_initializer_supported(
+        field_type, initializer);
+    current_cxx_method_owner = previous_owner;
+    current_cxx_this_param = previous_this;
+    return supported;
 }
 
 /* Potentially throwing scalar DMIs are safe for the bounded initializer
@@ -17250,8 +17284,8 @@ static bool sema_cxx_array_default_member_initializer_supported(
                 return false;
             }
         } else if (element_type->kind == TYPE_STRUCT &&
-                   sema_cxx_default_member_initializer_supported(
-                       element_type, item->expr)) {
+                   sema_cxx_default_member_initializer_supported_in_owner(
+                       element_type, element_type, item->expr)) {
             requires_explicit_elements = true;
         } else if (element_type->kind == TYPE_UNION &&
                    sema_cxx_union_default_member_initializer_supported(
@@ -17315,8 +17349,8 @@ static bool sema_cxx_validate_default_member_subobjects(
     }
     for (TypeField* field = type->fields; field; field = field->next) {
         if (field->initializer) {
-            if (!sema_cxx_default_member_initializer_supported(
-                    field->type, field->initializer)) {
+            if (!sema_cxx_default_member_initializer_supported_in_owner(
+                    type, field->type, field->initializer)) {
                 return false;
             }
             continue;
@@ -17966,8 +18000,8 @@ static bool sema_cxx_default_initialization_needs_lowering(
         }
         if (!field || !field->type) return true;
         if (field->initializer) {
-            if (!sema_cxx_default_member_initializer_supported(
-                    field->type, field->initializer) ||
+            if (!sema_cxx_default_member_initializer_supported_in_owner(
+                    object_type, field->type, field->initializer) ||
                 (!sema_noexcept_expr(field->initializer) &&
                  !sema_cxx_throwing_scalar_default_member_initializer_supported(
                      field->type, field->initializer))) {
@@ -18039,8 +18073,8 @@ static bool sema_cxx_const_default_constructible(
             if (!field->initializer) continue;
             ++default_member_count;
             if (default_member_count > 1 ||
-                !sema_cxx_default_member_initializer_supported(
-                    field->type, field->initializer)) {
+                !sema_cxx_default_member_initializer_supported_in_owner(
+                    type, field->type, field->initializer)) {
                 return false;
             }
         }
@@ -18068,8 +18102,8 @@ static bool sema_cxx_const_default_constructible(
         }
         if (!field || !field->type) return false;
         if (field->initializer) {
-            if (!sema_cxx_default_member_initializer_supported(
-                    field->type, field->initializer)) {
+            if (!sema_cxx_default_member_initializer_supported_in_owner(
+                    type, field->type, field->initializer)) {
                 return false;
             }
         } else if (!sema_cxx_const_default_constructible(
@@ -30778,6 +30812,13 @@ static Type* sema_expr_impl(Expr* expr) {
                 }
                 break;
             }
+            if (expr->ident_name &&
+                strcmp(expr->ident_name, "this") == 0 &&
+                current_cxx_method_owner && current_cxx_this_param) {
+                expr->ident_decl = current_cxx_this_param;
+                expr->type = current_cxx_this_param->type;
+                break;
+            }
             if (expr->ident_name) {
                 Decl* qualified_method =
                     sema_cxx_lookup_qualified_static_method(
@@ -38162,6 +38203,26 @@ static bool sema_cxx_initialize_initializer_list(
     return true;
 }
 
+static void sema_initializer(Type* type, Expr* initializer);
+
+static void sema_initializer_in_cxx_default_member_context(
+    Type* owner_type, Type* field_type, Expr* initializer) {
+    Type* previous_owner = current_cxx_method_owner;
+    Decl* previous_this = current_cxx_this_param;
+    if (owner_type && owner_type->cxx_class) {
+        Decl* this_parameter = ast_arena_alloc(sizeof(*this_parameter));
+        memset(this_parameter, 0, sizeof(*this_parameter));
+        this_parameter->kind = DECL_PARAM;
+        this_parameter->name = rcc_intern("this");
+        this_parameter->type = type_ptr(owner_type);
+        current_cxx_method_owner = owner_type;
+        current_cxx_this_param = this_parameter;
+    }
+    sema_initializer(field_type, initializer);
+    current_cxx_method_owner = previous_owner;
+    current_cxx_this_param = previous_this;
+}
+
 static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
@@ -38672,7 +38733,13 @@ static void sema_initializer(Type* type, Expr* initializer) {
                     sema_cxx_is_untyped_braced_initializer(item->expr)) {
                     item->expr->compound_copy_list_init = true;
                 }
-                sema_initializer(element_type, item->expr);
+                if (initializer->compound_cxx_default_member_normalized &&
+                    field && field->initializer == item->expr) {
+                    sema_initializer_in_cxx_default_member_context(
+                        type, element_type, item->expr);
+                } else {
+                    sema_initializer(element_type, item->expr);
+                }
                 if (!initializer->compound_paren_init) {
                     sema_cxx_prepare_braced_aggregate_reference_temporary(
                         item, element_type);
@@ -38743,7 +38810,13 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 sema_cxx_is_untyped_braced_initializer(item->expr)) {
                 item->expr->compound_copy_list_init = true;
             }
-            sema_initializer(field->type, item->expr);
+            if (initializer->compound_cxx_default_member_normalized &&
+                field->initializer == item->expr) {
+                sema_initializer_in_cxx_default_member_context(
+                    type, field->type, item->expr);
+            } else {
+                sema_initializer(field->type, item->expr);
+            }
             if (!initializer->compound_paren_init) {
                 sema_cxx_prepare_braced_aggregate_reference_temporary(
                     item, field->type);
@@ -39322,9 +39395,9 @@ static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
             }
         }
     }
-    if (!type || (!cls && !plain_union) ||
+    if (!type || !source || (!cls && !plain_union) ||
         !has_default_member_initializer ||
-        !type->fields || (source && source->kind != EXPR_COMPOUND)) {
+        !type->fields || source->kind != EXPR_COMPOUND) {
         return NULL;
     }
     /* User constructors consume the original initializer through the C++
@@ -39526,8 +39599,8 @@ static Expr* sema_cxx_default_initialization_expression(
                   field->type->kind == TYPE_NULLPTR ||
                   (field->type->kind == TYPE_STRUCT &&
                    field->type->cxx_class)) ||
-                !sema_cxx_default_member_initializer_supported(
-                    field->type, field->initializer)) {
+                !sema_cxx_default_member_initializer_supported_in_owner(
+                    type, field->type, field->initializer)) {
                 *supported = false;
                 return NULL;
             }
@@ -39696,8 +39769,8 @@ static Expr* sema_cxx_default_initialization_expression(
                 return NULL;
             }
             if (field->initializer) {
-                if (!sema_cxx_default_member_initializer_supported(
-                        field->type, field->initializer)) {
+                if (!sema_cxx_default_member_initializer_supported_in_owner(
+                        type, field->type, field->initializer)) {
                     *supported = false;
                     return NULL;
                 }
@@ -39722,7 +39795,8 @@ static Expr* sema_cxx_default_initialization_expression(
         }
         if (!has_subobject_initialization && cls->base_count == 0 &&
             cls->virtual_base_count == 0 && cls->vtable_size <= 0 &&
-            type->cxx_vtable_size <= 0) {
+            type->cxx_vtable_size <= 0 &&
+            !sema_cxx_type_has_destructor_cleanup(type, 0)) {
             return NULL;
         }
         initializer = expr_initializer_list(items, loc);
@@ -39733,7 +39807,8 @@ static Expr* sema_cxx_default_initialization_expression(
         initializer->compound_cxx_default_member_init_only = true;
         initializer->compound_cxx_is_base_subobject = is_base_subobject;
         *needs_initialization = has_subobject_initialization ||
-            cls->vtable_size > 0 || type->cxx_vtable_size > 0;
+            cls->vtable_size > 0 || type->cxx_vtable_size > 0 ||
+            sema_cxx_type_has_destructor_cleanup(type, 0);
         return initializer;
     }
 }

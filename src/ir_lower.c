@@ -28032,6 +28032,11 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
                 scalar_initializer) &&
             !lower_cxx_implicit_default_member_has_prior_cleanup(
                 type, field);
+        bool explicit_array_initializer = field->initializer &&
+            field->type && field->type->kind == TYPE_ARRAY &&
+            field->initializer->kind == EXPR_COMPOUND &&
+            lower_cleanup_initializer_supported(field->initializer) &&
+            !lower_cleanup_initializer_may_throw(field->initializer);
         bool reference_initializer = field->initializer &&
             lower_cxx_implicit_reference_default_member_initializer_supported(
                 field->type, field->initializer);
@@ -28042,6 +28047,7 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
             (field->is_bitfield &&
              !type_is_scalar((Type*)field->type)) ||
             (!explicit_class_value && !reference_initializer &&
+             !explicit_array_initializer &&
              !lower_cxx_implicit_default_member_subobject_supported(
                  field->type, depth + 1u, &nested_initializer))) {
             return false;
@@ -28134,6 +28140,11 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
                 scalar_initializer) &&
             !lower_cxx_implicit_default_member_has_prior_cleanup(
                 type, field);
+        bool explicit_array_initializer = field->initializer &&
+            field->type && field->type->kind == TYPE_ARRAY &&
+            field->initializer->kind == EXPR_COMPOUND &&
+            lower_cleanup_initializer_supported(field->initializer) &&
+            !lower_cleanup_initializer_may_throw(field->initializer);
         bool reference_initializer = field->initializer &&
             lower_cxx_implicit_reference_default_member_initializer_supported(
                 field->type, field->initializer);
@@ -28144,6 +28155,7 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
             (field->is_bitfield &&
              !type_is_scalar((Type*)field->type)) ||
             (!explicit_class_value && !reference_initializer &&
+             !explicit_array_initializer &&
              !lower_cxx_implicit_default_member_subobject_supported(
                  field->type, 0u, &nested_initializer))) {
             return false;

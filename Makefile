@@ -318,7 +318,7 @@ $(OBJDUMP) -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
-$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/$(3) $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/$(3) $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME) $(4)
 $(TEST_OUT)/$(1)/x64-host
 endef
 
@@ -18949,36 +18949,63 @@ test-cxx-base-constructor-initializer-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_
 	$(TEST_OUT)/cxx-base-constructor-initializer/x64
 	@echo "C++ fixed-layout base constructor initializer tests completed"
 
-test-cxx-default-member-initializer-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
+test-cxx-default-member-initializer-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-default-member-initializer)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-default-member-initializer/gcc-reference$(EXE_SUFFIX) \
+		tests/cxx_default_member_initializer.cpp \
+		tests/cxx_default_member_initializer_tls.cpp \
+		tests/cxx_default_member_initializer_gcc_run_test.cpp
+	$(TEST_OUT)/cxx-default-member-initializer/gcc-reference$(EXE_SUFFIX)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-default-member-initializer/x86.s \
 		tests/cxx_default_member_initializer.cpp
-	$(CC) -m32 -o $(TEST_OUT)/cxx-default-member-initializer/x86 \
+	$(CC) -m32 $(HOST_LINK_NO_PIE) \
+		-o $(TEST_OUT)/cxx-default-member-initializer/x86 \
 		tests/cxx_default_member_initializer_run_test.c \
 		$(TEST_OUT)/cxx-default-member-initializer/x86.s \
-		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
 	$(TEST_OUT)/cxx-default-member-initializer/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-default-member-initializer/x64.s \
 		tests/cxx_default_member_initializer.cpp
-	$(CC) -o $(TEST_OUT)/cxx-default-member-initializer/x64 \
+	$(CC) $(HOST_LINK_NO_PIE) \
+		-o $(TEST_OUT)/cxx-default-member-initializer/x64 \
 		tests/cxx_default_member_initializer_run_test.c \
 		$(TEST_OUT)/cxx-default-member-initializer/x64.s \
-		$(CXX_HOST_EXCEPTION_RUNTIME)
+		$(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/cxx-default-member-initializer/x64
-	! $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.ro \
-		tests/cxx_default_member_initializer_array_invalid.cpp \
-		>$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log 2>&1
-	$(GREP) -q "new requires non-throwing default member initializers with supported subobjects" \
-		$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log
-	! $(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.ro \
-		tests/cxx_default_member_initializer_array_invalid.cpp \
-		>$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log 2>&1
-	$(GREP) -q "new requires non-throwing default member initializers with supported subobjects" \
-		$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-default-member-initializer/tls-x86.s \
+		tests/cxx_default_member_initializer_tls.cpp
+	$(CC) -m32 $(HOST_LINK_NO_PIE) \
+		-o $(TEST_OUT)/cxx-default-member-initializer/tls-x86 \
+		tests/cxx_default_member_initializer_tls_run_test.c \
+		$(TEST_OUT)/cxx-default-member-initializer/tls-x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
+	$(TEST_OUT)/cxx-default-member-initializer/tls-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-default-member-initializer/tls-x64.s \
+		tests/cxx_default_member_initializer_tls.cpp
+	$(CC) $(HOST_LINK_NO_PIE) \
+		-o $(TEST_OUT)/cxx-default-member-initializer/tls-x64 \
+		tests/cxx_default_member_initializer_tls_run_test.c \
+		$(TEST_OUT)/cxx-default-member-initializer/tls-x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/cxx-default-member-initializer/tls-x64
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -c -o $(TEST_OUT)/cxx-default-member-initializer/deleted-gcc.o tests/cxx_default_member_initializer_deleted_ctor_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/deleted-gcc.log)
+	$(GREP) -F -q "use of deleted function" \
+		$(TEST_OUT)/cxx-default-member-initializer/deleted-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/deleted-x86.ro tests/cxx_default_member_initializer_deleted_ctor_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/deleted-x86.log)
+	$(GREP) -F -q "default initialization has no accessible default constructor" \
+		$(TEST_OUT)/cxx-default-member-initializer/deleted-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/deleted-x64.ro tests/cxx_default_member_initializer_deleted_ctor_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/deleted-x64.log)
+	$(GREP) -F -q "default initialization has no accessible default constructor" \
+		$(TEST_OUT)/cxx-default-member-initializer/deleted-x64.log
 	@echo "C++ default member initializer tests completed"
 
 test-cxx-delegating-constructor-posix: $(RCXX_TARGET) $(CXX_LANGUAGE_CORE_EXCEPTION_RUNTIMES)
@@ -19222,13 +19249,21 @@ test-cxx-base-constructor-initializer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-base-constructor-initializer)
 	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-base-constructor-initializer,cxx_base_constructor_initializer.cpp,cxx_base_constructor_initializer_run_test.c)
 
-test-cxx-default-member-initializer: $(RCXX_TARGET)
+test-cxx-default-member-initializer: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-default-member-initializer)
-	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-default-member-initializer,cxx_default_member_initializer.cpp,cxx_default_member_initializer_run_test.c)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.ro tests/cxx_default_member_initializer_array_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log)
-	$(GREP) -F -q "new requires non-throwing default member initializers with supported subobjects" $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.ro tests/cxx_default_member_initializer_array_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log)
-	$(GREP) -F -q "new requires non-throwing default member initializers with supported subobjects" $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-default-member-initializer/gcc-reference$(EXE_SUFFIX) \
+		tests/cxx_default_member_initializer.cpp \
+		tests/cxx_default_member_initializer_tls.cpp \
+		tests/cxx_default_member_initializer_gcc_run_test.cpp
+	$(TEST_OUT)/cxx-default-member-initializer/gcc-reference$(EXE_SUFFIX)
+	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-default-member-initializer,cxx_default_member_initializer.cpp,cxx_default_member_initializer_run_test.c,$(CXX_STATIC_REFERENCE_GUARD_RUNTIME))
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -c -o $(TEST_OUT)/cxx-default-member-initializer/deleted-gcc.o tests/cxx_default_member_initializer_deleted_ctor_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/deleted-gcc.log)
+	$(GREP) -F -q "use of deleted function" $(TEST_OUT)/cxx-default-member-initializer/deleted-gcc.log
+	$(call EXPECT_FAILURE,./$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/deleted-x86.ro tests/cxx_default_member_initializer_deleted_ctor_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/deleted-x86.log)
+	$(GREP) -F -q "default initialization has no accessible default constructor" $(TEST_OUT)/cxx-default-member-initializer/deleted-x86.log
+	$(call EXPECT_FAILURE,./$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/deleted-x64.ro tests/cxx_default_member_initializer_deleted_ctor_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/deleted-x64.log)
+	$(GREP) -F -q "default initialization has no accessible default constructor" $(TEST_OUT)/cxx-default-member-initializer/deleted-x64.log
 
 test-cxx-delegating-constructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-delegating-constructor)

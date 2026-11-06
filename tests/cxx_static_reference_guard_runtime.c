@@ -29,6 +29,10 @@ typedef struct CxxStaticReferenceExitEntry {
 
 static CxxStaticReferenceExitEntry cxx_static_reference_exit_entries[16];
 static size_t cxx_static_reference_exit_count;
+static CxxStaticReferenceExitEntry cxx_static_reference_thread_exit_entries[16];
+static size_t cxx_static_reference_thread_exit_count;
+int cxx_static_reference_thread_atexit_registrations;
+int cxx_static_reference_thread_atexit_finalizations;
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((weak))
 #endif
@@ -63,6 +67,39 @@ void RIN_SYSV __cxa_finalize(void* dso)
         entry->active = 0;
         entry->callback(entry->argument);
         ++cxx_static_reference_atexit_finalizations;
+    }
+}
+
+int RIN_SYSV __cxa_thread_atexit(CxxStaticReferenceExitCallback callback,
+                                void* argument, void* dso)
+{
+    CxxStaticReferenceExitEntry* entry;
+    if (!callback || !argument ||
+        cxx_static_reference_thread_exit_count >=
+            sizeof(cxx_static_reference_thread_exit_entries) /
+                sizeof(cxx_static_reference_thread_exit_entries[0])) {
+        return -1;
+    }
+    entry = &cxx_static_reference_thread_exit_entries[
+        cxx_static_reference_thread_exit_count++];
+    entry->callback = callback;
+    entry->argument = argument;
+    entry->dso = dso;
+    entry->active = 1;
+    ++cxx_static_reference_thread_atexit_registrations;
+    return 0;
+}
+
+void cxx_static_reference_thread_finalize(void)
+{
+    size_t index = cxx_static_reference_thread_exit_count;
+    while (index > 0u) {
+        CxxStaticReferenceExitEntry* entry =
+            &cxx_static_reference_thread_exit_entries[--index];
+        if (!entry->active) continue;
+        entry->active = 0;
+        entry->callback(entry->argument);
+        ++cxx_static_reference_thread_atexit_finalizations;
     }
 }
 

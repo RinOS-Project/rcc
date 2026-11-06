@@ -232,6 +232,14 @@ typedef struct Module {
     uint32_t entry_point;
     int stack_size;
 
+    /* A default member initializer is evaluated with the object whose
+     * constructor/aggregate initialization is in progress as its implicit
+     * `this` object.  Classic codegen installs this context only while an
+     * individual declared member initializer is being emitted. */
+    Type* cxx_dmi_owner_type;
+    int32_t cxx_dmi_owner_offset;
+    bool cxx_dmi_owner_active;
+
     /* Symbol table for object files */
     ModuleSymbol* symbols;
     int symbol_count;

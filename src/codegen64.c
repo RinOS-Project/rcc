@@ -5003,6 +5003,41 @@ static bool gen64_local_initializer_with_temporary_cleanup(
     return true;
 }
 
+typedef struct {
+    Type* owner_type;
+    int32_t owner_offset;
+    bool active;
+} GenCxxDmiOwnerContext64;
+
+static GenCxxDmiOwnerContext64 gen64_cxx_dmi_owner_context_begin(
+    Module* mod, Type* owner_type, int32_t owner_offset,
+    Expr* compound, TypeField* field, ExprList* item) {
+    GenCxxDmiOwnerContext64 saved = {
+        mod->cxx_dmi_owner_type,
+        mod->cxx_dmi_owner_offset,
+        mod->cxx_dmi_owner_active};
+    if (owner_type && owner_type->cxx_class && compound &&
+        compound->kind == EXPR_COMPOUND &&
+        compound->compound_cxx_default_member_normalized && field &&
+        field->cxx_declaring_class == owner_type->cxx_class &&
+        field->initializer && item && item->expr == field->initializer &&
+        item->designator_kind == INIT_DESIGNATOR_FIELD &&
+        item->designator_field && field->name &&
+        strcmp(item->designator_field, field->name) == 0) {
+        mod->cxx_dmi_owner_type = owner_type;
+        mod->cxx_dmi_owner_offset = owner_offset;
+        mod->cxx_dmi_owner_active = true;
+    }
+    return saved;
+}
+
+static void gen64_cxx_dmi_owner_context_restore(
+    Module* mod, GenCxxDmiOwnerContext64 saved) {
+    mod->cxx_dmi_owner_type = saved.owner_type;
+    mod->cxx_dmi_owner_offset = saved.owner_offset;
+    mod->cxx_dmi_owner_active = saved.active;
+}
+
 static bool gen64_bitfield_initializer(Module* mod, const TypeField* field,
                                         Expr* initializer,
                                         int32_t displacement);
@@ -5115,11 +5150,13 @@ static bool gen64_cxx_default_init_bases(
         if (target < INT32_MIN || target > INT32_MAX || !item->expr) {
             return false;
         }
+        GenCxxDmiOwnerContext64 dmi_context =
+            gen64_cxx_dmi_owner_context_begin(
+                mod, type, displacement, initializer, field, item);
+        bool member_initialized;
         if (field->is_bitfield) {
-            if (!gen64_bitfield_initializer(
-                    mod, field, item->expr, (int32_t)target)) {
-                return false;
-            }
+            member_initialized = gen64_bitfield_initializer(
+                mod, field, item->expr, (int32_t)target);
         } else {
             if (initializer->compound_cxx_default_member_init_only &&
                 field->type->kind == TYPE_ARRAY &&
@@ -5128,10 +5165,12 @@ static bool gen64_cxx_default_init_bases(
                 gen64_zero_local_storage(
                     mod, (int32_t)target, (size_t)field->type->size);
             }
-            if (!gen64_local_initializer_with_temporary_cleanup(
-                    mod, field->type, item->expr, (int32_t)target, item)) {
-                return false;
-            }
+            member_initialized = gen64_local_initializer_with_temporary_cleanup(
+                mod, field->type, item->expr, (int32_t)target, item);
+        }
+        gen64_cxx_dmi_owner_context_restore(mod, dmi_context);
+        if (!member_initialized) return false;
+        if (!field->is_bitfield) {
             gen64_cxx_exception_change_local_subobject(
                 mod, field->type, (int32_t)target, false);
         }
@@ -5431,12 +5470,14 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                         target_offset > INT32_MAX) {
                         return false;
                     }
+                    GenCxxDmiOwnerContext64 dmi_context =
+                        gen64_cxx_dmi_owner_context_begin(
+                            mod, type, displacement, initializer, field, item);
+                    bool element_initialized;
                     if (field && field->is_bitfield) {
-                        if (!gen64_bitfield_initializer(
-                                mod, field, item->expr,
-                                (int32_t)target_offset)) {
-                            return false;
-                        }
+                        element_initialized = gen64_bitfield_initializer(
+                            mod, field, item->expr,
+                            (int32_t)target_offset);
                     } else {
                         if (initializer->compound_cxx_default_member_init_only &&
                             field && field->type->kind == TYPE_ARRAY &&
@@ -5446,12 +5487,13 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                                 mod, (int32_t)target_offset,
                                 (size_t)field->type->size);
                         }
-                        if (!gen64_local_initializer_with_temporary_cleanup(
+                        element_initialized =
+                            gen64_local_initializer_with_temporary_cleanup(
                                 mod, element_type, item->expr,
-                                (int32_t)target_offset, item)) {
-                            return false;
-                        }
+                                (int32_t)target_offset, item);
                     }
+                    gen64_cxx_dmi_owner_context_restore(mod, dmi_context);
+                    if (!element_initialized) return false;
                     gen64_cxx_exception_change_local_subobject(
                         mod, element_type, (int32_t)target_offset, false);
                 }
@@ -5507,12 +5549,13 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                 if (field_offset < INT32_MIN || field_offset > INT32_MAX) {
                     return false;
                 }
+                GenCxxDmiOwnerContext64 dmi_context =
+                    gen64_cxx_dmi_owner_context_begin(
+                        mod, type, displacement, initializer, field, item);
+                bool member_initialized;
                 if (field->is_bitfield) {
-                    if (!gen64_bitfield_initializer(
-                            mod, field, item->expr,
-                            (int32_t)field_offset)) {
-                        return false;
-                    }
+                    member_initialized = gen64_bitfield_initializer(
+                        mod, field, item->expr, (int32_t)field_offset);
                 } else {
                     if (initializer->compound_cxx_default_member_init_only &&
                         field->type->kind == TYPE_ARRAY &&
@@ -5522,11 +5565,14 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                             mod, (int32_t)field_offset,
                             (size_t)field->type->size);
                     }
-                    if (!gen64_local_initializer_with_temporary_cleanup(
+                    member_initialized =
+                        gen64_local_initializer_with_temporary_cleanup(
                             mod, field->type, item->expr,
-                            (int32_t)field_offset, item)) {
-                        return false;
-                    }
+                            (int32_t)field_offset, item);
+                }
+                gen64_cxx_dmi_owner_context_restore(mod, dmi_context);
+                if (!member_initialized) return false;
+                if (!field->is_bitfield) {
                     gen64_cxx_exception_change_local_subobject(
                         mod, field->type, (int32_t)field_offset, false);
                 }
@@ -6145,6 +6191,44 @@ static void gen64_reference_temporary_owner_address(
 
 static bool gen64_inline_method_address(Module* mod, Expr* expr);
 
+static TypeField* gen64_cxx_dmi_member_field(
+    Module* mod, const char* name) {
+    Type* owner_type = mod && mod->cxx_dmi_owner_active
+        ? mod->cxx_dmi_owner_type : NULL;
+    CxxClass* owner = owner_type ? owner_type->cxx_class : NULL;
+    TypeParam* direct_member = NULL;
+    TypeField* match = NULL;
+    if (!owner || !name) return NULL;
+    for (TypeParam* member = owner->fields; member; member = member->next) {
+        if (member->name && strcmp(member->name, name) == 0) {
+            if (direct_member) return NULL;
+            direct_member = member;
+        }
+    }
+    if (direct_member && direct_member->is_static) return NULL;
+    if (direct_member) {
+        for (TypeField* field = owner_type->fields; field;
+             field = field->next) {
+            if (field->cxx_declaring_class == owner && field->name &&
+                strcmp(field->name, name) == 0) {
+                if (match) return NULL;
+                match = field;
+            }
+        }
+        if (match) return match;
+    }
+    for (TypeField* field = owner_type->fields; field; field = field->next) {
+        if (!field->name || !field->cxx_declaring_class ||
+            field->cxx_declaring_class == owner || field->from_virtual_base ||
+            field->virtual_base_owner || strcmp(field->name, name) != 0) {
+            continue;
+        }
+        if (match) return NULL;
+        match = field;
+    }
+    return match;
+}
+
 /* Generate lvalue address in RAX */
 static void gen64_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
@@ -6152,6 +6236,10 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             gen64_expr(mod, expr);
             break;
         case EXPR_CXX_THIS:
+            if (mod->cxx_dmi_owner_active) {
+                emit64_lea(mod, RAX, RBP, mod->cxx_dmi_owner_offset);
+                break;
+            }
             emit64_mov_reg_reg(mod, RAX, RCX);
             break;
         case EXPR_CXX_TYPEID:
@@ -6169,6 +6257,24 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             break;
         case EXPR_IDENT: {
             Decl* decl = expr->ident_decl;
+            if (!decl && mod->cxx_dmi_owner_active && expr->ident_name) {
+                TypeField* field = gen64_cxx_dmi_member_field(
+                    mod, expr->ident_name);
+                int64_t offset = field
+                    ? (int64_t)mod->cxx_dmi_owner_offset + field->offset
+                    : -1;
+                if (field && field->type && field->offset >= 0 &&
+                    field->offset <= mod->cxx_dmi_owner_type->size &&
+                    field->type->size <=
+                        mod->cxx_dmi_owner_type->size - field->offset &&
+                    offset >= INT32_MIN && offset <= INT32_MAX) {
+                    emit64_lea(mod, RAX, RBP, (int32_t)offset);
+                    if (field->type->is_reference) {
+                        emit64_mov_reg_mem(mod, RAX, RAX, 0);
+                    }
+                    return;
+                }
+            }
             if (!decl) {
                 rcc_error(expr->loc,
                           "identifier has no semantic declaration in AMD64 code generation");
@@ -6305,6 +6411,31 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
 
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
+            if (expr->kind == EXPR_PTR_MEMBER &&
+                mod->cxx_dmi_owner_active &&
+                mod->cxx_dmi_owner_type && expr->member_base &&
+                expr->member_base->kind == EXPR_IDENT &&
+                expr->member_base->ident_name &&
+                strcmp(expr->member_base->ident_name, "this") == 0 &&
+                expr->member_field && expr->member_field->type &&
+                !expr->member_field->from_virtual_base &&
+                !expr->member_field->virtual_base_owner &&
+                expr->member_field->offset >= 0 &&
+                expr->member_field->offset <=
+                    mod->cxx_dmi_owner_type->size &&
+                expr->member_field->type->size <=
+                    mod->cxx_dmi_owner_type->size -
+                        expr->member_field->offset) {
+                int64_t offset = (int64_t)mod->cxx_dmi_owner_offset +
+                    expr->member_field->offset;
+                if (offset >= INT32_MIN && offset <= INT32_MAX) {
+                    emit64_lea(mod, RAX, RBP, (int32_t)offset);
+                    if (expr->member_field->type->is_reference) {
+                        emit64_mov_reg_mem(mod, RAX, RAX, 0);
+                    }
+                    break;
+                }
+            }
             if (expr->kind == EXPR_PTR_MEMBER) {
                 gen64_expr(mod, expr->member_base);
             } else {
@@ -7319,6 +7450,7 @@ static void gen64_cxx_initialize_default_members(
             }
             gen64_copy_memory(mod, RCX, 0, RDX, 0, field->type->size);
             emit64_pop_reg(mod, RDX);
+            emit64_pop_reg(mod, RCX);
             continue;
         }
         emit64_push_reg(mod, RCX);
@@ -7367,7 +7499,12 @@ static void gen64_cxx_init_default_member_array(Module* mod, Expr* expr) {
     if (expr->call_new_value_init) {
         gen64_cxx_zero_object(mod, object_type, RCX);
     }
+    /* Member initializer expressions may clobber both volatile registers. */
+    emit64_push_reg(mod, RDX);
+    emit64_push_reg(mod, RCX);
     gen64_cxx_initialize_default_members(mod, object_type);
+    emit64_pop_reg(mod, RCX);
+    emit64_pop_reg(mod, RDX);
     emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
     emit64_sub_reg_imm(mod, RDX, 1);
     emit64_cmp_reg_imm(mod, RDX, 0);
@@ -9693,7 +9830,8 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
         emit64_label(mod, cookie_loop);
         emit64_mov_reg_mem(mod, RCX, RSP, 8);
         gen64_cxx_initialize_object_with_zero(
-            mod, object_type, expr->call_new_constructor, NULL,
+            mod, object_type, expr->call_new_constructor,
+            expr->call_new_default_args,
             gen64_cxx_value_initialization_zeroes_constructor(
                 expr->call_new_constructor, expr->call_new_value_init));
         if (destructor_name) {
@@ -9771,10 +9909,16 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
     emit64_cmp_reg_imm(mod, RDX, 0);
     emit64_jcc_label(mod, CC64_E, done);
     emit64_label(mod, loop);
+    /* The constructor body may clobber the loop cursor and count. */
+    emit64_push_reg(mod, RDX);
+    emit64_push_reg(mod, RCX);
     gen64_cxx_initialize_object_with_zero(
-        mod, object_type, expr->call_new_constructor, NULL,
+        mod, object_type, expr->call_new_constructor,
+        expr->call_new_default_args,
         gen64_cxx_value_initialization_zeroes_constructor(
             expr->call_new_constructor, expr->call_new_value_init));
+    emit64_pop_reg(mod, RCX);
+    emit64_pop_reg(mod, RDX);
     emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
     emit64_sub_reg_imm(mod, RDX, 1);
     emit64_cmp_reg_imm(mod, RDX, 0);
