@@ -26268,6 +26268,59 @@ test-verified-cxx-conditional-xvalue: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIM
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o2.ro x64
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-xvalue-mixed)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-O2 -o $(TEST_OUT)/cxx-conditional-xvalue-mixed/gcc-run \
+		tests/cxx_reference_conditional_mixed_named_temporary.cpp
+	$(TEST_OUT)/cxx-conditional-xvalue-mixed/gcc-run
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-conditional-xvalue-mixed/x86-o0.ro \
+		tests/cxx_reference_conditional_mixed_named_temporary.cpp \
+		>$(TEST_OUT)/cxx-conditional-xvalue-mixed/x86-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conditional-xvalue-mixed/x86-o0.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-conditional-xvalue-mixed/x86-o2.ro \
+		tests/cxx_reference_conditional_mixed_named_temporary.cpp \
+		>$(TEST_OUT)/cxx-conditional-xvalue-mixed/x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conditional-xvalue-mixed/x86-o2.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-o0.ro \
+		tests/cxx_reference_conditional_mixed_named_temporary.cpp \
+		>$(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-o0.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-o2.ro \
+		tests/cxx_reference_conditional_mixed_named_temporary.cpp \
+		>$(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-o2.log,0)
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/cxx-conditional-xvalue-mixed/x86-o0.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/cxx-conditional-xvalue-mixed/x86-o2.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-o0.ro x64
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-o2.ro x64
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-xvalue-mixed/x86.s \
+		tests/cxx_reference_conditional_mixed_named_temporary.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-conditional-xvalue-mixed/x86.o \
+		$(TEST_OUT)/cxx-conditional-xvalue-mixed/x86.s
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-xvalue-mixed/x64.s \
+		tests/cxx_reference_conditional_mixed_named_temporary.cpp
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-host \
+		$(TEST_OUT)/cxx-conditional-xvalue-mixed/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-conditional-xvalue-mixed/x64-host
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-xvalue-legacy)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-conditional-xvalue-legacy/x86.s \

@@ -14644,6 +14644,17 @@ remains a separate open item.
       pass; both verified objects emit 24 functions with zero fallback, and
       their 22 atomic stores resolve through `__rin_atomic_store_v1`.
 
+## RCC continuation (2026-11-06, mixed named/temporary conditional xvalue arms)
+
+- [x] Cover both conditional operand orders when one class xvalue names an
+      existing object and the other materializes a temporary. Select each arm
+      in turn and check the named object's address, selected value, constructor
+      count, full-expression temporary destruction, and reverse destruction of
+      the named locals. GCC C++20 and the complete
+      `test-verified-cxx-conditional-xvalue` target pass; verified i686/AMD64
+      objects at `-O0`/`-O2` execute with zero fallback, and legacy AMD64
+      execution passes.
+
 ## RCC continuation (2026-11-05, nested conditional xvalue plan verification)
 
 - [x] Exercise nested conditional xvalue plans with named and materialized
