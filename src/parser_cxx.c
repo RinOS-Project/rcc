@@ -13141,9 +13141,53 @@ static bool cxx_method_exception_spec_value(const CxxMethod* method,
     return true;
 }
 
+static bool cxx_method_constraint_expressions_match(
+    const Expr* left, const CxxTemplate* left_context,
+    const Expr* right, const CxxTemplate* right_context) {
+    if (!!left != !!right) return false;
+    if (!left) return true;
+    return cxx_template_constraint_mapping_matches(
+        left, left_context, right, right_context);
+}
+
+/* Methods with distinct template parameter lists or associated constraints
+ * are overloads. Their exception specifications must not be checked as if
+ * they redeclared the same member template. */
+static bool cxx_method_redeclaration_template_signature_matches(
+    const CxxMethod* left, const CxxTemplate* left_template_override,
+    const CxxMethod* right) {
+    CxxTemplate left_template_storage;
+    const CxxTemplate* left_template;
+    const CxxTemplate* right_template;
+    if (!left || !right) return false;
+    left_template = left_template_override
+        ? left_template_override : left->member_template;
+    right_template = right->member_template;
+    if (!!left_template != !!right_template) return false;
+    if (left_template && !left_template->func_def) {
+        left_template_storage = *left_template;
+        left_template_storage.func_def = left->decl;
+        left_template_storage.name = left->source_name
+            ? left->source_name
+            : (left->decl ? left->decl->name : NULL);
+        left_template = &left_template_storage;
+    }
+    if (left_template &&
+        !cxx_function_template_redeclaration_signature_matches(
+            left_template, right_template)) {
+        return false;
+    }
+    return cxx_method_constraint_expressions_match(
+        left->constraint,
+        left->constraint_context,
+        right->constraint,
+        right->constraint_context);
+}
+
 /* Diagnose invalid member declarations before treating them as overloads. */
 static void diagnose_invalid_cxx_method_redeclaration(
-    CxxClass* cls, CxxMethod* method) {
+    CxxClass* cls, CxxMethod* method,
+    const CxxTemplate* method_template) {
     const char* name = cxx_method_source_name(method);
     if (!cls || !method || !name) return;
     for (struct CxxMember* member = cls->members; member;
@@ -13154,6 +13198,10 @@ static void diagnose_invalid_cxx_method_redeclaration(
         previous_name = cxx_method_source_name(previous);
         if (!previous_name || strcmp(name, previous_name) != 0 ||
             !cxx_method_parameter_lists_match(method, previous)) {
+            continue;
+        }
+        if (!cxx_method_redeclaration_template_signature_matches(
+                method, method_template, previous)) {
             continue;
         }
         if (strcmp(name, "operator conversion") == 0) {
@@ -14662,7 +14710,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             return;
         }
         method->owner = cls;
-        diagnose_invalid_cxx_method_redeclaration(cls, method);
+        diagnose_invalid_cxx_method_redeclaration(
+            cls, method,
+            active_template && active_template->kind == TMPL_FUNCTION
+                ? active_template : NULL);
 
         if (is_constructor) cls->has_user_constructor = true;
 

@@ -9353,8 +9353,9 @@ bool cxx_template_type_parameter_mapping_matches(
         left, left_template, right, right_template, 0);
 }
 
-static bool cxx_function_template_redeclaration_matches(
-    const CxxTemplate* left, const CxxTemplate* right) {
+static bool cxx_function_template_redeclaration_matches_internal(
+    const CxxTemplate* left, const CxxTemplate* right,
+    bool compare_exception_specification) {
     Type* left_type;
     Type* right_type;
     TypeParam* left_parameter;
@@ -9377,13 +9378,14 @@ static bool cxx_function_template_redeclaration_matches(
              NULL,
              0)) ||
         left->function_lowering != right->function_lowering ||
-        left->is_noexcept != right->is_noexcept ||
-        (!!left->func_def->func_noexcept_expr !=
-         !!right->func_def->func_noexcept_expr) ||
-        (left->func_def->func_noexcept_expr &&
-         !cxx_template_redeclaration_expr_matches(
-             left->func_def->func_noexcept_expr, left, NULL,
-             right->func_def->func_noexcept_expr, right, NULL, 0)) ||
+        (compare_exception_specification &&
+         (left->is_noexcept != right->is_noexcept ||
+          (!!left->func_def->func_noexcept_expr !=
+           !!right->func_def->func_noexcept_expr) ||
+          (left->func_def->func_noexcept_expr &&
+           !cxx_template_redeclaration_expr_matches(
+               left->func_def->func_noexcept_expr, left, NULL,
+               right->func_def->func_noexcept_expr, right, NULL, 0)))) ||
         left->is_constexpr != right->is_constexpr ||
         left->func_def->func_is_consteval !=
             right->func_def->func_is_consteval) {
@@ -9452,6 +9454,18 @@ static bool cxx_function_template_redeclaration_matches(
     }
     return !left_parameter && !right_parameter &&
            !left_declaration_parameter && !right_declaration_parameter;
+}
+
+static bool cxx_function_template_redeclaration_matches(
+    const CxxTemplate* left, const CxxTemplate* right) {
+    return cxx_function_template_redeclaration_matches_internal(
+        left, right, true);
+}
+
+bool cxx_function_template_redeclaration_signature_matches(
+    const CxxTemplate* left, const CxxTemplate* right) {
+    return cxx_function_template_redeclaration_matches_internal(
+        left, right, false);
 }
 
 bool cxx_function_template_friend_signature_matches(

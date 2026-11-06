@@ -715,6 +715,8 @@ bool cxx_function_template_friend_signature_matches(
     const char* function_name, Type* function_type,
     DeclList* function_parameters, bool is_consteval,
     Expr* noexcept_expression);
+bool cxx_function_template_redeclaration_signature_matches(
+    const CxxTemplate* left, const CxxTemplate* right);
 void cxx_namespace_add_using_namespace(CxxNamespace* ns, CxxNamespace* target);
 void cxx_namespace_add_using_decl(CxxNamespace* ns, const char* qualified_name);
 

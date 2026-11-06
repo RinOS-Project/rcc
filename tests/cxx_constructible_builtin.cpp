@@ -1148,7 +1148,7 @@ struct OrderedConstrainedAssignment {
 
     template <typename T>
         requires AssignmentDoubleSize<T>
-    OrderedConstrainedAssignment& operator=(T&&) { return *this; }
+    OrderedConstrainedAssignment& operator=(T&&) noexcept { return *this; }
 };
 
 struct DeletedTemplateCopyAssignment {
@@ -1755,6 +1755,11 @@ static_assert(!__is_assignable(ConstrainedAssignmentOverload&, int),
               "an unsatisfied constraint leaves the deleted fallback selected");
 static_assert(__is_assignable(OrderedConstrainedAssignment&, double),
               "the more-constrained assignment template wins over a deleted fallback");
+static_assert(__is_nothrow_assignable(OrderedConstrainedAssignment&, double),
+              "nothrow assignment follows the selected constrained overload");
+static_assert(!__is_trivially_assignable(OrderedConstrainedAssignment&,
+                                         double),
+              "a selected assignment function template is not trivial");
 static_assert(!__is_assignable(OrderedConstrainedAssignment&, int),
               "the less-constrained deleted assignment template remains selected");
 static_assert(__is_assignable(DeletedTemplateCopyAssignment&,
