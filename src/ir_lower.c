@@ -33203,6 +33203,32 @@ static bool lower_declaration(RccIrLowerContext* context,
         context->unsupported = true;
         return false;
     }
+    if (!declaration->var_init && is_struct &&
+        declaration->type->cxx_class &&
+        declaration->type->cxx_class->has_user_constructor) {
+        const CxxConstructorInfo* constructor =
+            lower_cxx_implicit_subobject_default_constructor(
+                declaration->type);
+        Expr initializer;
+        if (!constructor) {
+            context->unsupported = true;
+            return false;
+        }
+        memset(&initializer, 0, sizeof(initializer));
+        initializer.kind = EXPR_COMPOUND;
+        initializer.type = declaration->type;
+        initializer.compound_constructor = (CxxConstructorInfo*)constructor;
+        if (!lower_initialize_struct_storage(
+                context, allocation->result, declaration->type,
+                &initializer) ||
+            !lower_cxx_initialize_object_vtables(
+                context, allocation->result, declaration->type)) {
+            return false;
+        }
+        return !declaration->var_cleanups ||
+            lower_push_scope_cleanup_plan(
+                context, declaration->var_cleanups);
+    }
     if (!declaration->var_init &&
         (is_array || is_struct || is_union) &&
         lower_cxx_type_has_default_member_initializer(

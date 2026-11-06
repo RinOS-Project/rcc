@@ -17753,6 +17753,57 @@ static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
  * This conservative predicate keeps array declarations from silently
  * skipping required C++ initialization while still allowing cleanup for
  * implicitly trivial default construction. */
+static bool sema_cxx_default_initialization_noop_constructor_supported(
+    Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    CxxConstructorInfo* selected = NULL;
+    if (!object_type || object_type->kind != TYPE_STRUCT || !cls ||
+        !cls->constructors) {
+        return false;
+    }
+    for (CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        Decl* declaration = constructor->method
+            ? constructor->method->decl : NULL;
+        DeclList* parameter;
+        bool viable = constructor->parameter_count == 0;
+        if (!constructor->method || !declaration ||
+            constructor->method->owner != cls || constructor->is_inherited ||
+            declaration->func_cxx_constraint_unsatisfied ||
+            constructor->parameter_count < 0) {
+            return false;
+        }
+        if (constructor->parameter_count > 0) {
+            viable = true;
+            parameter = declaration->func_params;
+            for (int index = 0; index < constructor->parameter_count;
+                 ++index) {
+                if (!parameter || !parameter->decl ||
+                    !parameter->decl->param_default) {
+                    viable = false;
+                    break;
+                }
+                parameter = parameter->next;
+            }
+            if (parameter) viable = false;
+        }
+        if (!viable) continue;
+        /* Default arguments can make a nonzero-arity overload viable here;
+         * overload selection and argument materialization remain unsupported
+         * in the default-initialization lowering path. */
+        if (constructor->parameter_count != 0 || selected ||
+            constructor->access != ACCESS_PUBLIC || constructor->is_deleted ||
+            !constructor->initializers_are_supported ||
+            !constructor->body_is_empty ||
+            !declaration->func_is_cxx_constructor ||
+            !declaration->func_is_noexcept || !declaration->func_body) {
+            return false;
+        }
+        selected = constructor;
+    }
+    return selected != NULL;
+}
+
 static bool sema_cxx_default_initialization_needs_lowering(
     Type* object_type, int depth) {
     CxxClass* cls;
@@ -17775,8 +17826,10 @@ static bool sema_cxx_default_initialization_needs_lowering(
         (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
         return true;
     }
-    if (cls->has_user_constructor || cls->vtable_size > 0 ||
-        object_type->cxx_vtable_size > 0) {
+    if ((cls->has_user_constructor &&
+         !sema_cxx_default_initialization_noop_constructor_supported(
+             object_type)) ||
+        cls->vtable_size > 0 || object_type->cxx_vtable_size > 0) {
         return true;
     }
     for (int index = 0; index < cls->base_count; ++index) {
