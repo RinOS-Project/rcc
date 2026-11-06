@@ -27627,7 +27627,6 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
             return false;
         }
         for (field = type->fields; field; field = field->next) {
-            int64_t ignored_value;
             if (!field->type || field->is_bitfield ||
                 !type_is_scalar((Type*)field->type) ||
                 field->type->is_reference || field->type->is_atomic ||
@@ -27636,8 +27635,7 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
             }
             if (!field->initializer) continue;
             if (initialized_member ||
-                !expr_eval_integer_constant(
-                    (Expr*)field->initializer, &ignored_value) ||
+                !lower_cleanup_initializer_supported(field->initializer) ||
                 !lower_noexcept_expression(field->initializer)) {
                 return false;
             }
@@ -27788,7 +27786,6 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
         }
         for (const TypeField* field = type->fields; field;
              field = field->next) {
-            int64_t ignored_value;
             if (!field->type || field->is_bitfield || field->offset != 0 ||
                 !type_is_scalar((Type*)field->type) ||
                 field->type->is_reference || field->type->is_atomic ||
@@ -27798,8 +27795,7 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
             }
             if (!field->initializer) continue;
             if (initialized_member || !field->name ||
-                !expr_eval_integer_constant(
-                    field->initializer, &ignored_value) ||
+                !lower_cleanup_initializer_supported(field->initializer) ||
                 !lower_noexcept_expression(field->initializer)) {
                 context->unsupported = true;
                 return false;

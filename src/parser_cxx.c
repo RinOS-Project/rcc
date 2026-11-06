@@ -9151,7 +9151,8 @@ static bool cxx_implicit_default_union_dmi_supported(Type* type) {
         }
         if (!field->initializer) continue;
         if (has_initializer ||
-            !cxx_constructor_scalar_constant(field->initializer)) {
+            !cxx_constructor_dmi_expression_is_lowerable(
+                cls, field, field->initializer)) {
             return false;
         }
         has_initializer = true;
