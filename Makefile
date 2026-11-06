@@ -1086,6 +1086,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-verified-cxx-conditional-conversion-cleanup
 .PHONY: test-verified-cxx-conditional-field-accessor-cleanup
 .PHONY: test-verified-cxx-conditional-copy-constructor
+.PHONY: test-verified-cxx-conditional-move-constructor
 .PHONY: test-verified-cxx-inherited-assignment
 .PHONY: test-verified-cxx-defaulted-large-array-assignment
 .PHONY: test-verified-cxx-automatic-array-cleanup
@@ -26717,6 +26718,73 @@ test-verified-cxx-conditional-copy-constructor: $(RCXX_TARGET) \
 		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-conditional-copy-constructor/x64-host
 
+test-verified-cxx-conditional-move-constructor: $(RCXX_TARGET) \
+	$(CXX_HOST_EXCEPTION_RUNTIME) test-verified-cxx-reference-local
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-move-constructor)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -O2 \
+		-o $(TEST_OUT)/cxx-conditional-move-constructor/gcc-run \
+		tests/verified_backend_cxx_conditional_move_constructor.cpp
+	$(TEST_OUT)/cxx-conditional-move-constructor/gcc-run
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.ro \
+		tests/verified_backend_cxx_conditional_move_constructor.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.ro \
+		tests/verified_backend_cxx_conditional_move_constructor.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.ro \
+		tests/verified_backend_cxx_conditional_move_constructor.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.ro \
+		tests/verified_backend_cxx_conditional_move_constructor.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.log,0)
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.ro x64
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.ro x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-move-constructor/x86.s \
+		tests/verified_backend_cxx_conditional_move_constructor.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-conditional-move-constructor/x86.o \
+		$(TEST_OUT)/cxx-conditional-move-constructor/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-move-constructor/x64.s \
+		tests/verified_backend_cxx_conditional_move_constructor.cpp
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/cxx-conditional-move-constructor/x64-host \
+		$(TEST_OUT)/cxx-conditional-move-constructor/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-conditional-move-constructor/x64-host
+
 test-verified-cxx-conditional-field-accessor-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-local
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-field-accessor-cleanup)
@@ -26856,6 +26924,7 @@ test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) \
 	test-verified-cxx-reference-local \
 	test-verified-cxx-conditional-conversion-cleanup \
 	test-verified-cxx-conditional-copy-constructor \
+	test-verified-cxx-conditional-move-constructor \
 	test-verified-cxx-conditional-field-accessor-cleanup
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
