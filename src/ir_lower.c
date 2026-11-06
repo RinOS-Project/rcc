@@ -33266,6 +33266,30 @@ static bool lower_declaration(RccIrLowerContext* context,
             lower_push_scope_cleanup_plan(
                 context, declaration->var_cleanups);
     }
+    if (!declaration->var_init && is_array) {
+        const Type* element_type =
+            lower_cxx_class_array_element(declaration->type);
+        if (element_type && element_type->kind == TYPE_STRUCT &&
+            element_type->cxx_class &&
+            element_type->cxx_class->has_user_constructor) {
+            const CxxConstructorInfo* constructor =
+                lower_cxx_default_initialization_constructor(element_type);
+            RccIrLowerValue array_address = lower_value(
+                allocation->result, rcc_ir_type_pointer(0u), true);
+            if (!constructor ||
+                !lower_cxx_emit_class_array_constructors(
+                    context, declaration->type, element_type, constructor,
+                    NULL, false, array_address, 0u) ||
+                !lower_unregister_partial_array_cleanups_in_object(
+                    context, declaration->type, array_address, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            return !declaration->var_cleanups ||
+                lower_push_scope_cleanup_plan(
+                    context, declaration->var_cleanups);
+        }
+    }
     if (!declaration->var_init && (is_array || is_struct || is_union)) {
         if (lower_cxx_implicit_default_member_initializers_supported(
                 declaration->type)) {
