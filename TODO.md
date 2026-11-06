@@ -2272,7 +2272,17 @@
         GCC C++20 and legacy AMD64 exception-unwind execution also pass;
         legacy i686 exception assembly is generated and assembled. The full
         regression is `test-verified-cxx-conditional-field-accessor-cleanup`.
-        Nontrivial copy operations remain open.
+        Broader nontrivial conditional copy/move operations remain open.
+    - [x] Preserve copy-initialization for a same-type class prvalue
+          conditional's named lvalue arm and invoke the selected user-defined
+          copy constructor directly into the shared result object. Verify both
+          operand orders and selected arms, exact copy/destruction counts,
+          GCC C++20, verified i686/AMD64 O0/O2 with zero fallback, legacy
+          i686 assembly, and legacy AMD64 execution in
+          test-verified-cxx-conditional-copy-constructor.
+    - [ ] Extend the path to non-identifier lvalue arms, xvalue/prvalue
+          conditionals, and throwing copy constructors with partial-result
+          cleanup.
   - [x] Lower fixed-size array-loop cleanup plans recursively for nontrivial
         subobjects of class-prvalue reference temporaries, including nested
         arrays. Emit reverse element destruction and verify the observed order

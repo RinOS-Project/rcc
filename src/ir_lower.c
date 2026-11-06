@@ -11509,8 +11509,14 @@ static bool lower_nontrivial_temporary_conditional_arm_supported(
      * whole conditional succeeds. Field getters are separately admitted as
      * lvalue sources when their result copy is representation-safe. */
     if (expression->kind == EXPR_COMPOUND) {
-        return expression->type->kind == TYPE_STRUCT &&
-            lower_noexcept_expression(expression);
+        if (expression->type->kind != TYPE_STRUCT) return false;
+        /* A conditional copy arm initializes the shared result object
+         * through the constructor selected by semantic analysis. Constructor
+         * arguments and temporary cleanup are validated by the same path used
+         * for other caller-owned aggregate initializers. */
+        return expression->compound_constructor
+            ? lower_cleanup_initializer_supported(expression)
+            : lower_noexcept_expression(expression);
     }
     /* A mixed lvalue/prvalue conditional produces a prvalue result. Its
      * lvalue arm is copied into the selected result object; only admit a

@@ -32558,6 +32558,39 @@ static Type* sema_expr_impl(Expr* expr) {
                     expr->type = tt;
                 }
             }
+            /* A class conditional that is not itself a glvalue initializes
+             * its result object from a selected operand. For the supported
+             * named lvalue arms, preserve copy-initialization in the AST so
+             * overload resolution selects and lowering invokes the declared
+             * copy constructor instead of inferring a bytewise copy. */
+            if (rcc_parser_is_cxx_mode() && expr->type &&
+                expr->type->kind == TYPE_STRUCT &&
+                expr->type->cxx_class &&
+                !sema_cxx_implicit_copy_constructor_lowerable(
+                    expr->type, 0) &&
+                !expr->cxx_conditional_lvalue &&
+                !expr->cxx_conditional_xvalue) {
+                Expr** arms[2] = {
+                    &expr->cond_then, &expr->cond_else
+                };
+                for (size_t arm_index = 0u;
+                     arm_index < sizeof(arms) / sizeof(arms[0]);
+                     ++arm_index) {
+                    Expr* arm = *arms[arm_index];
+                    if (!arm || arm->kind != EXPR_IDENT || !arm->type ||
+                        !is_lvalue(arm) ||
+                        !type_is_compatible(expr->type, arm->type) ||
+                        !type_is_compatible(arm->type, expr->type)) {
+                        continue;
+                    }
+                    Expr* copy_initializer = expr_initializer_list(
+                        exprlist_new(arm), arm->loc);
+                    copy_initializer->compound_type = expr->type;
+                    copy_initializer->compound_copy_init = true;
+                    sema_initializer(expr->type, copy_initializer);
+                    *arms[arm_index] = copy_initializer;
+                }
+            }
             if (rcc_parser_is_cxx_mode() && expr->type &&
                 expr->type->kind == TYPE_STRUCT &&
                 sema_cxx_type_has_destructor_cleanup(expr->type, 0) &&
