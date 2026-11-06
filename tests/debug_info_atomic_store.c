@@ -20,7 +20,29 @@ _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_dividend =
     -0x7123456789abcdefll;
 _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_divisor =
     -0x100000001ll;
-_Thread_local _Atomic long long debug_inline_nonconstant_signed_long_long_tls_atomic_dividend;
+_Thread_local _Atomic long long debug_inline_nonconstant_signed_long_long_tls_atomic_dividend =
+    -0x7123456789abcdefll;
+_Thread_local _Atomic long long
+    debug_inline_nonconstant_signed_long_long_tls_atomic_divisor =
+        -0x100000001ll;
+
+long long
+debug_inline_nonconstant_signed_long_long_atomic_tls_load_xor_divide_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_tls_atomic_dividend ^
+         0x100000001ll) /
+        debug_inline_nonconstant_signed_long_long_tls_atomic_divisor);
+}
+
+long long
+debug_inline_nonconstant_signed_long_long_atomic_tls_load_xor_remainder_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_tls_atomic_dividend ^
+         0x100000001ll) %
+        debug_inline_nonconstant_signed_long_long_tls_atomic_divisor);
+}
 
 long long
 debug_inline_nonconstant_signed_long_long_atomic_load_xor_divide_entry(void)
