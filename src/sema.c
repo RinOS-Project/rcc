@@ -68,9 +68,13 @@ extern bool rcc_parser_cxx_has_constructor_template(
 extern bool rcc_parser_cxx_normalize_constructor_body(
     CxxClass*, CxxConstructorInfo*) __attribute__((weak));
 extern Type* rcc_parser_cxx_expression_type(Expr*) __attribute__((weak));
+extern CxxClass* rcc_parser_cxx_resolve_coroutine_traits(
+    Decl*, Type**, bool*, bool*) __attribute__((weak));
 #elif defined(RCC_BOOTSTRAP)
 extern bool cxx_class_resolve_nested_type_path(
     CxxClass*, const char*, CxxClass*, Type**, bool*, bool*);
+extern CxxClass* rcc_parser_cxx_resolve_coroutine_traits(
+    Decl*, Type**, bool*, bool*);
 #endif
 
 static bool sema_cxx_class_is_abstract(const CxxClass* cls) {
@@ -40535,15 +40539,28 @@ static void sema_validate_cxx_operator_co_await(Decl* declaration) {
 static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
     Type* return_type;
     Type* promise_type = NULL;
+    DeclList* parameter;
     bool ambiguous = false;
     bool accessible = false;
-    bool resolved = false;
+    CxxClass* traits_class = NULL;
     if (!declaration || !declaration->func_is_coroutine ||
         !declaration->type || declaration->type->kind != TYPE_FUNC) {
         return;
     }
-    return_type = type_remove_reference(declaration->type->ret_type);
+    return_type = declaration->type->ret_type;
     if (!return_type || return_type->cxx_dependent) return;
+    if (declaration->func_method_owner &&
+        declaration->func_method_owner->cxx_dependent) {
+        return;
+    }
+    for (parameter = declaration->func_params; parameter;
+         parameter = parameter->next) {
+        if (!parameter->decl || !parameter->decl->type ||
+            parameter->decl->param_is_pack ||
+            parameter->decl->type->cxx_dependent) {
+            return;
+        }
+    }
     if (!rcc_parser_is_cxx_mode() ||
         !rcc_parser_cxx_standard_at_least(20)) {
         rcc_error(declaration->loc,
@@ -40551,28 +40568,24 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
         return;
     }
 #if defined(__GNUC__) || defined(__clang__)
-    if (cxx_class_resolve_nested_type_path && return_type->cxx_class) {
-        resolved = cxx_class_resolve_nested_type_path(
-            return_type->cxx_class, "promise_type", NULL,
-            &promise_type, &ambiguous, &accessible);
+    if (rcc_parser_cxx_resolve_coroutine_traits) {
+        traits_class = rcc_parser_cxx_resolve_coroutine_traits(
+            declaration, &promise_type, &ambiguous, &accessible);
     }
 #elif defined(RCC_BOOTSTRAP)
-    if (return_type->cxx_class) {
-        resolved = cxx_class_resolve_nested_type_path(
-            return_type->cxx_class, "promise_type", NULL,
-            &promise_type, &ambiguous, &accessible);
-    }
+    traits_class = rcc_parser_cxx_resolve_coroutine_traits(
+        declaration, &promise_type, &ambiguous, &accessible);
 #endif
-    if (!resolved || !promise_type) {
+    if (!traits_class || !promise_type) {
         if (ambiguous) {
             rcc_error(declaration->loc,
-                      "coroutine return type has an ambiguous promise_type");
+                      "coroutine_traits has an ambiguous promise_type");
         } else if (!accessible) {
             rcc_error(declaration->loc,
-                      "coroutine return type has no accessible promise_type");
+                      "coroutine_traits promise_type is inaccessible");
         } else {
             rcc_error(declaration->loc,
-                      "coroutine_traits promise_type lookup is unavailable for this return type");
+                      "std::coroutine_traits<R, Args...>::promise_type is unavailable");
         }
         return;
     }

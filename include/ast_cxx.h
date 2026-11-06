@@ -761,6 +761,9 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
                                               const int64_t* value_args,
                                               const bool* value_present,
                                               int arg_count, SourceLoc loc);
+CxxClass* rcc_parser_cxx_resolve_coroutine_traits(
+    Decl* declaration, Type** promise_type, bool* ambiguous,
+    bool* accessible);
 CxxClass* rcc_cxx_instantiate_class_template_for_owner(
     CxxTemplate* tmpl, Type** args, const int64_t* value_args,
     const bool* value_present, int arg_count, CxxClass* owner_class,

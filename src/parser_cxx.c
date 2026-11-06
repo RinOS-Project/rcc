@@ -19472,6 +19472,75 @@ static CxxTemplate* find_template(const char* qualified_name,
     return find_template_absolute(name, kind);
 }
 
+CxxClass* rcc_parser_cxx_resolve_coroutine_traits(
+    Decl* declaration, Type** promise_type, bool* ambiguous,
+    bool* accessible) {
+    CxxTemplate* traits_template;
+    CxxClass* traits_class;
+    Type** arguments;
+    Type* return_type;
+    DeclList* parameter;
+    int argument_count = 1;
+    int argument_index = 0;
+    bool resolved;
+
+    if (promise_type) *promise_type = NULL;
+    if (ambiguous) *ambiguous = false;
+    if (accessible) *accessible = true;
+    if (!declaration || declaration->kind != DECL_FUNC ||
+        !declaration->type || declaration->type->kind != TYPE_FUNC ||
+        !promise_type) {
+        return NULL;
+    }
+    return_type = declaration->type->ret_type;
+    if (!return_type || return_type->cxx_dependent) return NULL;
+    if (declaration->func_this_param) {
+        if (!declaration->func_this_param->type ||
+            declaration->func_this_param->type->kind != TYPE_PTR ||
+            !declaration->func_this_param->type->base) {
+            return NULL;
+        }
+        ++argument_count;
+    }
+    for (parameter = declaration->func_params; parameter;
+         parameter = parameter->next) {
+        if (!parameter->decl || !parameter->decl->type ||
+            parameter->decl->param_is_pack ||
+            parameter->decl->type->cxx_dependent ||
+            argument_count == INT_MAX) {
+            return NULL;
+        }
+        ++argument_count;
+    }
+
+    traits_template = find_template("::std::coroutine_traits", TMPL_CLASS);
+    if (!traits_template) return NULL;
+
+    arguments = ast_arena_alloc(sizeof(*arguments) *
+                                (size_t)argument_count);
+    arguments[argument_index++] = return_type;
+    if (declaration->func_this_param) {
+        Type* object_type = declaration->func_this_param->type->base;
+        arguments[argument_index++] = type_reference(
+            object_type,
+            declaration->type->function_ref_qualifier ==
+                CXX_REF_QUAL_RVALUE);
+    }
+    for (parameter = declaration->func_params; parameter;
+         parameter = parameter->next) {
+        arguments[argument_index++] = parameter->decl->type;
+    }
+    traits_class = rcc_cxx_instantiate_class_template(
+        traits_template, arguments, NULL, NULL, argument_count,
+        declaration->loc);
+    if (!traits_class) return NULL;
+
+    resolved = cxx_class_resolve_nested_type_path(
+        traits_class, "promise_type", NULL, promise_type,
+        ambiguous, accessible);
+    return resolved ? traits_class : NULL;
+}
+
 static CxxTemplate* find_class_template(const char* qualified_name) {
     CxxTemplate* result = find_template(qualified_name, TMPL_CLASS);
     if (result) return result;
