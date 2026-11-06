@@ -2835,11 +2835,10 @@ static bool lower_dynamic_static_class_member_constructor_supported(
         ? aggregate_item->expr : NULL;
     if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
         !type->cxx_class->has_user_constructor ||
-        type->cxx_class->has_field_initializer || type->is_volatile ||
+        type->is_volatile ||
         type->size <= 0 || type->size > 65536 || type->align <= 0 ||
         type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 ||
-        type->cxx_class->base_count != 0 ||
         type->cxx_class->virtual_base_count != 0 ||
         type->cxx_class->vtable_size != 0 ||
         !lower_struct_type_supported(type) || !initializer ||
@@ -3081,8 +3080,6 @@ static bool lower_dynamic_static_class_array_initializer_supported(
         !element_type || element_type->kind != TYPE_STRUCT ||
         !element_type->cxx_class ||
         !element_type->cxx_class->has_user_constructor ||
-        element_type->cxx_class->has_field_initializer ||
-        element_type->cxx_class->base_count != 0 ||
         element_type->cxx_class->virtual_base_count != 0 ||
         element_type->cxx_class->vtable_size != 0 ||
         !lower_struct_type_supported(element_type) || !initializer ||
@@ -3115,7 +3112,6 @@ static bool lower_dynamic_static_class_constructor_initializer_supported(
         type->size <= 0 || type->size > 65536 || type->align <= 0 ||
         type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 ||
-        type->cxx_class->base_count != 0 ||
         type->cxx_class->virtual_base_count != 0 ||
         type->cxx_class->vtable_size != 0 ||
         !lower_struct_type_supported(type) || !initializer ||
@@ -5842,12 +5838,12 @@ static bool lower_finalize_label_phis(RccIrLowerContext* context) {
             }
             if (g_opts.verbose && index != 0u) {
                 printf("Typed SSA wide-scalar label phi: function=%s "
-                       "label=%s local=%s predecessors=%zu\n",
+                       "label=%s local=%s predecessors=%llu\n",
                        context->function->name,
                        label->name ? label->name : "<anonymous>",
                        phi->local->declaration->name
                            ? phi->local->declaration->name : "<anonymous>",
-                       index);
+                       (unsigned long long)index);
             }
         }
     }
@@ -25196,6 +25192,10 @@ static bool lower_cxx_initialize_constructor_members(
         if (!initializer) continue;
         field = lower_struct_declared_field(
             cls->type, cls, initializer->field);
+        if (!field || !field->type || field->offset < 0) {
+            context->unsupported = true;
+            return false;
+        }
         address = lower_byte_offset_address(
             context, object, (uint64_t)field->offset);
         if (address.valid && field->type->is_volatile) {
@@ -25844,8 +25844,9 @@ static bool lower_cxx_make_array_placement_cleanup(
         return false;
     }
     (void)snprintf(callback_name, callback_name_capacity,
-                   "__rcc_array_placement_delete_%s_%zu", parent_name,
-                   context->cxx_array_cleanup_thunk_count++);
+                   "__rcc_array_placement_delete_%s_%llu", parent_name,
+                   (unsigned long long)
+                       context->cxx_array_cleanup_thunk_count++);
     callback_function = rcc_ir_function_add(
         context->module, callback_name, rcc_ir_type_void(),
         &callback_parameter, 1u);
