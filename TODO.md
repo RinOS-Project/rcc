@@ -2295,8 +2295,13 @@
           copy/move/destruction counts, GCC C++20, verified i686/AMD64 O0/O2
           with zero fallback, legacy i686 assembly, and legacy AMD64 execution
           in test-verified-cxx-conditional-move-constructor.
-    - [ ] Cover nested conditional xvalue arms and support throwing
-          copy/move constructors with partial-result cleanup.
+    - [x] Move-initialize from a nested same-type conditional xvalue arm of a
+          class-prvalue conditional. Verify both selected xvalue arms and the
+          outer prvalue arm with exact move/copy/destruction counts, GCC C++20,
+          verified i686/AMD64 O0/O2 with zero fallback, legacy i686 assembly,
+          and legacy AMD64 execution in
+          test-verified-cxx-conditional-move-constructor.
+    - [ ] Support throwing copy/move constructors with partial-result cleanup.
   - [x] Lower fixed-size array-loop cleanup plans recursively for nontrivial
         subobjects of class-prvalue reference temporaries, including nested
         arrays. Emit reverse element destruction and verify the observed order

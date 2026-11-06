@@ -128,5 +128,29 @@ int main() {
     if (move_count != 4 || copy_count != 3) return 142;
     if (destructor_count != 14) return 143;
 
+    result = consume(
+        true ? (true ? static_cast<ConditionalMove&&>(left)
+                     : static_cast<ConditionalMove&&>(holder.member))
+             : ConditionalMove{70});
+    if (result != 207) return 151;
+    if (move_count != 5 || copy_count != 3) return 152;
+    if (destructor_count != 15) return 153;
+
+    result = consume(
+        true ? (false ? static_cast<ConditionalMove&&>(left)
+                      : static_cast<ConditionalMove&&>(holder.member))
+             : ConditionalMove{70});
+    if (result != 211) return 161;
+    if (move_count != 6 || copy_count != 3) return 162;
+    if (destructor_count != 16) return 163;
+
+    result = consume(
+        false ? (true ? static_cast<ConditionalMove&&>(left)
+                      : static_cast<ConditionalMove&&>(holder.member))
+              : ConditionalMove{70});
+    if (result != 70) return 171;
+    if (move_count != 6 || copy_count != 3) return 172;
+    if (destructor_count != 17) return 173;
+
     return 0;
 }
