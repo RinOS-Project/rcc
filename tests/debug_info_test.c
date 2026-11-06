@@ -10988,14 +10988,15 @@ static void verify_inline_i686_computed_division_expression(
     objfile_free(object);
 }
 
-static void verify_inline_i686_u64_global_variable_division_expression(
+static void verify_inline_i686_u64_global_variable_division_expression_impl(
     ObjectFile* object, const uint8_t* data, uint64_t expression_end,
     uint64_t expression_start, const ObjSection* info,
     const ObjSection* strings, const ObjSection* locations,
     const char* source_name, const char* divisor_name,
     bool global_dividend, bool global_divisor, bool remainder,
     bool is_signed, bool negate_dividend, bool negate_divisor,
-    bool nested_negation_requires_non_min_dividend) {
+    bool nested_negation_requires_non_min_dividend,
+    uint64_t dividend_xor) {
     static const uint64_t dividends[] = {
         0u, 1u, 2u, 3u, 4u, UINT32_MAX, UINT64_C(0x100000000),
         UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
@@ -11093,7 +11094,7 @@ static void verify_inline_i686_u64_global_variable_division_expression(
              ++divisor_index) {
             uint64_t dividend = dividend_values[dividend_index];
             uint64_t divisor = divisor_values[divisor_index];
-            uint64_t effective_dividend = dividend;
+            uint64_t effective_dividend = dividend ^ dividend_xor;
             uint64_t effective_divisor = divisor;
             int64_t signed_dividend;
             int64_t signed_divisor;
@@ -11105,7 +11106,9 @@ static void verify_inline_i686_u64_global_variable_division_expression(
                     (negate_divisor && (int64_t)divisor == INT64_MIN)) {
                     continue;
                 }
-                if (negate_dividend) effective_dividend = 0u - dividend;
+                if (negate_dividend) {
+                    effective_dividend = 0u - effective_dividend;
+                }
                 if (negate_divisor) effective_divisor = 0u - divisor;
                 signed_dividend = (int64_t)effective_dividend;
                 signed_divisor = (int64_t)effective_divisor;
@@ -11120,7 +11123,8 @@ static void verify_inline_i686_u64_global_variable_division_expression(
                 signed_dividend = 0;
                 signed_divisor = 0;
                 expected = remainder
-                    ? dividend % divisor : dividend / divisor;
+                    ? effective_dividend % divisor
+                    : effective_dividend / divisor;
             }
             uint64_t actual = evaluate_inline_i686_u64_constant_division(
                 data, expression_end, expression_start,
@@ -11142,6 +11146,32 @@ static void verify_inline_i686_u64_global_variable_division_expression(
             assert(actual == expected);
         }
     }
+}
+
+static void verify_inline_i686_u64_global_variable_division_expression(
+    ObjectFile* object, const uint8_t* data, uint64_t expression_end,
+    uint64_t expression_start, const ObjSection* info,
+    const ObjSection* strings, const ObjSection* locations,
+    const char* source_name, const char* divisor_name,
+    bool global_dividend, bool global_divisor, bool remainder,
+    bool is_signed, bool negate_dividend, bool negate_divisor,
+    bool nested_negation_requires_non_min_dividend) {
+    verify_inline_i686_u64_global_variable_division_expression_impl(
+        object, data, expression_end, expression_start, info, strings,
+        locations, source_name, divisor_name, global_dividend, global_divisor,
+        remainder, is_signed, negate_dividend, negate_divisor,
+        nested_negation_requires_non_min_dividend, 0u);
+}
+
+static void verify_inline_i686_s64_xor_global_variable_division_expression(
+    ObjectFile* object, const uint8_t* data, uint64_t expression_end,
+    uint64_t expression_start, const ObjSection* info,
+    const ObjSection* strings, const ObjSection* locations,
+    const char* source_name, const char* divisor_name, bool remainder) {
+    verify_inline_i686_u64_global_variable_division_expression_impl(
+        object, data, expression_end, expression_start, info, strings,
+        locations, source_name, divisor_name, true, true, remainder, true,
+        false, false, false, UINT64_C(0x100000001));
 }
 
 static void verify_inline_i686_u64_storage_add_variable_division_expression(
@@ -14471,6 +14501,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_unsigned_long_long_static_local_add_runtime_mod_entry";
+    } else if (expected_constant == INT64_MIN + 70 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_global_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 71 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_global_xor_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -14867,6 +14905,18 @@ static void verify_inline_integer_expression_parameter(
             strings, locations, source_name, divisor_source_name,
             true, true, expected_operation == 0x1du, true,
             false, false, false);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+        divisor_source_name &&
+        (expected_constant == INT64_MIN + 70 ||
+         expected_constant == INT64_MIN + 71) &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        verify_inline_i686_s64_xor_global_variable_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            strings, locations, source_name, divisor_source_name,
+            expected_operation == 0x1du);
         objfile_free(object);
         return;
     }

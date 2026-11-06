@@ -10896,11 +10896,13 @@ static bool debug_inline_parameter_i686_append_signed_u64_result_sign(
 
 static bool debug_inline_parameter_i686_append_signed_u64_expression_sign(
     const Module* mod, const Expr* source_expression, uint8_t* expression,
-    size_t capacity, size_t* size) {
+    size_t capacity, size_t* size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     return mod && source_expression && source_expression->type &&
         source_expression->type->size == 8 && expression && size &&
-        debug_inline_parameter_i686_u64_append_word_expression(
-            mod, source_expression, true, expression, capacity, size, 0u) &&
+        debug_inline_parameter_i686_u64_append_word_expression_relocatable(
+            mod, source_expression, true, expression, capacity, size, 0u,
+            relocations) &&
         debug_inline_integer_expression_append_constu(
             expression, capacity, size, 0u) &&
         debug_inline_integer_expression_append_byte(
@@ -10909,15 +10911,18 @@ static bool debug_inline_parameter_i686_append_signed_u64_expression_sign(
 
 static bool debug_inline_parameter_i686_append_signed_u64_expression_magnitude(
     const Module* mod, const Expr* source_expression,
-    uint8_t* expression, size_t capacity, size_t* size) {
+    uint8_t* expression, size_t capacity, size_t* size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     size_t negative_operand;
     size_t positive_join_operand;
     size_t negative_offset;
     if (!mod || !source_expression || !expression || !size ||
-        !debug_inline_parameter_i686_u64_append_word_expression(
-            mod, source_expression, false, expression, capacity, size, 0u) ||
-        !debug_inline_parameter_i686_u64_append_word_expression(
-            mod, source_expression, true, expression, capacity, size, 0u) ||
+        !debug_inline_parameter_i686_u64_append_word_expression_relocatable(
+            mod, source_expression, false, expression, capacity, size, 0u,
+            relocations) ||
+        !debug_inline_parameter_i686_u64_append_word_expression_relocatable(
+            mod, source_expression, true, expression, capacity, size, 0u,
+            relocations) ||
         !debug_inline_integer_expression_append_pick(
             expression, capacity, size, 0u) ||
         !debug_inline_integer_expression_append_constu(
@@ -11015,7 +11020,8 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
     if ((is_signed &&
          (source_value_expression
               ? !debug_inline_parameter_i686_append_signed_u64_expression_sign(
-                    mod, source_value_expression, expression, capacity, &size)
+                    mod, source_value_expression, expression, capacity, &size,
+                    relocations)
               : !debug_inline_parameter_i686_append_signed_u64_sign_adjusted(
                     mod, source, frame_offset, negate_dividend, expression,
                     capacity, &size, relocations))) ||
@@ -11023,7 +11029,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
          (divisor_value_expression
               ? !debug_inline_parameter_i686_append_signed_u64_expression_sign(
                     mod, divisor_value_expression, expression, capacity,
-                    &size)
+                    &size, relocations)
               : !debug_inline_parameter_i686_append_signed_u64_sign_adjusted(
                     mod, divisor_source, divisor_frame_offset,
                     negate_divisor, expression, capacity, &size,
@@ -11036,7 +11042,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
              ? (source_value_expression
                     ? !debug_inline_parameter_i686_append_signed_u64_expression_magnitude(
                           mod, source_value_expression, expression, capacity,
-                          &size)
+                          &size, relocations)
                     : !debug_inline_parameter_i686_append_signed_u64_magnitude(
                           mod, source, frame_offset, expression, capacity,
                           &size, relocations))
@@ -11058,7 +11064,7 @@ static bool debug_inline_parameter_i686_u64_general_division_expression(
               ? (divisor_value_expression
                      ? !debug_inline_parameter_i686_append_signed_u64_expression_magnitude(
                            mod, divisor_value_expression, expression,
-                           capacity, &size)
+                           capacity, &size, relocations)
                      : !debug_inline_parameter_i686_append_signed_u64_magnitude(
                            mod, divisor_source, divisor_frame_offset,
                            expression, capacity, &size, relocations))
