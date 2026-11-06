@@ -39014,9 +39014,12 @@ static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
         if (source) loc = source->loc;
         Expr* result = expr_initializer_list(items, loc);
         result->compound_type = type;
+        result->compound_value_init = source &&
+            source->compound_value_init;
         result->compound_paren_init = source &&
             source->compound_paren_init;
         result->compound_cxx_default_member_normalized = true;
+        result->compound_cxx_default_member_init_only = source == NULL;
         return result;
     }
 }

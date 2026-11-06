@@ -29087,7 +29087,8 @@ static bool lower_struct_initializer(
         return lower_cxx_copy_trivial_storage(
             context, base, source.value, type, 0u);
     }
-    if (!lower_cxx_constructed_volatile_object_supported(type, initializer) &&
+    if (!initializer->compound_cxx_default_member_init_only &&
+        !lower_cxx_constructed_volatile_object_supported(type, initializer) &&
         !lower_zero_struct_storage(context, base, type)) {
         context->unsupported = true;
         return false;
@@ -29536,7 +29537,8 @@ static bool lower_union_initializer(
     RccIrLowerValue address;
     if (!lower_union_type_supported(type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
-        !lower_zero_union_storage(context, base, type)) {
+        (!initializer->compound_cxx_default_member_init_only &&
+         !lower_zero_union_storage(context, base, type))) {
         context->unsupported = true;
         return false;
     }

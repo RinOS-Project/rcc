@@ -21708,6 +21708,13 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                   int32_t displacement) {
     Expr* string = codegen_character_array_string(type, initializer);
     if (!type || !initializer) return false;
+    if (initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_cxx_default_member_normalized &&
+        initializer->compound_value_init && type->size > 0 &&
+        (type->kind == TYPE_ARRAY || type->kind == TYPE_STRUCT ||
+         type->kind == TYPE_UNION)) {
+        gen_zero_local_storage(mod, displacement, (size_t)type->size);
+    }
     if (rcc_parser_is_cxx_mode() &&
         rcc_parser_cxx_standard_at_least(17) &&
         (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&

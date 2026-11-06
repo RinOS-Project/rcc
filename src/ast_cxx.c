@@ -9236,6 +9236,8 @@ static bool cxx_template_redeclaration_expr_matches(
                 left->compound_paren_init == right->compound_paren_init &&
                 left->compound_designator_wrapper ==
                     right->compound_designator_wrapper &&
+                left->compound_cxx_default_member_init_only ==
+                    right->compound_cxx_default_member_init_only &&
                 (!!left->compound_type == !!right->compound_type) &&
                 (!left->compound_type ||
                  cxx_template_redeclaration_type_matches(

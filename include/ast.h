@@ -1158,6 +1158,9 @@ struct Expr {
              * C aggregate designator. */
             bool compound_designator_wrapper;
             bool compound_cxx_default_member_normalized;
+            /* A null source initializer is default-initialization: omitted
+             * scalar subobjects remain indeterminate. */
+            bool compound_cxx_default_member_init_only;
             /* Compiler-created list passed as the single argument to a
              * std::initializer_list constructor. */
             bool compound_cxx_initializer_list_argument;
