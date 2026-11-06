@@ -3089,6 +3089,7 @@ static bool lower_dynamic_static_class_array_initializer_supported(
         initializer->kind != EXPR_COMPOUND ||
         initializer->compound_constructor ||
         initializer->compound_paren_init ||
+        !initializer->compound_cxx_default_member_init_only ||
         (declaration->var_cleanups &&
          !lower_cxx_destructor_cleanup_hook_supported(element_type))) {
         return false;
