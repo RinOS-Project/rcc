@@ -39096,7 +39096,8 @@ static Expr* sema_cxx_default_initialization_expression(
         return initializer;
     }
     if (type->kind == TYPE_UNION || cls->virtual_base_count != 0 ||
-        cls->base_count < 0 || (cls->base_count && !cls->bases)) {
+        cls->base_count < 0 || (cls->base_count &&
+         (!cls->bases || !ast_cxx_is_aggregate(type)))) {
         *supported = false;
         return NULL;
     }
