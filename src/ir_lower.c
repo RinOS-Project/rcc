@@ -2878,7 +2878,8 @@ static bool lower_dynamic_static_default_class_initializer_supported(
     const CxxClass* cls = type ? type->cxx_class : NULL;
     const ExprList* item;
     ExprList constructor_item;
-    if (type && initializer && type->kind == TYPE_STRUCT && cls) {
+    if (type && initializer && depth < 32u &&
+        type->kind == TYPE_STRUCT && cls) {
         memset(&constructor_item, 0, sizeof(constructor_item));
         constructor_item.expr = (Expr*)initializer;
         if (lower_dynamic_static_class_member_constructor_supported(
