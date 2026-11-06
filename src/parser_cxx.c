@@ -9174,8 +9174,7 @@ static CxxConstructorInfo* cxx_find_delegating_constructor(
          candidate; candidate = candidate->next) {
         bool callable_body = candidate->method && candidate->method->decl &&
             candidate->method->decl->func_body;
-        if (candidate == current || candidate->access != ACCESS_PUBLIC ||
-            candidate->is_deleted || candidate->is_defaulted ||
+        if (candidate == current || candidate->is_deleted ||
             candidate->parameter_count < argument_count ||
             (candidate->parameter_count != argument_count &&
              !cxx_constructor_arity_has_defaults(candidate, argument_count)) ||

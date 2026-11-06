@@ -24607,6 +24607,48 @@ static bool lower_cxx_initialize_constructor_members(
         if (context) context->unsupported = true;
         return false;
     }
+    if (constructor->initializers &&
+        constructor->initializers->is_delegating_constructor) {
+        const CxxConstructorInitializer* delegated =
+            constructor->initializers;
+        Expr delegated_expression;
+        if (delegated->next || delegated->is_base_initializer ||
+            delegated->is_virtual_base_initializer ||
+            !lower_cxx_base_name_matches(cls, cls->name, delegated) ||
+            delegated->is_default_member_initializer ||
+            delegated->value !=
+                (delegated->arguments
+                     ? delegated->arguments->expr : NULL) ||
+            !delegated->constructor ||
+            !delegated->constructor->method ||
+            delegated->constructor->method->owner != cls ||
+            delegated->constructor->is_deleted) {
+            context->unsupported = true;
+            return false;
+        }
+        memset(&delegated_expression, 0, sizeof(delegated_expression));
+        delegated_expression.kind = EXPR_COMPOUND;
+        delegated_expression.type = cls->type;
+        delegated_expression.compound_constructor = delegated->constructor;
+        delegated_expression.compound_init = delegated->arguments;
+        this_address = lower_value(
+            this_local->address, rcc_ir_type_pointer(0u), true);
+        object = lower_load_address(
+            context, this_address, declaration->func_this_param->type);
+        if (!object.valid || object.type.kind != RCC_IR_TYPE_POINTER ||
+            !lower_cleanup_constructor_call_supported(
+                &delegated_expression) ||
+            !lower_cxx_constructor_initializer_arguments_supported(
+                context, delegated->arguments) ||
+            !lower_cxx_emit_constructor_call(
+                context, &delegated_expression, object.value) ||
+            !lower_cxx_delete_subobject_cleanup_change(
+                context, cls->type, object, true, 0u)) {
+            context->unsupported = true;
+            return false;
+        }
+        return true;
+    }
     /* Validate virtual-base placement and the narrow constructor form this
      * path can emit.  A constructed virtual base must be a scalar-only leaf
      * with no cleanup work. */
@@ -25263,6 +25305,19 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
     if (!object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
         context->unsupported = true;
         return false;
+    }
+    if (constructor->initializers &&
+        constructor->initializers->is_delegating_constructor) {
+        const CxxConstructorInitializer* delegated =
+            constructor->initializers;
+        if (delegated->next || delegated->is_base_initializer ||
+            delegated->is_virtual_base_initializer ||
+            !lower_cxx_base_name_matches(cls, cls->name, delegated)) {
+            context->unsupported = true;
+            return false;
+        }
+        return lower_cxx_delete_subobject_cleanup_change(
+            context, cls->type, object, false, 0u);
     }
     for (int base_index = cls->base_count; base_index > 0; --base_index) {
         int index = base_index - 1;

@@ -19065,8 +19065,7 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
             (candidate->method->decl &&
              candidate->method->decl->func_cxx_constraint_unsatisfied) ||
             candidate->method->owner != cls ||
-            candidate->access != ACCESS_PUBLIC || candidate->is_deleted ||
-            candidate->is_defaulted || candidate->parameter_count < argument_count ||
+            candidate->is_deleted || candidate->parameter_count < argument_count ||
             (candidate->parameter_count != argument_count &&
              !sema_cxx_constructor_arity_has_defaults(
                  candidate, argument_count)) ||
