@@ -12988,8 +12988,9 @@ remains a separate open item.
         patterns for both operations in legacy and verified C++20 i686
         objects. `test-debug-info-inline-expression` and the full
         `test-debug-info` gate pass. Direct global/TLS/static reference aliases,
-        unsigned volatile leaves, and unsigned atomic-load operands remain
-        open.
+        unsigned plain-volatile leaves, and unsigned atomic stores/RMW remain
+        open; unsigned atomic-load operands are covered by the following
+        continuation.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
@@ -15114,3 +15115,15 @@ Continue in this order:
 
 ## RCC continuation (2026-11-06, C VLA verified lowering)
 - [x] Keep C scalar-element VLA bounds out of C++ vtable-array constant-length validation. Retain fixed-length validation for arrays whose element type is a C++ class. `test-c23-typeof-type-name` verifies five i686/AMD64 verified-backend functions with zero fallback, and the full `test-c23` gate passes.
+
+## RCC continuation (2026-11-07, unsigned atomic-load i686 divmod DWARF)
+
+- [x] Verify computed unsigned i686 64-bit `/` and `%` inline-argument DWARF
+      expressions when the dividend and divisor are loaded from ordinary
+      globals, TLS globals, and automatic locals. Include volatile-qualified
+      global, TLS, and local atomics; check global/TLS relocations and evaluate
+      each expression over the boundary matrix in legacy and verified objects
+      at `-O1` and `-O2`. Verified output has zero fallback. Both
+      `test-debug-info-inline-expression` and the full `test-debug-info` gate
+      pass. Direct reference aliases, atomic stores/RMW, and broader optimized
+      multi-piece lifetime/CFI coverage remain open.

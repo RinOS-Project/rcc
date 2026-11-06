@@ -14899,6 +14899,54 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_unsigned_long_long_indirect_reference_initializer_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 104 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_atomic_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 105 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_atomic_load_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 106 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_tls_atomic_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 107 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_tls_atomic_load_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 108 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_volatile_atomic_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 109 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_volatile_atomic_load_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 110 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 111 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_load_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 112 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_atomic_local_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 113 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_atomic_local_load_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 114 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_volatile_atomic_local_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 115 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_volatile_atomic_local_load_xor_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -15496,6 +15544,27 @@ static void verify_inline_integer_expression_parameter(
             object, info->data, expression_end, expression_start, info,
             strings, locations, call_site_name, source_name,
             divisor_source_name, expected_operation == 0x1du);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
+        divisor_source_name &&
+        expected_constant >= INT64_MIN + 104 &&
+        expected_constant <= INT64_MIN + 115 &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        bool is_tls = expected_constant == INT64_MIN + 106 ||
+            expected_constant == INT64_MIN + 107 ||
+            expected_constant == INT64_MIN + 110 ||
+            expected_constant == INT64_MIN + 111;
+        bool global_operands = expected_constant <= INT64_MIN + 111;
+        int relocation_type = !global_operands ? -1
+            : is_tls ? RELOC_TLSOFF32S : RELOC_ABS32U;
+        verify_inline_i686_u64_global_variable_division_expression_impl(
+            object, info->data, expression_end, expression_start, info,
+            strings, locations, source_name, divisor_source_name,
+            global_operands, global_operands,
+            expected_operation == 0x1du, false, false, false, false,
+            UINT64_C(0x100000001), relocation_type);
         objfile_free(object);
         return;
     }
@@ -21332,6 +21401,86 @@ int main(int argc, char** argv)
                 false, 0x1du, 8u, INT64_MIN + 99,
                 "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_divisor",
                 false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "debug_inline_nonconstant_unsigned_long_long_atomic_load_dividend",
+                true, 0x1bu, 8u, INT64_MIN + 104,
+                "debug_inline_nonconstant_unsigned_long_long_atomic_load_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "debug_inline_nonconstant_unsigned_long_long_atomic_load_dividend",
+                true, 0x1du, 8u, INT64_MIN + 105,
+                "debug_inline_nonconstant_unsigned_long_long_atomic_load_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "debug_inline_nonconstant_unsigned_long_long_tls_atomic_load_dividend",
+                true, 0x1bu, 8u, INT64_MIN + 106,
+                "debug_inline_nonconstant_unsigned_long_long_tls_atomic_load_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "debug_inline_nonconstant_unsigned_long_long_tls_atomic_load_dividend",
+                true, 0x1du, 8u, INT64_MIN + 107,
+                "debug_inline_nonconstant_unsigned_long_long_tls_atomic_load_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "debug_inline_nonconstant_unsigned_long_long_volatile_atomic_load_dividend",
+                true, 0x1bu, 8u, INT64_MIN + 108,
+                "debug_inline_nonconstant_unsigned_long_long_volatile_atomic_load_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "debug_inline_nonconstant_unsigned_long_long_volatile_atomic_load_dividend",
+                true, 0x1du, 8u, INT64_MIN + 109,
+                "debug_inline_nonconstant_unsigned_long_long_volatile_atomic_load_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_load_dividend",
+                true, 0x1bu, 8u, INT64_MIN + 110,
+                "debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_load_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_load_dividend",
+                true, 0x1du, 8u, INT64_MIN + 111,
+                "debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_load_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "atomic_local_load_xor_divide_dividend",
+                true, 0x1bu, 8u, INT64_MIN + 112,
+                "atomic_local_load_xor_divide_divisor", false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "atomic_local_load_xor_remainder_dividend",
+                true, 0x1du, 8u, INT64_MIN + 113,
+                "atomic_local_load_xor_remainder_divisor", false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "volatile_atomic_local_load_xor_divide_dividend",
+                true, 0x1bu, 8u, INT64_MIN + 114,
+                "volatile_atomic_local_load_xor_divide_divisor", false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_unsigned_long_long_parameter_inline",
+                "volatile_atomic_local_load_xor_remainder_dividend",
+                true, 0x1du, 8u, INT64_MIN + 115,
+                "volatile_atomic_local_load_xor_remainder_divisor", false);
         }
         return 0;
     }
