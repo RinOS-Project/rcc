@@ -33,23 +33,52 @@ int consume_field_accessor_value(const FieldAccessorValue& value) noexcept {
 static int verify_field_accessor_arm(bool choose_field) {
     field_accessor_cleanup_order = 0;
     field_accessor_result_address = nullptr;
-    {
-        FieldAccessorSource source{
-            FieldAccessorValue{41, 1, &field_accessor_cleanup_order}};
-        int result = consume_field_accessor_value(
-            choose_field
-                ? source.get()
-                : FieldAccessorValue{82, 3, &field_accessor_cleanup_order});
-        if (result != (choose_field ? 41 : 82) ||
-            field_accessor_cleanup_order != 2) {
-            return 1;
-        }
-    }
-    return field_accessor_cleanup_order == 21 ? 0 : 2;
+    int result = consume_field_accessor_value(
+        choose_field
+            ? FieldAccessorSource{
+                  FieldAccessorValue{41, 1, &field_accessor_cleanup_order}}
+                  .get()
+            : FieldAccessorValue{82, 3, &field_accessor_cleanup_order});
+    if (result != (choose_field ? 41 : 82)) return 1;
+    return field_accessor_cleanup_order == (choose_field ? 21 : 2)
+        ? 0 : 100 + field_accessor_cleanup_order;
 }
+
+#if defined(RCC_CONDITIONAL_FIELD_ACCESSOR_EXCEPTION)
+int consume_throwing_field_accessor_value(
+    const FieldAccessorValue& value) {
+    field_accessor_result_address = &value;
+    throw 17;
+}
+
+static int verify_field_accessor_exception_cleanup() {
+    field_accessor_cleanup_order = 0;
+    field_accessor_result_address = nullptr;
+    try {
+        consume_throwing_field_accessor_value(
+            true
+                ? FieldAccessorSource{
+                      FieldAccessorValue{
+                          41, 1, &field_accessor_cleanup_order}}
+                      .get()
+                : FieldAccessorValue{
+                      82, 3, &field_accessor_cleanup_order});
+    } catch (int value) {
+        return value == 17 && field_accessor_cleanup_order == 21
+            ? 0 : 200 + field_accessor_cleanup_order;
+    }
+    return 3;
+}
+#endif
 
 int main() {
     int result = verify_field_accessor_arm(true);
     if (result) return result;
-    return verify_field_accessor_arm(false);
+    result = verify_field_accessor_arm(false);
+    if (result) return result;
+#if defined(RCC_CONDITIONAL_FIELD_ACCESSOR_EXCEPTION)
+    return verify_field_accessor_exception_cleanup();
+#else
+    return 0;
+#endif
 }

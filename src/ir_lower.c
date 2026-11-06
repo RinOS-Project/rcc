@@ -153,6 +153,15 @@ typedef struct RccIrLowerScratchAllocation {
     struct RccIrLowerScratchAllocation* next;
 } RccIrLowerScratchAllocation;
 
+typedef struct RccIrLowerConditionalFieldReceiverCleanup {
+    const Expr* conditional_expression;
+    const Expr* call_expression;
+    const Decl* owner;
+    RccIrLowerValue address_slot;
+    bool emitted;
+    struct RccIrLowerConditionalFieldReceiverCleanup* next;
+} RccIrLowerConditionalFieldReceiverCleanup;
+
 typedef struct {
     RccIrModule* module;
     RccIrFunction* function;
@@ -183,6 +192,12 @@ typedef struct {
     const Expr* aggregate_result_destination_expression;
     RccIrLowerValue aggregate_result_destination;
     const Decl* conditional_xvalue_owner;
+    const Expr* conditional_field_receiver_argument;
+    bool conditional_field_receiver_register_cleanup;
+    const Expr* conditional_field_receiver_call;
+    RccIrLowerValue conditional_field_receiver_address_slot;
+    RccIrLowerConditionalFieldReceiverCleanup*
+        conditional_field_receiver_cleanups;
     RccIrValue active_exception_frame;
     RccIrValue wide_phi_zero;
     size_t cxx_array_cleanup_thunk_count;
@@ -287,6 +302,9 @@ static bool lower_copy_scalar_storage(
     RccIrValue source, const Type* type);
 static RccIrLowerValue lower_inline_method_address(
     RccIrLowerContext* context, const Expr* expression);
+static bool lower_bind_temporary_owner(
+    RccIrLowerContext* context, const Decl* owner,
+    RccIrLowerValue object_address);
 static bool lower_i686_wide_atomic_scalar_type(const Type* type);
 static bool lower_i686_wide_scalar_expression_type(
     const Expr* expression);
@@ -447,6 +465,8 @@ static RccIrLowerValue lower_typeinfo_before(
 static bool lower_change_current_exception_cleanup(
     RccIrLowerContext* context, const CxxCleanupPlan* action,
     bool register_cleanup);
+static bool lower_register_call_receiver_temporary_cleanup(
+    RccIrLowerContext* context, const Expr* expression);
 static bool lower_cxx_delete_subobject_cleanups_change(
     RccIrLowerContext* context, const CxxClass* cls,
     RccIrLowerValue object, bool register_cleanup, unsigned depth);
@@ -709,6 +729,23 @@ static bool lower_add_local(RccIrLowerContext* context,
     memset(&local->wide_value, 0, sizeof(local->wide_value));
     local->next = context->locals;
     context->locals = local;
+    return true;
+}
+
+static bool lower_remove_local(RccIrLowerContext* context,
+                               const Decl* declaration) {
+    RccIrLowerLocal** link;
+    if (!context || !declaration) return false;
+    link = &context->locals;
+    while (*link && (*link)->declaration != declaration) {
+        link = &(*link)->next;
+    }
+    if (!*link) return false;
+    {
+        RccIrLowerLocal* local = *link;
+        *link = local->next;
+        rcc_free(local);
+    }
     return true;
 }
 
@@ -4392,13 +4429,15 @@ static RccIrLowerValue lower_load_lvalue(RccIrLowerContext* context,
                               expression ? expression->type : NULL);
 }
 
-static RccIrLowerValue lower_inline_method_address(
-    RccIrLowerContext* context, const Expr* expression) {
+static RccIrLowerValue lower_inline_method_address_with_base(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerValue* receiver_base_out) {
     const TypeMethod* method = expression ? expression->call_method : NULL;
     const Expr* member = expression ? expression->call_func : NULL;
     const Type* aggregate_type = NULL;
     RccIrLowerValue base;
     RccIrLowerValue address;
+    if (receiver_base_out) *receiver_base_out = lower_invalid_value();
     if (!method || !method->field || !member || expression->call_args ||
         (method->kind != TYPE_METHOD_FIELD &&
          method->kind != TYPE_METHOD_FIELD_RELEASE &&
@@ -4446,12 +4485,18 @@ static RccIrLowerValue lower_inline_method_address(
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (receiver_base_out) *receiver_base_out = base;
     address = lower_byte_offset_address(
         context, base, (uint64_t)method->field->offset);
     if (address.valid && method->field->type->is_volatile) {
         address.volatile_access = true;
     }
     return address;
+}
+
+static RccIrLowerValue lower_inline_method_address(
+    RccIrLowerContext* context, const Expr* expression) {
+    return lower_inline_method_address_with_base(context, expression, NULL);
 }
 
 static bool lower_store_address(RccIrLowerContext* context,
@@ -6010,6 +6055,7 @@ static RccIrLowerValue lower_inline_method_call(
     RccIrLowerContext* context, const Expr* expression) {
     const TypeMethod* method = expression ? expression->call_method : NULL;
     RccIrLowerValue address;
+    RccIrLowerValue receiver_base = lower_invalid_value();
     RccIrLowerValue value;
     RccIrType compare_type;
     RccIrValue operands[2];
@@ -6019,8 +6065,39 @@ static RccIrLowerValue lower_inline_method_call(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    address = lower_inline_method_address(context, expression);
+    address = lower_inline_method_address_with_base(
+        context, expression,
+        expression->cxx_temporary_owner ? &receiver_base : NULL);
     if (!address.valid) return lower_invalid_value();
+    if (expression->cxx_temporary_owner) {
+        const Decl* owner = expression->cxx_temporary_owner;
+        bool local_bound = false;
+        bool registered = true;
+        if (!context->allow_nontrivial_temporary_conditional ||
+            context->conditional_field_receiver_call != expression ||
+            !expression->cxx_temporary_source || !receiver_base.valid ||
+            !context->conditional_field_receiver_address_slot.valid ||
+            !lower_store_address(
+                context,
+                context->conditional_field_receiver_address_slot,
+                receiver_base)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (context->conditional_field_receiver_register_cleanup) {
+            local_bound = lower_add_local(
+                context, owner, receiver_base.value,
+                rcc_ir_type_pointer(0u));
+            registered = local_bound &&
+                lower_register_call_receiver_temporary_cleanup(
+                    context, expression);
+            if (local_bound && !lower_remove_local(context, owner)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (!registered) return lower_invalid_value();
+        }
+    }
     is_comparison = method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||
         method->kind == TYPE_METHOD_FIELD_NE_CONSTANT;
     if (method->kind == TYPE_METHOD_FIELD) {
@@ -11284,16 +11361,22 @@ static bool lower_nontrivial_temporary_call_arguments_supported(
             ? method->return_type->base : NULL;
         const Type* field_type = method->field
             ? method->field->type : NULL;
+        bool has_receiver_cleanup = expression->cxx_temporary_owner ||
+            expression->cxx_temporary_source ||
+            expression->cxx_temporary_cleanups;
         /* A validated zero-argument field getter is an lvalue source for the
-         * conditional's copy into its result object. Restrict this to named
-         * receivers and types whose copy is representation-safe; a temporary
-         * receiver must stay alive until after that copy. */
+         * conditional's copy into its result object. The receiver cleanup is
+         * deferred until that copy is complete; the selected result type must
+         * also have representation-safe copy semantics. */
         return method->field && method->return_type &&
             method->return_type->is_reference && referred_type &&
             field_type && !expression->call_args &&
-            !expression->cxx_temporary_owner &&
-            !expression->cxx_temporary_source &&
-            !expression->cxx_temporary_cleanups && expression->type &&
+            (!has_receiver_cleanup ||
+             (expression->cxx_temporary_owner &&
+              expression->cxx_temporary_source &&
+              expression->cxx_temporary_cleanups &&
+              lower_call_receiver_temporary_cleanup_supported(
+                  expression, false))) && expression->type &&
             expression->type->kind == TYPE_STRUCT &&
             expression->type->cxx_nontrivial &&
             lower_nontrivial_conditional_copy_supported(
@@ -13241,20 +13324,89 @@ static bool lower_emit_temporary_cleanup_plan(
                            unregister_current_frame);
 }
 
+static bool lower_emit_conditional_field_receiver_cleanups(
+    RccIrLowerContext* context, const Expr* conditional_expression,
+    bool unregister_current_frame) {
+    if (!context || !conditional_expression) return false;
+    for (RccIrLowerConditionalFieldReceiverCleanup* cleanup =
+             context->conditional_field_receiver_cleanups;
+         cleanup; cleanup = cleanup->next) {
+        RccIrInstruction* load;
+        RccIrLowerValue receiver_address;
+        RccIrLowerValue selected;
+        RccIrBlock* cleanup_block;
+        RccIrBlock* merge_block;
+        bool local_bound;
+        if (cleanup->emitted ||
+            cleanup->conditional_expression != conditional_expression) {
+            continue;
+        }
+        if (!cleanup->call_expression || !cleanup->owner ||
+            !cleanup->owner->type || !cleanup->address_slot.valid ||
+            cleanup->address_slot.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return false;
+        }
+        load = lower_append(
+            context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+            &cleanup->address_slot.value, 1u, NULL, 0u);
+        if (!load) return false;
+        receiver_address = lower_value(
+            load->result, rcc_ir_type_pointer(0u), true);
+        selected = lower_truth(context, receiver_address);
+        cleanup_block = rcc_ir_block_add(
+            context->function, "conditional.receiver.cleanup");
+        merge_block = rcc_ir_block_add(
+            context->function, "conditional.receiver.cleanup.end");
+        if (!selected.valid || !cleanup_block || !merge_block ||
+            !lower_conditional_branch(
+                context, selected, cleanup_block->id, merge_block->id)) {
+            return false;
+        }
+        context->current = cleanup_block;
+        context->terminated = false;
+        local_bound = lower_add_local(
+            context, cleanup->owner, receiver_address.value,
+            rcc_ir_type_pointer(0u));
+        if (!local_bound ||
+            !lower_emit_temporary_cleanup_plan_list(
+                context, cleanup->call_expression->cxx_temporary_cleanups,
+                unregister_current_frame)) {
+            if (local_bound) (void)lower_remove_local(
+                context, cleanup->owner);
+            return false;
+        }
+        if (!lower_remove_local(context, cleanup->owner) ||
+            context->terminated || !lower_branch(context, merge_block->id)) {
+            context->unsupported = true;
+            return false;
+        }
+        context->current = merge_block;
+        context->terminated = false;
+        cleanup->emitted = true;
+    }
+    return true;
+}
+
 static bool lower_emit_call_temporary_cleanups(
     RccIrLowerContext* context, const Expr* expression,
     const ExprList* const* arguments, size_t count,
     bool unregister_current_frame) {
     while (count > 0u) {
         const ExprList* argument = arguments[--count];
-        if (argument->cxx_temporary_is_parameter_object) continue;
-        if (!lower_temporary_cleanup_plan_supported(
-                argument, unregister_current_frame)) {
-            context->unsupported = true;
+        if (!argument->cxx_temporary_is_parameter_object) {
+            if (!lower_temporary_cleanup_plan_supported(
+                    argument, unregister_current_frame)) {
+                context->unsupported = true;
+                return false;
+            }
+            if (!lower_emit_temporary_cleanup_plan(
+                    context, argument, unregister_current_frame)) return false;
+        }
+        if (!lower_emit_conditional_field_receiver_cleanups(
+                context, argument->expr, unregister_current_frame)) {
             return false;
         }
-        if (!lower_emit_temporary_cleanup_plan(
-                context, argument, unregister_current_frame)) return false;
     }
     if (expression && expression->cxx_temporary_owner) {
         if (!lower_call_receiver_temporary_cleanup_supported(
@@ -17077,10 +17229,22 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             if (argument->cxx_temporary_owner) {
                 bool previous_conditional_permission =
                     context->allow_nontrivial_temporary_conditional;
+                const Expr* previous_receiver_argument =
+                    context->conditional_field_receiver_argument;
+                bool previous_receiver_registration =
+                    context->conditional_field_receiver_register_cleanup;
                 context->allow_nontrivial_temporary_conditional = true;
+                context->conditional_field_receiver_argument =
+                    argument->expr;
+                context->conditional_field_receiver_register_cleanup =
+                    register_temporary_cleanups;
                 value = lower_expression(context, argument->expr);
                 context->allow_nontrivial_temporary_conditional =
                     previous_conditional_permission;
+                context->conditional_field_receiver_argument =
+                    previous_receiver_argument;
+                context->conditional_field_receiver_register_cleanup =
+                    previous_receiver_registration;
                 if (!value.valid || value.type.kind !=
                         RCC_IR_TYPE_POINTER ||
                     !lower_bind_temporary_owner(
@@ -20590,6 +20754,59 @@ lower_find_conditional_xvalue_plan(
     return NULL;
 }
 
+static RccIrLowerConditionalFieldReceiverCleanup*
+lower_create_conditional_field_receiver_cleanup(
+    RccIrLowerContext* context, const Expr* conditional_expression,
+    const Expr* call_expression) {
+    RccIrInstruction* allocation;
+    RccIrInstruction* cast;
+    RccIrLowerValue zero;
+    RccIrLowerValue null_address;
+    RccIrLowerValue slot;
+    RccIrLowerConditionalFieldReceiverCleanup* cleanup;
+    RccIrType pointer_integer = rcc_ir_type_integer(
+        g_opts.target_arch == ARCH_X64 ? 64u : 32u);
+    size_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    if (!context || !conditional_expression || !call_expression ||
+        !call_expression->cxx_temporary_owner ||
+        !call_expression->cxx_temporary_source ||
+        !call_expression->cxx_temporary_cleanups ||
+        !lower_call_receiver_temporary_cleanup_supported(
+            call_expression, false)) {
+        if (context) context->unsupported = true;
+        return NULL;
+    }
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return NULL;
+    rcc_ir_set_immediate(allocation, (uint64_t)pointer_size);
+    allocation->alignment = (uint32_t)pointer_size;
+    slot = lower_value(allocation->result, rcc_ir_type_pointer(0u), true);
+    zero = lower_integer_constant(context, pointer_integer, true, 0u);
+    if (!zero.valid) return NULL;
+    cast = lower_append(
+        context, RCC_IR_INT_TO_PTR, rcc_ir_type_pointer(0u),
+        &zero.value, 1u, NULL, 0u);
+    if (!cast) return NULL;
+    null_address = lower_value(
+        cast->result, rcc_ir_type_pointer(0u), true);
+    if (!lower_store_address(context, slot, null_address)) return NULL;
+    cleanup = lower_scratch_alloc(context, sizeof(*cleanup));
+    if (!cleanup) {
+        context->unsupported = true;
+        return NULL;
+    }
+    cleanup->conditional_expression = conditional_expression;
+    cleanup->call_expression = call_expression;
+    cleanup->owner = call_expression->cxx_temporary_owner;
+    cleanup->address_slot = slot;
+    cleanup->emitted = false;
+    cleanup->next = context->conditional_field_receiver_cleanups;
+    context->conditional_field_receiver_cleanups = cleanup;
+    return cleanup;
+}
+
 static RccIrLowerValue lower_conditional_expression(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue condition;
@@ -20616,6 +20833,10 @@ static RccIrLowerValue lower_conditional_expression(
     bool aggregate_result;
     bool supported_temporary_conditional = false;
     bool trivial_sret_aggregate_conditional = false;
+    RccIrLowerConditionalFieldReceiverCleanup* then_receiver_cleanup = NULL;
+    RccIrLowerConditionalFieldReceiverCleanup* else_receiver_cleanup = NULL;
+    const Expr* previous_receiver_call;
+    RccIrLowerValue previous_receiver_slot;
     if (context && expression &&
         context->conditional_xvalue_owner &&
         context->aggregate_result_destination_expression == expression &&
@@ -20716,6 +20937,28 @@ static RccIrLowerValue lower_conditional_expression(
     }
     condition = lower_truth_expression(context, expression->cond_test);
     if (!condition.valid) return lower_invalid_value();
+    if (context->conditional_field_receiver_argument == expression) {
+        const Expr* then_call = expression->cond_then &&
+                expression->cond_then->kind == EXPR_CALL &&
+                expression->cond_then->cxx_temporary_owner
+            ? expression->cond_then : NULL;
+        const Expr* else_call = expression->cond_else &&
+                expression->cond_else->kind == EXPR_CALL &&
+                expression->cond_else->cxx_temporary_owner
+            ? expression->cond_else : NULL;
+        if (then_call) {
+            then_receiver_cleanup =
+                lower_create_conditional_field_receiver_cleanup(
+                    context, expression, then_call);
+            if (!then_receiver_cleanup) return lower_invalid_value();
+        }
+        if (else_call) {
+            else_receiver_cleanup =
+                lower_create_conditional_field_receiver_cleanup(
+                    context, expression, else_call);
+            if (!else_receiver_cleanup) return lower_invalid_value();
+        }
+    }
     then_block = rcc_ir_block_add(context->function, "cond.then");
     else_block = rcc_ir_block_add(context->function, "cond.else");
     merge_block = rcc_ir_block_add(context->function, "cond.end");
@@ -20727,6 +20970,14 @@ static RccIrLowerValue lower_conditional_expression(
 
     context->current = then_block;
     context->terminated = false;
+    previous_receiver_call = context->conditional_field_receiver_call;
+    previous_receiver_slot =
+        context->conditional_field_receiver_address_slot;
+    context->conditional_field_receiver_call = then_receiver_cleanup
+        ? then_receiver_cleanup->call_expression : NULL;
+    context->conditional_field_receiver_address_slot =
+        then_receiver_cleanup
+            ? then_receiver_cleanup->address_slot : lower_invalid_value();
     {
         const Expr* previous_destination_call =
             context->aggregate_result_destination_expression;
@@ -20742,6 +20993,9 @@ static RccIrLowerValue lower_conditional_expression(
             previous_destination_call;
         context->aggregate_result_destination = previous_destination;
     }
+    context->conditional_field_receiver_call = previous_receiver_call;
+    context->conditional_field_receiver_address_slot =
+        previous_receiver_slot;
     if (aggregate_result) {
         const Type* then_type = expression->cond_then
             ? expression->cond_then->type : NULL;
@@ -20770,6 +21024,14 @@ static RccIrLowerValue lower_conditional_expression(
 
     context->current = else_block;
     context->terminated = false;
+    previous_receiver_call = context->conditional_field_receiver_call;
+    previous_receiver_slot =
+        context->conditional_field_receiver_address_slot;
+    context->conditional_field_receiver_call = else_receiver_cleanup
+        ? else_receiver_cleanup->call_expression : NULL;
+    context->conditional_field_receiver_address_slot =
+        else_receiver_cleanup
+            ? else_receiver_cleanup->address_slot : lower_invalid_value();
     {
         const Expr* previous_destination_call =
             context->aggregate_result_destination_expression;
@@ -20785,6 +21047,9 @@ static RccIrLowerValue lower_conditional_expression(
             previous_destination_call;
         context->aggregate_result_destination = previous_destination;
     }
+    context->conditional_field_receiver_call = previous_receiver_call;
+    context->conditional_field_receiver_address_slot =
+        previous_receiver_slot;
     if (aggregate_result) {
         const Type* else_type = expression->cond_else
             ? expression->cond_else->type : NULL;

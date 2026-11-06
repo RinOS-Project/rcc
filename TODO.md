@@ -2262,13 +2262,19 @@
         and `-O2`, GCC C++20 runtime, legacy i686 object generation, and legacy
         AMD64 execution in `test-verified-cxx-conditional-conversion-cleanup`.
   - [x] Accept a resolved `noexcept` field getter returning a reference to a
-        representation-copyable class member as a conditional lvalue leaf,
-        limited to named receivers. Verify either selected arm, the copied
-        value, full-expression result destruction before receiver-scope member
-        destruction, zero fallback and object execution on i686/AMD64 at `-O0`
-        and `-O2`, GCC C++20 runtime, legacy i686 object generation, and legacy
-        AMD64 execution in `test-verified-cxx-conditional-field-accessor-cleanup`.
-        Temporary receivers and nontrivial copy operations remain open.
+        representation-copyable class member as a conditional lvalue leaf.
+        Keep a class-prvalue receiver alive through the conditional's member
+        copy and consumer call, then destroy the result temporary before the
+        receiver. Verify both arms and cleanup order, zero fallback and object
+        execution on i686/AMD64 at `-O0` and `-O2`, and legacy AMD64 execution.
+        Also verify cleanup when the consumer throws at `-O0` on both targets.
+        GCC C++20, legacy i686 object generation, and the full regression are
+        covered by `test-verified-cxx-conditional-field-accessor-cleanup`.
+        Nontrivial copy operations remain open.
+  - [ ] Extend the throwing-consumer case for conditional field-accessor
+        receiver cleanup to typed SSA `-O2` and legacy exception-unwind runtime
+        execution. Current optimized and legacy checks cover the normal-return
+        path; the throw/catch cleanup case runs through typed SSA at `-O0`.
   - [x] Lower fixed-size array-loop cleanup plans recursively for nontrivial
         subobjects of class-prvalue reference temporaries, including nested
         arrays. Emit reverse element destruction and verify the observed order

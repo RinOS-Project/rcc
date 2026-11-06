@@ -30431,6 +30431,50 @@ static Expr* sema_cxx_lvalue_to_rvalue_operand(Expr* expression) {
     return value;
 }
 
+/* A class-prvalue receiver used by a field-backed accessor arm in a
+ * class-valued conditional must remain alive until the conditional has copied
+ * the referenced member into its shared result object.  Attach the receiver
+ * cleanup to the accessor call so verified lowering can defer it until after
+ * that copy. */
+static void sema_prepare_conditional_field_accessor_receiver_cleanup(
+    Expr* expression, Type* result_type) {
+    TypeMethod* method;
+    Expr* member;
+    Expr* receiver;
+    Decl* owner = NULL;
+    CxxCleanupPlan* cleanups = NULL;
+    if (!expression || expression->kind != EXPR_CALL ||
+        !(method = expression->call_method) ||
+        method->kind != TYPE_METHOD_FIELD || !method->field ||
+        !method->return_type || !method->return_type->is_reference ||
+        !method->return_type->base || !expression->type || !result_type ||
+        expression->cxx_temporary_owner ||
+        expression->cxx_temporary_source ||
+        expression->cxx_temporary_cleanups ||
+        !type_is_compatible(expression->type, result_type) ||
+        !type_is_compatible(result_type, expression->type) ||
+        !type_is_compatible(method->return_type->base, result_type) ||
+        !type_is_compatible(result_type, method->return_type->base)) {
+        return;
+    }
+    member = expression->call_func;
+    if (!member || member->kind != EXPR_MEMBER ||
+        !(receiver = member->member_base) || !receiver->type ||
+        (receiver->type->kind != TYPE_STRUCT &&
+         receiver->type->kind != TYPE_UNION) ||
+        is_lvalue(receiver) || is_xvalue(receiver)) {
+        return;
+    }
+    sema_prepare_class_prvalue_cleanup(
+        receiver, &owner, &cleanups, false,
+        "conditional field-accessor receiver cleanup is unsupported");
+    if (owner) {
+        expression->cxx_temporary_owner = owner;
+        expression->cxx_temporary_source = receiver;
+        expression->cxx_temporary_cleanups = cleanups;
+    }
+}
+
 static Type* sema_expr(Expr* expr) {
     bool saved_private_record;
     bool saved_lookup_enabled;
@@ -32513,6 +32557,16 @@ static Type* sema_expr_impl(Expr* expr) {
                      * the C++ glvalue result. */
                     expr->type = tt;
                 }
+            }
+            if (rcc_parser_is_cxx_mode() && expr->type &&
+                expr->type->kind == TYPE_STRUCT &&
+                sema_cxx_type_has_destructor_cleanup(expr->type, 0) &&
+                !expr->cxx_conditional_lvalue &&
+                !expr->cxx_conditional_xvalue) {
+                sema_prepare_conditional_field_accessor_receiver_cleanup(
+                    expr->cond_then, expr->type);
+                sema_prepare_conditional_field_accessor_receiver_cleanup(
+                    expr->cond_else, expr->type);
             }
             break;
         }

@@ -5283,6 +5283,12 @@ static void gen_call(Module* mod, Expr* expr);
 static void gen_transfer_by_value_argument_cleanups32(
     Module* mod, ExprList* arguments);
 static void gen_lvalue(Module* mod, Expr* expr);
+static void gen_push_conditional_field_receiver_cleanup32(
+    Module* mod, Expr* expression, int selector_offset,
+    bool selector_value);
+static Expr* active_conditional_field_receiver_call32 = NULL;
+static int active_conditional_field_receiver_selector_offset32 = -1;
+static bool active_conditional_field_receiver_selector_value32;
 static bool gen_guarded_static_initializer32(
     Module* mod, Decl* declaration);
 static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression);
@@ -10279,6 +10285,14 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             if (expr->call_method && expr->call_method->return_type &&
                 expr->call_method->return_type->is_reference &&
                 gen_inline_method_address(mod, expr)) {
+                if (expr == active_conditional_field_receiver_call32 &&
+                    expr->cxx_temporary_owner &&
+                    expr->cxx_temporary_cleanups) {
+                    gen_push_conditional_field_receiver_cleanup32(
+                        mod, expr,
+                        active_conditional_field_receiver_selector_offset32,
+                        active_conditional_field_receiver_selector_value32);
+                }
                 break;
             }
             if (expr->type && expr->type->kind == TYPE_PTR &&
@@ -10327,6 +10341,15 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 (expr->kind == EXPR_COND || expr->kind == EXPR_COMMA) &&
                 (gen_expr_is_lvalue(expr) || gen_expr_is_xvalue(expr));
             bool aggregate_result = gen_aggregate_type32(expr->type);
+            Expr* previous_receiver_call =
+                active_conditional_field_receiver_call32;
+            int previous_receiver_selector_offset =
+                active_conditional_field_receiver_selector_offset32;
+            bool previous_receiver_selector_value =
+                active_conditional_field_receiver_selector_value32;
+            bool has_receiver_cleanup_selector =
+                expr->kind == EXPR_COND &&
+                expr->cxx_conditional_cleanup_selector_offset < 0;
             if ((!glvalue_result && !aggregate_result) ||
                 (!glvalue_result && expr->aggregate_offset >= 0) ||
                 !then_expr ||
@@ -10337,11 +10360,47 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             if (expr->kind == EXPR_COND) {
                 gen_expr(mod, expr->cond_test);
                 emit_test_scalar_value(mod, expr->cond_test->type);
+                if (has_receiver_cleanup_selector) {
+                    int selector_false_label = new_label();
+                    int selector_done_label = new_label();
+                    emit_jcc_label(mod, CC_E, selector_false_label);
+                    emit_mov_reg_imm(mod, EAX, 1u);
+                    emit_store_typed32(
+                        mod, EBP,
+                        expr->cxx_conditional_cleanup_selector_offset,
+                        EAX, type_uint);
+                    emit_jmp_label(mod, selector_done_label);
+                    emit_label(mod, selector_false_label);
+                    emit_mov_reg_imm(mod, EAX, 0u);
+                    emit_store_typed32(
+                        mod, EBP,
+                        expr->cxx_conditional_cleanup_selector_offset,
+                        EAX, type_uint);
+                    emit_label(mod, selector_done_label);
+                    emit_mov_reg_mem(
+                        mod, EAX, EBP,
+                        expr->cxx_conditional_cleanup_selector_offset);
+                    emit_test_reg_reg(mod, EAX, EAX);
+                }
                 emit_jcc_label(mod, CC_E, else_label);
             } else {
                 gen_expr(mod, expr->binary_lhs);
             }
+            active_conditional_field_receiver_call32 =
+                has_receiver_cleanup_selector && then_expr &&
+                        then_expr->kind == EXPR_CALL &&
+                        then_expr->cxx_temporary_owner
+                    ? then_expr : NULL;
+            active_conditional_field_receiver_selector_offset32 =
+                expr->cxx_conditional_cleanup_selector_offset;
+            active_conditional_field_receiver_selector_value32 = true;
             gen_lvalue(mod, then_expr);
+            active_conditional_field_receiver_call32 =
+                previous_receiver_call;
+            active_conditional_field_receiver_selector_offset32 =
+                previous_receiver_selector_offset;
+            active_conditional_field_receiver_selector_value32 =
+                previous_receiver_selector_value;
             if (!glvalue_result) {
                 gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
                                      expr->type->size);
@@ -10349,7 +10408,21 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             if (expr->kind == EXPR_COND) {
                 emit_jmp_label(mod, end_label);
                 emit_label(mod, else_label);
+                active_conditional_field_receiver_call32 =
+                    has_receiver_cleanup_selector && else_expr &&
+                            else_expr->kind == EXPR_CALL &&
+                            else_expr->cxx_temporary_owner
+                        ? else_expr : NULL;
+                active_conditional_field_receiver_selector_offset32 =
+                    expr->cxx_conditional_cleanup_selector_offset;
+                active_conditional_field_receiver_selector_value32 = false;
                 gen_lvalue(mod, else_expr);
+                active_conditional_field_receiver_call32 =
+                    previous_receiver_call;
+                active_conditional_field_receiver_selector_offset32 =
+                    previous_receiver_selector_offset;
+                active_conditional_field_receiver_selector_value32 =
+                    previous_receiver_selector_value;
                 if (!glvalue_result) {
                     gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
                                          expr->type->size);
@@ -21106,6 +21179,26 @@ static void codegen_assign_constructor_argument_storage(
 static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                                          int stack_alignment) {
     if (!expression || !bytes || *bytes == INT_MAX) return;
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_cleanup_selector_offset == 0 &&
+        ((expression->cond_then &&
+          expression->cond_then->kind == EXPR_CALL &&
+          expression->cond_then->cxx_temporary_owner &&
+          expression->cond_then->cxx_temporary_cleanups) ||
+         (expression->cond_else &&
+          expression->cond_else->kind == EXPR_CALL &&
+          expression->cond_else->cxx_temporary_owner &&
+          expression->cond_else->cxx_temporary_cleanups))) {
+        int size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+        int64_t extent = (int64_t)*bytes + size;
+        if (extent > INT_MAX) {
+            *bytes = INT_MAX;
+        } else {
+            *bytes = codegen_align_frame_bytes(
+                (int)extent, stack_alignment);
+            expression->cxx_conditional_cleanup_selector_offset = -*bytes;
+        }
+    }
     if (expression->kind == EXPR_COMPOUND && expression->compound_type) {
         int size = expression->compound_type->size;
         int alignment = expression->compound_type->align;
@@ -22978,6 +23071,9 @@ typedef struct CleanupCodegen {
     int exception_frame_offset;
     bool exception_registered;
     bool static_initializer_rollback;
+    bool has_conditional_selector_guard;
+    int conditional_selector_offset;
+    bool conditional_selector_value;
 } CleanupCodegen;
 
 /* Cleanups below this marker belong to the protected try/catch region.  A
@@ -23038,8 +23134,21 @@ static void gen_call_temporary_cleanup32(Module* mod,
         }
         return;
     }
-    if (cleanup->temporary_owner) {
+    if (cleanup->has_conditional_selector_guard) {
+        if (cleanup->conditional_selector_offset >= 0) {
+            rcc_error((SourceLoc){"<conditional-cleanup>", 0, 0},
+                      "conditional receiver cleanup has no selector slot");
+            return;
+        }
         done_label = new_label();
+        emit_mov_reg_mem(mod, EAX, EBP,
+                         cleanup->conditional_selector_offset);
+        emit_cmp_reg_imm(mod, EAX,
+                         cleanup->conditional_selector_value ? 1 : 0);
+        emit_jcc_label(mod, CC_NE, done_label);
+    }
+    if (cleanup->temporary_owner) {
+        if (done_label < 0) done_label = new_label();
         emit_mov_reg_mem(mod, EAX, EBP,
                          cleanup->temporary_owner->var_offset);
         emit_test_reg_reg(mod, EAX, EAX);
@@ -23059,8 +23168,8 @@ static void gen_call_temporary_cleanup32(Module* mod,
         emit_mov_reg_imm(mod, EAX, 0u);
         emit_mov_mem_reg(mod, EBP,
                          cleanup->temporary_owner->var_offset, EAX);
-        emit_label(mod, done_label);
     }
+    if (done_label >= 0) emit_label(mod, done_label);
 }
 
 static void gen_clear_call_temporary_owners32(Module* mod) {
@@ -23568,6 +23677,31 @@ static void codegen_push_call_temporary_cleanup32(
             mod, cleanup->plan, active_cxx_exception_cleanup_frame_offset);
         cleanup->exception_registered = true;
     }
+}
+
+static void gen_push_conditional_field_receiver_cleanup32(
+    Module* mod, Expr* expression, int selector_offset,
+    bool selector_value) {
+    CleanupCodegen* previous;
+    if (!mod || !expression || !expression->cxx_temporary_cleanups ||
+        selector_offset >= 0) {
+        if (expression) {
+            rcc_error(expression->loc,
+                      "conditional field receiver cleanup has no selector slot");
+        }
+        return;
+    }
+    previous = active_cleanups;
+    codegen_push_call_temporary_cleanup32(
+        mod, NULL, expression->cxx_temporary_cleanups);
+    if (active_cleanups == previous) {
+        rcc_error(expression->loc,
+                  "conditional field receiver cleanup could not be registered");
+        return;
+    }
+    active_cleanups->has_conditional_selector_guard = true;
+    active_cleanups->conditional_selector_offset = selector_offset;
+    active_cleanups->conditional_selector_value = selector_value;
 }
 
 static void gen_transfer_by_value_argument_cleanups32(

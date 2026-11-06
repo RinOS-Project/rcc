@@ -960,6 +960,9 @@ struct Expr {
     Expr* cxx_temporary_source;
     Decl* cxx_temporary_owner;
     CxxCleanupPlan* cxx_temporary_cleanups;
+    /* Frame slot selecting the active arm's deferred receiver cleanup in a
+     * class-valued conditional full-expression. */
+    int cxx_conditional_cleanup_selector_offset;
     /* Captures for a C++ lambda that are spliced into an immediate call. */
     ExprList* cxx_lambda_captures;
     /* A generic lambda keeps its dependent call operator until the call site
