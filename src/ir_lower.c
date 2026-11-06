@@ -25184,7 +25184,7 @@ static bool lower_cxx_union_default_member_initializer_supported(
     } else if (item->designator_kind != INIT_DESIGNATOR_NONE) {
         return false;
     }
-    if (!field || !field->type || field->is_bitfield || field->offset != 0 ||
+    if (!field || !field->type || field->offset != 0 ||
         !type_is_scalar((Type*)field->type) || field->type->is_reference ||
         field->type->is_atomic ||
         type_is_cxx_member_function_pointer(field->type) ||
@@ -27814,8 +27814,7 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
             return false;
         }
         for (field = type->fields; field; field = field->next) {
-            if (!field->type || field->is_bitfield ||
-                !type_is_scalar((Type*)field->type) ||
+            if (!field->type || !type_is_scalar((Type*)field->type) ||
                 field->type->is_reference || field->type->is_atomic ||
                 type_is_cxx_member_function_pointer(field->type)) {
                 return false;
@@ -27836,10 +27835,12 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
         bool explicit_class_value = field->initializer &&
             lower_cxx_implicit_class_value_initializer_supported(
                 field->type, field->initializer);
-        if (!field->type || field->is_bitfield) return false;
-        if (!explicit_class_value &&
-            !lower_cxx_implicit_default_member_subobject_supported(
-                field->type, depth + 1u, &nested_initializer)) {
+        if (!field->type ||
+            (field->is_bitfield &&
+             !type_is_scalar((Type*)field->type)) ||
+            (!explicit_class_value &&
+             !lower_cxx_implicit_default_member_subobject_supported(
+                 field->type, depth + 1u, &nested_initializer))) {
             return false;
         }
         if (field->initializer) {
@@ -27924,7 +27925,9 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
         bool explicit_class_value = field->initializer &&
             lower_cxx_implicit_class_value_initializer_supported(
                 field->type, field->initializer);
-        if (!field->type || field->is_bitfield ||
+        if (!field->type ||
+            (field->is_bitfield &&
+             !type_is_scalar((Type*)field->type)) ||
             (!explicit_class_value &&
              !lower_cxx_implicit_default_member_subobject_supported(
                  field->type, 0u, &nested_initializer))) {
@@ -27978,7 +27981,7 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
         }
         for (const TypeField* field = type->fields; field;
              field = field->next) {
-            if (!field->type || field->is_bitfield || field->offset != 0 ||
+            if (!field->type || field->offset != 0 ||
                 !type_is_scalar((Type*)field->type) ||
                 field->type->is_reference || field->type->is_atomic ||
                 type_is_cxx_member_function_pointer(field->type)) {
@@ -28110,7 +28113,11 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
                 context, base, (uint64_t)field->offset);
             if (!address.valid) return false;
             if (field->initializer) {
-                if (field->type->kind == TYPE_ARRAY) {
+                if (field->is_bitfield) {
+                    if (!lower_initialize_bitfield_storage(
+                            context, object, field,
+                            field->initializer)) return false;
+                } else if (field->type->kind == TYPE_ARRAY) {
                     if (!lower_array_initializer(
                             context, address.value, field->type,
                             field->initializer)) return false;
@@ -31613,6 +31620,10 @@ static bool lower_union_initializer(
     if (!field) {
         context->unsupported = true;
         return false;
+    }
+    if (field->is_bitfield) {
+        return lower_initialize_bitfield_storage(
+            context, base, field, item->expr);
     }
     base_value = lower_value(base, rcc_ir_type_pointer(0u), true);
     address = lower_byte_offset_address(
