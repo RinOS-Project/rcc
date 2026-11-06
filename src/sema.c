@@ -17683,6 +17683,12 @@ static bool sema_cxx_default_initialization_needs_lowering(
     }
     cls = object_type->cxx_class;
     if (!cls) return false;
+    if (cls->base_count < 0 ||
+        (cls->base_count > 0 && !cls->bases) ||
+        cls->virtual_base_count < 0 ||
+        (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
+        return true;
+    }
     /* Vtable/vbtable pointer installation is handled by the local-object
      * backend path; it does not itself require a C++ constructor call. */
     if (cls->has_user_constructor || cls->has_field_initializer) {
