@@ -27795,7 +27795,6 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
             }
             if (!field->initializer) continue;
             if (initialized_member || !field->name ||
-                !lower_cleanup_initializer_supported(field->initializer) ||
                 !lower_noexcept_expression(field->initializer)) {
                 context->unsupported = true;
                 return false;
@@ -27814,6 +27813,12 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
         initializer.compound_init = &item;
         initializer.compound_cxx_default_member_normalized = true;
         initializer.compound_cxx_default_member_init_only = true;
+        if (!lower_cxx_union_default_member_initializer_supported(
+                context, type, &initializer) ||
+            !lower_noexcept_expression(initialized_member->initializer)) {
+            context->unsupported = true;
+            return false;
+        }
         return lower_initialize_union_storage(
             context, object, type, &initializer);
     }
