@@ -10208,6 +10208,32 @@ static bool lower_cxx_implicit_default_subobject_supported(
     return true;
 }
 
+/* The outer vtable pass rewrites a direct base's primary vptr to the
+ * most-derived secondary table.  It cannot rewrite secondary vptrs nested
+ * inside that base, so keep those base hierarchies fail-closed until their
+ * layout-specific table variants are represented.  Virtual bases are checked
+ * separately as roots of the complete object's virtual-base list. */
+static bool lower_cxx_nested_base_vtables_supported(
+    const CxxClass* cls, unsigned depth, bool allow_direct_base_vtables) {
+    if (!cls || depth >= 32u || cls->base_count < 0 ||
+        (cls->base_count > 0 && (!cls->bases || !cls->base_offsets))) {
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        if (cls->bases[index].is_virtual) continue;
+        if (!base || !base->type || base->virtual_base_count != 0 ||
+            (!allow_direct_base_vtables &&
+             (base->vtable_size > 0 ||
+              base->type->cxx_vtable_size > 0)) ||
+            !lower_cxx_nested_base_vtables_supported(
+                base, depth + 1u, false)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int lower_cxx_constructor_parameter_index(
     const CxxConstructorInfo* constructor, const Decl* declaration) {
     const DeclList* parameter;
@@ -25428,7 +25454,8 @@ static bool lower_cxx_initialize_constructor_members(
         bool duplicate_initializer = false;
         if (cls->bases[base_index].is_virtual) continue;
         if (!base || cls->base_offsets[base_index] < 0 ||
-            base->virtual_base_count != 0 || !base->type) {
+            base->virtual_base_count != 0 || !base->type ||
+            !lower_cxx_nested_base_vtables_supported(base, 0u, false)) {
             context->unsupported = true;
             return false;
         }
@@ -30945,7 +30972,7 @@ static bool lower_cxx_initialize_object_vtables(
     if (!cls && type->cxx_vtable_size <= 0) {
         return true;
     }
-    if (type->cxx_vtable_size > 0) {
+    if (!cls) {
         if (!type->cxx_vtable_symbol ||
             !lower_cxx_store_symbol_at_offset(
                 context, object, (uint64_t)type->size, 0u,
@@ -30953,13 +30980,33 @@ static bool lower_cxx_initialize_object_vtables(
             context->unsupported = true;
             return false;
         }
+        return true;
     }
-    if (!cls) return true;
     if (cls->base_count < 0 || cls->virtual_base_count < 0 ||
         cls->secondary_vtable_count < 0 ||
         (cls->base_count > 0 && (!cls->bases || !cls->base_offsets)) ||
         (cls->virtual_base_count > 0 && !cls->virtual_bases) ||
         (cls->secondary_vtable_count > 0 && !cls->secondary_vtables)) {
+        context->unsupported = true;
+        return false;
+    }
+    if (!lower_cxx_nested_base_vtables_supported(cls, 0u, true)) {
+        context->unsupported = true;
+        return false;
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxClass* base = cls->virtual_bases[index].base;
+        if (!base || !base->type ||
+            !lower_cxx_nested_base_vtables_supported(base, 0u, false)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    if (type->cxx_vtable_size > 0 &&
+        (!type->cxx_vtable_symbol ||
+         !lower_cxx_store_symbol_at_offset(
+             context, object, (uint64_t)type->size, 0u,
+             type->cxx_vtable_symbol))) {
         context->unsupported = true;
         return false;
     }
