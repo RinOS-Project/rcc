@@ -9064,10 +9064,19 @@ static bool cxx_implicit_default_subobject_supported(Type* type,
     if (!type->is_complete || type->kind != TYPE_STRUCT ||
         !(cls = type->cxx_class) ||
         cls->has_user_constructor || cls->has_field_initializer ||
-        cls->destructor_method || cls->vtable_size != 0 ||
+        cls->vtable_size != 0 ||
         cls->virtual_base_count != 0 || type->cleanup_function ||
         type->cleanup_field) {
         return false;
+    }
+    if (cls->destructor_method) {
+        Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept ||
+            !destructor->func_this_param || destructor->func_params) {
+            return false;
+        }
     }
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
@@ -10051,7 +10060,10 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                     !base->has_user_constructor &&
                     cxx_implicit_default_subobject_supported(
                         base->type, 0u)) {
-                    continue;
+                    if (!base->destructor_method &&
+                        !base->type->cxx_nontrivial) {
+                        continue;
+                    }
                 }
                 if (!base_constructor && base &&
                     (base->has_user_constructor ||
@@ -10232,7 +10244,10 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                     !member_constructor && !field->initializer &&
                     cxx_implicit_default_subobject_supported(
                         member_class->type, 0u)) {
-                    continue;
+                    if (!member_class->destructor_method &&
+                        !member_class->type->cxx_nontrivial) {
+                        continue;
+                    }
                 }
                 item = ast_arena_alloc(sizeof(*item));
                 item->field = field->name;

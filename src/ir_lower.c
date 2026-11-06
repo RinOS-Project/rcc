@@ -9817,10 +9817,19 @@ static bool lower_cxx_implicit_default_subobject_supported(
     if (!type->is_complete || type->kind != TYPE_STRUCT ||
         !(cls = type->cxx_class) ||
         cls->has_user_constructor || cls->has_field_initializer ||
-        cls->destructor_method || cls->vtable_size != 0 ||
+        cls->vtable_size != 0 ||
         cls->virtual_base_count != 0 || type->cleanup_function ||
         type->cleanup_field) {
         return false;
+    }
+    if (cls->destructor_method) {
+        const Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept ||
+            !destructor->func_this_param || destructor->func_params) {
+            return false;
+        }
     }
     for (int index = 0; index < cls->base_count; ++index) {
         const CxxClass* base = cls->bases[index].base;
@@ -11255,6 +11264,23 @@ static bool lower_cxx_type_has_destructor_cleanup(const Type* type) {
     return type && (type->cxx_nontrivial ||
         (cls && cls->destructor_method) || type->cleanup_function ||
         type->cleanup_field);
+}
+
+static bool lower_cxx_change_subobject_cleanup(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object, bool register_cleanup, unsigned depth) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!lower_cxx_type_has_destructor_cleanup(type)) return true;
+    if (!cls) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (cls->destructor_method) {
+        return lower_cxx_delete_subobject_cleanup_change(
+            context, type, object, register_cleanup, depth);
+    }
+    return lower_cxx_delete_subobject_cleanups_change(
+        context, cls, object, register_cleanup, depth);
 }
 
 static bool lower_register_partial_member_cleanup(
@@ -24785,20 +24811,34 @@ static bool lower_cxx_initialize_constructor_members(
             return false;
         }
         if (!base_initializer) {
-            if (!lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+            if (lower_cxx_type_has_destructor_cleanup(base->type) ||
+                (!lower_cxx_empty_trivial_subobject(base->type, 0u) &&
+                 !lower_cxx_implicit_default_subobject_supported(
+                     base->type, 0u))) {
                 context->unsupported = true;
                 return false;
             }
             continue;
         }
-        if (!base_initializer->constructor ||
-            base_initializer->is_virtual_base_initializer ||
+        if (base_initializer->is_virtual_base_initializer ||
             base_initializer->is_delegating_constructor ||
             base_initializer->is_default_member_initializer ||
-            base_initializer->is_pack_expansion ||
-            base_initializer->value !=
-                (base_initializer->arguments
-                     ? base_initializer->arguments->expr : NULL)) {
+            base_initializer->is_pack_expansion) {
+            context->unsupported = true;
+            return false;
+        }
+        if (!base_initializer->constructor) {
+            if (base_initializer->value || base_initializer->arguments ||
+                !lower_cxx_implicit_default_subobject_supported(
+                    base->type, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
+        if (base_initializer->value !=
+            (base_initializer->arguments
+                 ? base_initializer->arguments->expr : NULL)) {
             context->unsupported = true;
             return false;
         }
@@ -25148,22 +25188,30 @@ static bool lower_cxx_initialize_constructor_members(
                 cls, constructor, base_index, NULL);
         RccIrLowerValue base_address;
         Expr base_expression;
-        if (!base_initializer || !base_initializer->constructor) continue;
+        if (!base_initializer) continue;
         base_address = lower_byte_offset_address(
             context, object,
             (uint64_t)cls->base_offsets[base_index]);
-        memset(&base_expression, 0, sizeof(base_expression));
-        base_expression.kind = EXPR_COMPOUND;
-        base_expression.type = cls->bases[base_index].base->type;
-        base_expression.compound_constructor =
-            base_initializer->constructor;
-        base_expression.compound_init = base_initializer->arguments;
-        if (!base_address.valid ||
-            !lower_cxx_emit_constructor_call(
-                context, &base_expression, base_address.value) ||
-            !lower_cxx_delete_subobject_cleanup_change(
-                context, cls->bases[base_index].base->type, base_address,
-                true, 0u)) {
+        if (!base_address.valid) {
+            context->unsupported = true;
+            return false;
+        }
+        if (base_initializer->constructor) {
+            memset(&base_expression, 0, sizeof(base_expression));
+            base_expression.kind = EXPR_COMPOUND;
+            base_expression.type = cls->bases[base_index].base->type;
+            base_expression.compound_constructor =
+                base_initializer->constructor;
+            base_expression.compound_init = base_initializer->arguments;
+            if (!lower_cxx_emit_constructor_call(
+                    context, &base_expression, base_address.value)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+        if (!lower_cxx_change_subobject_cleanup(
+                context, cls->bases[base_index].base->type,
+                base_address, true, 0u)) {
             context->unsupported = true;
             return false;
         }
@@ -25203,6 +25251,19 @@ static bool lower_cxx_initialize_constructor_members(
         }
         value_initialize = lower_cxx_constructor_initializer_value_initializes(
             initializer, field->type);
+        if (field->type->kind == TYPE_STRUCT &&
+            !initializer->constructor && !initializer->value &&
+            !initializer->arguments &&
+            !initializer->is_default_member_initializer &&
+            lower_cxx_implicit_default_subobject_supported(
+                field->type, 0u)) {
+            if (!address.valid || !lower_cxx_change_subobject_cleanup(
+                    context, field->type, address, true, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT && initializer->constructor) {
             Expr member_expression;
             memset(&member_expression, 0, sizeof(member_expression));
@@ -25214,9 +25275,8 @@ static bool lower_cxx_initialize_constructor_members(
             if (!address.valid ||
                 !lower_cxx_emit_constructor_call(
                     context, &member_expression, address.value) ||
-                (field->type->cxx_nontrivial &&
-                 !lower_cxx_delete_subobject_cleanup_change(
-                     context, field->type, address, true, 0u))) {
+                !lower_cxx_change_subobject_cleanup(
+                    context, field->type, address, true, 0u)) {
                 context->unsupported = true;
                 return false;
             }
@@ -25381,14 +25441,13 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
             context->unsupported = true;
             return false;
         }
-        if (cls->bases[index].is_virtual || !initializer ||
-            !initializer->constructor) {
+        if (cls->bases[index].is_virtual || !initializer) {
             continue;
         }
         address = lower_byte_offset_address(
             context, object, (uint64_t)cls->base_offsets[index]);
         if (!address.valid ||
-            !lower_cxx_delete_subobject_cleanup_change(
+            !lower_cxx_change_subobject_cleanup(
                 context, base->type, address, false, 0u)) {
             context->unsupported = true;
             return false;
@@ -25415,7 +25474,13 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
                 break;
             }
         }
-        if (!initializer || (!element_type && !initializer->constructor)) {
+        if (!initializer ||
+            (!element_type && !initializer->constructor &&
+             !(member->type->kind == TYPE_STRUCT &&
+               !initializer->value && !initializer->arguments &&
+               !initializer->is_default_member_initializer &&
+               lower_cxx_implicit_default_subobject_supported(
+                   member->type, 0u)))) {
             continue;
         }
         field = lower_struct_declared_field(
@@ -25428,7 +25493,7 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
             (element_type
                  ? !lower_unregister_partial_array_cleanups_in_object(
                        context, field->type, address, 0u)
-                 : !lower_cxx_delete_subobject_cleanup_change(
+                 : !lower_cxx_change_subobject_cleanup(
                        context, field->type, address, false, 0u))) {
             context->unsupported = true;
             return false;
