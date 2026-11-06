@@ -10033,6 +10033,31 @@ static bool lower_cxx_scalar_subobject_constructor_supported(
     return member_initializer_count == member_count;
 }
 
+static bool lower_cxx_default_member_constructor_arguments_supported(
+    const CxxConstructorInitializer* initializer) {
+    const TypeParam* parameter;
+    const ExprList* argument;
+    unsigned count = 0u;
+    if (!initializer || !initializer->constructor ||
+        initializer->constructor->parameter_count < 0 ||
+        initializer->constructor->parameter_count > 64) {
+        return false;
+    }
+    parameter = initializer->constructor->parameters;
+    argument = initializer->arguments;
+    while (parameter || argument) {
+        if (!parameter || !parameter->type || !argument ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            !argument->expr || !argument->expr->type || count >= 64u) {
+            return false;
+        }
+        ++count;
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    return count == (unsigned)initializer->constructor->parameter_count;
+}
+
 /* The inline-cleanup path accepts only empty constructor bodies and scalar
  * initializers that reduce to constant evaluation or scalar parameter
  * forwarding. The declared exception specification need not be noexcept:
@@ -10280,9 +10305,9 @@ static bool lower_cxx_empty_noop_constructor_supported(
                     array_element = array_element->base;
                 }
                 if (array_element && array_element->cxx_class) {
-                    if (initializer->value || !initializer->constructor ||
-                        initializer->arguments ||
-                        initializer->constructor->parameter_count != 0) {
+                    if (initializer->value ||
+                        !lower_cxx_default_member_constructor_arguments_supported(
+                            initializer)) {
                         return false;
                     }
                 } else if (initializer->constructor ||
@@ -23933,8 +23958,8 @@ static bool lower_cxx_emit_constructor_call(
 static bool lower_cxx_emit_class_array_constructors(
     RccIrLowerContext* context, const Type* array_type,
     const Type* element_type, const CxxConstructorInfo* constructor,
-    const ExprList* arguments, RccIrLowerValue array_address,
-    unsigned depth);
+    const ExprList* arguments, bool value_initialize,
+    RccIrLowerValue array_address, unsigned depth);
 
 static bool lower_cxx_constructor_initializer_expression_supported(
     RccIrLowerContext* context, const Expr* expression,
@@ -25140,6 +25165,10 @@ static bool lower_cxx_initialize_constructor_members(
                 !address.valid || !lower_cxx_emit_class_array_constructors(
                     context, field->type, element_type,
                     initializer->constructor, initializer->arguments,
+                    initializer->is_default_member_initializer &&
+                        field->initializer &&
+                        field->initializer->kind == EXPR_COMPOUND &&
+                        field->initializer->compound_value_init,
                     address, 0u)) {
                 context->unsupported = true;
                 return false;
@@ -28412,8 +28441,8 @@ static bool lower_cxx_emit_constructor_call(
 static bool lower_cxx_emit_class_array_constructors(
     RccIrLowerContext* context, const Type* array_type,
     const Type* element_type, const CxxConstructorInfo* constructor,
-    const ExprList* arguments, RccIrLowerValue array_address,
-    unsigned depth) {
+    const ExprList* arguments, bool value_initialize,
+    RccIrLowerValue array_address, unsigned depth) {
     RccIrInstruction* allocation;
     RccIrLowerValue index_address;
     RccIrLowerValue zero;
@@ -28504,12 +28533,20 @@ static bool lower_cxx_emit_class_array_constructors(
             element_address, (uint64_t)element_type->size);
         element = lower_value(
             element_address->result, rcc_ir_type_pointer(0u), true);
+        if (value_initialize &&
+            (!constructor || constructor->is_defaulted ||
+             (constructor->method && constructor->method->is_defaulted)) &&
+            !lower_zero_struct_storage(
+                context, element.value, element_type)) {
+            return false;
+        }
         memset(&element_initializer, 0, sizeof(element_initializer));
         element_initializer.kind = EXPR_COMPOUND;
         element_initializer.type = (Type*)element_type;
         element_initializer.compound_constructor =
             (CxxConstructorInfo*)constructor;
         element_initializer.compound_init = (ExprList*)arguments;
+        element_initializer.compound_value_init = value_initialize;
         if ((constructor && !lower_cxx_emit_constructor_call(
                  context, &element_initializer, element.value)) ||
             !lower_cxx_delete_subobject_cleanup_change(
@@ -29370,12 +29407,15 @@ static bool lower_struct_initializer(
                         lower_cxx_class_array_element(field->type);
                     if (element_type) {
                         if (member_initializer->value ||
-                            !member_initializer->constructor ||
-                            member_initializer->arguments ||
-                            member_initializer->constructor->parameter_count != 0 ||
+                            !lower_cxx_default_member_constructor_arguments_supported(
+                                member_initializer) ||
                             !lower_cxx_emit_class_array_constructors(
                                 context, field->type, element_type,
-                                member_initializer->constructor, NULL,
+                                member_initializer->constructor,
+                                member_initializer->arguments,
+                                field->initializer &&
+                                    field->initializer->kind == EXPR_COMPOUND &&
+                                    field->initializer->compound_value_init,
                                 address, 0u)) {
                             context->unsupported = true;
                             goto constructor_lowering_failure;
@@ -29408,8 +29448,8 @@ static bool lower_struct_initializer(
                     }
                     if (!member_decl || !member_decl->type ||
                         !member_decl->initializer ||
-                        !member_initializer->constructor ||
-                        member_initializer->arguments) {
+                        !lower_cxx_default_member_constructor_arguments_supported(
+                            member_initializer)) {
                         context->unsupported = true;
                         goto constructor_lowering_failure;
                     }
@@ -29419,6 +29459,8 @@ static bool lower_struct_initializer(
                     nested_initializer.type = field->type;
                     nested_initializer.compound_constructor =
                         member_initializer->constructor;
+                    nested_initializer.compound_init =
+                        member_initializer->arguments;
                     nested_initializer.compound_value_init =
                         member_decl->initializer->kind == EXPR_COMPOUND &&
                         member_decl->initializer->compound_value_init;

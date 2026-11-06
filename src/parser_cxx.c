@@ -9569,6 +9569,20 @@ static bool cxx_class_member_initializer_arguments(
     return true;
 }
 
+static ExprList* cxx_clone_constructor_arguments(const ExprList* arguments) {
+    ExprList* result = NULL;
+    ExprList** tail = &result;
+    while (arguments) {
+        ExprList* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *arguments;
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+        arguments = arguments->next;
+    }
+    return result;
+}
+
 static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
     if (!cls) return false;
     for (TypeParam* field = cls->fields; field; field = field->next) {
@@ -10202,6 +10216,16 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                       (UINT32_C(1) << member_argument_count)) == 0u)) {
                     valid = false;
                     break;
+                }
+                if (member_constructor) {
+                    member_arguments = cxx_clone_constructor_arguments(
+                        member_arguments);
+                    if (!cxx_append_constructor_default_arguments(
+                            &member_arguments, member_constructor,
+                            (int)member_argument_count)) {
+                        valid = false;
+                        break;
+                    }
                 }
                 if (field->type->kind != TYPE_ARRAY &&
                     !member_constructor && !field->initializer &&
@@ -31376,7 +31400,8 @@ Type* rcc_parser_cxx_instantiate_dependent_class_template(
 static void* cxx_allocate_zeroed_array(size_t element_size, size_t count) {
     void* allocation;
     if (element_size == 0u || count == 0u ||
-        count > SIZE_MAX / element_size) {
+        count > SIZE_MAX / element_size ||
+        count > (size_t)PTRDIFF_MAX / element_size) {
         return NULL;
     }
     allocation = ast_arena_alloc(element_size * count);
