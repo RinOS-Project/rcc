@@ -40432,6 +40432,72 @@ static bool sema_cxx_is_void_pointer_type(const Type* type) {
         !type->base->is_volatile;
 }
 
+static void sema_validate_cxx_operator_co_await(Decl* declaration) {
+    const char* leaf_name;
+    DeclList* parameter;
+    Type* operand_type = NULL;
+    unsigned parameter_count = 0u;
+    bool is_member;
+
+    if (!rcc_parser_is_cxx_mode() || !declaration ||
+        declaration->kind != DECL_FUNC || !declaration->name ||
+        !declaration->type || declaration->type->kind != TYPE_FUNC) {
+        return;
+    }
+    leaf_name = sema_cxx_decl_leaf_name(declaration->name);
+    if (!leaf_name || strcmp(leaf_name, "operator co_await") != 0 ||
+        !rcc_parser_cxx_standard_at_least(20)) {
+        return;
+    }
+
+    is_member = declaration->func_method_owner != NULL;
+    for (parameter = declaration->func_params; parameter;
+         parameter = parameter->next) {
+        if (parameter_count == UINT_MAX) {
+            rcc_error(declaration->loc,
+                      "operator co_await has too many parameters");
+            return;
+        }
+        ++parameter_count;
+        if (parameter_count == 1u && parameter->decl) {
+            operand_type = parameter->decl->type;
+        }
+    }
+    if (declaration->type->variadic) {
+        rcc_error(declaration->loc,
+                  "operator co_await cannot be variadic");
+        return;
+    }
+    if (is_member) {
+        if (!declaration->func_this_param) {
+            rcc_error(declaration->loc,
+                      "operator co_await must be a non-static member function");
+            return;
+        }
+        if (parameter_count != 0u) {
+            rcc_error(declaration->loc,
+                      "member operator co_await must have no explicit parameters");
+        }
+        return;
+    }
+    if (parameter_count != 1u) {
+        rcc_error(declaration->loc,
+                  "non-member operator co_await must have exactly one parameter");
+        return;
+    }
+    if (operand_type && operand_type->kind == TYPE_PTR &&
+        operand_type->is_reference) {
+        operand_type = operand_type->base;
+    }
+    if (!operand_type ||
+        (operand_type->kind != TYPE_STRUCT &&
+         operand_type->kind != TYPE_UNION &&
+         operand_type->kind != TYPE_ENUM)) {
+        rcc_error(declaration->loc,
+                  "non-member operator co_await parameter must have class or enumeration type");
+    }
+}
+
 static void sema_validate_global_allocation_operator(Decl* declaration) {
     const char* leaf_name;
     bool is_allocation;
@@ -40923,6 +40989,7 @@ static void sema_decl_impl(Decl* decl) {
                 goto analyze_function_body;
             }
             sema_validate_global_allocation_operator(decl);
+            sema_validate_cxx_operator_co_await(decl);
             if (decl->func_is_auto_return && !decl->func_body) {
                 rcc_error(decl->loc,
                           "auto return type requires a function definition");

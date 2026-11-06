@@ -4273,6 +4273,14 @@ test-cxx20-unsupported-boundaries: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-x64.ro tests/cxx20_operator_co_await.cpp
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-cxx17.ro tests/cxx20_operator_co_await.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-cxx17.log)
 	$(GREP) -F -q "operator co_await requires C++20 mode" $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-cxx17.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x86.ro tests/cxx20_operator_co_await_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x86.log)
+	$(GREP) -F -q "operator co_await must be a non-static member function" $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x86.log
+	$(GREP) -F -q "non-member operator co_await parameter must have class or enumeration type" $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x86.log
+	$(GREP) -F -q "non-member operator co_await must have exactly one parameter" $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x64.ro tests/cxx20_operator_co_await_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x64.log)
+	$(GREP) -F -q "operator co_await must be a non-static member function" $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x64.log
+	$(GREP) -F -q "non-member operator co_await parameter must have class or enumeration type" $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x64.log
+	$(GREP) -F -q "non-member operator co_await must have exactly one parameter" $(TEST_OUT)/cxx20-unsupported-boundaries/operator-co-await-invalid-x64.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro tests/cxx20_modules_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.log)
 	$(GREP) -F -q "module interface 'rcc_unsupported_dependency' was not found" $(TEST_OUT)/cxx20-unsupported-boundaries/x86.log
