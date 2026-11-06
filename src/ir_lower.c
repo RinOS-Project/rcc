@@ -30091,22 +30091,31 @@ static bool lower_struct_initializer(
         } else {
             for (int index = 0; index < cls->base_count; ++index) {
                 const CxxClass* base_class = cls->bases[index].base;
+                int base_subobject_size;
+                int base_offset = cls->base_offsets[index];
                 RccIrLowerValue base_value;
                 RccIrLowerValue address;
                 if (cls->bases[index].is_virtual) {
                     continue;
                 }
+                base_subobject_size = base_class &&
+                        base_class->virtual_base_count > 0
+                    ? base_class->nonvirtual_size
+                    : base_class && base_class->type
+                        ? base_class->type->size : 0;
                 if (!item ||
                     item->designator_kind != INIT_DESIGNATOR_NONE ||
                     !base_class || !base_class->type ||
-                    cls->base_offsets[index] < 0) {
+                    base_class->virtual_base_count < 0 ||
+                    base_subobject_size <= 0 || base_offset < 0 ||
+                    base_offset > type->size ||
+                    base_subobject_size > type->size - base_offset) {
                     context->unsupported = true;
                     return false;
                 }
                 base_value = lower_value(base, rcc_ir_type_pointer(0u), true);
                 address = lower_byte_offset_address(
-                    context, base_value,
-                    (uint64_t)cls->base_offsets[index]);
+                    context, base_value, (uint64_t)base_offset);
                 if (!address.valid) {
                     return false;
                 }

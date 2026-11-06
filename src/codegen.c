@@ -21994,11 +21994,15 @@ static bool gen_cxx_default_init_bases32(
      * non-virtual base. */
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
+        int base_size = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
         int offset = cls->base_offsets[index];
         int64_t target = (int64_t)displacement + offset;
         if (cls->bases[index].is_virtual) continue;
-        if (!base || !base->type || base->type->size <= 0 || offset < 0 ||
-            offset > type->size || base->type->size > type->size - offset ||
+        if (!base || base->virtual_base_count < 0 || !base->type ||
+            base_size <= 0 || offset < 0 || offset > type->size ||
+            base_size > type->size - offset ||
             target < INT32_MIN || target > INT32_MAX || !item ||
             item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr ||
             (item->expr->type &&

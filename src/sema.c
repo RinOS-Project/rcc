@@ -17684,7 +17684,7 @@ static bool sema_cxx_default_initialization_needs_lowering(
     cls = object_type->cxx_class;
     if (!cls) return false;
     if (cls->base_count < 0 ||
-        (cls->base_count > 0 && !cls->bases) ||
+        (cls->base_count > 0 && (!cls->bases || !cls->base_offsets)) ||
         cls->virtual_base_count < 0 ||
         (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
         return true;
@@ -39262,7 +39262,8 @@ static Expr* sema_cxx_default_initialization_expression(
             return initializer;
         }
     }
-    if (cls->base_count < 0 || (cls->base_count && !cls->bases) ||
+    if (cls->base_count < 0 ||
+        (cls->base_count && (!cls->bases || !cls->base_offsets)) ||
         (cls->virtual_base_count < 0) ||
         (cls->virtual_base_count && !cls->virtual_bases)) {
         *supported = false;
@@ -39329,6 +39330,8 @@ static Expr* sema_cxx_default_initialization_expression(
             CxxClass* base = cls->bases[base_index].base;
             Expr* base_initializer;
             ExprList* item;
+            int base_subobject_size;
+            int base_offset;
             bool base_needs_initialization = false;
             bool base_supported = true;
             if (!base || !base->type) {
@@ -39336,6 +39339,16 @@ static Expr* sema_cxx_default_initialization_expression(
                 return NULL;
             }
             if (cls->bases[base_index].is_virtual) continue;
+            base_subobject_size = base->virtual_base_count > 0
+                ? base->nonvirtual_size : base->type->size;
+            base_offset = cls->base_offsets[base_index];
+            if (base->virtual_base_count < 0 ||
+                base_subobject_size <= 0 || base_offset < 0 ||
+                base_offset > type->size ||
+                base_subobject_size > type->size - base_offset) {
+                *supported = false;
+                return NULL;
+            }
             base_initializer = sema_cxx_default_initialization_expression(
                 base->type, loc, depth + 1, array_element_budget,
                 true,
