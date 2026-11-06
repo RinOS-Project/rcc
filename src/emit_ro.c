@@ -5886,6 +5886,9 @@ static int64_t debug_inline_integer_bits_to_signed(uint64_t bits,
 typedef struct DebugInlineI686ExpressionRelocations
     DebugInlineI686ExpressionRelocations;
 
+static bool debug_inline_i686_relocations_allow_volatile(
+    const DebugInlineI686ExpressionRelocations* relocations);
+
 static bool debug_inline_parameter_i686_append_storage_u32(
     const Module* mod, const Decl* source, int64_t frame_offset,
     bool high_word, uint8_t* expression, size_t capacity, size_t* size,
@@ -6645,7 +6648,10 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
             mod, value->binary_rhs, high_word, expression, capacity,
             expression_size, depth + 1u, relocations);
     }
-    if (!debug_inline_integer_expression_type(value->type) ||
+    if ((!debug_inline_integer_expression_type(value->type) &&
+         !(debug_inline_i686_relocations_allow_volatile(relocations) &&
+           debug_inline_integer_expression_type_allow_volatile(
+               value->type))) ||
         value->type->size <= 0 || value->type->size > 8) {
         return false;
     }
@@ -7422,7 +7428,10 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
         int64_t frame_offset;
         if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
             source->var_is_vla || !source->type ||
-            source->type->is_volatile || source->type->is_atomic ||
+            (source->type->is_volatile &&
+             (!debug_inline_i686_relocations_allow_volatile(relocations) ||
+              (!source->var_is_global && !source->var_is_static_local))) ||
+            source->type->is_atomic ||
             source->type->is_reference ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 source->type, value->type, 0u)) {
@@ -9377,6 +9386,11 @@ struct DebugInlineI686ExpressionRelocations {
     bool allow_volatile;
     bool allow_atomic;
 };
+
+static bool debug_inline_i686_relocations_allow_volatile(
+    const DebugInlineI686ExpressionRelocations* relocations) {
+    return relocations && relocations->allow_volatile;
+}
 
 static bool debug_inline_parameter_i686_append_global_integer(
     const Module* mod, const Decl* source, uint8_t width,
@@ -12124,8 +12138,9 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
         return debug_inline_parameter_i686_u64_frame_expression_tree(
             mod, expression->binary_rhs, depth + 1u);
     }
-    if (!debug_inline_integer_expression_type(type) || type->size <= 0 ||
-        type->size > 8 || type->is_volatile || type->is_atomic ||
+    if ((!debug_inline_integer_expression_type(type) &&
+         !debug_inline_integer_expression_type_allow_volatile(type)) ||
+        type->size <= 0 || type->size > 8 || type->is_atomic ||
         type->is_reference) {
         return false;
     }
@@ -12141,7 +12156,9 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
                 (declaration->kind != DECL_VAR &&
                  declaration->kind != DECL_PARAM) ||
                 declaration->var_is_vla || !declaration->type ||
-                declaration->type->is_volatile ||
+                (declaration->type->is_volatile &&
+                 !declaration->var_is_global &&
+                 !declaration->var_is_static_local) ||
                 declaration->type->is_atomic ||
                 declaration->type->is_reference ||
                 !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -12235,12 +12252,14 @@ static bool debug_inline_parameter_i686_u64_div_computed_expression(
             dividend_expression->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             divisor_expression->type, parameter_type, 0u) ||
-        !debug_inline_parameter_i686_u64_frame_expression_tree(
-            mod, dividend_expression, 0u) ||
-        !debug_inline_parameter_i686_u64_frame_expression_tree(
-            mod, divisor_expression, 0u) ||
         (relocations && (!relocations->offsets || !relocations->symbols ||
                          !relocations->count))) {
+        return false;
+    }
+    if (!debug_inline_parameter_i686_u64_frame_expression_tree(
+            mod, dividend_expression, 0u) ||
+        !debug_inline_parameter_i686_u64_frame_expression_tree(
+            mod, divisor_expression, 0u)) {
         return false;
     }
     if (relocations) *relocations->count = 0u;
