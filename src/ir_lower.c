@@ -27650,6 +27650,41 @@ lower_cxx_implicit_subobject_default_constructor(const Type* type) {
     return selected;
 }
 
+static const CxxConstructorInfo*
+lower_cxx_default_initialization_constructor(const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    const CxxConstructorInfo* selected = NULL;
+    Expr initializer;
+    if (!type || type->kind != TYPE_STRUCT || !cls ||
+        !cls->has_user_constructor || !cls->constructors) {
+        return NULL;
+    }
+    for (const CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        if (constructor->parameter_count != 0) continue;
+        if (selected) return NULL;
+        selected = constructor;
+    }
+    if (!selected || selected->access != ACCESS_PUBLIC ||
+        selected->is_deleted || selected->is_inherited ||
+        !selected->initializers_are_supported || !selected->method ||
+        selected->method->owner != cls || !selected->method->decl ||
+        selected->method->decl->func_cxx_constraint_unsatisfied ||
+        !selected->method->decl->func_is_cxx_constructor ||
+        !selected->method->decl->func_body) {
+        return NULL;
+    }
+    memset(&initializer, 0, sizeof(initializer));
+    initializer.kind = EXPR_COMPOUND;
+    initializer.type = (Type*)type;
+    initializer.compound_constructor = (CxxConstructorInfo*)selected;
+    if (!lower_cleanup_constructor_call_supported(&initializer) ||
+        !lower_cleanup_initializer_supported(&initializer)) {
+        return NULL;
+    }
+    return selected;
+}
+
 static bool lower_cxx_implicit_class_value_initializer_supported(
     const Type* type, const Expr* initializer) {
     return type && type->kind == TYPE_STRUCT && initializer &&
@@ -33209,7 +33244,7 @@ static bool lower_declaration(RccIrLowerContext* context,
         declaration->type->cxx_class &&
         declaration->type->cxx_class->has_user_constructor) {
         const CxxConstructorInfo* constructor =
-            lower_cxx_implicit_subobject_default_constructor(
+            lower_cxx_default_initialization_constructor(
                 declaration->type);
         Expr initializer;
         if (!constructor) {

@@ -17753,7 +17753,7 @@ static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
  * This conservative predicate keeps array declarations from silently
  * skipping required C++ initialization while still allowing cleanup for
  * implicitly trivial default construction. */
-static bool sema_cxx_default_initialization_noop_constructor_supported(
+static bool sema_cxx_default_initialization_constructor_supported(
     Type* object_type) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     CxxConstructorInfo* selected = NULL;
@@ -17794,9 +17794,8 @@ static bool sema_cxx_default_initialization_noop_constructor_supported(
         if (constructor->parameter_count != 0 || selected ||
             constructor->access != ACCESS_PUBLIC || constructor->is_deleted ||
             !constructor->initializers_are_supported ||
-            !constructor->body_is_empty ||
             !declaration->func_is_cxx_constructor ||
-            !declaration->func_is_noexcept || !declaration->func_body) {
+            !declaration->func_body) {
             return false;
         }
         selected = constructor;
@@ -17827,7 +17826,7 @@ static bool sema_cxx_default_initialization_needs_lowering(
         return true;
     }
     if ((cls->has_user_constructor &&
-         !sema_cxx_default_initialization_noop_constructor_supported(
+         !sema_cxx_default_initialization_constructor_supported(
              object_type)) ||
         cls->vtable_size > 0 || object_type->cxx_vtable_size > 0) {
         return true;
