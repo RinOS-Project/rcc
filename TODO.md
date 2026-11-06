@@ -14939,10 +14939,18 @@ Continue in this order:
 
 ## RCC continuation (2026-11-06, volatile automatic atomic RMW i686 DWARF)
 
-- [x] Preserve the value of volatile automatic `_Atomic long long +=` inside
-      computed i686 `/` arguments to inline functions. Permit it through the
-      single-evaluation debug inline-argument proof and frame-backed DWARF
-      recognizer; retain nonvolatile `-=` coverage. Legacy and verified
-      `-O1`/`-O2` objects pass the full signed boundary-value evaluator with
-      zero verified-backend fallback. Both `test-debug-info-inline-expression`
+- [x] Preserve values from volatile automatic `_Atomic long long +=` and
+      `-=` inside computed i686 `/` and `%` arguments to inline functions.
+      Permit both operations through the single-evaluation debug inline-
+      argument proof and frame-backed DWARF recognizer. Legacy and verified
+      `-O1`/`-O2` objects pass the signed boundary-value evaluators with zero
+      verified-backend fallback. Both `test-debug-info-inline-expression`
       and the full `test-debug-info` gate pass.
+
+## RCC continuation (2026-11-06, C VLA with C++ array vtable lowering)
+
+- [x] Keep arrays whose element type has no C++ class out of compile-time
+      vtable initialization bounds checks. This preserves typed-SSA lowering
+      for ordinary C VLAs such as `debug_vla_location`; i686 and x86-64
+      `-O1`/`-O2` verified debug-info objects have zero fallback, and both the
+      focused inline-expression suite and full `test-debug-info` gate pass.
