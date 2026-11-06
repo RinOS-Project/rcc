@@ -25133,11 +25133,11 @@ static bool lower_cxx_constructor_initializer_arguments_supported(
     return true;
 }
 
-/* A scalar default-member initializer may be the first operation after the
- * base subobjects are complete. Permit its direct scalar function call to
- * throw so the already-registered bases are unwound, while keeping call
- * arguments non-throwing and free of temporary cleanup obligations. */
-static bool lower_cxx_throwing_scalar_default_member_initializer_supported(
+/* A scalar constructor initializer may throw after the bases and earlier
+ * members have been registered for unwinding. Restrict the throwing call to
+ * a direct scalar function call whose arguments are non-throwing and carry
+ * no temporary cleanup obligations. */
+static bool lower_cxx_throwing_scalar_constructor_initializer_supported(
     RccIrLowerContext* context, const Expr* expression) {
     if (!context || !expression || expression->kind != EXPR_CALL ||
         expression->call_is_new || expression->call_is_delete ||
@@ -25205,7 +25205,7 @@ static bool lower_cxx_union_default_member_initializer_supported(
     return lower_cxx_constructor_initializer_expression_supported(
                context, item->expr, 0u) &&
         (lower_noexcept_expression(item->expr) ||
-         lower_cxx_throwing_scalar_default_member_initializer_supported(
+         lower_cxx_throwing_scalar_constructor_initializer_supported(
              context, item->expr));
 }
 
@@ -25387,7 +25387,7 @@ static bool lower_cxx_value_initialized_scalar_initializer_supported(
     return lower_cxx_constructor_initializer_expression_supported(
                context, expression, 0u) &&
         (lower_noexcept_expression(expression) ||
-         lower_cxx_throwing_scalar_default_member_initializer_supported(
+         lower_cxx_throwing_scalar_constructor_initializer_supported(
              context, expression));
 }
 
@@ -26231,11 +26231,13 @@ static bool lower_cxx_initialize_constructor_members(
             (!constant_initializer &&
              (initializer->is_default_member_initializer
                   ? !(lower_noexcept_expression(source) ||
-                      lower_cxx_throwing_scalar_default_member_initializer_supported(
+                      lower_cxx_throwing_scalar_constructor_initializer_supported(
                           context, source))
                   : (!lower_cxx_constructor_initializer_expression_supported(
                          context, source, 0u) ||
-                     !lower_noexcept_expression(source))))) {
+                     (!lower_noexcept_expression(source) &&
+                      !lower_cxx_throwing_scalar_constructor_initializer_supported(
+                          context, source))))) {
             context->unsupported = true;
             return false;
         }
