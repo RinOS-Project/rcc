@@ -20,6 +20,36 @@ struct MemberPointerRankingLeaf : MemberPointerRankingLeafPrefix,
     int leaf_value;
 };
 
+struct MemberFunctionPointerRankingRoot {
+    void invoke() noexcept;
+};
+
+struct MemberFunctionPointerRankingMiddle
+    : MemberFunctionPointerRankingRoot {};
+
+struct MemberFunctionPointerRankingLeaf
+    : MemberFunctionPointerRankingMiddle {};
+
+struct MemberPointerRankingMiddleResult { char value; };
+struct MemberPointerRankingLeafResult { char value[2]; };
+
+MemberPointerRankingMiddleResult rank_data_member_owner(
+    int MemberPointerRankingMiddle::*);
+MemberPointerRankingLeafResult rank_data_member_owner(
+    int MemberPointerRankingLeaf::*);
+
+MemberPointerRankingMiddleResult rank_function_member_owner(
+    void (MemberFunctionPointerRankingMiddle::*)() noexcept);
+MemberPointerRankingLeafResult rank_function_member_owner(
+    void (MemberFunctionPointerRankingLeaf::*)());
+
+static_assert(sizeof(decltype(rank_data_member_owner(
+                  &MemberPointerRankingRoot::root_value))) ==
+              sizeof(MemberPointerRankingMiddleResult));
+static_assert(sizeof(decltype(rank_function_member_owner(
+                  &MemberFunctionPointerRankingRoot::invoke))) ==
+              sizeof(MemberPointerRankingMiddleResult));
+
 class MemberPointerRankingSource {
 public:
     operator int MemberPointerRankingRoot::*() {

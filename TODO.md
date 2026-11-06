@@ -8712,6 +8712,12 @@ remains a separate open item.
       function-template and ordinary overload sets select the unqualified
       member target, matching GCC C++20. `test-cxx-function-template-overloads`
       passes i686/AMD64 generation and host execution plus GCC C++20 checks.
+- [x] Verify standard-conversion owner ranking for both data-member and
+      member-function pointers. From a `Root::*` source, the `Middle::*` target
+      beats `Leaf::*`; the member-function case also compares a `noexcept`
+      target with a throwing target. GCC C++20 and RCC i686/AMD64 agree;
+      `test-cxx-conversion-member-pointer-owner-ranking` passes x64 `-O0`/`-O2`
+      execution and verified i686/AMD64 `-O0`/`-O2` emission with zero fallback.
 - [ ] General standard-conversion subsequences, other member-pointer ranks,
       reference bindings, and user-defined conversion ties remain open.
 
