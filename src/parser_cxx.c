@@ -11166,8 +11166,10 @@ static bool cxx_constructor_dmi_value_is_lowerable(
         const TypeField* field;
         if (type->size <= 0 || type->size > 512 ||
             expression->kind != EXPR_COMPOUND ||
+            expression->compound_constructor ||
             !expression->compound_type ||
             expression->compound_type->kind != TYPE_UNION ||
+            (type->cxx_class && type->cxx_class->has_user_constructor) ||
             !type_is_compatible(type, expression->compound_type) ||
             !(item = expression->compound_init) || item->next ||
             item->designator_kind == INIT_DESIGNATOR_INDEX) {

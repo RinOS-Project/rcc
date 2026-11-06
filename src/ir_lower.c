@@ -25110,11 +25110,14 @@ static bool lower_cxx_union_default_member_initializer_supported(
     const Expr* initializer) {
     const ExprList* item;
     const TypeField* field;
+    const CxxClass* cls = type ? type->cxx_class : NULL;
     if (!context || !type || type->kind != TYPE_UNION ||
         type->size <= 0 || type->size > 512 ||
         !lower_union_type_supported(type) || !initializer ||
-        initializer->kind != EXPR_COMPOUND || !initializer->compound_type ||
+        initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor || !initializer->compound_type ||
         initializer->compound_type->kind != TYPE_UNION ||
+        (cls && cls->has_user_constructor) ||
         !type_is_compatible((Type*)type, initializer->compound_type) ||
         !(item = initializer->compound_init) || item->next ||
         item->designator_kind == INIT_DESIGNATOR_INDEX) {
@@ -25156,7 +25159,8 @@ static bool lower_cxx_union_array_default_member_initializer_supported(
         !array_type->base || array_type->array_len <= 0 ||
         array_type->array_len > 64 || array_type->size <= 0 ||
         array_type->size > 65536 || depth >= 16u || !initializer ||
-        initializer->kind != EXPR_COMPOUND || !initializer->compound_type ||
+        initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor || !initializer->compound_type ||
         !type_is_compatible((Type*)array_type, initializer->compound_type)) {
         return false;
     }
