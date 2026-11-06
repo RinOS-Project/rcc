@@ -19300,7 +19300,7 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
         }
         if (!candidate->method || candidate->access != ACCESS_PUBLIC ||
             (!allow_explicit && candidate->method->is_explicit) ||
-            candidate->is_deleted || candidate->is_defaulted ||
+            candidate->is_deleted ||
             candidate->parameter_count < argument_count ||
             (candidate->parameter_count != argument_count &&
              !sema_cxx_constructor_arity_has_defaults(
@@ -39090,8 +39090,17 @@ static Expr* sema_cxx_default_initialization_expression(
     cls = type->cxx_class;
     if (!cls) return NULL;
     if (cls->has_user_constructor) {
+        ExprList* arguments = NULL;
+        CxxConstructorInfo* constructor = sema_select_cxx_new_constructor(
+            type, &arguments, loc);
+        if (!constructor) {
+            *supported = false;
+            return NULL;
+        }
         initializer = expr_initializer_list(NULL, loc);
         initializer->compound_type = type;
+        initializer->compound_constructor = constructor;
+        initializer->compound_init = arguments;
         initializer->compound_cxx_default_member_init_only = true;
         *needs_initialization = true;
         return initializer;
@@ -39227,8 +39236,18 @@ static void sema_cxx_synthesize_default_constructor_initializer(
         return;
     }
     if (cls && cls->has_user_constructor) {
+        ExprList* arguments = NULL;
+        CxxConstructorInfo* constructor = sema_select_cxx_new_constructor(
+            type, &arguments, declaration->loc);
+        if (!constructor) {
+            rcc_error(declaration->loc,
+                      "default initialization has no accessible default constructor");
+            return;
+        }
         initializer = expr_initializer_list(NULL, declaration->loc);
         initializer->compound_type = type;
+        initializer->compound_constructor = constructor;
+        initializer->compound_init = arguments;
         initializer->compound_cxx_default_member_init_only = true;
         declaration->var_init = initializer;
         return;

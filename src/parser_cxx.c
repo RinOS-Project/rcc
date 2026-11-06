@@ -11551,7 +11551,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         constructor->lowerable_parameter_use_mask = 0u;
         constructor->lowerable_parameter_use_mask_valid = false;
         if (constructor->access != ACCESS_PUBLIC ||
-            constructor->is_deleted || constructor->is_defaulted) {
+            constructor->is_deleted) {
             continue;
         }
         arity = (unsigned)constructor->parameter_count;
@@ -14382,6 +14382,14 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             body = stmt_block(stmts, loc);
         } else {
             expect(TOK_SEMICOLON, ";");
+        }
+
+        /* An explicitly defaulted in-class constructor has an implicitly
+         * generated body. Retain an empty body node so ordinary method
+         * registration and lowering can emit its synthesized subobject
+         * initialization plan. */
+        if (is_constructor && is_defaulted && !body) {
+            body = stmt_block(NULL, loc);
         }
 
         /* Create method */
