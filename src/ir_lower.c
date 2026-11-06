@@ -10024,8 +10024,7 @@ static bool lower_cxx_empty_noop_constructor_supported(
         !constructor->method || !constructor->method->decl ||
         !constructor->body_is_empty || constructor->is_deleted ||
         !constructor->initializers_are_supported ||
-        constructor->parameter_count < 0 ||
-        cls->has_field_initializer) {
+        constructor->parameter_count < 0) {
         return false;
     }
     parameter_decl = constructor->method->decl->func_params;
@@ -10155,7 +10154,6 @@ static bool lower_cxx_empty_noop_constructor_supported(
          initializer = initializer->next) {
         member = NULL;
         if (initializer->is_delegating_constructor ||
-            initializer->is_default_member_initializer ||
             initializer->is_pack_expansion) {
             return false;
         }
@@ -10237,6 +10235,21 @@ static bool lower_cxx_empty_noop_constructor_supported(
             member = member->next;
         }
         if (!member || member_initializer_count >= member_count) return false;
+        if (initializer->is_default_member_initializer) {
+            int64_t constant_value;
+            if (!member->type ||
+                (!type_is_integer(member->type) &&
+                 member->type->kind != TYPE_ENUM) ||
+                initializer->constructor || initializer->arguments ||
+                !initializer->value || !initializer->value->type ||
+                !type_is_integer(initializer->value->type) ||
+                !expr_eval_integer_constant(
+                    initializer->value, &constant_value)) {
+                return false;
+            }
+            ++member_initializer_count;
+            continue;
+        }
         if (!initializer->arguments || initializer->arguments->next ||
             !initializer->arguments->expr) return false;
         if (initializer->value != initializer->arguments->expr) {
@@ -29247,12 +29260,6 @@ static bool lower_struct_initializer(
                 }
                 continue;
             }
-            if (!member_initializer->arguments ||
-                member_initializer->arguments->next ||
-                !member_initializer->arguments->expr) {
-                context->unsupported = true;
-                goto constructor_lowering_failure;
-            }
             field = lower_struct_declared_field(
                 type, type->cxx_class, member_initializer->field);
             object = lower_value(base, rcc_ir_type_pointer(0u), true);
@@ -29261,6 +29268,37 @@ static bool lower_struct_initializer(
                       context, object, (uint64_t)field->offset)
                 : lower_invalid_value();
             if (!field || !address.valid) {
+                context->unsupported = true;
+                goto constructor_lowering_failure;
+            }
+            if (member_initializer->is_default_member_initializer) {
+                int64_t constant_value;
+                if ((!type_is_integer(field->type) &&
+                     field->type->kind != TYPE_ENUM) ||
+                    member_initializer->constructor ||
+                    member_initializer->arguments ||
+                    !member_initializer->value ||
+                    !member_initializer->value->type ||
+                    !type_is_integer(
+                        member_initializer->value->type) ||
+                    !expr_eval_integer_constant(
+                        member_initializer->value, &constant_value)) {
+                    context->unsupported = true;
+                    goto constructor_lowering_failure;
+                }
+                member_value = lower_expression(
+                    context, member_initializer->value);
+                member_value = lower_cast(context, member_value, field->type);
+                if (!member_value.valid ||
+                    !lower_store_address(context, address, member_value)) {
+                    context->unsupported = true;
+                    goto constructor_lowering_failure;
+                }
+                continue;
+            }
+            if (!member_initializer->arguments ||
+                member_initializer->arguments->next ||
+                !member_initializer->arguments->expr) {
                 context->unsupported = true;
                 goto constructor_lowering_failure;
             }
