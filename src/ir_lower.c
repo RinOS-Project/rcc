@@ -25509,6 +25509,11 @@ static bool lower_cxx_store_value_initialized_scalar(
         address.type.kind != RCC_IR_TYPE_POINTER || !type || !initializer) {
         return false;
     }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+        !type_is_cxx_member_function_pointer(type)) {
+        return lower_initialize_scalar_storage(
+            context, address.value, type, initializer);
+    }
     if (type_is_integer((Type*)type) &&
         lower_cxx_integer_default_initializer_constant(
             initializer, type, &integer_value)) {
@@ -26215,12 +26220,13 @@ static bool lower_cxx_initialize_constructor_members(
             expr_eval_integer_constant((Expr*)source, &ignored_constant);
         if (!type_is_scalar(field->type) ||
             (value_initialize && field->type->is_reference) ||
-            field->type->cxx_is_member_pointer ||
+            type_is_cxx_member_function_pointer(field->type) ||
             field->type->is_atomic ||
             (!constant_initializer &&
              (initializer->is_default_member_initializer
-                  ? !lower_cxx_throwing_scalar_default_member_initializer_supported(
-                        context, source)
+                  ? !(lower_noexcept_expression(source) ||
+                      lower_cxx_throwing_scalar_default_member_initializer_supported(
+                          context, source))
                   : (!lower_cxx_constructor_initializer_expression_supported(
                          context, source, 0u) ||
                      !lower_noexcept_expression(source))))) {
@@ -26510,6 +26516,21 @@ static bool lower_cxx_initialize_constructor_members(
              field->type->kind == TYPE_UNION)) {
             if (!lower_cxx_zero_value_initialized_subobject(
                     context, address, field->type, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        } else if (field->type->kind == TYPE_PTR &&
+                   field->type->cxx_is_member_pointer) {
+            source = initializer->is_default_member_initializer ||
+                    !initializer->arguments
+                ? initializer->value : initializer->arguments->expr;
+            if (!address.valid ||
+                !(value_initialize
+                      ? lower_zero_scalar_storage(
+                            context, address.value, field->type)
+                      : lower_initialize_scalar_storage(
+                            context, address.value, field->type, source))) {
                 context->unsupported = true;
                 return false;
             }
