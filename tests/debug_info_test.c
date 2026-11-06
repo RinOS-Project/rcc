@@ -10996,7 +10996,7 @@ static void verify_inline_i686_u64_global_variable_division_expression_impl(
     bool global_dividend, bool global_divisor, bool remainder,
     bool is_signed, bool negate_dividend, bool negate_divisor,
     bool nested_negation_requires_non_min_dividend,
-    uint64_t dividend_xor) {
+    uint64_t dividend_xor, int expected_relocation_type) {
     static const uint64_t dividends[] = {
         0u, 1u, 2u, 3u, 4u, UINT32_MAX, UINT64_C(0x100000000),
         UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
@@ -11062,9 +11062,23 @@ static void verify_inline_i686_u64_global_variable_division_expression_impl(
             relocation->offset >= expression_end) {
             continue;
         }
-        assert((relocation->type == RELOC_ABS32U ||
-                relocation->type == RELOC_TLSOFF32S) &&
-               relocation->symbol_name);
+        if (expected_relocation_type >= 0) {
+            if ((int)relocation->type != expected_relocation_type) {
+                fprintf(stderr,
+                        "i686 signed computed relocation has type %u, "
+                        "expected %d for %s\n",
+                        (unsigned int)relocation->type,
+                        expected_relocation_type,
+                        relocation->symbol_name ? relocation->symbol_name
+                                                : "<unnamed>");
+            }
+            assert((int)relocation->type == expected_relocation_type &&
+                   relocation->symbol_name);
+        } else {
+            assert((relocation->type == RELOC_ABS32U ||
+                    relocation->type == RELOC_TLSOFF32S) &&
+                   relocation->symbol_name);
+        }
         if (global_dividend &&
             strcmp(relocation->symbol_name, source_name) == 0) {
             ++source_relocations;
@@ -11160,18 +11174,20 @@ static void verify_inline_i686_u64_global_variable_division_expression(
         object, data, expression_end, expression_start, info, strings,
         locations, source_name, divisor_name, global_dividend, global_divisor,
         remainder, is_signed, negate_dividend, negate_divisor,
-        nested_negation_requires_non_min_dividend, 0u);
+        nested_negation_requires_non_min_dividend, 0u, -1);
 }
 
 static void verify_inline_i686_s64_xor_global_variable_division_expression(
     ObjectFile* object, const uint8_t* data, uint64_t expression_end,
     uint64_t expression_start, const ObjSection* info,
     const ObjSection* strings, const ObjSection* locations,
-    const char* source_name, const char* divisor_name, bool remainder) {
+    const char* source_name, const char* divisor_name, bool remainder,
+    bool expect_tls) {
     verify_inline_i686_u64_global_variable_division_expression_impl(
         object, data, expression_end, expression_start, info, strings,
         locations, source_name, divisor_name, true, true, remainder, true,
-        false, false, false, UINT64_C(0x100000001));
+        false, false, false, UINT64_C(0x100000001),
+        expect_tls ? RELOC_TLSOFF32S : RELOC_ABS32U);
 }
 
 static void verify_inline_i686_u64_storage_add_variable_division_expression(
@@ -14509,6 +14525,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_global_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 72 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_tls_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 73 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_tls_xor_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -14911,12 +14935,16 @@ static void verify_inline_integer_expression_parameter(
     if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
         divisor_source_name &&
         (expected_constant == INT64_MIN + 70 ||
-         expected_constant == INT64_MIN + 71) &&
+         expected_constant == INT64_MIN + 71 ||
+         expected_constant == INT64_MIN + 72 ||
+         expected_constant == INT64_MIN + 73) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
         verify_inline_i686_s64_xor_global_variable_division_expression(
             object, info->data, expression_end, expression_start, info,
             strings, locations, source_name, divisor_source_name,
-            expected_operation == 0x1du);
+            expected_operation == 0x1du,
+            expected_constant == INT64_MIN + 72 ||
+                expected_constant == INT64_MIN + 73);
         objfile_free(object);
         return;
     }

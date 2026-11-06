@@ -2281,6 +2281,24 @@ debug_inline_nonconstant_signed_long_long_global_xor_remainder_entry(void)
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_xor_divide_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_tls_dividend ^
+         0x100000001LL) /
+        debug_inline_nonconstant_signed_long_long_tls_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_xor_remainder_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_tls_dividend ^
+         0x100000001LL) %
+        debug_inline_nonconstant_signed_long_long_tls_divisor);
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_static_pair_divide_entry(void)
 {
     static long long dividend = -0x7123456789abcdefLL;
