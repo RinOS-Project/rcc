@@ -2476,6 +2476,54 @@ debug_inline_nonconstant_signed_long_long_indirect_reference_initializer_xor_rem
         indirect_divisor_reference);
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_reference_parameter_xor_divide_entry(
+    unsigned long long& reference_dividend_parameter,
+    unsigned long long& reference_divisor_parameter)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (reference_dividend_parameter ^ 0x100000001ULL) /
+        reference_divisor_parameter);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_reference_parameter_xor_remainder_entry(
+    unsigned long long& reference_dividend_parameter,
+    unsigned long long& reference_divisor_parameter)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (reference_dividend_parameter ^ 0x100000001ULL) %
+        reference_divisor_parameter);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_indirect_reference_initializer_xor_divide_entry(
+    unsigned long long* indirect_dividend_parameter,
+    unsigned long long* indirect_divisor_parameter)
+{
+    unsigned long long& indirect_dividend_reference =
+        *indirect_dividend_parameter;
+    unsigned long long& indirect_divisor_reference =
+        *indirect_divisor_parameter;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (indirect_dividend_reference ^ 0x100000001ULL) /
+        indirect_divisor_reference);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_indirect_reference_initializer_xor_remainder_entry(
+    unsigned long long* indirect_dividend_parameter,
+    unsigned long long* indirect_divisor_parameter)
+{
+    unsigned long long& indirect_dividend_reference =
+        *indirect_dividend_parameter;
+    unsigned long long& indirect_divisor_reference =
+        *indirect_divisor_parameter;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (indirect_dividend_reference ^ 0x100000001ULL) %
+        indirect_divisor_reference);
+}
+
 extern "C" long long
 debug_inline_nonconstant_signed_long_long_volatile_tls_reference_xor_divide_entry(
     void)

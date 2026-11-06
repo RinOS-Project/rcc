@@ -12928,9 +12928,11 @@ remains a separate open item.
       matching legacy and verified objects at both levels through
       `test-debug-info-inline-expression`.
 - [ ] Additional computed division/remainder trees beyond the current C
-      corpus, remaining i686 64-bit atomic store shapes, atomic
-      read-modify-write operations, and untested volatile/reference/TLS atomic
-      operand combinations remain open.
+      corpus, remaining i686 64-bit atomic store shapes, further atomic
+      read-modify-write forms, and untested volatile/TLS/atomic operand
+      combinations remain open. Covered signed reference and atomic cases, and
+      unsigned reference parameters plus indirect reference initializers, are
+      recorded in the checked items below.
   - [x] Add computed signed and unsigned i686 divmod trees over ordinary
         frame-backed parameters, with a full-width expression evaluator matrix
         in normal and verified `-O1`/`-O2` objects. Atomic stores/RMW and
@@ -12979,6 +12981,15 @@ remains a separate open item.
         and 63, including a zero raw factor, across the full-width matrix in
         legacy and verified `-O1`/`-O2` objects through
         `test-debug-info-inline-expression`.
+  - [x] Verify unsigned i686 `/` and `%` DWARF values over a computed XOR
+        dividend and dynamic divisor through reference parameters and
+        references initialized by dereferencing pointer parameters. Exercise
+        eight unsigned dividend patterns against seven nonzero divisor
+        patterns for both operations in legacy and verified C++20 i686
+        objects. `test-debug-info-inline-expression` and the full
+        `test-debug-info` gate pass. Direct global/TLS/static reference aliases,
+        unsigned volatile leaves, and unsigned atomic-load operands remain
+        open.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
@@ -14936,6 +14947,12 @@ these as implemented subsets rather than completed product claims:
   inlining remain open.
 - Stage-two host-runner bootstrap is tested; it does not prove native RinOS
   self-host execution.
+
+- [x] Parse C++20 member and non-member `operator co_await` declarations,
+      preserve the Itanium `aw` operator encoding on i686/AMD64, reject the
+      declaration in C++17, and retain diagnostics with no object for invalid
+      forms. `test-cxx20-unsupported-boundaries` is part of the production
+      `test-cxx`/`test-ci` gates.
 
 Continue in this order:
 
