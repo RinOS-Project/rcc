@@ -39024,18 +39024,160 @@ static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
     }
 }
 
+static bool sema_cxx_default_member_initializers_are_direct(
+    Type* type, int depth) {
+    CxxClass* cls;
+    if (!type || depth > 32 ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
+        return false;
+    }
+    cls = type->cxx_class;
+    if (!cls || cls->has_user_constructor || cls->base_count != 0 ||
+        cls->virtual_base_count != 0 || !cls->has_field_initializer) {
+        return false;
+    }
+    for (TypeParam* member = cls->fields; member; member = member->next) {
+        TypeField* field = NULL;
+        if (member->is_static) continue;
+        for (TypeField* candidate = type->fields; candidate;
+             candidate = candidate->next) {
+            if (candidate->name && member->name &&
+                strcmp(candidate->name, member->name) == 0) {
+                field = candidate;
+                break;
+            }
+        }
+        if (!field || !field->type) return false;
+        if (field->initializer) {
+            if (!sema_cxx_default_member_initializer_supported(
+                    field->type, field->initializer)) {
+                return false;
+            }
+        } else if (sema_cxx_default_initialization_needs_lowering(
+                       field->type, depth + 1)) {
+            /* This aggregate-only synthesis does not manufacture an
+             * implicit constructor for a nontrivial member. */
+            return false;
+        }
+    }
+    return true;
+}
+
+static Expr* sema_cxx_default_initialization_expression(
+    Type* type, SourceLoc loc, int depth, int* array_element_budget,
+    bool* needs_initialization, bool* supported) {
+    CxxClass* cls;
+    Expr* initializer;
+    if (!type || !array_element_budget || !needs_initialization ||
+        !supported || depth > 32) {
+        if (supported) *supported = false;
+        return NULL;
+    }
+    *needs_initialization = false;
+    *supported = true;
+    if (type->kind == TYPE_ARRAY) {
+        ExprList* items = NULL;
+        ExprList** tail = &items;
+        bool element_needs_initialization = false;
+        bool element_supported = true;
+        Expr* first;
+        if (!type->base || type->array_len < 0) {
+            *supported = false;
+            return NULL;
+        }
+        if (type->array_len == 0) return NULL;
+        first = sema_cxx_default_initialization_expression(
+            type->base, loc, depth + 1, array_element_budget,
+            &element_needs_initialization, &element_supported);
+        if (!element_supported) {
+            *supported = false;
+            return NULL;
+        }
+        if (!element_needs_initialization) return NULL;
+        if (type->array_len > *array_element_budget) {
+            *supported = false;
+            return NULL;
+        }
+        for (int64_t index = 0; index < type->array_len; ++index) {
+            Expr* element = index == 0 ? first :
+                sema_cxx_default_initialization_expression(
+                    type->base, loc, depth + 1, array_element_budget,
+                    &element_needs_initialization, &element_supported);
+            ExprList* item;
+            if (!element_supported || !element_needs_initialization ||
+                !element) {
+                *supported = false;
+                return NULL;
+            }
+            item = exprlist_new(element);
+            item->designator_kind = INIT_DESIGNATOR_NONE;
+            item->designator_index = 0;
+            item->designator_field = NULL;
+            *tail = item;
+            tail = &item->next;
+            --*array_element_budget;
+        }
+        initializer = expr_initializer_list(items, loc);
+        initializer->compound_type = type;
+        *needs_initialization = true;
+        return initializer;
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) {
+        if (type->is_reference) *supported = false;
+        return NULL;
+    }
+    cls = type->cxx_class;
+    if (!cls) return NULL;
+    if (cls->has_user_constructor) {
+        initializer = expr_initializer_list(NULL, loc);
+        initializer->compound_type = type;
+        *needs_initialization = true;
+        return initializer;
+    }
+    if (cls->has_field_initializer) {
+        if (!sema_cxx_default_member_initializers_are_direct(type, depth)) {
+            *supported = false;
+            return NULL;
+        }
+        initializer = sema_cxx_default_member_initializer(type, NULL, loc);
+        if (!initializer) {
+            *supported = false;
+            return NULL;
+        }
+        *needs_initialization = true;
+        return initializer;
+    }
+    if (sema_cxx_default_initialization_needs_lowering(type, depth)) {
+        *supported = false;
+    }
+    return NULL;
+}
+
 static void sema_cxx_synthesize_default_constructor_initializer(
     Decl* declaration) {
     Type* type = declaration ? declaration->type : NULL;
     CxxClass* cls = type ? type->cxx_class : NULL;
-    Expr* initializer;
-    if (!declaration || !type || !cls || !cls->has_user_constructor ||
-        declaration->var_init || declaration->storage == STORAGE_EXTERN) {
+    Expr* initializer = NULL;
+    bool needs_initialization = false;
+    bool supported = true;
+    int array_element_budget = 4096;
+    if (!declaration || !type || declaration->var_init ||
+        declaration->storage == STORAGE_EXTERN) {
         return;
     }
-    initializer = expr_initializer_list(NULL, declaration->loc);
-    initializer->compound_type = type;
-    declaration->var_init = initializer;
+    if (cls && cls->has_user_constructor) {
+        initializer = expr_initializer_list(NULL, declaration->loc);
+        initializer->compound_type = type;
+        declaration->var_init = initializer;
+        return;
+    }
+    if (type->kind != TYPE_ARRAY) return;
+    initializer = sema_cxx_default_initialization_expression(
+        type, declaration->loc, 0, &array_element_budget,
+        &needs_initialization, &supported);
+    if (supported && needs_initialization) {
+        declaration->var_init = initializer;
+    }
 }
 
 static void sema_cxx_wrap_copy_constructor_initializer(Decl* declaration) {
