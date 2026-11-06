@@ -114,5 +114,19 @@ int main() {
     if (move_count != 3 || copy_count != 3) return 122;
     if (destructor_count != 12) return 123;
 
+    result = consume(
+        true ? (consume(left), static_cast<ConditionalMove&&>(left))
+             : ConditionalMove{70});
+    if (result != 207) return 131;
+    if (move_count != 4 || copy_count != 3) return 132;
+    if (destructor_count != 13) return 133;
+
+    result = consume(
+        false ? (consume(left), static_cast<ConditionalMove&&>(left))
+              : ConditionalMove{70});
+    if (result != 70) return 141;
+    if (move_count != 4 || copy_count != 3) return 142;
+    if (destructor_count != 14) return 143;
+
     return 0;
 }
