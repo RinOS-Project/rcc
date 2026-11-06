@@ -197,6 +197,11 @@ typedef struct {
     /* The verified backend handles bound temporary cleanup inside a local
      * C++20 aggregate parenthesized initializer as one full-expression. */
     const Expr* aggregate_paren_initializer;
+    /* An implicit default-member initializer is evaluated with its containing
+     * object as `this`, even when its constructor is emitted inline. */
+    const Type* cxx_implicit_default_member_owner_type;
+    RccIrValue cxx_implicit_default_member_owner;
+    bool cxx_implicit_default_member_active;
     int aggregate_return_kind;
     bool allow_nontrivial_temporary_conditional;
     bool capture_typeof_vla_bounds;
@@ -3852,6 +3857,38 @@ static RccIrLowerValue lower_lvalue_address_impl(
         return lower_expression(context, expression);
     }
     if (expression->kind == EXPR_IDENT) {
+        if (context->cxx_implicit_default_member_active &&
+            context->cxx_implicit_default_member_owner_type &&
+            context->cxx_implicit_default_member_owner_type->cxx_class &&
+            expression->ident_name &&
+            (!expression->ident_decl ||
+             (expression->ident_decl->kind == DECL_VAR &&
+              !expression->ident_decl->var_is_global &&
+              !expression->ident_decl->var_is_static_local))) {
+            const Type* owner_type =
+                context->cxx_implicit_default_member_owner_type;
+            for (const TypeField* field = owner_type->fields;
+                 field; field = field->next) {
+                if (!field->name ||
+                    field->cxx_declaring_class != owner_type->cxx_class ||
+                    strcmp(field->name, expression->ident_name) != 0 ||
+                    field->offset < 0 || !field->type ||
+                    field->type->size <= 0 ||
+                    field->offset > owner_type->size ||
+                    field->type->size > owner_type->size - field->offset) {
+                    continue;
+                }
+                RccIrLowerValue owner = lower_value(
+                    context->cxx_implicit_default_member_owner,
+                    rcc_ir_type_pointer(0u), true);
+                RccIrLowerValue address = lower_byte_offset_address(
+                    context, owner, (uint64_t)field->offset);
+                if (field->type->is_reference) {
+                    return lower_load_address(context, address, field->type);
+                }
+                return address;
+            }
+        }
         RccIrLowerArrayAssignmentLoop* array_loop =
             lower_find_array_assignment_loop(
                 context, expression->ident_decl);
@@ -19510,6 +19547,13 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                 context, type, expression->type->is_unsigned,
                 expr_char_code_unit(expression));
         case EXPR_IDENT:
+            if (context->cxx_implicit_default_member_active &&
+                expression->ident_name &&
+                strcmp(expression->ident_name, "this") == 0) {
+                return lower_value(
+                    context->cxx_implicit_default_member_owner,
+                    rcc_ir_type_pointer(0u), true);
+            }
             if (expression->ident_decl &&
                 expression->ident_decl->kind == DECL_FUNC) {
                 return lower_lvalue_address(context, expression);
@@ -19534,6 +19578,11 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             }
             return lower_load_lvalue(context, expression);
         case EXPR_CXX_THIS:
+            if (context->cxx_implicit_default_member_active) {
+                return lower_value(
+                    context->cxx_implicit_default_member_owner,
+                    rcc_ir_type_pointer(0u), true);
+            }
             context->unsupported = true;
             return lower_invalid_value();
         case EXPR_SPACESHIP:
@@ -28189,6 +28238,12 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
                         lower_scalar_initializer_expression(
                             field->initializer);
                     RccIrLowerValue referent;
+                    const Type* previous_owner_type =
+                        context->cxx_implicit_default_member_owner_type;
+                    RccIrValue previous_owner =
+                        context->cxx_implicit_default_member_owner;
+                    bool previous_active =
+                        context->cxx_implicit_default_member_active;
                     if (!lower_cxx_implicit_reference_default_member_initializer_supported(
                             field->type,
                             field->initializer) ||
@@ -28196,8 +28251,17 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
                         context->unsupported = true;
                         return false;
                     }
+                    context->cxx_implicit_default_member_owner_type = type;
+                    context->cxx_implicit_default_member_owner = object;
+                    context->cxx_implicit_default_member_active = true;
                     referent = lower_lvalue_address(
                         context, reference_initializer);
+                    context->cxx_implicit_default_member_owner_type =
+                        previous_owner_type;
+                    context->cxx_implicit_default_member_owner =
+                        previous_owner;
+                    context->cxx_implicit_default_member_active =
+                        previous_active;
                     if (!referent.valid ||
                         referent.type.kind != RCC_IR_TYPE_POINTER ||
                         !lower_store_address(context, address, referent)) {
