@@ -39092,6 +39092,7 @@ static Expr* sema_cxx_default_initialization_expression(
     if (cls->has_user_constructor) {
         initializer = expr_initializer_list(NULL, loc);
         initializer->compound_type = type;
+        initializer->compound_cxx_default_member_init_only = true;
         *needs_initialization = true;
         return initializer;
     }
@@ -39228,6 +39229,7 @@ static void sema_cxx_synthesize_default_constructor_initializer(
     if (cls && cls->has_user_constructor) {
         initializer = expr_initializer_list(NULL, declaration->loc);
         initializer->compound_type = type;
+        initializer->compound_cxx_default_member_init_only = true;
         declaration->var_init = initializer;
         return;
     }

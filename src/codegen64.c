@@ -5009,6 +5009,11 @@ static void gen64_cxx_call_constructor(Module* mod,
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
                                         CxxConstructorInfo* constructor,
                                         ExprList* arguments);
+static void gen64_cxx_initialize_object_with_zero(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool zero_initialize);
+static bool gen64_cxx_value_initialization_zeroes_constructor(
+    const CxxConstructorInfo* constructor, bool value_initialization);
 static bool gen64_bitfield_initializer(Module* mod, const TypeField* field,
                                         Expr* initializer,
                                         int32_t displacement);
@@ -5040,9 +5045,12 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         initializer->compound_constructor && type->cxx_class) {
         emit64_lea(mod, RAX, RBP, displacement);
         emit64_mov_reg_reg(mod, RCX, RAX);
-        gen64_cxx_initialize_object(
+        gen64_cxx_initialize_object_with_zero(
             mod, type, initializer->compound_constructor,
-            initializer->compound_value_init ? NULL : initializer->compound_init);
+            initializer->compound_value_init ? NULL : initializer->compound_init,
+            gen64_cxx_value_initialization_zeroes_constructor(
+                initializer->compound_constructor,
+                initializer->compound_value_init));
         return true;
     }
     if (initializer->kind == EXPR_COMPOUND && initializer->compound_copy_init &&
@@ -7687,12 +7695,26 @@ static ExprList* gen64_cxx_bind_constructor_arguments(
 static void gen64_cxx_initialize_object_mode(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     ExprList* arguments, bool initialize_virtual_bases);
+static void gen64_cxx_initialize_object_mode_with_zero(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool initialize_virtual_bases,
+    bool zero_initialize);
 static void gen64_cxx_initialize_object_mode_impl(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
-    ExprList* arguments, bool initialize_virtual_bases);
+    ExprList* arguments, bool initialize_virtual_bases,
+    bool zero_initialize);
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
                                          CxxConstructorInfo* constructor,
                                          ExprList* arguments);
+static void gen64_cxx_initialize_object_with_zero(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool zero_initialize);
+static bool gen64_cxx_value_initialization_zeroes_constructor(
+    const CxxConstructorInfo* constructor, bool value_initialization) {
+    return value_initialization && constructor &&
+        (constructor->is_defaulted ||
+         (constructor->method && constructor->method->is_defaulted));
+}
 static void gen64_cxx_exception_change_subobject(
     Module* mod, Type* object_type, int address_reg, int frame_offset,
     bool unregister) {
@@ -8360,7 +8382,8 @@ static ExprList* gen64_cxx_capture_constructor_arguments(
 
 static void gen64_cxx_initialize_object_mode_impl(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
-    ExprList* arguments, bool initialize_virtual_bases) {
+    ExprList* arguments, bool initialize_virtual_bases,
+    bool zero_initialize) {
     TypeField* field;
     CxxConstructorInitializer* initializer;
     ExprList* argument;
@@ -8425,14 +8448,17 @@ static void gen64_cxx_initialize_object_mode_impl(
             ++index;
         }
     }
-    if (!initialize_virtual_bases && object_type && object_type->cxx_class &&
-        object_type->cxx_class->virtual_base_count > 0 &&
-        object_type->cxx_class->nonvirtual_size > 0) {
-        gen64_cxx_zero_object_size(
-            mod, address_reg,
-            object_type->cxx_class->nonvirtual_size);
-    } else {
-        gen64_cxx_zero_object(mod, object_type, address_reg);
+    if (zero_initialize) {
+        if (!initialize_virtual_bases && object_type &&
+            object_type->cxx_class &&
+            object_type->cxx_class->virtual_base_count > 0 &&
+            object_type->cxx_class->nonvirtual_size > 0) {
+            gen64_cxx_zero_object_size(
+                mod, address_reg,
+                object_type->cxx_class->nonvirtual_size);
+        } else {
+            gen64_cxx_zero_object(mod, object_type, address_reg);
+        }
     }
     gen64_cxx_initialize_inherited_bases(
         mod, constructor);
@@ -8740,12 +8766,22 @@ static void gen64_cxx_initialize_object_mode_impl(
 static void gen64_cxx_initialize_object_mode(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     ExprList* arguments, bool initialize_virtual_bases) {
+    gen64_cxx_initialize_object_mode_with_zero(
+        mod, object_type, constructor, arguments,
+        initialize_virtual_bases, false);
+}
+
+static void gen64_cxx_initialize_object_mode_with_zero(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool initialize_virtual_bases,
+    bool zero_initialize) {
     CxxConstructorBindingArena64 arena = {0};
     CxxConstructorBindingArena64* previous_arena =
         active_cxx_constructor_binding_arena64;
     active_cxx_constructor_binding_arena64 = &arena;
     gen64_cxx_initialize_object_mode_impl(
-        mod, object_type, constructor, arguments, initialize_virtual_bases);
+        mod, object_type, constructor, arguments, initialize_virtual_bases,
+        zero_initialize);
     active_cxx_constructor_binding_arena64 = previous_arena;
     gen64_cxx_constructor_binding_arena_release(&arena);
 }
@@ -8755,6 +8791,13 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
                                          ExprList* arguments) {
     gen64_cxx_initialize_object_mode(
         mod, object_type, constructor, arguments, true);
+}
+
+static void gen64_cxx_initialize_object_with_zero(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool zero_initialize) {
+    gen64_cxx_initialize_object_mode_with_zero(
+        mod, object_type, constructor, arguments, true, zero_initialize);
 }
 
 static void gen64_cxx_destroy_complete(Module* mod, Type* object_type);
@@ -9262,9 +9305,10 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
          argument = argument->next) {
         emit64_mov_reg_mem(mod, RCX, RSP,
                            expr->call_new_array_cookie ? 0 : 16);
-        gen64_cxx_initialize_object(mod, object_type,
-                                     expr->call_new_constructor,
-                                     argument);
+        gen64_cxx_initialize_object_with_zero(
+            mod, object_type, expr->call_new_constructor, argument,
+            gen64_cxx_value_initialization_zeroes_constructor(
+                expr->call_new_constructor, expr->call_new_value_init));
         emit64_mov_reg_mem(mod, RCX, RSP,
                            expr->call_new_array_cookie ? 0 : 16);
         if (expr->call_new_array_cookie && destructor_name) {
@@ -9360,8 +9404,10 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
         emit64_jcc_label(mod, CC64_E, cookie_done);
         emit64_label(mod, cookie_loop);
         emit64_mov_reg_mem(mod, RCX, RSP, 8);
-        gen64_cxx_initialize_object(mod, object_type,
-                                     expr->call_new_constructor, NULL);
+        gen64_cxx_initialize_object_with_zero(
+            mod, object_type, expr->call_new_constructor, NULL,
+            gen64_cxx_value_initialization_zeroes_constructor(
+                expr->call_new_constructor, expr->call_new_value_init));
         if (destructor_name) {
             emit64_mov_reg_mem(mod, RCX, RSP, 8);
             gen64_cxx_change_current_cleanup_pointer(
@@ -9437,8 +9483,10 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
     emit64_cmp_reg_imm(mod, RDX, 0);
     emit64_jcc_label(mod, CC64_E, done);
     emit64_label(mod, loop);
-    gen64_cxx_initialize_object(mod, object_type,
-                                 expr->call_new_constructor, NULL);
+    gen64_cxx_initialize_object_with_zero(
+        mod, object_type, expr->call_new_constructor, NULL,
+        gen64_cxx_value_initialization_zeroes_constructor(
+            expr->call_new_constructor, expr->call_new_value_init));
     emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
     emit64_sub_reg_imm(mod, RDX, 1);
     emit64_cmp_reg_imm(mod, RDX, 0);
@@ -9565,9 +9613,10 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         return;
     }
     if (expr->call_new_constructor) {
-        gen64_cxx_initialize_object(mod, object_type,
-                                     expr->call_new_constructor,
-                                     argument);
+        gen64_cxx_initialize_object_with_zero(
+            mod, object_type, expr->call_new_constructor, argument,
+            gen64_cxx_value_initialization_zeroes_constructor(
+                expr->call_new_constructor, expr->call_new_value_init));
         if (register_deallocation) {
             emit64_mov_reg_mem(mod, RCX, RSP, 0);
             gen64_cxx_change_current_cleanup_pointer(
@@ -14177,10 +14226,13 @@ static bool gen64_static_reference_aggregate_into_owner(
         if (expression->compound_constructor && type->cxx_class) {
             gen64_reference_temporary_owner_address(mod, owner);
             emit64_mov_reg_reg(mod, RCX, RAX);
-            gen64_cxx_initialize_object(
+            gen64_cxx_initialize_object_with_zero(
                 mod, type, expression->compound_constructor,
                 expression->compound_value_init
-                    ? NULL : expression->compound_init);
+                    ? NULL : expression->compound_init,
+                gen64_cxx_value_initialization_zeroes_constructor(
+                    expression->compound_constructor,
+                    expression->compound_value_init));
             return true;
         }
         if (!owner->var_is_global && !owner->var_is_thread_local) {

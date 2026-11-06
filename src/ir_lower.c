@@ -29072,6 +29072,7 @@ static bool lower_struct_initializer(
     const Type* type, const Expr* initializer) {
     const TypeField* cursor;
     const ExprList* item;
+    bool zero_storage;
     if ((!lower_struct_type_supported(type) &&
          !lower_cxx_constructed_volatile_object_supported(
              type, initializer)) || !initializer ||
@@ -29100,7 +29101,15 @@ static bool lower_struct_initializer(
         return lower_cxx_copy_trivial_storage(
             context, base, source.value, type, 0u);
     }
-    if (!initializer->compound_cxx_default_member_init_only &&
+    zero_storage = !initializer->compound_cxx_default_member_init_only;
+    if (initializer->compound_constructor) {
+        const CxxConstructorInfo* constructor =
+            initializer->compound_constructor;
+        zero_storage = initializer->compound_value_init &&
+            (constructor->is_defaulted ||
+             (constructor->method && constructor->method->is_defaulted));
+    }
+    if (zero_storage &&
         !lower_cxx_constructed_volatile_object_supported(type, initializer) &&
         !lower_zero_struct_storage(context, base, type)) {
         context->unsupported = true;
