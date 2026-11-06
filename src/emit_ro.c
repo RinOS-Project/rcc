@@ -7359,7 +7359,13 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
                 dereferenced_pointer_type->size != 4 ||
                 dereferenced_pointer_type->cxx_is_member_pointer ||
                 dereferenced_pointer_type->is_volatile ||
-                dereferenced_pointer_type->is_reference ||
+                (dereferenced_pointer_type->is_reference &&
+                 (pointer_expression->unary_operand->kind != EXPR_IDENT ||
+                  !pointer_expression->unary_operand->ident_decl ||
+                  pointer_expression->unary_operand->ident_decl->kind !=
+                      DECL_PARAM ||
+                  pointer_expression->unary_operand->ident_decl->type !=
+                      dereferenced_pointer_type)) ||
                 dereferenced_pointer_type->is_atomic ||
                 !dereferenced_pointer_type->base ||
                 dereferenced_pointer_type->base->is_volatile ||
@@ -7386,7 +7392,12 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
             pointer_declaration->var_is_vla || !pointer_type ||
             pointer_type->kind != TYPE_PTR ||
             pointer_type->cxx_is_member_pointer || pointer_type->size != 4 ||
-            pointer_type->is_volatile || pointer_type->is_reference ||
+            pointer_type->is_volatile ||
+            (pointer_type->is_reference &&
+             (pointer_declaration->kind != DECL_PARAM ||
+              dereference_count != 1u || !pointer_type->base ||
+              !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                  pointer_type->base, value->type, 0u))) ||
             pointer_type->is_atomic ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 pointer_type, pointer_expression->type, 0u) ||
@@ -7426,21 +7437,65 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
     if (value->kind == EXPR_IDENT && value->ident_decl) {
         const Decl* source = value->ident_decl;
         int64_t frame_offset;
-        if (source->kind == DECL_VAR && source->type &&
-            source->type->is_reference) {
-            const Expr* reference_source = source->var_init;
-            if (!source->type->base || !reference_source ||
-                reference_source->kind != EXPR_IDENT ||
-                !reference_source->type ||
+        if ((source->kind == DECL_VAR || source->kind == DECL_PARAM) &&
+            source->type && source->type->is_reference) {
+            const Expr* reference_source = source->kind == DECL_VAR
+                ? source->var_init : NULL;
+            if (source->type->kind != TYPE_PTR ||
+                source->type->size != 4u || !source->type->base ||
                 !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-                    source->type->base, value->type, 0u) ||
-                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-                    reference_source->type, value->type, 0u)) {
+                    source->type->base, value->type, 0u)) {
                 return false;
             }
-            return debug_inline_parameter_i686_u64_append_word_expression_relocatable(
-                mod, reference_source, high_word, expression, capacity,
-                expression_size, depth + 1u, relocations);
+            if (source->kind == DECL_VAR) {
+                if (!reference_source ||
+                    reference_source->kind != EXPR_IDENT ||
+                    !reference_source->type ||
+                    !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                        reference_source->type, value->type, 0u)) {
+                    return false;
+                }
+                return debug_inline_parameter_i686_u64_append_word_expression_relocatable(
+                    mod, reference_source, high_word, expression, capacity,
+                    expression_size, depth + 1u, relocations);
+            }
+            {
+                uint8_t frame_address[32];
+                size_t frame_address_size;
+                bool frame_ok = !reference_source &&
+                    !source->var_is_global && !source->var_is_static_local &&
+                    !source->var_is_thread_local && !source->var_is_vla &&
+                    debug_inline_parameter_frame_offset(
+                        mod, source, &frame_offset);
+                if (!frame_ok) {
+                    return false;
+                }
+                frame_address_size = debug_build_expr_breg(
+                    frame_address, ARCH_X86, frame_offset, 0u, false);
+                if (frame_address_size == 0u ||
+                    *expression_size > capacity ||
+                    frame_address_size > capacity - *expression_size) {
+                    return false;
+                }
+                memcpy(expression + *expression_size, frame_address,
+                       frame_address_size);
+                *expression_size += frame_address_size;
+                if (!debug_inline_integer_expression_append_byte(
+                        expression, capacity, expression_size, 0x94u) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, capacity, expression_size, 4u) ||
+                    (high_word &&
+                     (!debug_inline_integer_expression_append_byte(
+                          expression, capacity, expression_size, 0x23u) ||
+                      !debug_expression_uleb(
+                          expression, capacity, expression_size, 4u)))) {
+                    return false;
+                }
+                return debug_inline_integer_expression_append_byte(
+                           expression, capacity, expression_size, 0x94u) &&
+                    debug_inline_integer_expression_append_byte(
+                        expression, capacity, expression_size, 4u);
+            }
         }
         if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
             source->var_is_vla || !source->type ||
@@ -12168,14 +12223,32 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
         case EXPR_IDENT: {
             const Decl* declaration = expression->ident_decl;
             int64_t frame_offset;
-            if (declaration && declaration->kind == DECL_VAR &&
+            if (declaration &&
+                (declaration->kind == DECL_VAR ||
+                 declaration->kind == DECL_PARAM) &&
                 declaration->type && declaration->type->is_reference) {
-                const Expr* reference_source = declaration->var_init;
-                if (!declaration->type->base || !reference_source ||
+                const Expr* reference_source =
+                    declaration->kind == DECL_VAR
+                        ? declaration->var_init : NULL;
+                if (declaration->type->kind != TYPE_PTR ||
+                    declaration->type->size != 4u ||
+                    !declaration->type->base ||
+                    !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                        declaration->type->base, type, 0u)) {
+                    return false;
+                }
+                if (declaration->kind == DECL_PARAM) {
+                    return !reference_source &&
+                        !declaration->var_is_global &&
+                        !declaration->var_is_static_local &&
+                        !declaration->var_is_thread_local &&
+                        !declaration->var_is_vla &&
+                        debug_inline_parameter_frame_offset(
+                            mod, declaration, &frame_offset);
+                }
+                if (!reference_source ||
                     reference_source->kind != EXPR_IDENT ||
                     !reference_source->type ||
-                    !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-                        declaration->type->base, type, 0u) ||
                     !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                         reference_source->type, type, 0u)) {
                     return false;
@@ -12217,6 +12290,66 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
                 declaration->type->size <= 8 &&
                 debug_inline_parameter_frame_offset(
                     mod, declaration, &frame_offset);
+        }
+        case EXPR_DEREF: {
+            const Expr* pointer_expression = expression;
+            const Decl* pointer_declaration;
+            const Type* pointer_type;
+            int64_t frame_offset;
+            size_t dereference_count = 0u;
+            while (pointer_expression &&
+                   pointer_expression->kind == EXPR_DEREF) {
+                const Type* dereferenced_pointer_type;
+                const Expr* pointer_operand =
+                    pointer_expression->unary_operand;
+                if (!pointer_operand || dereference_count >= 32u ||
+                    !(dereferenced_pointer_type = pointer_operand->type) ||
+                    dereferenced_pointer_type->kind != TYPE_PTR ||
+                    dereferenced_pointer_type->size != 4u ||
+                    dereferenced_pointer_type->cxx_is_member_pointer ||
+                    dereferenced_pointer_type->is_volatile ||
+                    dereferenced_pointer_type->is_atomic ||
+                    !dereferenced_pointer_type->base ||
+                    dereferenced_pointer_type->base->is_volatile ||
+                    dereferenced_pointer_type->base->is_atomic ||
+                    (dereferenced_pointer_type->is_reference &&
+                     (pointer_operand->kind != EXPR_IDENT ||
+                      !pointer_operand->ident_decl ||
+                      pointer_operand->ident_decl->kind != DECL_PARAM ||
+                      pointer_operand->ident_decl->type !=
+                          dereferenced_pointer_type)) ||
+                    !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                        dereferenced_pointer_type->base,
+                        pointer_expression->type, 0u)) {
+                    return false;
+                }
+                ++dereference_count;
+                pointer_expression = pointer_operand;
+            }
+            if (!pointer_expression ||
+                pointer_expression->kind != EXPR_IDENT ||
+                !(pointer_declaration = pointer_expression->ident_decl) ||
+                (pointer_declaration->kind != DECL_VAR &&
+                 pointer_declaration->kind != DECL_PARAM) ||
+                pointer_declaration->var_is_global ||
+                pointer_declaration->var_is_static_local ||
+                pointer_declaration->var_is_thread_local ||
+                pointer_declaration->var_is_vla ||
+                !(pointer_type = pointer_declaration->type) ||
+                pointer_type->kind != TYPE_PTR ||
+                pointer_type->cxx_is_member_pointer ||
+                pointer_type->size != 4u || pointer_type->is_volatile ||
+                pointer_type->is_atomic || dereference_count == 0u ||
+                (pointer_type->is_reference &&
+                 (pointer_declaration->kind != DECL_PARAM ||
+                  dereference_count != 1u || !pointer_type->base ||
+                  !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                      pointer_type->base, type, 0u))) ||
+                !debug_inline_parameter_frame_offset(
+                    mod, pointer_declaration, &frame_offset)) {
+                return false;
+            }
+            return true;
         }
         case EXPR_CAST:
             return expression->cast_expr &&

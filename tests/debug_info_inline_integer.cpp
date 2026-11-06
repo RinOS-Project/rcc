@@ -2433,6 +2433,26 @@ debug_inline_nonconstant_signed_long_long_local_reference_xor_remainder_entry(
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_reference_parameter_xor_divide_entry(
+    long long& reference_dividend_parameter,
+    long long& reference_divisor_parameter)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (reference_dividend_parameter ^ 0x100000001LL) /
+        reference_divisor_parameter);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_reference_parameter_xor_remainder_entry(
+    long long& reference_dividend_parameter,
+    long long& reference_divisor_parameter)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (reference_dividend_parameter ^ 0x100000001LL) %
+        reference_divisor_parameter);
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_volatile_tls_reference_xor_divide_entry(
     void)
 {
