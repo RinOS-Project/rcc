@@ -3081,8 +3081,6 @@ static bool lower_dynamic_static_class_constructor_initializer_supported(
         !lower_struct_type_supported(type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         !initializer->compound_constructor ||
-        initializer->compound_constructor->parameter_count != 0 ||
-        initializer->compound_init || initializer->compound_paren_init ||
         !lower_cleanup_constructor_call_supported(initializer) ||
         !lower_cleanup_initializer_supported(initializer) ||
         (declaration->var_cleanups &&
