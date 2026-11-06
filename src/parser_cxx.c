@@ -11221,6 +11221,10 @@ static bool cxx_constructor_dmi_value_is_lowerable(
                         cls, initialized_field, type->base, item->expr)) {
                     return false;
                 }
+            } else if (type->base->kind == TYPE_UNION &&
+                       cxx_constructor_dmi_value_is_lowerable(
+                           cls, initialized_field, type->base, item->expr)) {
+                continue;
             } else if ((cxx_constructor_scalar_type(type->base) ||
                         type->base->cxx_dependent) &&
                        cxx_constructor_dmi_expression_is_lowerable(

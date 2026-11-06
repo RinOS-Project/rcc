@@ -25128,13 +25128,15 @@ static bool lower_cxx_union_default_member_initializer_supported(
     }
     if (!field || !field->type || field->is_bitfield || field->offset != 0 ||
         !type_is_scalar((Type*)field->type) || field->type->is_reference ||
-        field->type->is_atomic || !item->expr) {
+        field->type->is_atomic || field->type->cxx_is_member_pointer ||
+        !item->expr) {
         return false;
     }
     for (const TypeField* alternative = type->fields; alternative;
          alternative = alternative->next) {
         if (!alternative->type ||
-            !type_is_scalar((Type*)alternative->type)) {
+            !type_is_scalar((Type*)alternative->type) ||
+            alternative->type->cxx_is_member_pointer) {
             return false;
         }
     }
@@ -25143,6 +25145,38 @@ static bool lower_cxx_union_default_member_initializer_supported(
         (lower_noexcept_expression(item->expr) ||
          lower_cxx_throwing_scalar_default_member_initializer_supported(
              context, item->expr));
+}
+
+static bool lower_cxx_union_array_default_member_initializer_supported(
+    RccIrLowerContext* context, const Type* array_type,
+    const Expr* initializer, unsigned depth) {
+    const ExprList* item;
+    unsigned count = 0u;
+    if (!context || !array_type || array_type->kind != TYPE_ARRAY ||
+        !array_type->base || array_type->array_len <= 0 ||
+        array_type->array_len > 64 || array_type->size <= 0 ||
+        array_type->size > 65536 || depth >= 16u || !initializer ||
+        initializer->kind != EXPR_COMPOUND || !initializer->compound_type ||
+        !type_is_compatible((Type*)array_type, initializer->compound_type)) {
+        return false;
+    }
+    for (item = initializer->compound_init; item; item = item->next) {
+        if (item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr ||
+            ++count > (unsigned)array_type->array_len) {
+            return false;
+        }
+        if (array_type->base->kind == TYPE_ARRAY) {
+            if (!lower_cxx_union_array_default_member_initializer_supported(
+                    context, array_type->base, item->expr, depth + 1u)) {
+                return false;
+            }
+        } else if (array_type->base->kind != TYPE_UNION ||
+                   !lower_cxx_union_default_member_initializer_supported(
+                       context, array_type->base, item->expr)) {
+            return false;
+        }
+    }
+    return count == (unsigned)array_type->array_len;
 }
 
 static bool lower_cxx_value_initialized_union_supported(
@@ -25940,6 +25974,19 @@ static bool lower_cxx_initialize_constructor_members(
             member_expression.compound_constructor =
                 initializer->constructor;
             member_expression.compound_init = initializer->arguments;
+            if (initializer->is_default_member_initializer &&
+                element_type && element_type->kind == TYPE_UNION) {
+                if (initializer->constructor || initializer->arguments ||
+                    !initializer->value ||
+                    !lower_cxx_union_array_default_member_initializer_supported(
+                        context, field->type, initializer->value, 0u) ||
+                    !lower_cxx_class_array_count(
+                        field->type, element_type, &element_count)) {
+                    context->unsupported = true;
+                    return false;
+                }
+                continue;
+            }
             if (!element_type || !element_type->cxx_class ||
                 !lower_cxx_class_array_count(
                     field->type, element_type, &element_count) ||
@@ -26229,6 +26276,23 @@ static bool lower_cxx_initialize_constructor_members(
                 return false;
             }
             continue;
+        }
+        if (field->type->kind == TYPE_ARRAY &&
+            initializer->is_default_member_initializer) {
+            const Type* element_type =
+                lower_cxx_class_array_element(field->type);
+            if (element_type && element_type->kind == TYPE_UNION) {
+                if (!initializer->value || !address.valid ||
+                    !lower_cxx_union_array_default_member_initializer_supported(
+                        context, field->type, initializer->value, 0u) ||
+                    !lower_array_initializer(
+                        context, address.value, field->type,
+                        initializer->value)) {
+                    context->unsupported = true;
+                    return false;
+                }
+                continue;
+            }
         }
         if (field->type->kind == TYPE_ARRAY &&
             lower_cxx_class_array_element(field->type)) {
@@ -30605,6 +30669,22 @@ static bool lower_struct_initializer(
                 if (field->type->kind == TYPE_ARRAY) {
                     const Type* element_type =
                         lower_cxx_class_array_element(field->type);
+                    if (element_type &&
+                        element_type->kind == TYPE_UNION) {
+                        if (member_initializer->constructor ||
+                            member_initializer->arguments ||
+                            !member_initializer->value ||
+                            !lower_cxx_union_array_default_member_initializer_supported(
+                                context, field->type,
+                                member_initializer->value, 0u) ||
+                            !lower_array_initializer(
+                                context, address.value, field->type,
+                                member_initializer->value)) {
+                            context->unsupported = true;
+                            goto constructor_lowering_failure;
+                        }
+                        continue;
+                    }
                     if (element_type) {
                         if (member_initializer->value ||
                             !lower_cxx_default_member_constructor_arguments_supported(
