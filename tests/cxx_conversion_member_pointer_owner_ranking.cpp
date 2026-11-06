@@ -44,6 +44,12 @@ MemberPointerRankingMiddleResult rank_data_member_owner_vs_cv(
 MemberPointerRankingConstLeafResult rank_data_member_owner_vs_cv(
     const int MemberPointerRankingLeaf::*);
 
+MemberPointerRankingMiddleResult rank_data_member_reference(
+    int MemberPointerRankingMiddle::* const&);
+MemberPointerRankingConstLeafResult rank_data_member_reference(
+    const int MemberPointerRankingLeaf::* const&);
+extern int MemberPointerRankingRoot::* root_data_member_lvalue;
+
 MemberPointerRankingMiddleResult rank_function_member_owner(
     void (MemberFunctionPointerRankingMiddle::*)() noexcept);
 MemberPointerRankingLeafResult rank_function_member_owner(
@@ -54,6 +60,12 @@ static_assert(sizeof(decltype(rank_data_member_owner(
               sizeof(MemberPointerRankingMiddleResult));
 static_assert(sizeof(decltype(rank_data_member_owner_vs_cv(
                   &MemberPointerRankingRoot::root_value))) ==
+              sizeof(MemberPointerRankingMiddleResult));
+static_assert(sizeof(decltype(rank_data_member_reference(
+                  &MemberPointerRankingRoot::root_value))) ==
+              sizeof(MemberPointerRankingMiddleResult));
+static_assert(sizeof(decltype(rank_data_member_reference(
+                  root_data_member_lvalue))) ==
               sizeof(MemberPointerRankingMiddleResult));
 static_assert(sizeof(decltype(rank_function_member_owner(
                   &MemberFunctionPointerRankingRoot::invoke))) ==
