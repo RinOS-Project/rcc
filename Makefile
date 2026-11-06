@@ -26731,7 +26731,7 @@ test-verified-cxx-conditional-move-constructor: $(RCXX_TARGET) \
 		-o $(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.ro \
 		tests/verified_backend_cxx_conditional_move_constructor.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o0.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
@@ -26739,7 +26739,7 @@ test-verified-cxx-conditional-move-constructor: $(RCXX_TARGET) \
 		-o $(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.ro \
 		tests/verified_backend_cxx_conditional_move_constructor.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-move-x86-o2.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
@@ -26747,7 +26747,7 @@ test-verified-cxx-conditional-move-constructor: $(RCXX_TARGET) \
 		-o $(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.ro \
 		tests/verified_backend_cxx_conditional_move_constructor.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o0.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -26755,7 +26755,7 @@ test-verified-cxx-conditional-move-constructor: $(RCXX_TARGET) \
 		-o $(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.ro \
 		tests/verified_backend_cxx_conditional_move_constructor.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-move-x64-o2.log,0)
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \

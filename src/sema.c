@@ -32560,8 +32560,8 @@ static Type* sema_expr_impl(Expr* expr) {
             }
             /* A class conditional that is not itself a glvalue initializes
              * its result object from a selected operand. Preserve
-             * copy-initialization for named lvalue arms and move-initialization
-             * for direct xvalue casts, so overload resolution selects and
+             * copy-initialization for lvalue arms and move-initialization for
+             * xvalue arms, so overload resolution selects and
              * lowering invokes the declared constructor instead of inferring
              * a bytewise copy. */
             if (rcc_parser_is_cxx_mode() && expr->type &&
@@ -32581,8 +32581,7 @@ static Type* sema_expr_impl(Expr* expr) {
                     Type* arm_type = arm
                         ? sema_cxx_object_type(arm->type) : NULL;
                     if (!arm || !arm->type ||
-                        !((arm->kind == EXPR_IDENT && is_lvalue(arm)) ||
-                          (arm->kind == EXPR_CAST && is_xvalue(arm))) ||
+                        !(is_lvalue(arm) || is_xvalue(arm)) ||
                         !type_is_compatible(expr->type, arm_type) ||
                         !type_is_compatible(arm_type, expr->type)) {
                         continue;

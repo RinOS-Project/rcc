@@ -2281,16 +2281,21 @@
           GCC C++20, verified i686/AMD64 O0/O2 with zero fallback, legacy
           i686 assembly, and legacy AMD64 execution in
           test-verified-cxx-conditional-copy-constructor.
-    - [x] Preserve move-initialization for a direct rvalue-reference cast
-          xvalue arm in a same-type class-prvalue conditional and invoke the
-          selected user-defined move constructor directly into the shared
-          result object. Verify both operand orders and selected arms, exact
-          move/copy/destruction counts, GCC C++20, verified i686/AMD64 O0/O2
+    - [x] Preserve move-initialization for direct rvalue-reference cast and
+          noexcept getter xvalue arms in a same-type class-prvalue conditional,
+          invoking the selected user-defined move constructor directly into
+          the shared result object. Verify both operand orders and selected
+          arms, exact move/copy/destruction counts, GCC C++20, verified
+          i686/AMD64 O0/O2 with zero fallback, legacy i686 assembly, and legacy
+          AMD64 execution in test-verified-cxx-conditional-move-constructor.
+    - [x] Extend copy-initialization to non-identifier lvalue arms: an
+          indirect lvalue, a class member, and a noexcept getter returning
+          `const T&`. Verify both operand orders and selected arms with exact
+          copy/move/destruction counts, GCC C++20, verified i686/AMD64 O0/O2
           with zero fallback, legacy i686 assembly, and legacy AMD64 execution
           in test-verified-cxx-conditional-move-constructor.
-    - [ ] Extend conditional copy/move initialization to non-identifier
-          lvalue sources and throwing constructors with partial-result
-          cleanup.
+    - [ ] Extend move-initialization to other xvalue expression forms and
+          support throwing copy/move constructors with partial-result cleanup.
   - [x] Lower fixed-size array-loop cleanup plans recursively for nontrivial
         subobjects of class-prvalue reference temporaries, including nested
         arrays. Emit reverse element destruction and verify the observed order

@@ -24,6 +24,18 @@ struct ConditionalMove {
     }
 };
 
+struct ConditionalMoveHolder {
+    ConditionalMove member;
+
+    const ConditionalMove& get() const noexcept {
+        return member;
+    }
+
+    ConditionalMove&& get_xvalue() noexcept {
+        return static_cast<ConditionalMove&&>(member);
+    }
+};
+
 static int consume(const ConditionalMove& value) noexcept {
     return value.value;
 }
@@ -58,6 +70,49 @@ int main() {
     if (result != 207) return 41;
     if (move_count != 2 || copy_count != 0) return 42;
     if (destructor_count != 4) return 43;
+
+    result = consume(
+        true ? *(&left) : ConditionalMove{70});
+    if (result != 107) return 51;
+    if (move_count != 2 || copy_count != 1) return 52;
+    if (destructor_count != 5) return 53;
+
+    result = consume(
+        false ? *(&left) : ConditionalMove{70});
+    if (result != 70) return 61;
+    if (move_count != 2 || copy_count != 1) return 62;
+    if (destructor_count != 6) return 63;
+
+    ConditionalMoveHolder holder{ConditionalMove{11}};
+    result = consume(true ? holder.member : ConditionalMove{70});
+    if (result != 111) return 71;
+    if (move_count != 2 || copy_count != 2) return 72;
+    if (destructor_count != 7) return 73;
+
+    result = consume(false ? holder.member : ConditionalMove{70});
+    if (result != 70) return 81;
+    if (move_count != 2 || copy_count != 2) return 82;
+    if (destructor_count != 8) return 83;
+
+    result = consume(true ? holder.get() : ConditionalMove{70});
+    if (result != 111) return 91;
+    if (move_count != 2 || copy_count != 3) return 92;
+    if (destructor_count != 9) return 93;
+
+    result = consume(false ? holder.get() : ConditionalMove{70});
+    if (result != 70) return 101;
+    if (move_count != 2 || copy_count != 3) return 102;
+    if (destructor_count != 10) return 103;
+
+    result = consume(true ? holder.get_xvalue() : ConditionalMove{70});
+    if (result != 211) return 111;
+    if (move_count != 3 || copy_count != 3) return 112;
+    if (destructor_count != 11) return 113;
+
+    result = consume(false ? holder.get_xvalue() : ConditionalMove{70});
+    if (result != 70) return 121;
+    if (move_count != 3 || copy_count != 3) return 122;
+    if (destructor_count != 12) return 123;
 
     return 0;
 }
