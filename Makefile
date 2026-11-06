@@ -28679,19 +28679,27 @@ test-cxx-conversion-private-base-using: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_R
 	$(TEST_OUT)/cxx-conversion-private-base-using/gcc-host$(EXE_SUFFIX)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-private-base-using,cxx_private_base_conversion_using.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-conversion-private-base-using/verified-x86.ro tests/cxx_private_base_conversion_using.cpp > $(TEST_OUT)/cxx-conversion-private-base-using/verified-x86.log
-	$(GREP) -F -q "Verified backend: 3 function(s) emitted" $(TEST_OUT)/cxx-conversion-private-base-using/verified-x86.log
+	$(GREP) -F -q "Verified backend: 4 function(s) emitted" $(TEST_OUT)/cxx-conversion-private-base-using/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conversion-private-base-using/verified-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-conversion-private-base-using/verified-x64.ro tests/cxx_private_base_conversion_using.cpp > $(TEST_OUT)/cxx-conversion-private-base-using/verified-x64.log
-	$(GREP) -F -q "Verified backend: 3 function(s) emitted" $(TEST_OUT)/cxx-conversion-private-base-using/verified-x64.log
+	$(GREP) -F -q "Verified backend: 4 function(s) emitted" $(TEST_OUT)/cxx-conversion-private-base-using/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conversion-private-base-using/verified-x64.log,0)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_PRIVATE_BASE_CONVERSION_WITHOUT_USING -fsyntax-only tests/cxx_private_base_conversion_using.cpp,$(TEST_OUT)/cxx-conversion-private-base-using/gcc-negative.log)
 	$(GREP) -F -q "is not an accessible base" $(TEST_OUT)/cxx-conversion-private-base-using/gcc-negative.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_PRIVATE_USING_CONVERSION_OUTSIDE -fsyntax-only tests/cxx_private_base_conversion_using.cpp,$(TEST_OUT)/cxx-conversion-private-base-using/gcc-private-using.log)
+	$(GREP) -F -q "is inaccessible within this context" $(TEST_OUT)/cxx-conversion-private-base-using/gcc-private-using.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_PRIVATE_BASE_CONVERSION_WITHOUT_USING -c -o $(TEST_OUT)/cxx-conversion-private-base-using/x86-negative.ro tests/cxx_private_base_conversion_using.cpp,$(TEST_OUT)/cxx-conversion-private-base-using/x86-negative.log)
 	$(GREP) -F -q "incompatible type for argument 1 to 'take_integer'" $(TEST_OUT)/cxx-conversion-private-base-using/x86-negative.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-private-base-using/x86-negative.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_PRIVATE_USING_CONVERSION_OUTSIDE -c -o $(TEST_OUT)/cxx-conversion-private-base-using/x86-private-using.ro tests/cxx_private_base_conversion_using.cpp,$(TEST_OUT)/cxx-conversion-private-base-using/x86-private-using.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'take_integer'" $(TEST_OUT)/cxx-conversion-private-base-using/x86-private-using.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-private-base-using/x86-private-using.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_PRIVATE_BASE_CONVERSION_WITHOUT_USING -c -o $(TEST_OUT)/cxx-conversion-private-base-using/x64-negative.ro tests/cxx_private_base_conversion_using.cpp,$(TEST_OUT)/cxx-conversion-private-base-using/x64-negative.log)
 	$(GREP) -F -q "incompatible type for argument 1 to 'take_integer'" $(TEST_OUT)/cxx-conversion-private-base-using/x64-negative.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-private-base-using/x64-negative.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_PRIVATE_USING_CONVERSION_OUTSIDE -c -o $(TEST_OUT)/cxx-conversion-private-base-using/x64-private-using.ro tests/cxx_private_base_conversion_using.cpp,$(TEST_OUT)/cxx-conversion-private-base-using/x64-private-using.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'take_integer'" $(TEST_OUT)/cxx-conversion-private-base-using/x64-private-using.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-private-base-using/x64-private-using.ro)
 
 test-cxx-conversion-operator: test-cxx-conversion-private-base-using test-cxx-conversion-member-pointer-owner-path test-cxx-conversion-nested-pointer-qualification test-cxx-conversion-member-pointer-owner-ranking test-cxx-static-cast-conversion-operator
 

@@ -4122,16 +4122,18 @@ static int sema_cxx_conversion_object_qualification_rank(
                     &source_class_type, &this_class_type, 0u) +
                 sema_cxx_all_virtual_member_base_paths(
                     &source_class_type, &this_class_type);
-            bool exposed_by_public_using =
-                method->cxx_access == ACCESS_PUBLIC &&
-                method->cxx_access_owner == source_class && owner_class &&
+            bool exposed_by_accessible_using =
+                method->cxx_access_owner == source_class &&
+                sema_cxx_member_accessible(source_class,
+                                           method->cxx_access) &&
+                owner_class &&
                 method->name &&
                 sema_cxx_method_owner_selected_by_using(
                     source_class, method->name, owner_class);
-            /* A public using-declaration can restore a conversion inherited
-             * through a private or protected base. Only admit that path when
-             * the selected member has one unambiguous base subobject. */
-            if (!exposed_by_public_using || base_subobject_paths != 1) {
+            /* An accessible using-declaration can restore a conversion
+             * inherited through a private or protected base. Only admit that
+             * path when the selected member has one unambiguous subobject. */
+            if (!exposed_by_accessible_using || base_subobject_paths != 1) {
                 return -1;
             }
         }
