@@ -9082,6 +9082,29 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     return false;
 }
 static void gen_stmt(Module* mod, Stmt* stmt);
+
+/* C++ default initialization must not turn otherwise-indeterminate scalar
+ * subobjects into zeroes just because a constructor, DMI, or vptr setup is
+ * needed.  Value initialization and aggregate initialization carry their own
+ * zeroing rules; keep this preclear only for initializer forms that need the
+ * aggregate's omitted elements to be zero-initialized. */
+static bool gen_local_initializer_requires_zero(
+    Type* type, const Expr* initializer) {
+    if (!rcc_parser_is_cxx_mode()) return true;
+    if (!initializer) return false;
+    if (initializer->kind == EXPR_COMPOUND &&
+        (initializer->compound_constructor ||
+         initializer->compound_cxx_default_member_init_only ||
+         initializer->compound_copy_init)) {
+        return false;
+    }
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->kind == EXPR_CALL && initializer->type &&
+        type_is_compatible(type, initializer->type)) {
+        return false;
+    }
+    return true;
+}
 static void gen_zero_local_storage(Module* mod, int32_t displacement,
                                    size_t storage);
 static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
@@ -25032,7 +25055,10 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                        (d->var_init ||
                         (d->type &&
                          codegen_type_has_vtable_storage(d->type)))) {
-                    if (d->type && (d->type->kind == TYPE_ARRAY ||
+                    if (d->type && d->var_init &&
+                        gen_local_initializer_requires_zero(
+                            d->type, d->var_init) &&
+                        (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION ||
                                 d->type->kind == TYPE_VECTOR)) {

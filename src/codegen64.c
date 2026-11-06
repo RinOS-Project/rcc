@@ -17857,6 +17857,27 @@ asm_cleanup:
     rcc_free(registers);
 }
 
+/* Keep C++ default initialization from zeroing scalar subobjects as a side
+ * effect of constructor, DMI, or vptr setup.  Value initialization and
+ * aggregate initialization retain their own zero-initialization rules. */
+static bool gen64_local_initializer_requires_zero(
+    Type* type, const Expr* initializer) {
+    if (!rcc_parser_is_cxx_mode()) return true;
+    if (!initializer) return false;
+    if (initializer->kind == EXPR_COMPOUND &&
+        (initializer->compound_constructor ||
+         initializer->compound_cxx_default_member_init_only ||
+         initializer->compound_copy_init)) {
+        return false;
+    }
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->kind == EXPR_CALL && initializer->type &&
+        type_is_compatible(type, initializer->type)) {
+        return false;
+    }
+    return true;
+}
+
 static void gen64_stmt(Module* mod, Stmt* stmt) {
     uint32_t debug_line_start;
     if (!stmt) return;
@@ -18401,7 +18422,10 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                          (d->type->cxx_class &&
                           (d->type->cxx_class->secondary_vtable_count > 0 ||
                            d->type->cxx_class->virtual_base_count > 0)))))) {
-                    if (d->type && (d->type->kind == TYPE_ARRAY ||
+                    if (d->type && d->var_init &&
+                        gen64_local_initializer_requires_zero(
+                            d->type, d->var_init) &&
+                        (d->type->kind == TYPE_ARRAY ||
                                 d->type->kind == TYPE_STRUCT ||
                                 d->type->kind == TYPE_UNION ||
                                 d->type->kind == TYPE_VECTOR)) {
