@@ -28095,22 +28095,24 @@ static bool lower_cxx_initialize_implicit_default_member_initializers(
         context, object, type, 0u, true);
 }
 
-static bool lower_cxx_type_has_default_member_initializer(
+static bool lower_cxx_type_has_default_initialization_work(
     const Type* type, unsigned depth) {
     const CxxClass* cls;
     if (!type || depth >= 32u) return false;
     if (type->kind == TYPE_ARRAY) {
-        return lower_cxx_type_has_default_member_initializer(
+        return lower_cxx_type_has_default_initialization_work(
             type->base, depth + 1u);
     }
     if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return false;
     cls = type->cxx_class;
-    if (cls && cls->has_field_initializer) return true;
+    if (cls && (cls->has_field_initializer || cls->has_user_constructor)) {
+        return true;
+    }
     if (cls) {
         for (int index = 0; index < cls->base_count; ++index) {
             const CxxClass* base = cls->bases
                 ? cls->bases[index].base : NULL;
-            if (base && lower_cxx_type_has_default_member_initializer(
+            if (base && lower_cxx_type_has_default_initialization_work(
                             base->type, depth + 1u)) {
                 return true;
             }
@@ -28118,7 +28120,7 @@ static bool lower_cxx_type_has_default_member_initializer(
         for (int index = 0; index < cls->virtual_base_count; ++index) {
             const CxxClass* base = cls->virtual_bases
                 ? cls->virtual_bases[index].base : NULL;
-            if (base && lower_cxx_type_has_default_member_initializer(
+            if (base && lower_cxx_type_has_default_initialization_work(
                             base->type, depth + 1u)) {
                 return true;
             }
@@ -28126,7 +28128,7 @@ static bool lower_cxx_type_has_default_member_initializer(
     }
     for (const TypeField* field = type->fields; field; field = field->next) {
         if (field->initializer ||
-            lower_cxx_type_has_default_member_initializer(
+            lower_cxx_type_has_default_initialization_work(
                 field->type, depth + 1u)) {
             return true;
         }
@@ -33229,20 +33231,20 @@ static bool lower_declaration(RccIrLowerContext* context,
             lower_push_scope_cleanup_plan(
                 context, declaration->var_cleanups);
     }
-    if (!declaration->var_init &&
-        (is_array || is_struct || is_union) &&
-        lower_cxx_type_has_default_member_initializer(
-            declaration->type, 0u)) {
-        if (!lower_cxx_implicit_default_member_initializers_supported(
+    if (!declaration->var_init && (is_array || is_struct || is_union)) {
+        if (lower_cxx_implicit_default_member_initializers_supported(
                 declaration->type)) {
+            return lower_cxx_initialize_implicit_default_member_initializers(
+                       context, allocation->result, declaration->type) &&
+                (!declaration->var_cleanups ||
+                 lower_push_scope_cleanup_plan(
+                     context, declaration->var_cleanups));
+        }
+        if (lower_cxx_type_has_default_initialization_work(
+                declaration->type, 0u)) {
             context->unsupported = true;
             return false;
         }
-        return lower_cxx_initialize_implicit_default_member_initializers(
-                   context, allocation->result, declaration->type) &&
-            (!declaration->var_cleanups ||
-             lower_push_scope_cleanup_plan(
-                 context, declaration->var_cleanups));
     }
     if (is_supported_volatile_local_aggregate && declaration->var_init) {
         return lower_initialize_volatile_local_aggregate(
