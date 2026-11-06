@@ -24470,6 +24470,9 @@ static bool lower_cxx_value_initialized_union_supported(
     const Type* type, unsigned depth);
 static bool lower_cxx_value_initialized_subobject_supported(
     const Type* type, unsigned depth);
+static bool lower_cxx_initialize_implicit_default_member_subobjects(
+    RccIrLowerContext* context, RccIrValue object, const Type* type,
+    unsigned depth, bool initialize_virtual_bases);
 
 /* A potentially-throwing exception specification does not itself add a
  * throwing operation. Completed direct bases are registered before the body
@@ -24493,7 +24496,10 @@ static bool lower_cxx_throwing_constructor_with_bases_supported(
             virtual_base->offset < 0 || !cls->type ||
             virtual_base->offset > cls->type->size ||
             subobject_size > cls->type->size - virtual_base->offset ||
-            lower_cxx_type_has_destructor_cleanup(base->type)) {
+            (lower_cxx_type_has_destructor_cleanup(base->type) &&
+             (!base->type->cxx_class ||
+              !lower_cxx_destructor_subobjects_supported(
+                  base->type->cxx_class, 0u)))) {
             return false;
         }
     }
@@ -24903,9 +24909,14 @@ static bool lower_cxx_initialize_constructor_members(
         const CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
         const CxxClass* base = virtual_base->base;
         const CxxConstructorInitializer* selected = NULL;
+        int base_subobject_size = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
         if (!base || !base->type || virtual_base->offset < 0 ||
-            base->type->size <= 0 || virtual_base->offset > cls->type->size ||
-            base->type->size > cls->type->size - virtual_base->offset) {
+            base_subobject_size <= 0 ||
+            virtual_base->offset > cls->type->size ||
+            base_subobject_size >
+                cls->type->size - virtual_base->offset) {
             context->unsupported = true;
             return false;
         }
@@ -24925,20 +24936,22 @@ static bool lower_cxx_initialize_constructor_members(
             selected = initializer;
         }
         if (!selected) {
-            if (!lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+            if (!lower_cxx_implicit_default_subobject_supported(
+                    base->type, 0u)) {
                 context->unsupported = true;
                 return false;
             }
         } else if (!selected->constructor) {
             if (selected->value || selected->arguments ||
-                !lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+                !lower_cxx_implicit_default_subobject_supported(
+                    base->type, 0u)) {
                 context->unsupported = true;
                 return false;
             }
         } else {
             Expr base_expression;
             if (base->base_count != 0 || base->virtual_base_count != 0 ||
-                base->vtable_size != 0 || base->destructor_method) {
+                base->vtable_size != 0) {
                 context->unsupported = true;
                 return false;
             }
@@ -25093,8 +25106,7 @@ static bool lower_cxx_initialize_constructor_members(
                     if (!virtual_base ||
                         virtual_base->base_count != 0 ||
                         virtual_base->virtual_base_count != 0 ||
-                        virtual_base->vtable_size != 0 ||
-                        virtual_base->destructor_method) {
+                        virtual_base->vtable_size != 0) {
                         context->unsupported = true;
                         return false;
                     }
@@ -25337,17 +25349,31 @@ static bool lower_cxx_initialize_constructor_members(
                 break;
             }
         }
-        if (!initializer || !initializer->constructor) continue;
         address = lower_byte_offset_address(
             context, object, (uint64_t)virtual_base->offset);
-        memset(&base_expression, 0, sizeof(base_expression));
-        base_expression.kind = EXPR_COMPOUND;
-        base_expression.type = virtual_base->base->type;
-        base_expression.compound_constructor = initializer->constructor;
-        base_expression.compound_init = initializer->arguments;
-        if (!address.valid ||
-            !lower_cxx_emit_constructor_call(
-                context, &base_expression, address.value)) {
+        if (!address.valid) {
+            context->unsupported = true;
+            return false;
+        }
+        if (initializer && initializer->constructor) {
+            memset(&base_expression, 0, sizeof(base_expression));
+            base_expression.kind = EXPR_COMPOUND;
+            base_expression.type = virtual_base->base->type;
+            base_expression.compound_constructor = initializer->constructor;
+            base_expression.compound_init = initializer->arguments;
+            if (!lower_cxx_emit_constructor_call(
+                    context, &base_expression, address.value)) {
+                context->unsupported = true;
+                return false;
+            }
+        } else if (!lower_cxx_initialize_implicit_default_member_subobjects(
+                       context, address.value,
+                       virtual_base->base->type, 0u, false)) {
+            if (!context->unsupported) context->unsupported = true;
+            return false;
+        }
+        if (!lower_cxx_change_subobject_cleanup(
+                context, virtual_base->base->type, address, true, 0u)) {
             context->unsupported = true;
             return false;
         }
@@ -25599,6 +25625,30 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
         }
         return lower_cxx_delete_subobject_cleanup_change(
             context, cls->type, object, false, 0u);
+    }
+    if (cls->virtual_base_count < 0 ||
+        (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
+        context->unsupported = true;
+        return false;
+    }
+    for (int virtual_base_index = cls->virtual_base_count;
+         virtual_base_index > 0; --virtual_base_index) {
+        const CxxVirtualBaseInfo* virtual_base =
+            &cls->virtual_bases[virtual_base_index - 1];
+        RccIrLowerValue address;
+        if (!virtual_base->base || !virtual_base->base->type ||
+            virtual_base->offset < 0) {
+            context->unsupported = true;
+            return false;
+        }
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)virtual_base->offset);
+        if (!address.valid ||
+            !lower_cxx_change_subobject_cleanup(
+                context, virtual_base->base->type, address, false, 0u)) {
+            context->unsupported = true;
+            return false;
+        }
     }
     for (int base_index = cls->base_count; base_index > 0; --base_index) {
         int index = base_index - 1;
