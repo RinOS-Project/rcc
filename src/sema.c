@@ -38440,8 +38440,15 @@ static void sema_initializer(Type* type, Expr* initializer) {
             return;
         }
         if (!implicit_cast(binding_expression, type)) {
-            rcc_error(initializer->loc,
-                      "invalid C++ reference binding");
+            if (sema_cxx_user_conversion_is_ambiguous(
+                    binding_expression, type)) {
+                rcc_error(initializer->loc,
+                          "ambiguous user-defined conversion in C++ "
+                          "reference initialization");
+            } else {
+                rcc_error(initializer->loc,
+                          "invalid C++ reference binding");
+            }
             return;
         }
         if (binding_expression != initializer) {

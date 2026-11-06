@@ -24,6 +24,12 @@
   diagnostic and RCC i686/AMD64 diagnostics pass in
   `test-cxx-conversion-reference-ranking-ambiguous`; all existing focused
   reference-ranking and inaccessible-conversion checks pass as well.
+- [x] Preserve ambiguous conversion-function status when copy-initializing a
+  C++ reference variable, instead of collapsing it into the generic reference
+  binding diagnostic. GCC and RCC i686/AMD64 checks both the call-argument and
+  reference-initialization diagnostics in
+  `test-cxx-conversion-reference-ranking-ambiguous`; invalid outputs remain
+  absent.
 
 ## RCC continuation (2026-11-05, Windows atomic test gate)
 

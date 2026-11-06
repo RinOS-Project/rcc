@@ -28702,9 +28702,11 @@ test-cxx-conversion-reference-ranking-ambiguous: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.ro tests/cxx_conversion_reference_ranking_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.log)
 	$(GREP) -F -q "ambiguous user-defined conversion for argument 1 to 'consume_reference_base'" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.log
+	$(GREP) -F -q "ambiguous user-defined conversion in C++ reference initialization" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.ro tests/cxx_conversion_reference_ranking_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.log)
 	$(GREP) -F -q "ambiguous user-defined conversion for argument 1 to 'consume_reference_base'" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.log
+	$(GREP) -F -q "ambiguous user-defined conversion in C++ reference initialization" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_private_conversion_function_access_invalid.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-gcc.log)
 	$(GREP) -F -q "operator ConversionAccessBase*()" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-gcc.log

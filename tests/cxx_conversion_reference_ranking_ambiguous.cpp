@@ -26,3 +26,9 @@ int invoke_ambiguous_reference_conversion(
     consume_reference_base(source);
     return 0;
 }
+
+int initialize_ambiguous_reference(
+    ConversionReferenceRankingSource& source) {
+    const ConversionReferenceBase& reference = source;
+    return reference.value;
+}
