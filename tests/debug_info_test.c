@@ -11239,6 +11239,17 @@ static void verify_inline_i686_s64_xor_variable_division_expression(
         expect_tls ? RELOC_TLSOFF32S : RELOC_ABS32U);
 }
 
+static void verify_inline_i686_s64_xor_local_variable_division_expression(
+    ObjectFile* object, const uint8_t* data, uint64_t expression_end,
+    uint64_t expression_start, const ObjSection* info,
+    const ObjSection* strings, const ObjSection* locations,
+    const char* source_name, const char* divisor_name, bool remainder) {
+    verify_inline_i686_u64_global_variable_division_expression_impl(
+        object, data, expression_end, expression_start, info, strings,
+        locations, source_name, divisor_name, false, false, remainder, true,
+        false, false, false, UINT64_C(0x100000001), -1);
+}
+
 static void verify_inline_i686_s64_xor_reference_parameter_division_expression(
     ObjectFile* object, const uint8_t* data, uint64_t expression_end,
     uint64_t expression_start, const ObjSection* info,
@@ -14755,6 +14766,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_atomic_tls_load_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 96 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 97 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -15187,6 +15206,24 @@ static void verify_inline_integer_expression_parameter(
                 expected_constant == INT64_MIN + 87 ||
                 expected_constant == INT64_MIN + 94 ||
                 expected_constant == INT64_MIN + 95);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+        divisor_source_name &&
+        (expected_constant == INT64_MIN + 96 ||
+         expected_constant == INT64_MIN + 97) &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        bool remainder = expected_operation == 0x1du;
+        const char* source_name = remainder
+            ? "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_dividend"
+            : "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_dividend";
+        const char* divisor_name = remainder
+            ? "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_divisor"
+            : "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_divisor";
+        verify_inline_i686_s64_xor_local_variable_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            strings, locations, source_name, divisor_name, remainder);
         objfile_free(object);
         return;
     }
@@ -21115,6 +21152,20 @@ int main(int argc, char** argv)
                 "debug_inline_nonconstant_signed_long_long_tls_atomic_dividend",
                 false, 0x1du, 8u, INT64_MIN + 95,
                 "debug_inline_nonconstant_signed_long_long_tls_atomic_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_signed_long_long_parameter_inline",
+                "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_dividend",
+                false, 0x1bu, 8u, INT64_MIN + 96,
+                "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_signed_long_long_parameter_inline",
+                "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_dividend",
+                false, 0x1du, 8u, INT64_MIN + 97,
+                "debug_inline_nonconstant_signed_long_long_atomic_local_load_xor_remainder_divisor",
                 false);
         }
         return 0;
