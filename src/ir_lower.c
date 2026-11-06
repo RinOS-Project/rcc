@@ -2874,6 +2874,9 @@ static bool lower_dynamic_static_class_member_initializer_supported(
     size_t item_count = 0u;
     bool has_field_designators = false;
     bool has_positional_items = false;
+    bool default_member_initialization = initializer &&
+        initializer->compound_cxx_default_member_normalized &&
+        initializer->compound_cxx_default_member_init_only;
     if (lower_dynamic_static_class_member_constructor_supported(
             type, aggregate_item)) {
         return true;
@@ -2886,14 +2889,30 @@ static bool lower_dynamic_static_class_member_initializer_supported(
         type->cxx_class->virtual_base_count != 0 ||
         type->cxx_class->vtable_size != 0 ||
         type->cxx_class->has_user_constructor ||
-        type->cxx_class->has_field_initializer ||
+        (type->cxx_class->has_field_initializer &&
+         !default_member_initialization) ||
         !initializer || initializer->kind != EXPR_COMPOUND ||
         initializer->compound_constructor ||
         initializer->compound_paren_init ||
-        initializer->compound_cxx_default_member_normalized ||
+        (initializer->compound_cxx_default_member_normalized &&
+         !default_member_initialization) ||
         aggregate_item->cxx_temporary_owner ||
         aggregate_item->cxx_temporary_cleanups) {
         return false;
+    }
+    if (default_member_initialization) {
+        for (const TypeParam* member = type->cxx_class->fields;
+             member; member = member->next) {
+            if (member->is_static) continue;
+            if (!member->type ||
+                !(type_is_integer((Type*)member->type) ||
+                  member->type->kind == TYPE_ENUM ||
+                  type_is_floating((Type*)member->type) ||
+                  (member->type->kind == TYPE_PTR &&
+                   !member->type->cxx_is_member_pointer))) {
+                return false;
+            }
+        }
     }
     for (item = initializer->compound_init; item; item = item->next) {
         if (!item->expr || item->cxx_temporary_owner ||
@@ -3079,7 +3098,8 @@ static bool lower_dynamic_static_class_array_initializer_supported(
         (type->align & (type->align - 1)) != 0 || type->is_volatile ||
         !element_type || element_type->kind != TYPE_STRUCT ||
         !element_type->cxx_class ||
-        !element_type->cxx_class->has_user_constructor ||
+        (!element_type->cxx_class->has_user_constructor &&
+         !element_type->cxx_class->has_field_initializer) ||
         element_type->cxx_class->virtual_base_count != 0 ||
         element_type->cxx_class->vtable_size != 0 ||
         !lower_struct_type_supported(element_type) || !initializer ||
