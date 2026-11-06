@@ -32,3 +32,13 @@ int initialize_ambiguous_reference(
     const ConversionReferenceBase& reference = source;
     return reference.value;
 }
+
+struct ScalarConversionRankingSource {
+    operator int() { return 1; }
+    operator unsigned int() { return 2; }
+};
+
+int initialize_ambiguous_scalar(ScalarConversionRankingSource& source) {
+    long long value = source;
+    return static_cast<int>(value);
+}

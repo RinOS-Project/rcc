@@ -38337,8 +38337,15 @@ static void sema_initializer(Type* type, Expr* initializer) {
         type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) {
         sema_expr(initializer);
         if (!implicit_cast(initializer, type)) {
-            rcc_error(initializer->loc,
-                      "incompatible types in initialization");
+            if (sema_cxx_user_conversion_is_ambiguous(
+                    initializer, type)) {
+                rcc_error(initializer->loc,
+                          "ambiguous user-defined conversion in C++ "
+                          "initialization");
+            } else {
+                rcc_error(initializer->loc,
+                          "incompatible types in initialization");
+            }
         }
         return;
     }
@@ -38529,6 +38536,12 @@ static void sema_initializer(Type* type, Expr* initializer) {
                          type->cxx_is_member_pointer))) {
                 rcc_error(initializer->loc,
                           "invalid pointer-to-member conversion in initialization");
+            } else if (rcc_parser_is_cxx_mode() &&
+                       sema_cxx_user_conversion_is_ambiguous(
+                           initializer, type)) {
+                rcc_error(initializer->loc,
+                          "ambiguous user-defined conversion in C++ "
+                          "initialization");
             } else if (rcc_parser_is_cxx_mode()) {
                 rcc_error(initializer->loc,
                           "incompatible types in initialization");
