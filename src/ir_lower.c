@@ -22733,6 +22733,17 @@ static RccIrLowerValue lower_zero_initializer(
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+        !type_is_cxx_member_function_pointer(type)) {
+        size_t word_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        if (type->size != (int)word_size) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        return lower_integer_constant(
+            context, ir_type, true,
+            word_size == 8u ? UINT64_MAX : UINT32_MAX);
+    }
     if (ir_type.kind == RCC_IR_TYPE_INTEGER) {
         return lower_integer_constant(
             context, ir_type, type->is_unsigned, 0u);
@@ -23037,6 +23048,29 @@ static bool lower_initialize_scalar_storage(
             return source.valid && source.type.kind == RCC_IR_TYPE_POINTER &&
                 lower_copy_member_function_pointer_storage(
                     context, address_value, source.value, type);
+        }
+    }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
+        const Expr* member_initializer = lower_scalar_initializer_expression(
+            initializer);
+        int64_t integer_value;
+        if (!member_initializer && initializer->kind == EXPR_COMPOUND &&
+            !initializer->compound_init) {
+            return lower_zero_scalar_storage(
+                context, address_value, type);
+        }
+        if (!member_initializer) {
+            context->unsupported = true;
+            return false;
+        }
+        if (member_initializer->is_cxx_nullptr ||
+            (member_initializer->type &&
+             member_initializer->type->kind == TYPE_NULLPTR) ||
+            (expr_eval_integer_constant(
+                 (Expr*)member_initializer, &integer_value) &&
+             integer_value == 0)) {
+            return lower_zero_scalar_storage(
+                context, address_value, type);
         }
     }
     expression = lower_scalar_initializer_expression(initializer);
