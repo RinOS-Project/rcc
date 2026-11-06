@@ -2209,7 +2209,7 @@ static bool inline_scalar_atomic_read_evaluation_tree(
                 !declaration->var_is_thread_local &&
                 !declaration->var_is_vla &&
                 !declaration->var_dynamic_initializer && object_type &&
-                object_type->is_atomic && !object_type->is_volatile &&
+                object_type->is_atomic &&
                 !object_type->is_reference &&
                 type_is_integer((Type*)object_type) &&
                 object_type->size == 8 &&

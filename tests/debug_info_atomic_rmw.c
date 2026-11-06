@@ -9,7 +9,7 @@ long long debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_divide_
     long long computed_atomic_rmw_delta,
     long long computed_atomic_rmw_divisor)
 {
-    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_dividend =
+    volatile _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_dividend =
         computed_atomic_rmw_initial;
     return debug_nonconstant_signed_long_long_parameter_inline(
         ((debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_dividend +=

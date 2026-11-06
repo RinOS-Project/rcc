@@ -10881,6 +10881,11 @@ static void verify_inline_i686_computed_division_expression(
         call_die = die;
         origin_die = candidate_origin;
     }
+    if (call_die == UINT64_MAX || origin_die == UINT64_MAX) {
+        fprintf(stderr,
+                "missing inline call site '%s' in '%s'\n",
+                call_site_name, path);
+    }
     assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
     {
         uint64_t children_begin = call_die + 1u + 4u + 4u + 4u + 12u;

@@ -14936,3 +14936,13 @@ Continue in this order:
       AMD64, link the i686 result with `atomic_runtime_i686.c`, validate the
       RIN, and execute the GCC host and generated AMD64 objects through
       `test-verified-atomic-wide-compound`.
+
+## RCC continuation (2026-11-06, volatile automatic atomic RMW i686 DWARF)
+
+- [x] Preserve the value of volatile automatic `_Atomic long long +=` inside
+      computed i686 `/` arguments to inline functions. Permit it through the
+      single-evaluation debug inline-argument proof and frame-backed DWARF
+      recognizer; retain nonvolatile `-=` coverage. Legacy and verified
+      `-O1`/`-O2` objects pass the full signed boundary-value evaluator with
+      zero verified-backend fallback. Both `test-debug-info-inline-expression`
+      and the full `test-debug-info` gate pass.

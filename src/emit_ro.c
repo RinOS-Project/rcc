@@ -6664,7 +6664,7 @@ static const Expr* debug_inline_parameter_i686_u64_atomic_local_rmw_value(
         declaration->var_is_thread_local || declaration->var_is_vla ||
         declaration->var_dynamic_initializer ||
         !(object_type = declaration->type) || !object_type->is_atomic ||
-        object_type->is_volatile || object_type->is_reference ||
+        object_type->is_reference ||
         !debug_inline_integer_expression_type_allow_atomic(object_type) ||
         object_type->size != 8 || !expression->type ||
         (!debug_inline_integer_expression_type(expression->type) &&
