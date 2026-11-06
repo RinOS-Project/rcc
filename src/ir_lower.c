@@ -24582,6 +24582,7 @@ static bool lower_cxx_initialize_constructor_members(
     RccIrLowerLocal* this_local;
     RccIrLowerValue this_address;
     RccIrLowerValue object;
+    bool is_delegating_constructor;
     if (!declaration || !declaration->func_is_cxx_constructor) return true;
     cls = declaration->func_method_owner
         ? declaration->func_method_owner->cxx_class : NULL;
@@ -24594,10 +24595,13 @@ static bool lower_cxx_initialize_constructor_members(
             break;
         }
     }
+    is_delegating_constructor = constructor &&
+        constructor->initializers &&
+        constructor->initializers->is_delegating_constructor;
     if (!context || !cls || !constructor ||
         !constructor->initializers_are_supported ||
         cls->vtable_size != 0 ||
-        (cls->base_count != 0 &&
+        (!is_delegating_constructor && cls->base_count != 0 &&
          (!cls->bases || !cls->base_offsets ||
           !lower_cxx_throwing_constructor_with_bases_supported(
               cls, declaration))) ||
@@ -24607,8 +24611,7 @@ static bool lower_cxx_initialize_constructor_members(
         if (context) context->unsupported = true;
         return false;
     }
-    if (constructor->initializers &&
-        constructor->initializers->is_delegating_constructor) {
+    if (is_delegating_constructor) {
         const CxxConstructorInitializer* delegated =
             constructor->initializers;
         Expr delegated_expression;
