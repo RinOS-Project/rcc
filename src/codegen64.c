@@ -5766,17 +5766,55 @@ static void gen64_symbol_address(Module* mod, const char* symbol,
               RIN_RELOC_ABS64);
 }
 
+static bool gen64_type_has_vtable_storage(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!type) return false;
+    if (type->cxx_vtable_size > 0 ||
+        (cls && (cls->secondary_vtable_count > 0 ||
+                 cls->virtual_base_count > 0))) {
+        return true;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && gen64_type_has_vtable_storage(type->base);
+    }
+    if (type->kind == TYPE_STRUCT && cls) {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (field->cxx_declaring_class == cls && field->type &&
+                gen64_type_has_vtable_storage(field->type)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static void gen64_local_vtable_init(Module* mod, Type* type,
                                     int base_register,
                                     int32_t displacement) {
     CxxClass* cls;
-    if (!mod || !type ||
-        !(type->cxx_vtable_size > 0 ||
-          (type->cxx_class &&
-           (type->cxx_class->secondary_vtable_count > 0 ||
-            type->cxx_class->virtual_base_count > 0)))) {
+    if (!mod || !type) return;
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->base->size <= 0 || type->array_len < 0 ||
+            type->array_len > 4096) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "array vtable initialization exceeds codegen limits");
+            return;
+        }
+        for (int64_t index = 0; index < type->array_len; ++index) {
+            int64_t element_displacement = (int64_t)displacement +
+                index * (int64_t)type->base->size;
+            if (element_displacement < INT32_MIN ||
+                element_displacement > INT32_MAX) {
+                rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                          "array vtable pointer exceeds stack limits");
+                return;
+            }
+            gen64_local_vtable_init(mod, type->base, base_register,
+                                    (int32_t)element_displacement);
+        }
         return;
     }
+    if (!gen64_type_has_vtable_storage(type)) return;
     if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
         gen64_symbol_address(mod, type->cxx_vtable_symbol, 0u);
         emit64_mov_mem_reg(mod, base_register, displacement, RAX);
@@ -5800,7 +5838,14 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
                                RAX);
         }
     }
-    if (!cls->base_offsets) return;
+    if (!cls->base_offsets) {
+        if (cls->base_count > 0) {
+            rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                      "class base layout is missing vtable offsets");
+            return;
+        }
+        goto init_member_vtables64;
+    }
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
         const char* base_vtable_symbol;
@@ -5930,6 +5975,31 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
         gen64_symbol_address(mod, table_symbol, 0u);
         emit64_mov_mem_reg(mod, base_register,
                            (int32_t)pointer_displacement, RAX);
+    }
+init_member_vtables64:
+    if (type->kind == TYPE_STRUCT) {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            int64_t member_displacement;
+            if (field->cxx_declaring_class != cls || !field->type ||
+                !gen64_type_has_vtable_storage(field->type)) {
+                continue;
+            }
+            if (field->offset < 0 || field->offset > type->size ||
+                field->type->size > type->size - field->offset) {
+                rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                          "member vtable exceeds class layout");
+                continue;
+            }
+            member_displacement = (int64_t)displacement + field->offset;
+            if (member_displacement < INT32_MIN ||
+                member_displacement > INT32_MAX) {
+                rcc_error((SourceLoc){"<cxx-vtable>", 0, 0},
+                          "member vtable pointer exceeds stack limits");
+                continue;
+            }
+            gen64_local_vtable_init(mod, field->type, base_register,
+                                    (int32_t)member_displacement);
+        }
     }
 }
 
@@ -14505,10 +14575,7 @@ static Expr* gen64_static_reference_subobject_rebase(
 static void gen64_static_reference_owner_vtable_init(
     Module* mod, Type* type, Decl* owner) {
     if (!mod || !type || !owner ||
-        !(type->cxx_vtable_size > 0 ||
-          (type->cxx_class &&
-           (type->cxx_class->secondary_vtable_count > 0 ||
-            type->cxx_class->virtual_base_count > 0)))) {
+        !gen64_type_has_vtable_storage(type)) {
         return;
     }
     /* Keep RBP as the live CFA base while initializing this static object. */
@@ -18542,10 +18609,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             } else if (d->kind == DECL_VAR &&
                        (d->var_init ||
                        (d->type &&
-                        (d->type->cxx_vtable_size > 0 ||
-                         (d->type->cxx_class &&
-                          (d->type->cxx_class->secondary_vtable_count > 0 ||
-                           d->type->cxx_class->virtual_base_count > 0)))))) {
+                        gen64_type_has_vtable_storage(d->type)))) {
                     if (d->type && d->var_init &&
                         gen64_local_initializer_requires_zero(
                             d->type, d->var_init) &&
