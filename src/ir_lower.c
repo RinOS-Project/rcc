@@ -31383,9 +31383,29 @@ static bool lower_declaration(RccIrLowerContext* context,
             declaration->var_init);
     }
     if (is_array && declaration->var_init) {
-        if (!lower_array_initializer(
-                context, allocation->result,
-                declaration->type, declaration->var_init)) {
+        const Decl* previous_partial_owner =
+            context->partial_construction_owner;
+        const Decl* previous_partial_cleanup_declaration =
+            context->partial_construction_cleanup_declaration;
+        RccIrLowerValue array_object = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+        bool track_partial_elements = declaration->var_cleanups != NULL &&
+            lower_cleanup_initializer_may_throw(declaration->var_init);
+        bool initialized;
+        if (track_partial_elements) {
+            context->partial_construction_owner = declaration;
+            context->partial_construction_cleanup_declaration = declaration;
+        }
+        initialized = lower_array_initializer(
+            context, allocation->result,
+            declaration->type, declaration->var_init);
+        context->partial_construction_owner = previous_partial_owner;
+        context->partial_construction_cleanup_declaration =
+            previous_partial_cleanup_declaration;
+        if (!initialized ||
+            (track_partial_elements &&
+             !lower_unregister_partial_array_cleanups_in_object(
+                 context, declaration->type, array_object, 0u))) {
             return false;
         }
         return !declaration->var_cleanups ||
