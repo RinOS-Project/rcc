@@ -5869,12 +5869,34 @@ static void gen64_push_call_temporary_cleanup(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
 static void gen64_push_conditional_field_receiver_cleanup(
     Module* mod, Expr* expression, int selector_offset,
-    bool selector_value);
+    bool selector_value, bool exception_registered);
+static void gen64_register_conditional_field_receiver_exception_cleanup(
+    Module* mod, Expr* expression, bool* exception_registered);
 static void gen64_push_explicit_destructor_cleanup(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
 static Expr* active_conditional_field_receiver_call64 = NULL;
-static int active_conditional_field_receiver_selector_offset64 = -1;
-static bool active_conditional_field_receiver_selector_value64;
+static bool active_conditional_field_receiver_exception_registered64;
+
+static Expr* gen64_conditional_field_receiver_source(Expr* arm) {
+    if (!arm) return NULL;
+    if (arm->kind == EXPR_COMPOUND && arm->compound_copy_init &&
+        arm->compound_init && !arm->compound_init->next) {
+        return gen64_conditional_field_receiver_source(
+            arm->compound_init->expr);
+    }
+    if (arm->kind == EXPR_CAST) {
+        return gen64_conditional_field_receiver_source(arm->cast_expr);
+    }
+    if (arm->kind == EXPR_COMMA) {
+        return gen64_conditional_field_receiver_source(arm->binary_rhs);
+    }
+    return arm->kind == EXPR_CALL && arm->cxx_temporary_owner &&
+            arm->cxx_temporary_source && arm->cxx_temporary_cleanups &&
+            arm->call_method && arm->call_method->kind == TYPE_METHOD_FIELD &&
+            arm->call_method->field && arm->call_method->return_type &&
+            arm->call_method->return_type->is_reference
+        ? arm : NULL;
+}
 
 static void gen64_symbol_address(Module* mod, const char* symbol,
                                  uint32_t addend) {
@@ -6559,10 +6581,9 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 if (expr == active_conditional_field_receiver_call64 &&
                     expr->cxx_temporary_owner &&
                     expr->cxx_temporary_cleanups) {
-                    gen64_push_conditional_field_receiver_cleanup(
+                    gen64_register_conditional_field_receiver_exception_cleanup(
                         mod, expr,
-                        active_conditional_field_receiver_selector_offset64,
-                        active_conditional_field_receiver_selector_value64);
+                        &active_conditional_field_receiver_exception_registered64);
                 }
                 break;
             }
@@ -6607,13 +6628,17 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             bool aggregate_result = gen64_is_aggregate(expr->type);
             Expr* previous_receiver_call =
                 active_conditional_field_receiver_call64;
-            int previous_receiver_selector_offset =
-                active_conditional_field_receiver_selector_offset64;
-            bool previous_receiver_selector_value =
-                active_conditional_field_receiver_selector_value64;
+            bool previous_receiver_exception_registered =
+                active_conditional_field_receiver_exception_registered64;
+            bool then_receiver_exception_registered = false;
+            bool else_receiver_exception_registered = false;
             bool has_receiver_cleanup_selector =
                 expr->kind == EXPR_COND &&
                 expr->cxx_conditional_cleanup_selector_offset < 0;
+            Expr* then_receiver_call = has_receiver_cleanup_selector
+                ? gen64_conditional_field_receiver_source(then_expr) : NULL;
+            Expr* else_receiver_call = has_receiver_cleanup_selector
+                ? gen64_conditional_field_receiver_source(else_expr) : NULL;
             if ((!glvalue_result && !aggregate_result) ||
                 (!glvalue_result && expr->aggregate_offset >= 0) ||
                 !then_expr ||
@@ -6636,56 +6661,50 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             } else {
                 gen64_expr(mod, expr->binary_lhs);
             }
+            active_conditional_field_receiver_call64 = then_receiver_call;
+            active_conditional_field_receiver_exception_registered64 = false;
             if (glvalue_result) {
-                active_conditional_field_receiver_call64 =
-                    has_receiver_cleanup_selector && then_expr &&
-                            then_expr->kind == EXPR_CALL &&
-                            then_expr->cxx_temporary_owner
-                        ? then_expr : NULL;
-                active_conditional_field_receiver_selector_offset64 =
-                    expr->cxx_conditional_cleanup_selector_offset;
-                active_conditional_field_receiver_selector_value64 = true;
                 gen64_lvalue(mod, then_expr);
             } else {
-                active_conditional_field_receiver_call64 =
-                    has_receiver_cleanup_selector && then_expr &&
-                            then_expr->kind == EXPR_CALL &&
-                            then_expr->cxx_temporary_owner
-                        ? then_expr : NULL;
-                active_conditional_field_receiver_selector_offset64 =
-                    expr->cxx_conditional_cleanup_selector_offset;
-                active_conditional_field_receiver_selector_value64 = true;
                 gen64_materialize_aggregate(mod, expr, then_expr);
             }
+            then_receiver_exception_registered =
+                active_conditional_field_receiver_exception_registered64;
             active_conditional_field_receiver_call64 =
                 previous_receiver_call;
-            active_conditional_field_receiver_selector_offset64 =
-                previous_receiver_selector_offset;
-            active_conditional_field_receiver_selector_value64 =
-                previous_receiver_selector_value;
+            active_conditional_field_receiver_exception_registered64 =
+                previous_receiver_exception_registered;
             if (expr->kind == EXPR_COND) {
                 emit64_jmp_label(mod, end_label);
                 emit64_label(mod, else_label);
                 active_conditional_field_receiver_call64 =
-                    has_receiver_cleanup_selector && else_expr &&
-                            else_expr->kind == EXPR_CALL &&
-                            else_expr->cxx_temporary_owner
-                        ? else_expr : NULL;
-                active_conditional_field_receiver_selector_offset64 =
-                    expr->cxx_conditional_cleanup_selector_offset;
-                active_conditional_field_receiver_selector_value64 = false;
+                    else_receiver_call;
+                active_conditional_field_receiver_exception_registered64 =
+                    false;
                 if (glvalue_result) {
                     gen64_lvalue(mod, else_expr);
                 } else {
                     gen64_materialize_aggregate(mod, expr, else_expr);
                 }
+                else_receiver_exception_registered =
+                    active_conditional_field_receiver_exception_registered64;
                 active_conditional_field_receiver_call64 =
                     previous_receiver_call;
-                active_conditional_field_receiver_selector_offset64 =
-                    previous_receiver_selector_offset;
-                active_conditional_field_receiver_selector_value64 =
-                    previous_receiver_selector_value;
+                active_conditional_field_receiver_exception_registered64 =
+                    previous_receiver_exception_registered;
                 emit64_label(mod, end_label);
+                if (then_receiver_call) {
+                    gen64_push_conditional_field_receiver_cleanup(
+                        mod, then_receiver_call,
+                        expr->cxx_conditional_cleanup_selector_offset,
+                        true, then_receiver_exception_registered);
+                }
+                if (else_receiver_call) {
+                    gen64_push_conditional_field_receiver_cleanup(
+                        mod, else_receiver_call,
+                        expr->cxx_conditional_cleanup_selector_offset,
+                        false, else_receiver_exception_registered);
+                }
             }
             if (!glvalue_result) {
                 emit64_lea(mod, RAX, RBP, expr->aggregate_offset);
@@ -14231,8 +14250,8 @@ static void gen64_push_call_temporary_cleanup(
 
 static void gen64_push_conditional_field_receiver_cleanup(
     Module* mod, Expr* expression, int selector_offset,
-    bool selector_value) {
-    CleanupCodegen64* previous;
+    bool selector_value, bool exception_registered) {
+    CleanupCodegen64* cleanup;
     if (!mod || !expression || !expression->cxx_temporary_cleanups ||
         selector_offset >= 0) {
         if (expression) {
@@ -14241,23 +14260,51 @@ static void gen64_push_conditional_field_receiver_cleanup(
         }
         return;
     }
-    /* The field getter's address is the lvalue result in RAX. Registering its
-     * exception cleanup emits a runtime call, so preserve that result across
-     * the call before the conditional arm copies/forwards it. */
-    emit64_push_reg(mod, RAX);
-    previous = active_cleanups64;
-    gen64_push_call_temporary_cleanup(
-        mod, NULL, expression->cxx_temporary_cleanups);
-    if (active_cleanups64 == previous) {
+    if (!exception_registered && cxx_exception_cleanup_registration_enabled64 &&
+        active_cxx_exception_cleanup_frame_offset64 != INT_MAX &&
+        gen64_cxx_cleanup_plan_registerable(
+            expression->cxx_temporary_cleanups)) {
+        int skip_label = new_label64();
+        emit64_push_reg(mod, RAX);
+        emit64_mov_reg_mem(mod, RAX, RBP, selector_offset);
+        emit64_cmp_reg_imm(mod, RAX, selector_value ? 1 : 0);
+        emit64_jcc_label(mod, CC64_NE, skip_label);
+        gen64_cxx_exception_register_plan(
+            mod, expression->cxx_temporary_cleanups,
+            active_cxx_exception_cleanup_frame_offset64);
+        emit64_label(mod, skip_label);
         emit64_pop_reg(mod, RAX);
-        rcc_error(expression->loc,
-                  "conditional field receiver cleanup could not be registered");
+        exception_registered = true;
+    }
+    cleanup = rcc_alloc(sizeof(*cleanup));
+    memset(cleanup, 0, sizeof(*cleanup));
+    cleanup->plan = expression->cxx_temporary_cleanups;
+    cleanup->previous = active_cleanups64;
+    cleanup->exception_frame_offset =
+        active_cxx_exception_cleanup_frame_offset64;
+    cleanup->exception_registered = exception_registered;
+    cleanup->has_conditional_selector_guard = true;
+    cleanup->conditional_selector_offset = selector_offset;
+    cleanup->conditional_selector_value = selector_value;
+    active_cleanups64 = cleanup;
+}
+
+static void gen64_register_conditional_field_receiver_exception_cleanup(
+    Module* mod, Expr* expression, bool* exception_registered) {
+    if (!mod || !expression || !expression->cxx_temporary_cleanups ||
+        !exception_registered || *exception_registered ||
+        !cxx_exception_cleanup_registration_enabled64 ||
+        active_cxx_exception_cleanup_frame_offset64 == INT_MAX ||
+        !gen64_cxx_cleanup_plan_registerable(
+            expression->cxx_temporary_cleanups)) {
         return;
     }
-    active_cleanups64->has_conditional_selector_guard = true;
-    active_cleanups64->conditional_selector_offset = selector_offset;
-    active_cleanups64->conditional_selector_value = selector_value;
+    emit64_push_reg(mod, RAX);
+    gen64_cxx_exception_register_plan(
+        mod, expression->cxx_temporary_cleanups,
+        active_cxx_exception_cleanup_frame_offset64);
     emit64_pop_reg(mod, RAX);
+    *exception_registered = true;
 }
 
 static void gen64_transfer_by_value_argument_cleanups64(

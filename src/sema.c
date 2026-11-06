@@ -30436,28 +30436,49 @@ static Expr* sema_cxx_lvalue_to_rvalue_operand(Expr* expression) {
  * the referenced member into its shared result object.  Attach the receiver
  * cleanup to the accessor call so verified lowering can defer it until after
  * that copy. */
+static Expr* sema_conditional_field_accessor_source(Expr* expression) {
+    if (!expression) return NULL;
+    if (expression->kind == EXPR_CALL) return expression;
+    if (expression->kind == EXPR_COMPOUND &&
+        expression->compound_copy_init && expression->compound_init &&
+        !expression->compound_init->next) {
+        return sema_conditional_field_accessor_source(
+            expression->compound_init->expr);
+    }
+    if (expression->kind == EXPR_CAST) {
+        return sema_conditional_field_accessor_source(
+            expression->cast_expr);
+    }
+    if (expression->kind == EXPR_COMMA) {
+        return sema_conditional_field_accessor_source(
+            expression->binary_rhs);
+    }
+    return NULL;
+}
+
 static void sema_prepare_conditional_field_accessor_receiver_cleanup(
     Expr* expression, Type* result_type) {
+    Expr* accessor;
     TypeMethod* method;
     Expr* member;
     Expr* receiver;
     Decl* owner = NULL;
     CxxCleanupPlan* cleanups = NULL;
-    if (!expression || expression->kind != EXPR_CALL ||
-        !(method = expression->call_method) ||
+    if (!(accessor = sema_conditional_field_accessor_source(expression)) ||
+        !(method = accessor->call_method) ||
         method->kind != TYPE_METHOD_FIELD || !method->field ||
         !method->return_type || !method->return_type->is_reference ||
-        !method->return_type->base || !expression->type || !result_type ||
-        expression->cxx_temporary_owner ||
-        expression->cxx_temporary_source ||
-        expression->cxx_temporary_cleanups ||
-        !type_is_compatible(expression->type, result_type) ||
-        !type_is_compatible(result_type, expression->type) ||
+        !method->return_type->base || !accessor->type || !result_type ||
+        accessor->cxx_temporary_owner ||
+        accessor->cxx_temporary_source ||
+        accessor->cxx_temporary_cleanups ||
+        !type_is_compatible(accessor->type, result_type) ||
+        !type_is_compatible(result_type, accessor->type) ||
         !type_is_compatible(method->return_type->base, result_type) ||
         !type_is_compatible(result_type, method->return_type->base)) {
         return;
     }
-    member = expression->call_func;
+    member = accessor->call_func;
     if (!member || member->kind != EXPR_MEMBER ||
         !(receiver = member->member_base) || !receiver->type ||
         (receiver->type->kind != TYPE_STRUCT &&
@@ -30469,9 +30490,9 @@ static void sema_prepare_conditional_field_accessor_receiver_cleanup(
         receiver, &owner, &cleanups, false,
         "conditional field-accessor receiver cleanup is unsupported");
     if (owner) {
-        expression->cxx_temporary_owner = owner;
-        expression->cxx_temporary_source = receiver;
-        expression->cxx_temporary_cleanups = cleanups;
+        accessor->cxx_temporary_owner = owner;
+        accessor->cxx_temporary_source = receiver;
+        accessor->cxx_temporary_cleanups = cleanups;
     }
 }
 

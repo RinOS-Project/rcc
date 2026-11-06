@@ -26873,7 +26873,7 @@ test-verified-cxx-conditional-field-accessor-cleanup: $(RCXX_TARGET) test-verifi
 		-o $(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x86-o0.ro \
 		tests/verified_backend_cxx_conditional_field_accessor_cleanup.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x86-o0.log
-	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x86-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x86-o0.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos \
@@ -26882,7 +26882,7 @@ test-verified-cxx-conditional-field-accessor-cleanup: $(RCXX_TARGET) test-verifi
 		-o $(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x86-o2.ro \
 		tests/verified_backend_cxx_conditional_field_accessor_cleanup.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x86-o2.log
-	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x86-o2.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos \
@@ -26891,7 +26891,7 @@ test-verified-cxx-conditional-field-accessor-cleanup: $(RCXX_TARGET) test-verifi
 		-o $(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x64-o0.ro \
 		tests/verified_backend_cxx_conditional_field_accessor_cleanup.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x64-o0.log
-	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x64-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x64-o0.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos \
@@ -26900,7 +26900,7 @@ test-verified-cxx-conditional-field-accessor-cleanup: $(RCXX_TARGET) test-verifi
 		-o $(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x64-o2.ro \
 		tests/verified_backend_cxx_conditional_field_accessor_cleanup.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-field-accessor-x64-o2.log,0)
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \

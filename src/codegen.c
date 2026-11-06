@@ -5285,10 +5285,31 @@ static void gen_transfer_by_value_argument_cleanups32(
 static void gen_lvalue(Module* mod, Expr* expr);
 static void gen_push_conditional_field_receiver_cleanup32(
     Module* mod, Expr* expression, int selector_offset,
-    bool selector_value);
+    bool selector_value, bool exception_registered);
+static void gen_register_conditional_field_receiver_exception_cleanup32(
+    Module* mod, Expr* expression, bool* exception_registered);
 static Expr* active_conditional_field_receiver_call32 = NULL;
-static int active_conditional_field_receiver_selector_offset32 = -1;
-static bool active_conditional_field_receiver_selector_value32;
+static bool active_conditional_field_receiver_exception_registered32;
+static Expr* gen_conditional_field_receiver_source32(Expr* arm) {
+    if (!arm) return NULL;
+    if (arm->kind == EXPR_COMPOUND && arm->compound_copy_init &&
+        arm->compound_init && !arm->compound_init->next) {
+        return gen_conditional_field_receiver_source32(
+            arm->compound_init->expr);
+    }
+    if (arm->kind == EXPR_CAST) {
+        return gen_conditional_field_receiver_source32(arm->cast_expr);
+    }
+    if (arm->kind == EXPR_COMMA) {
+        return gen_conditional_field_receiver_source32(arm->binary_rhs);
+    }
+    return arm->kind == EXPR_CALL && arm->cxx_temporary_owner &&
+            arm->cxx_temporary_source && arm->cxx_temporary_cleanups &&
+            arm->call_method && arm->call_method->kind == TYPE_METHOD_FIELD &&
+            arm->call_method->field && arm->call_method->return_type &&
+            arm->call_method->return_type->is_reference
+        ? arm : NULL;
+}
 static bool gen_guarded_static_initializer32(
     Module* mod, Decl* declaration);
 static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression);
@@ -10288,10 +10309,9 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 if (expr == active_conditional_field_receiver_call32 &&
                     expr->cxx_temporary_owner &&
                     expr->cxx_temporary_cleanups) {
-                    gen_push_conditional_field_receiver_cleanup32(
+                    gen_register_conditional_field_receiver_exception_cleanup32(
                         mod, expr,
-                        active_conditional_field_receiver_selector_offset32,
-                        active_conditional_field_receiver_selector_value32);
+                        &active_conditional_field_receiver_exception_registered32);
                 }
                 break;
             }
@@ -10343,13 +10363,17 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             bool aggregate_result = gen_aggregate_type32(expr->type);
             Expr* previous_receiver_call =
                 active_conditional_field_receiver_call32;
-            int previous_receiver_selector_offset =
-                active_conditional_field_receiver_selector_offset32;
-            bool previous_receiver_selector_value =
-                active_conditional_field_receiver_selector_value32;
+            bool previous_receiver_exception_registered =
+                active_conditional_field_receiver_exception_registered32;
+            bool then_receiver_exception_registered = false;
+            bool else_receiver_exception_registered = false;
             bool has_receiver_cleanup_selector =
                 expr->kind == EXPR_COND &&
                 expr->cxx_conditional_cleanup_selector_offset < 0;
+            Expr* then_receiver_call = has_receiver_cleanup_selector
+                ? gen_conditional_field_receiver_source32(then_expr) : NULL;
+            Expr* else_receiver_call = has_receiver_cleanup_selector
+                ? gen_conditional_field_receiver_source32(else_expr) : NULL;
             if ((!glvalue_result && !aggregate_result) ||
                 (!glvalue_result && expr->aggregate_offset >= 0) ||
                 !then_expr ||
@@ -10386,21 +10410,15 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             } else {
                 gen_expr(mod, expr->binary_lhs);
             }
-            active_conditional_field_receiver_call32 =
-                has_receiver_cleanup_selector && then_expr &&
-                        then_expr->kind == EXPR_CALL &&
-                        then_expr->cxx_temporary_owner
-                    ? then_expr : NULL;
-            active_conditional_field_receiver_selector_offset32 =
-                expr->cxx_conditional_cleanup_selector_offset;
-            active_conditional_field_receiver_selector_value32 = true;
+            active_conditional_field_receiver_call32 = then_receiver_call;
+            active_conditional_field_receiver_exception_registered32 = false;
             gen_lvalue(mod, then_expr);
+            then_receiver_exception_registered =
+                active_conditional_field_receiver_exception_registered32;
             active_conditional_field_receiver_call32 =
                 previous_receiver_call;
-            active_conditional_field_receiver_selector_offset32 =
-                previous_receiver_selector_offset;
-            active_conditional_field_receiver_selector_value32 =
-                previous_receiver_selector_value;
+            active_conditional_field_receiver_exception_registered32 =
+                previous_receiver_exception_registered;
             if (!glvalue_result) {
                 gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
                                      expr->type->size);
@@ -10409,25 +10427,33 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 emit_jmp_label(mod, end_label);
                 emit_label(mod, else_label);
                 active_conditional_field_receiver_call32 =
-                    has_receiver_cleanup_selector && else_expr &&
-                            else_expr->kind == EXPR_CALL &&
-                            else_expr->cxx_temporary_owner
-                        ? else_expr : NULL;
-                active_conditional_field_receiver_selector_offset32 =
-                    expr->cxx_conditional_cleanup_selector_offset;
-                active_conditional_field_receiver_selector_value32 = false;
+                    else_receiver_call;
+                active_conditional_field_receiver_exception_registered32 =
+                    false;
                 gen_lvalue(mod, else_expr);
+                else_receiver_exception_registered =
+                    active_conditional_field_receiver_exception_registered32;
                 active_conditional_field_receiver_call32 =
                     previous_receiver_call;
-                active_conditional_field_receiver_selector_offset32 =
-                    previous_receiver_selector_offset;
-                active_conditional_field_receiver_selector_value32 =
-                    previous_receiver_selector_value;
+                active_conditional_field_receiver_exception_registered32 =
+                    previous_receiver_exception_registered;
                 if (!glvalue_result) {
                     gen_copy_aggregate32(mod, expr->aggregate_offset, EAX,
                                          expr->type->size);
                 }
                 emit_label(mod, end_label);
+                if (then_receiver_call) {
+                    gen_push_conditional_field_receiver_cleanup32(
+                        mod, then_receiver_call,
+                        expr->cxx_conditional_cleanup_selector_offset,
+                        true, then_receiver_exception_registered);
+                }
+                if (else_receiver_call) {
+                    gen_push_conditional_field_receiver_cleanup32(
+                        mod, else_receiver_call,
+                        expr->cxx_conditional_cleanup_selector_offset,
+                        false, else_receiver_exception_registered);
+                }
             }
             if (!glvalue_result) {
                 emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
@@ -21181,14 +21207,8 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
     if (!expression || !bytes || *bytes == INT_MAX) return;
     if (expression->kind == EXPR_COND &&
         expression->cxx_conditional_cleanup_selector_offset == 0 &&
-        ((expression->cond_then &&
-          expression->cond_then->kind == EXPR_CALL &&
-          expression->cond_then->cxx_temporary_owner &&
-          expression->cond_then->cxx_temporary_cleanups) ||
-         (expression->cond_else &&
-          expression->cond_else->kind == EXPR_CALL &&
-          expression->cond_else->cxx_temporary_owner &&
-          expression->cond_else->cxx_temporary_cleanups))) {
+        (gen_conditional_field_receiver_source32(expression->cond_then) ||
+         gen_conditional_field_receiver_source32(expression->cond_else))) {
         int size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
         int64_t extent = (int64_t)*bytes + size;
         if (extent > INT_MAX) {
@@ -23681,8 +23701,8 @@ static void codegen_push_call_temporary_cleanup32(
 
 static void gen_push_conditional_field_receiver_cleanup32(
     Module* mod, Expr* expression, int selector_offset,
-    bool selector_value) {
-    CleanupCodegen* previous;
+    bool selector_value, bool exception_registered) {
+    CleanupCodegen* cleanup;
     if (!mod || !expression || !expression->cxx_temporary_cleanups ||
         selector_offset >= 0) {
         if (expression) {
@@ -23691,22 +23711,51 @@ static void gen_push_conditional_field_receiver_cleanup32(
         }
         return;
     }
-    /* The field getter's address is the lvalue result in EAX. Preserve it
-     * while exception cleanup registration emits a runtime call. */
-    emit_push_reg(mod, EAX);
-    previous = active_cleanups;
-    codegen_push_call_temporary_cleanup32(
-        mod, NULL, expression->cxx_temporary_cleanups);
-    if (active_cleanups == previous) {
+    if (!exception_registered && cxx_exception_cleanup_registration_enabled &&
+        active_cxx_exception_cleanup_frame_offset != INT_MAX &&
+        gen_cxx_cleanup_plan_registerable32(
+            expression->cxx_temporary_cleanups)) {
+        int skip_label = new_label();
+        emit_push_reg(mod, EAX);
+        emit_mov_reg_mem(mod, EAX, EBP, selector_offset);
+        emit_cmp_reg_imm(mod, EAX, selector_value ? 1 : 0);
+        emit_jcc_label(mod, CC_NE, skip_label);
+        gen_cxx_exception_register_plan32(
+            mod, expression->cxx_temporary_cleanups,
+            active_cxx_exception_cleanup_frame_offset);
+        emit_label(mod, skip_label);
         emit_pop_reg(mod, EAX);
-        rcc_error(expression->loc,
-                  "conditional field receiver cleanup could not be registered");
+        exception_registered = true;
+    }
+    cleanup = rcc_alloc(sizeof(*cleanup));
+    memset(cleanup, 0, sizeof(*cleanup));
+    cleanup->plan = expression->cxx_temporary_cleanups;
+    cleanup->previous = active_cleanups;
+    cleanup->exception_frame_offset =
+        active_cxx_exception_cleanup_frame_offset;
+    cleanup->exception_registered = exception_registered;
+    cleanup->has_conditional_selector_guard = true;
+    cleanup->conditional_selector_offset = selector_offset;
+    cleanup->conditional_selector_value = selector_value;
+    active_cleanups = cleanup;
+}
+
+static void gen_register_conditional_field_receiver_exception_cleanup32(
+    Module* mod, Expr* expression, bool* exception_registered) {
+    if (!mod || !expression || !expression->cxx_temporary_cleanups ||
+        !exception_registered || *exception_registered ||
+        !cxx_exception_cleanup_registration_enabled ||
+        active_cxx_exception_cleanup_frame_offset == INT_MAX ||
+        !gen_cxx_cleanup_plan_registerable32(
+            expression->cxx_temporary_cleanups)) {
         return;
     }
-    active_cleanups->has_conditional_selector_guard = true;
-    active_cleanups->conditional_selector_offset = selector_offset;
-    active_cleanups->conditional_selector_value = selector_value;
+    emit_push_reg(mod, EAX);
+    gen_cxx_exception_register_plan32(
+        mod, expression->cxx_temporary_cleanups,
+        active_cxx_exception_cleanup_frame_offset);
     emit_pop_reg(mod, EAX);
+    *exception_registered = true;
 }
 
 static void gen_transfer_by_value_argument_cleanups32(

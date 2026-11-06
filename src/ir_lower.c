@@ -12675,7 +12675,8 @@ static bool lower_call_has_throwing_argument_after_temporary(
     if (!expression) return false;
     for (argument = expression->call_args; argument;
          argument = argument->next) {
-        if (!lower_noexcept_expression(argument->expr) && has_temporary) {
+        if (!lower_noexcept_expression(argument->expr) &&
+            (has_temporary || argument->cxx_temporary_owner)) {
             return true;
         }
         if (argument->cxx_temporary_owner) has_temporary = true;
@@ -20813,6 +20814,36 @@ lower_create_conditional_field_receiver_cleanup(
     return cleanup;
 }
 
+static const Expr* lower_conditional_field_receiver_source(
+    const Expr* arm) {
+    const Expr* source;
+    const TypeMethod* method;
+    if (!arm) return NULL;
+    if (arm->kind == EXPR_COMPOUND && arm->compound_copy_init &&
+        arm->compound_init && !arm->compound_init->next) {
+        return lower_conditional_field_receiver_source(arm->compound_init->expr);
+    }
+    if (arm->kind == EXPR_CAST) {
+        return lower_conditional_field_receiver_source(arm->cast_expr);
+    }
+    if (arm->kind == EXPR_COMMA) {
+        return lower_conditional_field_receiver_source(arm->binary_rhs);
+    }
+    source = arm;
+    method = source ? source->call_method : NULL;
+    if (!source || source->kind != EXPR_CALL ||
+        !source->cxx_temporary_owner ||
+        !source->cxx_temporary_source ||
+        !source->cxx_temporary_cleanups ||
+        !method || method->kind != TYPE_METHOD_FIELD || !method->field ||
+        !method->return_type || !method->return_type->is_reference ||
+        source->call_args ||
+        !lower_call_receiver_temporary_cleanup_supported(source, false)) {
+        return NULL;
+    }
+    return source;
+}
+
 static RccIrLowerValue lower_conditional_expression(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue condition;
@@ -20944,14 +20975,10 @@ static RccIrLowerValue lower_conditional_expression(
     condition = lower_truth_expression(context, expression->cond_test);
     if (!condition.valid) return lower_invalid_value();
     if (context->conditional_field_receiver_argument == expression) {
-        const Expr* then_call = expression->cond_then &&
-                expression->cond_then->kind == EXPR_CALL &&
-                expression->cond_then->cxx_temporary_owner
-            ? expression->cond_then : NULL;
-        const Expr* else_call = expression->cond_else &&
-                expression->cond_else->kind == EXPR_CALL &&
-                expression->cond_else->cxx_temporary_owner
-            ? expression->cond_else : NULL;
+        const Expr* then_call = lower_conditional_field_receiver_source(
+            expression->cond_then);
+        const Expr* else_call = lower_conditional_field_receiver_source(
+            expression->cond_else);
         if (then_call) {
             then_receiver_cleanup =
                 lower_create_conditional_field_receiver_cleanup(
@@ -30455,8 +30482,11 @@ static bool lower_cxx_emit_constructor_call_impl(
     while (parameter && argument) {
         RccIrLowerValue temporary_address = lower_invalid_value();
         if (lower_abi_indirect_class_parameter(parameter->type)) {
-            RccIrLowerValue value = lower_expression(
-                context, argument->expr);
+            RccIrLowerValue value =
+                context->allow_nontrivial_temporary_conditional &&
+                context->conditional_field_receiver_call == argument->expr
+                    ? lower_inline_method_call(context, argument->expr)
+                    : lower_expression(context, argument->expr);
             if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER ||
                 index >= operand_count) {
                 rcc_free(operands);
@@ -30539,12 +30569,18 @@ static bool lower_cxx_emit_constructor_call_impl(
             operands[index++] = value.high.value;
         } else {
             RccIrLowerValue value;
-            if (parameter->type && parameter->type->is_reference &&
+            if (context->allow_nontrivial_temporary_conditional &&
+                context->conditional_field_receiver_call == argument->expr) {
+                value = lower_inline_method_call(context, argument->expr);
+            } else if (parameter->type && parameter->type->is_reference &&
                 argument->cxx_temporary_owner) {
                 bool previous_conditional_permission =
                     context->allow_nontrivial_temporary_conditional;
                 context->allow_nontrivial_temporary_conditional = true;
-                value = lower_expression(context, argument->expr);
+                value = context->conditional_field_receiver_call ==
+                        argument->expr
+                    ? lower_inline_method_call(context, argument->expr)
+                    : lower_expression(context, argument->expr);
                 context->allow_nontrivial_temporary_conditional =
                     previous_conditional_permission;
             } else {
@@ -30562,7 +30598,14 @@ static bool lower_cxx_emit_constructor_call_impl(
             temporary_address = value;
             operands[index++] = value.value;
         }
-        if (argument->cxx_temporary_owner) {
+        /* A conditional field accessor records its receiver in the
+         * conditional's address slot.  Its lifetime ends with the enclosing
+         * full-expression, after the consumer has used the copied result;
+         * lowering the constructor argument must not clean it here.  The
+         * accessor path separately registers exceptional cleanup. */
+        if (argument->cxx_temporary_owner &&
+            !(context->allow_nontrivial_temporary_conditional &&
+              context->conditional_field_receiver_call == argument->expr)) {
             if (temporary_cleanup_count >=
                     sizeof(temporary_cleanups) /
                         sizeof(temporary_cleanups[0]) ||
