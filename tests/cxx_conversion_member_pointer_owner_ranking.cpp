@@ -32,11 +32,17 @@ struct MemberFunctionPointerRankingLeaf
 
 struct MemberPointerRankingMiddleResult { char value; };
 struct MemberPointerRankingLeafResult { char value[2]; };
+struct MemberPointerRankingConstLeafResult { char value[3]; };
 
 MemberPointerRankingMiddleResult rank_data_member_owner(
     int MemberPointerRankingMiddle::*);
 MemberPointerRankingLeafResult rank_data_member_owner(
     int MemberPointerRankingLeaf::*);
+
+MemberPointerRankingMiddleResult rank_data_member_owner_vs_cv(
+    int MemberPointerRankingMiddle::*);
+MemberPointerRankingConstLeafResult rank_data_member_owner_vs_cv(
+    const int MemberPointerRankingLeaf::*);
 
 MemberPointerRankingMiddleResult rank_function_member_owner(
     void (MemberFunctionPointerRankingMiddle::*)() noexcept);
@@ -44,6 +50,9 @@ MemberPointerRankingLeafResult rank_function_member_owner(
     void (MemberFunctionPointerRankingLeaf::*)());
 
 static_assert(sizeof(decltype(rank_data_member_owner(
+                  &MemberPointerRankingRoot::root_value))) ==
+              sizeof(MemberPointerRankingMiddleResult));
+static_assert(sizeof(decltype(rank_data_member_owner_vs_cv(
                   &MemberPointerRankingRoot::root_value))) ==
               sizeof(MemberPointerRankingMiddleResult));
 static_assert(sizeof(decltype(rank_function_member_owner(
