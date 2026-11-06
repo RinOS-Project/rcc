@@ -17679,7 +17679,7 @@ static bool sema_cxx_default_initialization_needs_lowering(
     }
     if (object_type->kind != TYPE_STRUCT &&
         object_type->kind != TYPE_UNION) {
-        return object_type->is_reference;
+        return object_type->is_reference || object_type->is_const;
     }
     cls = object_type->cxx_class;
     if (!cls) return false;
@@ -17713,6 +17713,103 @@ static bool sema_cxx_default_initialization_needs_lowering(
         }
     }
     return false;
+}
+
+/* C++ requires a const object to be const-default-constructible even when
+ * its selected default constructor is otherwise trivial.  Check the
+ * defaulted-constructor subobject rules without treating uninitialized
+ * scalar storage as a valid initializer. */
+static bool sema_cxx_const_default_constructible(
+    Type* type, int depth, SourceLoc loc) {
+    CxxClass* cls;
+    if (!type || depth > 32) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len >= 0 && type->base &&
+            sema_cxx_const_default_constructible(
+                type->base, depth + 1, loc);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) {
+        return type->kind == TYPE_NULLPTR;
+    }
+    cls = type->cxx_class;
+    if (!cls || cls->base_count < 0 ||
+        (cls->base_count > 0 && !cls->bases)) {
+        return false;
+    }
+    if (cls->has_user_constructor) {
+        ExprList* arguments = NULL;
+        CxxConstructorInfo* constructor = sema_select_cxx_new_constructor(
+            type, &arguments, loc);
+        Decl* declaration = constructor && constructor->method
+            ? constructor->method->decl : NULL;
+        if (!constructor || constructor->is_deleted || !declaration) {
+            return false;
+        }
+        if (!constructor->is_inherited &&
+            declaration->func_is_user_provided) {
+            return true;
+        }
+    }
+    if (type->kind == TYPE_UNION) {
+        int member_count = 0;
+        int default_member_count = 0;
+        for (TypeParam* member = cls->fields; member;
+             member = member->next) {
+            TypeField* field = NULL;
+            if (member->is_static) continue;
+            ++member_count;
+            for (TypeField* candidate = type->fields; candidate;
+                 candidate = candidate->next) {
+                if (candidate->name && member->name &&
+                    candidate->cxx_declaring_class == cls &&
+                    strcmp(candidate->name, member->name) == 0) {
+                    field = candidate;
+                    break;
+                }
+            }
+            if (!field || !field->type || !field->name) return false;
+            if (!field->initializer) continue;
+            ++default_member_count;
+            if (default_member_count > 1 ||
+                !sema_cxx_default_member_initializer_supported(
+                    field->type, field->initializer)) {
+                return false;
+            }
+        }
+        return member_count == 0 || default_member_count == 1;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type ||
+            !sema_cxx_const_default_constructible(
+                base->type, depth + 1, loc)) {
+            return false;
+        }
+    }
+    for (TypeParam* member = cls->fields; member; member = member->next) {
+        TypeField* field = NULL;
+        if (member->is_static) continue;
+        for (TypeField* candidate = type->fields; candidate;
+             candidate = candidate->next) {
+            if (candidate->name && member->name &&
+                candidate->cxx_declaring_class == cls &&
+                strcmp(candidate->name, member->name) == 0) {
+                field = candidate;
+                break;
+            }
+        }
+        if (!field || !field->type) return false;
+        if (field->initializer) {
+            if (!sema_cxx_default_member_initializer_supported(
+                    field->type, field->initializer)) {
+                return false;
+            }
+        } else if (!sema_cxx_const_default_constructible(
+                       field->type, depth + 1, loc)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /* Append cleanup calls in the order needed by the cleanup stack.  The stack
@@ -39035,6 +39132,11 @@ static Expr* sema_cxx_default_initialization_expression(
     }
     *needs_initialization = false;
     *supported = true;
+    if (type->is_const &&
+        !sema_cxx_const_default_constructible(type, depth, loc)) {
+        *supported = false;
+        return NULL;
+    }
     if (type->kind == TYPE_ARRAY) {
         ExprList* items = NULL;
         ExprList** tail = &items;
@@ -39323,7 +39425,7 @@ static void sema_cxx_synthesize_default_constructor_initializer(
         &needs_initialization, &supported);
     if (supported && needs_initialization && initializer) {
         declaration->var_init = initializer;
-    } else if ((!supported || needs_initialization) &&
+    } else if (!supported || needs_initialization ||
                sema_cxx_default_initialization_needs_lowering(type, 0)) {
         rcc_error(declaration->loc,
                   "default initialization requires unsupported constructor or member initialization");
