@@ -1444,7 +1444,8 @@ static Token* lex_token(Lexer* lex) {
         if (c == 'u' && peek_next(lex) == '8' &&
             (!lexer_cxx_mode || lexer_cxx_standard >= 11) &&
             (lex->pos[2] == '"' ||
-             (lexer_cxx_mode && lex->pos[2] == '\''))) {
+             (lex->pos[2] == '\'' &&
+              (lexer_cxx_mode || g_opts.c_standard >= 23)))) {
             prefixed_literal = true;
             is_utf8 = true;
             prefix_length = 2u;

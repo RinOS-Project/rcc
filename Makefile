@@ -1890,8 +1890,32 @@ test-cxx-rinos-header-identity: $(RCXX_TARGET)
 	@echo "C++ RinOS uchar/wchar/locale tag identity tested"
 
 .PHONY: test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-embed
-test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-va-start test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes
-	@echo "RCC C23 _BitInt, nullptr, empty-initialization, typeof, attributes, and binary-resource regressions completed"
+test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-va-start test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes test-c23-utf8-character-literals
+	@echo "RCC C23 _BitInt, UTF-8 character literals, nullptr, empty-initialization, typeof, attributes, and binary-resource regressions completed"
+
+.PHONY: test-c23-utf8-character-literals
+test-c23-utf8-character-literals: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-utf8-character-literals)
+	$(CC) -std=c2x -pedantic-errors -fsyntax-only \
+		tests/c23_utf8_character_literals.c
+	$(call EXPECT_FAILURE,$(CC) -std=c17 -pedantic-errors -fsyntax-only tests/c17_utf8_character_invalid.c,$(TEST_OUT)/c23-utf8-character-literals/c17-gcc-invalid.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c23-utf8-character-literals/c17-x86.ro tests/c17_utf8_character_invalid.c,$(TEST_OUT)/c23-utf8-character-literals/c17-rcc-x86-invalid.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-utf8-character-literals/c17-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c23-utf8-character-literals/c17-x64.ro tests/c17_utf8_character_invalid.c,$(TEST_OUT)/c23-utf8-character-literals/c17-rcc-x64-invalid.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-utf8-character-literals/c17-x64.ro)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c \
+		-o $(TEST_OUT)/c23-utf8-character-literals/x86.ro \
+		tests/c23_utf8_character_literals.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c \
+		-o $(TEST_OUT)/c23-utf8-character-literals/x64.ro \
+		tests/c23_utf8_character_literals.c
+	$(call EXPECT_FAILURE,$(CC) -std=c2x -pedantic-errors -fsyntax-only tests/c23_utf8_character_multicodeunit_invalid.c,$(TEST_OUT)/c23-utf8-character-literals/gcc-invalid.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-utf8-character-literals/invalid-x86.ro tests/c23_utf8_character_multicodeunit_invalid.c,$(TEST_OUT)/c23-utf8-character-literals/rcc-invalid-x86.log)
+	$(GREP) -F -q "UTF-8 character literal must encode exactly one code unit" $(TEST_OUT)/c23-utf8-character-literals/rcc-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-utf8-character-literals/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-utf8-character-literals/invalid-x64.ro tests/c23_utf8_character_multicodeunit_invalid.c,$(TEST_OUT)/c23-utf8-character-literals/rcc-invalid-x64.log)
+	$(GREP) -F -q "UTF-8 character literal must encode exactly one code unit" $(TEST_OUT)/c23-utf8-character-literals/rcc-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-utf8-character-literals/invalid-x64.ro)
 
 .PHONY: test-c23-va-start
 test-c23-va-start: $(RCC_TARGET)

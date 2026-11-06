@@ -14989,3 +14989,6 @@ Continue in this order:
 
 ## RCC continuation (2026-11-06, C wide multichar constants)
 - [x] Recognize C11 `u'`/`U'` character prefixes in C mode. Accept C multi-code-unit UTF-16/32 character constants with RinOS's implementation-defined first-code-unit value while retaining C++20's single-code-unit diagnostics for `u`/`U`. GCC compatibility and RCC i686/AMD64 generation pass in `test-language-boundaries`; invalid C++ sources produce no objects.
+
+## RCC continuation (2026-11-06, C23 UTF-8 character constants)
+- [x] Implement C23 `u8'…'` character constants with the required single-UTF-8-code-unit constraint and `char8_t`/`unsigned char` type. Reject this spelling before C23 and reject multi-unit UCN values. GCC `-std=c2x`, RCC i686/AMD64 `test-c23-utf8-character-literals`, and C++20 `test-cxx-utf8-literals` pass.

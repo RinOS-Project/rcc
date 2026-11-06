@@ -30686,6 +30686,10 @@ static Type* sema_expr_impl(Expr* expr) {
             } else if (rcc_parser_is_cxx_mode() &&
                        expr->char_element_width == 4u) {
                 expr->type = type_char32;
+            } else if (!rcc_parser_is_cxx_mode() &&
+                       g_opts.c_standard >= 23 &&
+                       expr->is_cxx_utf8_literal) {
+                expr->type = type_uchar;
             } else {
                 expr->type = rcc_parser_is_cxx_mode()
                     ? (expr->is_cxx_utf8_literal &&
@@ -30701,8 +30705,12 @@ static Type* sema_expr_impl(Expr* expr) {
             bool is_cxx20_utf8 = rcc_parser_is_cxx_mode() &&
                 rcc_parser_cxx_standard_at_least(20) &&
                 element_width == 1u && expr->is_cxx_utf8_literal;
+            bool is_c23_utf8 = !rcc_parser_is_cxx_mode() &&
+                g_opts.c_standard >= 23 && element_width == 1u &&
+                expr->is_cxx_utf8_literal;
             Type* element_type = element_width == 1u
-                ? (is_cxx20_utf8 ? type_char8 : type_char)
+                ? (is_cxx20_utf8 ? type_char8
+                    : is_c23_utf8 ? type_uchar : type_char)
                 : element_width == 2u
                     ? (rcc_parser_is_cxx_mode()
                         ? type_char16 : type_ushort)
