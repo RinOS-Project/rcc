@@ -26319,7 +26319,7 @@ static bool lower_cxx_initialize_constructor_members(
                          context, source, 0u) ||
                      (!lower_noexcept_expression(source) &&
                       !lower_cxx_throwing_scalar_constructor_initializer_supported(
-                          context, source))))) {
+                          context, source)))))) {
             context->unsupported = true;
             return false;
         }
