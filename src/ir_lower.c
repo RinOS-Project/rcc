@@ -26518,14 +26518,26 @@ static bool lower_cxx_initialize_constructor_members(
             continue;
         }
         if (field->is_bitfield) {
-            source = initializer->is_default_member_initializer ||
-                    !initializer->arguments
-                ? initializer->value : initializer->arguments->expr;
-            if (value_initialize || !source || !address.valid ||
-                !lower_initialize_bitfield_storage(
-                    context, object.value, field, source)) {
+            if (!address.valid) {
                 context->unsupported = true;
                 return false;
+            }
+            if (value_initialize) {
+                value = lower_zero_initializer(context, field->type);
+                if (!value.valid || !lower_store_bitfield_value(
+                        context, address, field, value)) {
+                    context->unsupported = true;
+                    return false;
+                }
+            } else {
+                source = initializer->is_default_member_initializer ||
+                        !initializer->arguments
+                    ? initializer->value : initializer->arguments->expr;
+                if (!source || !lower_initialize_bitfield_storage(
+                        context, object.value, field, source)) {
+                    context->unsupported = true;
+                    return false;
+                }
             }
             continue;
         }
