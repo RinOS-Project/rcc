@@ -11177,7 +11177,7 @@ static void verify_inline_i686_u64_global_variable_division_expression(
         nested_negation_requires_non_min_dividend, 0u, -1);
 }
 
-static void verify_inline_i686_s64_xor_global_variable_division_expression(
+static void verify_inline_i686_s64_xor_variable_division_expression(
     ObjectFile* object, const uint8_t* data, uint64_t expression_end,
     uint64_t expression_start, const ObjSection* info,
     const ObjSection* strings, const ObjSection* locations,
@@ -14533,6 +14533,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_tls_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 74 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_static_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 75 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_static_xor_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -14939,12 +14947,36 @@ static void verify_inline_integer_expression_parameter(
          expected_constant == INT64_MIN + 72 ||
          expected_constant == INT64_MIN + 73) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
-        verify_inline_i686_s64_xor_global_variable_division_expression(
+        verify_inline_i686_s64_xor_variable_division_expression(
             object, info->data, expression_end, expression_start, info,
             strings, locations, source_name, divisor_source_name,
             expected_operation == 0x1du,
             expected_constant == INT64_MIN + 72 ||
                 expected_constant == INT64_MIN + 73);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+        divisor_source_name &&
+        (expected_constant == INT64_MIN + 74 ||
+         expected_constant == INT64_MIN + 75) &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        bool remainder = expected_operation == 0x1du;
+        const char* source_suffix = remainder
+            ? "signed_static_xor_remainder_dividend"
+            : "signed_static_xor_dividend";
+        const char* divisor_suffix = remainder
+            ? "signed_static_xor_remainder_divisor"
+            : "signed_static_xor_divisor";
+        const char* static_source = find_rcc_static_local_symbol(
+            object, source_suffix);
+        const char* static_divisor = find_rcc_static_local_symbol(
+            object, divisor_suffix);
+        assert(static_source && static_divisor);
+        verify_inline_i686_s64_xor_variable_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            strings, locations, static_source, static_divisor, remainder,
+            false);
         objfile_free(object);
         return;
     }
@@ -21483,6 +21515,82 @@ int main(int argc, char** argv)
             "static_mod_src",
             true, 0x1du, 8u, INT64_MIN + 69,
             "static_mod_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 70,
+            "debug_inline_nonconstant_signed_long_long_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 70,
+            "debug_inline_nonconstant_signed_long_long_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1du, 8u, INT64_MIN + 71,
+            "debug_inline_nonconstant_signed_long_long_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1du, 8u, INT64_MIN + 71,
+            "debug_inline_nonconstant_signed_long_long_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_tls_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 72,
+            "debug_inline_nonconstant_signed_long_long_tls_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_tls_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 72,
+            "debug_inline_nonconstant_signed_long_long_tls_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_tls_dividend",
+            false, 0x1du, 8u, INT64_MIN + 73,
+            "debug_inline_nonconstant_signed_long_long_tls_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_tls_dividend",
+            false, 0x1du, 8u, INT64_MIN + 73,
+            "debug_inline_nonconstant_signed_long_long_tls_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "signed_static_xor_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 74,
+            "signed_static_xor_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "signed_static_xor_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 74,
+            "signed_static_xor_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "signed_static_xor_remainder_dividend",
+            false, 0x1du, 8u, INT64_MIN + 75,
+            "signed_static_xor_remainder_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "signed_static_xor_remainder_dividend",
+            false, 0x1du, 8u, INT64_MIN + 75,
+            "signed_static_xor_remainder_divisor", false);
         verify_inline_i686_global_u64_constant_division_expression(
             argv[6],
             "debug_inline_nonconstant_unsigned_long_long_global_div7_entry",
