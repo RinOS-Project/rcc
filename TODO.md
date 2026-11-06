@@ -2239,10 +2239,11 @@
         `noexcept` ordinary member-function call returning the same class is
         also covered as a branch arm. Resolved `noexcept` conversion-function
         calls are covered as conditional leaves in
-        `test-verified-cxx-conditional-conversion-cleanup`; field-backed inline
-        member calls, other conversions, potentially throwing expressions, and
-        automatic-object cleanup remain outside this conditional-temporary
-        subset.
+        `test-verified-cxx-conditional-conversion-cleanup`. Named-receiver
+        field getters with representation-safe class copies are also covered;
+        temporary receivers, other inline member calls, other conversions,
+        potentially throwing expressions, and automatic-object cleanup remain
+        outside this conditional-temporary subset.
   - [x] Validate noexcept fixed-member cleanup plans recursively for class
         prvalue reference arguments of a selected conditional branch call;
         emit the inner temporary cleanup immediately after that call and the
@@ -2260,6 +2261,14 @@
         focused fixture, with zero typed-SSA fallback on i686/AMD64 at `-O0`
         and `-O2`, GCC C++20 runtime, legacy i686 object generation, and legacy
         AMD64 execution in `test-verified-cxx-conditional-conversion-cleanup`.
+  - [x] Accept a resolved `noexcept` field getter returning a reference to a
+        representation-copyable class member as a conditional lvalue leaf,
+        limited to named receivers. Verify either selected arm, the copied
+        value, full-expression result destruction before receiver-scope member
+        destruction, zero fallback and object execution on i686/AMD64 at `-O0`
+        and `-O2`, GCC C++20 runtime, legacy i686 object generation, and legacy
+        AMD64 execution in `test-verified-cxx-conditional-field-accessor-cleanup`.
+        Temporary receivers and nontrivial copy operations remain open.
   - [x] Lower fixed-size array-loop cleanup plans recursively for nontrivial
         subobjects of class-prvalue reference temporaries, including nested
         arrays. Emit reverse element destruction and verify the observed order

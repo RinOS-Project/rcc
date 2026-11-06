@@ -11148,6 +11148,8 @@ static bool lower_call_receiver_temporary_cleanup_supported(
     const Expr* expression, bool allow_throwing_destructors);
 static bool lower_temporary_cleanup_plan_supported(
     const ExprList* argument, bool allow_throwing_destructors);
+static bool lower_nontrivial_conditional_copy_supported(
+    const Type* type, unsigned depth);
 static RccIrLowerValue lower_cxx_runtime_call(
     RccIrLowerContext* context, const char* callee,
     RccIrType result_type, const RccIrValue* operands,
@@ -11276,6 +11278,32 @@ static bool lower_nontrivial_temporary_call_arguments_supported(
     }
     function = expression->call_func;
     method = expression->call_method;
+    if (method && method->kind == TYPE_METHOD_FIELD) {
+        const Type* referred_type = method->return_type &&
+            method->return_type->is_reference
+            ? method->return_type->base : NULL;
+        const Type* field_type = method->field
+            ? method->field->type : NULL;
+        /* A validated zero-argument field getter is an lvalue source for the
+         * conditional's copy into its result object. Restrict this to named
+         * receivers and types whose copy is representation-safe; a temporary
+         * receiver must stay alive until after that copy. */
+        return method->field && method->return_type &&
+            method->return_type->is_reference && referred_type &&
+            field_type && !expression->call_args &&
+            !expression->cxx_temporary_owner &&
+            !expression->cxx_temporary_source &&
+            !expression->cxx_temporary_cleanups && expression->type &&
+            expression->type->kind == TYPE_STRUCT &&
+            expression->type->cxx_nontrivial &&
+            lower_nontrivial_conditional_copy_supported(
+                expression->type, 0u) &&
+            type_is_compatible((Type*)referred_type, expression->type) &&
+            type_is_compatible(expression->type, (Type*)referred_type) &&
+            type_is_compatible((Type*)field_type, expression->type) &&
+            type_is_compatible(expression->type, (Type*)field_type) &&
+            lower_noexcept_expression(expression);
+    }
     conversion_method_call = method &&
         method->kind == TYPE_METHOD_FUNCTION && method->name &&
         strcmp(method->name, "operator conversion") == 0 &&
@@ -11283,8 +11311,8 @@ static bool lower_nontrivial_temporary_call_arguments_supported(
     if (conversion_method_call) {
         /* Conversion-function leaves construct the conditional result in its
          * shared destination. Admit only a resolved noexcept conversion;
-         * field-backed inline methods and throwing conversions still need
-         * their own result/exception lifetime lowering. */
+         * throwing conversions still need their own result/exception
+         * lifetime lowering. */
         function_type = method->function_decl->type;
         if (!lower_noexcept_expression(expression)) return false;
     } else {
@@ -11392,11 +11420,11 @@ static bool lower_nontrivial_temporary_conditional_arm_supported(
                    expression->cond_else, result_type);
     }
     /* A non-throwing aggregate initializer can construct a leaf directly.
-     * A same-type direct ordinary function call may also construct one; the
-     * call itself can throw before a complete temporary exists, so its caller
-     * registers the destructor only after the whole conditional succeeds.
-     * Inline member calls, constructors, conversions, and glvalue arms remain
-     * outside this path. */
+     * A same-type direct ordinary function or validated conversion-function
+     * call may also construct one; the call itself can throw before a complete
+     * temporary exists, so its caller registers the destructor only after the
+     * whole conditional succeeds. Field getters are separately admitted as
+     * lvalue sources when their result copy is representation-safe. */
     if (expression->kind == EXPR_COMPOUND) {
         return expression->type->kind == TYPE_STRUCT &&
             lower_noexcept_expression(expression);
