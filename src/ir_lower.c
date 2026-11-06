@@ -25427,8 +25427,27 @@ static bool lower_cxx_value_initialized_subobject_supported(
         }
         covered_size += field->type->size;
         if (field->initializer) {
-            if (!lower_cxx_value_initialized_scalar_initializer_supported(
-                    context, field->initializer, field->type)) {
+            if (type_is_scalar((Type*)field->type)) {
+                if (!lower_cxx_value_initialized_scalar_initializer_supported(
+                        context, field->initializer, field->type)) {
+                    return false;
+                }
+            } else if (field->type->kind == TYPE_STRUCT &&
+                       lower_cxx_value_initialized_subobject_supported(
+                           context, field->type, depth + 1u) &&
+                       lower_cleanup_initializer_supported(
+                           field->initializer)) {
+                /* The nested class has no destructor or user-provided
+                 * constructor in this subset. Its aggregate DMI can run
+                 * without adding another cleanup state. */
+            } else if (field->type->kind == TYPE_ARRAY &&
+                       lower_cxx_value_initialized_subobject_supported(
+                           context, field->type, depth + 1u) &&
+                       lower_cleanup_initializer_supported(
+                           field->initializer)) {
+                /* Arrays of those nested aggregates share the same
+                 * element-wise initializer path. */
+            } else {
                 return false;
             }
         } else if (!lower_cxx_value_initialized_subobject_supported(
@@ -25580,8 +25599,21 @@ static bool lower_cxx_zero_value_initialized_subobject(
                 member.volatile_access = true;
             }
             if (field->initializer) {
-                if (!lower_cxx_store_value_initialized_scalar(
-                        context, member, field->type, field->initializer)) {
+                if (type_is_scalar((Type*)field->type)) {
+                    if (!lower_cxx_store_value_initialized_scalar(
+                            context, member, field->type,
+                            field->initializer)) {
+                        return false;
+                    }
+                } else if (field->type->kind == TYPE_STRUCT &&
+                           !lower_initialize_struct_storage(
+                               context, member.value, field->type,
+                               field->initializer)) {
+                    return false;
+                } else if (field->type->kind == TYPE_ARRAY &&
+                           !lower_array_initializer(
+                               context, member.value, field->type,
+                               field->initializer)) {
                     return false;
                 }
             } else if (!lower_cxx_zero_value_initialized_subobject(
