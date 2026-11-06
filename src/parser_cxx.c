@@ -9502,16 +9502,15 @@ static Type* cxx_constructor_array_element_type(Type* type) {
 }
 
 /* A class with no declared constructor still has an implicit default
- * constructor.  For an array member, this bounded form needs no emitted
- * constructor body: the class is non-polymorphic, has no bases or member
- * initializers, and contains only unqualified scalar data members.  A
- * non-trivial destructor remains valid; array cleanup is registered per
- * element after its lifetime begins. */
+ * constructor.  This bounded array form recursively permits non-virtual
+ * bases and class/array members whose default initialization has no stores;
+ * scalar members without a DMI remain indeterminate.  Array cleanup is
+ * registered per element after its lifetime begins. */
 static bool cxx_implicit_default_array_element_supported(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     if (!cls || !type->is_complete || cls->constructors ||
-        cls->base_count != 0 || cls->virtual_base_count != 0 ||
-        cls->vtable_size != 0 || cls->has_field_initializer ||
+        cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
+        cls->has_field_initializer ||
         type->cleanup_function || type->cleanup_field) {
         return false;
     }
@@ -9522,16 +9521,7 @@ static bool cxx_implicit_default_array_element_supported(Type* type) {
             return false;
         }
     }
-    for (TypeParam* field = cls->fields; field; field = field->next) {
-        if (field->is_static) continue;
-        if (!field->type || field->initializer ||
-            !cxx_constructor_scalar_type(field->type) ||
-            field->type->is_const || field->type->is_reference ||
-            field->type->is_atomic) {
-            return false;
-        }
-    }
-    return true;
+    return cxx_implicit_default_subobject_supported(type, 0u);
 }
 
 /* The initializer parser represents C++ `{}` as a value-init compound with a

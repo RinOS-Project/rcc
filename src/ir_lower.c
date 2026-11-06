@@ -23687,15 +23687,15 @@ static bool lower_cxx_destructor_subobjects_supported(
 }
 
 /* A class-array member with no explicit initializer is default-initialized.
- * For this bounded subset its implicit default constructor has no work, but
- * each element still begins a lifetime and must receive its destructor
- * cleanup registration. */
+ * Permit recursively no-op non-virtual bases and class/array members while
+ * preserving indeterminate scalar members.  Each element still begins a
+ * lifetime and must receive its complete destructor cleanup registration. */
 static bool lower_cxx_implicit_default_array_element_supported(
     const Type* type) {
     const CxxClass* cls = type ? type->cxx_class : NULL;
     if (!cls || !type->is_complete || cls->constructors ||
-        cls->base_count != 0 || cls->virtual_base_count != 0 ||
-        cls->vtable_size != 0 || cls->has_field_initializer ||
+        cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
+        cls->has_field_initializer ||
         type->cleanup_function || type->cleanup_field) {
         return false;
     }
@@ -23708,15 +23708,8 @@ static bool lower_cxx_implicit_default_array_element_supported(
             return false;
         }
     }
-    for (const TypeParam* field = cls->fields; field; field = field->next) {
-        if (field->is_static) continue;
-        if (!field->type || field->initializer ||
-            !type_is_scalar(field->type) || field->type->is_const ||
-            field->type->is_reference || field->type->is_atomic) {
-            return false;
-        }
-    }
-    return lower_cxx_destructor_subobjects_supported(cls, 0u);
+    return lower_cxx_implicit_default_subobject_supported(type, 0u) &&
+        lower_cxx_destructor_subobjects_supported(cls, 0u);
 }
 
 static bool lower_dynamic_static_default_initializer_supported(
