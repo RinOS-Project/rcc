@@ -3374,16 +3374,44 @@ static bool lower_dynamic_static_union_member_initializer_supported(
 static bool lower_dynamic_static_union_default_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
-    return declaration && declaration->kind == DECL_VAR &&
-        (declaration->var_is_thread_local ||
-         declaration->var_is_static_local) &&
-        declaration->var_dynamic_initializer &&
-        declaration->var_reference_temporary_guard &&
-        declaration->storage == STORAGE_STATIC && type &&
-        (!declaration->var_cleanups ||
-         lower_cxx_destructor_cleanup_hook_supported(type)) &&
-        lower_dynamic_static_union_member_initializer_supported(
-            type, declaration->var_init, 0u);
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        (!declaration->var_is_thread_local &&
+         !declaration->var_is_static_local) ||
+        !declaration->var_dynamic_initializer ||
+        !declaration->var_reference_temporary_guard ||
+        declaration->storage != STORAGE_STATIC || !type ||
+        type->kind != TYPE_UNION || !cls || cls->has_user_constructor ||
+        cls->constructors || cls->has_field_initializer ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        type->size <= 0 || type->size > 65536 || type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (type->align & (type->align - 1)) != 0 ||
+        !lower_union_type_supported(type) || !declaration->var_cleanups ||
+        !cls->destructor_method || !cls->destructor_method->decl ||
+        !cls->destructor_method->decl->func_body ||
+        !cls->destructor_method->decl->func_is_cxx_destructor ||
+        !cls->destructor_method->decl->func_is_noexcept ||
+        !cls->destructor_method->decl->func_this_param ||
+        cls->destructor_method->decl->func_params ||
+        !lower_cxx_destructor_cleanup_hook_supported(type)) {
+        return false;
+    }
+    if (!declaration->var_init) {
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            if (!field->type || field->initializer || field->is_bitfield ||
+                field->type->is_const || field->type->is_reference ||
+                field->type->is_atomic || !type_is_scalar(field->type) ||
+                field->offset < 0 || field->offset > type->size ||
+                field->type->size > type->size - field->offset) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return lower_dynamic_static_union_member_initializer_supported(
+        type, declaration->var_init, 0u);
 }
 
 static bool lower_dynamic_static_class_array_initializer_supported(
@@ -24371,6 +24399,21 @@ static bool lower_cxx_implicit_default_array_element_supported(
             destructor->func_params) {
             return false;
         }
+    }
+    if (type->kind == TYPE_UNION) {
+        if (cls->base_count != 0 || cls->virtual_base_count != 0 ||
+            !cls->destructor_method || !lower_union_type_supported(type)) {
+            return false;
+        }
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            if (!field->type || field->initializer || field->is_bitfield ||
+                field->type->is_const || field->type->is_reference ||
+                field->type->is_atomic || !type_is_scalar(field->type)) {
+                return false;
+            }
+        }
+        return true;
     }
     return lower_cxx_static_default_subobject_supported(type, 0u, true) &&
         lower_cxx_destructor_subobjects_supported(cls, 0u);
