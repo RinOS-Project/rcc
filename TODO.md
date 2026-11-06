@@ -14085,6 +14085,13 @@ remains a separate open item.
         against the assignment expression's object value category. GCC C++20
         syntax checks and RCC i686/AMD64 compilation pass in
         `cxx_atomic_private_access_traits.cpp`.
+  - [x] Preserve the destination class type of compiler-normalized default
+        initializers when semantic analysis revisits extended virtual-base
+        subobjects. Do not reinterpret these internal plans as source aggregate
+        lists or run constructor selection on them. The existing extended-base
+        cases in `cxx_inherited_defaulted_assignment_fallback.cpp` pass GCC
+        C++20 checks, RCC i686/AMD64 compilation, and x64 `-O0`/`-O2` execution
+        through `make test-atomic-private-access`.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 

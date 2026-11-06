@@ -31766,7 +31766,8 @@ static Type* sema_expr_impl(Expr* expr) {
                  * read the compound-only union fields after that rewrite. */
                 if (rcc_parser_is_cxx_mode() &&
                     expr->kind == EXPR_COMPOUND && expr->compound_type &&
-                    expr->compound_type->cxx_class) {
+                    expr->compound_type->cxx_class &&
+                    !expr->compound_cxx_default_member_normalized) {
                     ExprList* constructor_arguments =
                         expr->compound_value_init ? NULL : expr->compound_init;
                     expr->compound_constructor =
@@ -37980,6 +37981,18 @@ static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
     if (!type || type->cxx_dependent || !initializer) return;
+    /* These normalized compound nodes are compiler-built subobject plans,
+     * not source brace lists. Keep their original destination type even if a
+     * later semantic walk reaches one through a physical field view (which
+     * can expose virtual-base and array layout entries in another order). */
+    if (rcc_parser_is_cxx_mode() && initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_cxx_default_member_normalized &&
+        initializer->compound_cxx_default_member_init_only &&
+        initializer->compound_type &&
+        initializer->compound_type->cxx_class) {
+        initializer->type = initializer->compound_type;
+        return;
+    }
     if (rcc_parser_is_cxx_mode() &&
         initializer->kind == EXPR_COMPOUND &&
         initializer->compound_cxx_initializer_list_materialized &&
