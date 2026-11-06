@@ -2844,6 +2844,8 @@ static bool lower_dynamic_static_class_member_initializer_supported(
     const Type* type, const ExprList* aggregate_item, unsigned depth);
 static bool lower_dynamic_static_array_member_initializer_supported(
     const Type* type, const ExprList* aggregate_item, unsigned depth);
+static bool lower_dynamic_static_union_member_initializer_supported(
+    const Type* type, const Expr* initializer, unsigned depth);
 
 static bool lower_dynamic_static_class_member_constructor_supported(
     const Type* type, const ExprList* aggregate_item) {
@@ -3280,6 +3282,12 @@ static bool lower_dynamic_static_array_member_initializer_supported(
                     element_type, item, depth + 1u)) {
                 return false;
             }
+        } else if (element_type->kind == TYPE_UNION &&
+                   element_type->cxx_class) {
+            if (!lower_dynamic_static_union_member_initializer_supported(
+                    element_type, item->expr, depth + 1u)) {
+                return false;
+            }
         } else if (element_type->cxx_class) {
             if (!lower_dynamic_static_class_member_initializer_supported(
                     element_type, item, depth + 1u)) {
@@ -3300,19 +3308,12 @@ static bool lower_dynamic_static_array_member_initializer_supported(
     return true;
 }
 
-static bool lower_dynamic_static_union_default_initializer_supported(
-    const Decl* declaration) {
-    const Type* type = declaration ? declaration->type : NULL;
+static bool lower_dynamic_static_union_member_initializer_supported(
+    const Type* type, const Expr* initializer, unsigned depth) {
     const CxxClass* cls = type ? type->cxx_class : NULL;
-    const Expr* initializer = declaration ? declaration->var_init : NULL;
     const ExprList* item = initializer ? initializer->compound_init : NULL;
     const TypeField* field;
-    if (!declaration || declaration->kind != DECL_VAR ||
-        (!declaration->var_is_thread_local &&
-         !declaration->var_is_static_local) ||
-        !declaration->var_dynamic_initializer ||
-        !declaration->var_reference_temporary_guard ||
-        declaration->storage != STORAGE_STATIC || !type ||
+    if (!type || depth >= 32u ||
         type->kind != TYPE_UNION || !cls || cls->has_user_constructor ||
         cls->base_count != 0 || cls->virtual_base_count != 0 ||
         type->size <= 0 || type->size > 65536 || type->align <= 0 ||
@@ -3326,9 +3327,7 @@ static bool lower_dynamic_static_union_default_initializer_supported(
         !initializer->compound_cxx_default_member_init_only ||
         !item || item->next || item->designator_kind != INIT_DESIGNATOR_FIELD ||
         !item->designator_field || !item->expr ||
-        item->cxx_temporary_owner || item->cxx_temporary_cleanups ||
-        (declaration->var_cleanups &&
-         !lower_cxx_destructor_cleanup_hook_supported(type))) {
+        item->cxx_temporary_owner || item->cxx_temporary_cleanups) {
         return false;
     }
     for (field = type->fields; field; field = field->next) {
@@ -3350,14 +3349,18 @@ static bool lower_dynamic_static_union_default_initializer_supported(
             item->expr->compound_cxx_default_member_normalized &&
             item->expr->compound_cxx_default_member_init_only) {
             return lower_dynamic_static_default_class_initializer_supported(
-                field->type, item->expr, 1u);
+                field->type, item->expr, depth + 1u);
         }
         return lower_dynamic_static_class_member_initializer_supported(
-            field->type, item, 1u);
+            field->type, item, depth + 1u);
+    }
+    if (field->type->kind == TYPE_UNION && field->type->cxx_class) {
+        return lower_dynamic_static_union_member_initializer_supported(
+            field->type, item->expr, depth + 1u);
     }
     if (field->type->kind == TYPE_ARRAY) {
         return lower_dynamic_static_array_member_initializer_supported(
-            field->type, item, 1u);
+            field->type, item, depth + 1u);
     }
     return (type_is_integer((Type*)field->type) ||
             field->type->kind == TYPE_ENUM ||
@@ -3366,6 +3369,21 @@ static bool lower_dynamic_static_union_default_initializer_supported(
              !field->type->cxx_is_member_pointer)) &&
         (lower_cleanup_initializer_supported(item->expr) ||
          lower_cleanup_scalar_call_initializer_supported(item->expr));
+}
+
+static bool lower_dynamic_static_union_default_initializer_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    return declaration && declaration->kind == DECL_VAR &&
+        (declaration->var_is_thread_local ||
+         declaration->var_is_static_local) &&
+        declaration->var_dynamic_initializer &&
+        declaration->var_reference_temporary_guard &&
+        declaration->storage == STORAGE_STATIC && type &&
+        (!declaration->var_cleanups ||
+         lower_cxx_destructor_cleanup_hook_supported(type)) &&
+        lower_dynamic_static_union_member_initializer_supported(
+            type, declaration->var_init, 0u);
 }
 
 static bool lower_dynamic_static_class_array_initializer_supported(
@@ -3387,7 +3405,9 @@ static bool lower_dynamic_static_class_array_initializer_supported(
         type->size > 65536 || type->align <= 0 ||
         type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 || type->is_volatile ||
-        !element_type || element_type->kind != TYPE_STRUCT ||
+        !element_type ||
+        (element_type->kind != TYPE_STRUCT &&
+         element_type->kind != TYPE_UNION) ||
         !element_type->cxx_class ||
         (!element_type->cxx_class->has_user_constructor &&
          !element_type->cxx_class->has_field_initializer &&
@@ -3395,7 +3415,10 @@ static bool lower_dynamic_static_class_array_initializer_supported(
          element_type->cxx_class->virtual_base_count == 0 &&
          element_type->cxx_class->vtable_size <= 0 &&
          element_type->cxx_vtable_size <= 0) ||
-        !lower_struct_type_supported(element_type) || !initializer ||
+        (element_type->kind == TYPE_STRUCT
+             ? !lower_struct_type_supported(element_type)
+             : !lower_union_type_supported(element_type)) ||
+        !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         initializer->compound_constructor ||
         initializer->compound_paren_init ||
@@ -23816,7 +23839,9 @@ static bool lower_array_initializer(
         if (array_type->base->kind == TYPE_UNION) {
             if (!address.valid || !lower_initialize_union_storage(
                     context, address.value, array_type->base,
-                    item->expr)) return false;
+                    item->expr) ||
+                !lower_register_partial_array_element_cleanup(
+                    context, array_type->base, address)) return false;
             ++cursor;
             continue;
         }
