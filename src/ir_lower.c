@@ -28067,6 +28067,59 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
     return has_initializer;
 }
 
+static bool lower_cxx_initialize_implicit_default_member_field(
+    RccIrLowerContext* context, RccIrValue owner, const Type* owner_type,
+    const TypeField* field, RccIrLowerValue address) {
+    const Type* previous_owner_type;
+    RccIrValue previous_owner;
+    bool previous_active;
+    bool initialized = false;
+    if (!context || !owner || !owner_type || !field || !field->type ||
+        !field->initializer || !address.valid) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    previous_owner_type = context->cxx_implicit_default_member_owner_type;
+    previous_owner = context->cxx_implicit_default_member_owner;
+    previous_active = context->cxx_implicit_default_member_active;
+    context->cxx_implicit_default_member_owner_type = owner_type;
+    context->cxx_implicit_default_member_owner = owner;
+    context->cxx_implicit_default_member_active = true;
+    if (field->type->is_reference) {
+        const Expr* reference_initializer =
+            lower_scalar_initializer_expression(field->initializer);
+        RccIrLowerValue referent;
+        if (lower_cxx_implicit_reference_default_member_initializer_supported(
+                field->type, field->initializer) && reference_initializer) {
+            referent = lower_lvalue_address(
+                context, reference_initializer);
+            initialized = referent.valid &&
+                referent.type.kind == RCC_IR_TYPE_POINTER &&
+                lower_store_address(context, address, referent);
+        }
+    } else if (field->is_bitfield) {
+        initialized = lower_initialize_bitfield_storage(
+            context, owner, field, field->initializer);
+    } else if (field->type->kind == TYPE_ARRAY) {
+        initialized = lower_array_initializer(
+            context, address.value, field->type, field->initializer);
+    } else if (field->type->kind == TYPE_STRUCT) {
+        initialized = lower_initialize_struct_storage(
+            context, address.value, field->type, field->initializer);
+    } else if (field->type->kind == TYPE_UNION) {
+        initialized = lower_initialize_union_storage(
+            context, address.value, field->type, field->initializer);
+    } else {
+        initialized = lower_initialize_scalar_storage(
+            context, address.value, field->type, field->initializer);
+    }
+    context->cxx_implicit_default_member_owner_type = previous_owner_type;
+    context->cxx_implicit_default_member_owner = previous_owner;
+    context->cxx_implicit_default_member_active = previous_active;
+    if (!initialized && !context->unsupported) context->unsupported = true;
+    return initialized;
+}
+
 static bool lower_cxx_initialize_implicit_default_member_subobjects(
     RccIrLowerContext* context, RccIrValue object, const Type* type,
     unsigned depth, bool initialize_virtual_bases) {
@@ -28233,62 +28286,8 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
                 context, base, (uint64_t)field->offset);
             if (!address.valid) return false;
             if (field->initializer) {
-                if (field->type->is_reference) {
-                    const Expr* reference_initializer =
-                        lower_scalar_initializer_expression(
-                            field->initializer);
-                    RccIrLowerValue referent;
-                    const Type* previous_owner_type =
-                        context->cxx_implicit_default_member_owner_type;
-                    RccIrValue previous_owner =
-                        context->cxx_implicit_default_member_owner;
-                    bool previous_active =
-                        context->cxx_implicit_default_member_active;
-                    if (!lower_cxx_implicit_reference_default_member_initializer_supported(
-                            field->type,
-                            field->initializer) ||
-                        !reference_initializer) {
-                        context->unsupported = true;
-                        return false;
-                    }
-                    context->cxx_implicit_default_member_owner_type = type;
-                    context->cxx_implicit_default_member_owner = object;
-                    context->cxx_implicit_default_member_active = true;
-                    referent = lower_lvalue_address(
-                        context, reference_initializer);
-                    context->cxx_implicit_default_member_owner_type =
-                        previous_owner_type;
-                    context->cxx_implicit_default_member_owner =
-                        previous_owner;
-                    context->cxx_implicit_default_member_active =
-                        previous_active;
-                    if (!referent.valid ||
-                        referent.type.kind != RCC_IR_TYPE_POINTER ||
-                        !lower_store_address(context, address, referent)) {
-                        context->unsupported = true;
-                        return false;
-                    }
-                } else if (field->is_bitfield) {
-                    if (!lower_initialize_bitfield_storage(
-                            context, object, field,
-                            field->initializer)) return false;
-                } else if (field->type->kind == TYPE_ARRAY) {
-                    if (!lower_array_initializer(
-                            context, address.value, field->type,
-                            field->initializer)) return false;
-                } else if (field->type->kind == TYPE_STRUCT) {
-                    if (!lower_initialize_struct_storage(
-                            context, address.value, field->type,
-                            field->initializer)) return false;
-                } else if (field->type->kind == TYPE_UNION) {
-                    if (!lower_initialize_union_storage(
-                            context, address.value, field->type,
-                            field->initializer)) return false;
-                } else if (!lower_initialize_scalar_storage(
-                               context, address.value, field->type,
-                               field->initializer)) {
-                    return false;
-                }
+                if (!lower_cxx_initialize_implicit_default_member_field(
+                        context, object, type, field, address)) return false;
             } else if (
                 !lower_cxx_initialize_implicit_default_member_subobjects(
                     context, address.value, field->type, depth + 1u, true)) {
