@@ -4941,8 +4941,6 @@ static void gen64_cxx_exception_change_local_subobject(
 static bool gen64_local_initializer(Module* mod, Type* type,
                                     Expr* initializer,
                                     int32_t displacement);
-static bool gen64_local_initializer_requires_zero(
-    Type* type, const Expr* initializer);
 static bool gen64_complex_store_operand(Module* mod, Expr* expression,
                                         Type* component_type,
                                         int32_t destination_offset);
@@ -14316,10 +14314,9 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
     if (codegen_runtime_global_aggregate_initializer(type, initializer)) {
         int32_t temporary_offset = initializer->compound_offset;
         if (temporary_offset >= 0) return false;
-        if (gen64_local_initializer_requires_zero(type, initializer)) {
-            gen64_zero_local_storage(
-                mod, temporary_offset, (size_t)type->size);
-        }
+        /* Static-duration objects are zero-initialized before this deferred
+         * initializer, so the staging object must keep the same baseline. */
+        gen64_zero_local_storage(mod, temporary_offset, (size_t)type->size);
         if (!gen64_local_initializer(
                 mod, type, initializer, temporary_offset)) {
             return false;

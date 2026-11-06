@@ -24230,10 +24230,10 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
     if (codegen_runtime_global_aggregate_initializer(type, initializer)) {
         int32_t temporary_offset = initializer->compound_offset;
         if (temporary_offset >= 0) return false;
-        if (gen_local_initializer_requires_zero(type, initializer)) {
-            gen_zero_local_storage(mod, temporary_offset,
-                                   (size_t)type->size);
-        }
+        /* Static-duration objects have already been zero-initialized before
+         * dynamic initialization. Seed the staging object with that same
+         * baseline before copying partially initialized subobjects. */
+        gen_zero_local_storage(mod, temporary_offset, (size_t)type->size);
         if (!gen_local_initializer(
                 mod, type, initializer, temporary_offset)) {
             return false;

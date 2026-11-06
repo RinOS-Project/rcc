@@ -39105,8 +39105,54 @@ static Expr* sema_cxx_default_initialization_expression(
         *needs_initialization = true;
         return initializer;
     }
-    if (type->kind == TYPE_UNION || cls->base_count < 0 ||
-        (cls->base_count && !cls->bases) ||
+    if (type->kind == TYPE_UNION) {
+        TypeField* selected_member = NULL;
+        for (TypeParam* member = cls->fields; member;
+             member = member->next) {
+            TypeField* field = NULL;
+            if (member->is_static) continue;
+            for (TypeField* candidate = type->fields; candidate;
+                 candidate = candidate->next) {
+                if (candidate->name && member->name &&
+                    candidate->cxx_declaring_class == cls &&
+                    strcmp(candidate->name, member->name) == 0) {
+                    field = candidate;
+                    break;
+                }
+            }
+            if (!field || !field->type || !field->name) {
+                *supported = false;
+                return NULL;
+            }
+            if (!field->initializer) continue;
+            if (selected_member ||
+                !(type_is_arithmetic(field->type) ||
+                  field->type->kind == TYPE_ENUM ||
+                  field->type->kind == TYPE_PTR ||
+                  field->type->kind == TYPE_NULLPTR) ||
+                !sema_cxx_default_member_initializer_supported(
+                    field->type, field->initializer)) {
+                *supported = false;
+                return NULL;
+            }
+            selected_member = field;
+        }
+        if (!selected_member) return NULL;
+        {
+            ExprList* item = exprlist_new(selected_member->initializer);
+            item->designator_kind = INIT_DESIGNATOR_FIELD;
+            item->designator_index = 0;
+            item->designator_field = selected_member->name;
+            initializer = expr_initializer_list(item, loc);
+            initializer->compound_type = type;
+            initializer->compound_cxx_default_member_normalized = true;
+            initializer->compound_cxx_default_member_init_only = true;
+            *needs_initialization = true;
+            return initializer;
+        }
+    }
+    if (cls->base_count < 0 || (cls->base_count && !cls->bases) ||
+        (cls->virtual_base_count < 0) ||
         (cls->virtual_base_count && !cls->virtual_bases)) {
         *supported = false;
         return NULL;
