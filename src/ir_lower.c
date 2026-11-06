@@ -3888,6 +3888,39 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 }
                 return address;
             }
+            {
+                const TypeField* inherited = NULL;
+                for (const TypeField* field = owner_type->fields;
+                     field; field = field->next) {
+                    if (!field->name || field->from_virtual_base ||
+                        !field->cxx_declaring_class ||
+                        field->cxx_declaring_class == owner_type->cxx_class ||
+                        strcmp(field->name, expression->ident_name) != 0) {
+                        continue;
+                    }
+                    if (inherited) {
+                        inherited = NULL;
+                        break;
+                    }
+                    inherited = field;
+                }
+                if (inherited && inherited->offset >= 0 &&
+                    inherited->type && inherited->type->size > 0 &&
+                    inherited->offset <= owner_type->size &&
+                    inherited->type->size <=
+                        owner_type->size - inherited->offset) {
+                    RccIrLowerValue owner = lower_value(
+                        context->cxx_implicit_default_member_owner,
+                        rcc_ir_type_pointer(0u), true);
+                    RccIrLowerValue address = lower_byte_offset_address(
+                        context, owner, (uint64_t)inherited->offset);
+                    if (inherited->type->is_reference) {
+                        return lower_load_address(
+                            context, address, inherited->type);
+                    }
+                    return address;
+                }
+            }
         }
         RccIrLowerArrayAssignmentLoop* array_loop =
             lower_find_array_assignment_loop(
