@@ -2433,6 +2433,30 @@ debug_inline_nonconstant_signed_long_long_local_reference_xor_remainder_entry(
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_reference_xor_divide_entry(
+    void)
+{
+    volatile long long& dividend_ref =
+        debug_inline_nonconstant_signed_long_long_volatile_tls_dividend;
+    volatile long long& divisor_ref =
+        debug_inline_nonconstant_signed_long_long_volatile_tls_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (dividend_ref ^ 0x100000001LL) / divisor_ref);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_reference_xor_remainder_entry(
+    void)
+{
+    volatile long long& dividend_ref =
+        debug_inline_nonconstant_signed_long_long_volatile_tls_dividend;
+    volatile long long& divisor_ref =
+        debug_inline_nonconstant_signed_long_long_volatile_tls_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (dividend_ref ^ 0x100000001LL) % divisor_ref);
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_static_pair_divide_entry(void)
 {
     static long long dividend = -0x7123456789abcdefLL;
