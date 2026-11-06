@@ -2916,6 +2916,8 @@ static bool lower_dynamic_static_class_member_constructor_supported(
 
 static bool lower_dynamic_static_default_class_initializer_supported(
     const Type* type, const Expr* initializer, unsigned depth);
+static bool lower_dynamic_static_union_member_initializer_supported(
+    const Type* type, const Expr* initializer, unsigned depth);
 
 static bool lower_dynamic_static_default_class_initializer_supported(
     const Type* type, const Expr* initializer, unsigned depth) {
@@ -3027,13 +3029,19 @@ static bool lower_dynamic_static_default_class_initializer_supported(
         }
         if (field->type->cxx_class) {
             const Expr* member_initializer = item->expr;
-            if (!(member_initializer->kind == EXPR_COMPOUND &&
-                  member_initializer->compound_cxx_default_member_normalized &&
-                  member_initializer->compound_cxx_default_member_init_only
-                      ? lower_dynamic_static_default_class_initializer_supported(
-                            field->type, member_initializer, depth + 1u)
-                      : lower_dynamic_static_class_member_initializer_supported(
-                            field->type, item, depth + 1u))) {
+            bool default_member_initialization =
+                member_initializer->kind == EXPR_COMPOUND &&
+                member_initializer->compound_cxx_default_member_normalized &&
+                member_initializer->compound_cxx_default_member_init_only;
+            bool supported = default_member_initialization
+                ? field->type->kind == TYPE_UNION
+                    ? lower_dynamic_static_union_member_initializer_supported(
+                          field->type, member_initializer, depth + 1u)
+                    : lower_dynamic_static_default_class_initializer_supported(
+                          field->type, member_initializer, depth + 1u)
+                : lower_dynamic_static_class_member_initializer_supported(
+                      field->type, item, depth + 1u);
+            if (!supported) {
                 return false;
             }
         } else if (field->type->kind == TYPE_ARRAY) {
