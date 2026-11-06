@@ -3392,12 +3392,33 @@ static bool lower_dynamic_static_union_default_initializer_supported(
         !declaration->var_reference_temporary_guard ||
         declaration->storage != STORAGE_STATIC || !type ||
         type->kind != TYPE_UNION || !cls || cls->has_user_constructor ||
-        cls->constructors || cls->has_field_initializer ||
+        cls->constructors ||
         cls->base_count != 0 || cls->virtual_base_count != 0 ||
         type->size <= 0 || type->size > 65536 || type->align <= 0 ||
         type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 ||
-        !lower_union_type_supported(type) || !declaration->var_cleanups ||
+        !lower_union_type_supported(type)) {
+        return false;
+    }
+    if (declaration->var_init) {
+        if (cls->destructor_method &&
+            (!declaration->var_cleanups ||
+             !cls->destructor_method->decl ||
+             !cls->destructor_method->decl->func_body ||
+             !cls->destructor_method->decl->func_is_cxx_destructor ||
+             !cls->destructor_method->decl->func_is_noexcept ||
+             !cls->destructor_method->decl->func_this_param ||
+             cls->destructor_method->decl->func_params ||
+             !lower_cxx_destructor_cleanup_hook_supported(type))) {
+            return false;
+        }
+        if (!cls->destructor_method && declaration->var_cleanups) {
+            return false;
+        }
+        return lower_dynamic_static_union_member_initializer_supported(
+            type, declaration->var_init, 0u);
+    }
+    if (cls->has_field_initializer || !declaration->var_cleanups ||
         !cls->destructor_method || !cls->destructor_method->decl ||
         !cls->destructor_method->decl->func_body ||
         !cls->destructor_method->decl->func_is_cxx_destructor ||
@@ -3407,21 +3428,17 @@ static bool lower_dynamic_static_union_default_initializer_supported(
         !lower_cxx_destructor_cleanup_hook_supported(type)) {
         return false;
     }
-    if (!declaration->var_init) {
-        for (const TypeField* field = type->fields; field;
-             field = field->next) {
-            if (!field->type || field->initializer || field->is_bitfield ||
-                field->type->is_const || field->type->is_reference ||
-                field->type->is_atomic || !type_is_scalar(field->type) ||
-                field->offset < 0 || field->offset > type->size ||
-                field->type->size > type->size - field->offset) {
-                return false;
-            }
+    for (const TypeField* field = type->fields; field;
+         field = field->next) {
+        if (!field->type || field->initializer || field->is_bitfield ||
+            field->type->is_const || field->type->is_reference ||
+            field->type->is_atomic || !type_is_scalar(field->type) ||
+            field->offset < 0 || field->offset > type->size ||
+            field->type->size > type->size - field->offset) {
+            return false;
         }
-        return true;
     }
-    return lower_dynamic_static_union_member_initializer_supported(
-        type, declaration->var_init, 0u);
+    return true;
 }
 
 static bool lower_dynamic_static_class_array_initializer_supported(
