@@ -17689,9 +17689,8 @@ static bool sema_cxx_default_initialization_needs_lowering(
         (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
         return true;
     }
-    /* Vtable/vbtable pointer installation is handled by the local-object
-     * backend path; it does not itself require a C++ constructor call. */
-    if (cls->has_user_constructor || cls->has_field_initializer) {
+    if (cls->has_user_constructor || cls->has_field_initializer ||
+        cls->vtable_size > 0 || object_type->cxx_vtable_size > 0) {
         return true;
     }
     for (int index = 0; index < cls->base_count; ++index) {
@@ -39435,7 +39434,9 @@ static Expr* sema_cxx_default_initialization_expression(
                                        field->name);
             has_subobject_initialization = true;
         }
-        if (!has_subobject_initialization && cls->base_count == 0) {
+        if (!has_subobject_initialization && cls->base_count == 0 &&
+            cls->virtual_base_count == 0 && cls->vtable_size <= 0 &&
+            type->cxx_vtable_size <= 0) {
             return NULL;
         }
         initializer = expr_initializer_list(items, loc);
@@ -39445,7 +39446,8 @@ static Expr* sema_cxx_default_initialization_expression(
         initializer->compound_cxx_default_member_normalized = true;
         initializer->compound_cxx_default_member_init_only = true;
         initializer->compound_cxx_is_base_subobject = is_base_subobject;
-        *needs_initialization = has_subobject_initialization;
+        *needs_initialization = has_subobject_initialization ||
+            cls->vtable_size > 0 || type->cxx_vtable_size > 0;
         return initializer;
     }
 }

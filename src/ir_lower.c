@@ -338,6 +338,14 @@ static bool lower_zero_struct_storage(
 static bool lower_initialize_struct_storage(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type, const Expr* initializer);
+static bool lower_cxx_initialize_object_vtables(
+    RccIrLowerContext* context, RccIrValue object, const Type* type);
+static bool lower_cxx_initialize_array_object_vtables(
+    RccIrLowerContext* context, RccIrValue object,
+    const Type* array_type, unsigned depth);
+static bool lower_cxx_initialize_member_object_vtables(
+    RccIrLowerContext* context, RccIrValue object,
+    const Type* type, unsigned depth);
 static bool lower_union_type_supported(const Type* type);
 static bool lower_copy_union_storage(
     RccIrLowerContext* context, RccIrValue destination,
@@ -2851,7 +2859,6 @@ static bool lower_dynamic_static_class_member_constructor_supported(
          (!type->cxx_class->bases || !type->cxx_class->base_offsets)) ||
         (type->cxx_class->virtual_base_count != 0 &&
          !type->cxx_class->virtual_bases) ||
-        type->cxx_class->vtable_size != 0 ||
         !lower_struct_type_supported(type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         !initializer->compound_constructor ||
@@ -2924,7 +2931,7 @@ static bool lower_dynamic_static_default_class_initializer_supported(
         type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 ||
         cls->has_user_constructor || cls->constructors ||
-        cls->vtable_size != 0 || cls->base_count < 0 ||
+        cls->base_count < 0 ||
         cls->virtual_base_count < 0 ||
         (cls->base_count != 0 && (!cls->bases || !cls->base_offsets)) ||
         (cls->virtual_base_count != 0 && !cls->virtual_bases) ||
@@ -3052,7 +3059,8 @@ static bool lower_dynamic_static_class_default_initializer_supported(
         declaration->storage != STORAGE_STATIC || !type ||
         type->kind != TYPE_STRUCT || !type->cxx_class ||
         (type->cxx_class->base_count == 0 &&
-         type->cxx_class->virtual_base_count == 0) ||
+         type->cxx_class->virtual_base_count == 0 &&
+         type->cxx_class->vtable_size <= 0 && type->cxx_vtable_size <= 0) ||
         !lower_dynamic_static_default_class_initializer_supported(
             type, initializer, 0u) ||
         (declaration->var_cleanups &&
@@ -3081,7 +3089,8 @@ static bool lower_dynamic_static_class_member_initializer_supported(
     }
     if (default_member_initialization && type && type->cxx_class &&
         (type->cxx_class->base_count != 0 ||
-         type->cxx_class->virtual_base_count != 0)) {
+         type->cxx_class->virtual_base_count != 0 ||
+         type->cxx_class->vtable_size > 0 || type->cxx_vtable_size > 0)) {
         return lower_dynamic_static_default_class_initializer_supported(
             type, initializer, depth);
     }
@@ -3305,8 +3314,9 @@ static bool lower_dynamic_static_class_array_initializer_supported(
         (!element_type->cxx_class->has_user_constructor &&
          !element_type->cxx_class->has_field_initializer &&
          element_type->cxx_class->base_count == 0 &&
-         element_type->cxx_class->virtual_base_count == 0) ||
-        element_type->cxx_class->vtable_size != 0 ||
+         element_type->cxx_class->virtual_base_count == 0 &&
+         element_type->cxx_class->vtable_size <= 0 &&
+         element_type->cxx_vtable_size <= 0) ||
         !lower_struct_type_supported(element_type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         initializer->compound_constructor ||
@@ -11763,6 +11773,46 @@ static bool lower_register_partial_array_element_cleanup(
     }
     return lower_cxx_delete_subobject_cleanups_change(
         context, type->cxx_class, object, true, 0u);
+}
+
+static bool lower_register_partial_array_cleanups_in_object(
+    RccIrLowerContext* context, const Type* array_type,
+    RccIrLowerValue object, unsigned depth) {
+    if (!context || !array_type || array_type->kind != TYPE_ARRAY ||
+        !array_type->base || array_type->array_len < 0 ||
+        array_type->array_len > 4096 || !object.valid ||
+        object.type.kind != RCC_IR_TYPE_POINTER || depth >= 32u) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (!context->partial_construction_owner) return true;
+    {
+        const Type* element_type = array_type;
+        while (element_type && element_type->kind == TYPE_ARRAY) {
+            element_type = element_type->base;
+        }
+        if (!element_type || !element_type->cxx_class ||
+            !lower_cxx_type_has_destructor_cleanup(element_type)) {
+            return true;
+        }
+    }
+    for (int index = 0; index < array_type->array_len; ++index) {
+        RccIrLowerValue element = lower_array_element_address(
+            context, object.value, array_type->base, (uint64_t)index);
+        if (!element.valid) return false;
+        if (array_type->base->kind == TYPE_ARRAY) {
+            if (!lower_register_partial_array_cleanups_in_object(
+                    context, array_type->base, element, depth + 1u)) {
+                return false;
+            }
+        } else if (array_type->base->cxx_class &&
+                   lower_cxx_type_has_destructor_cleanup(array_type->base) &&
+                   !lower_register_partial_array_element_cleanup(
+                       context, array_type->base, element)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool lower_register_partial_base_cleanup(
@@ -23593,7 +23643,11 @@ static bool lower_array_initializer(
         if (array_type->base->kind == TYPE_STRUCT) {
             if (!address.valid || !lower_initialize_struct_storage(
                     context, address.value, array_type->base,
-                    item->expr)) return false;
+                    item->expr) ||
+                !lower_cxx_initialize_object_vtables(
+                    context, address.value, array_type->base)) {
+                return false;
+            }
             if (!lower_register_partial_array_element_cleanup(
                     context, array_type->base, address)) {
                 return false;
@@ -26907,9 +26961,6 @@ lower_cxx_implicit_subobject_default_constructor(const Type* type) {
     return selected;
 }
 
-static bool lower_cxx_initialize_object_vtables(
-    RccIrLowerContext* context, RccIrValue object, const Type* type);
-
 static bool lower_cxx_implicit_class_value_initializer_supported(
     const Type* type, const Expr* initializer) {
     return type && type->kind == TYPE_STRUCT && initializer &&
@@ -29522,7 +29573,9 @@ static bool lower_initialize_struct_field(
             context, address.value, field->type, initializer);
     } else if (field->type->kind == TYPE_STRUCT) {
         initialized = lower_initialize_struct_storage(
-            context, address.value, field->type, initializer);
+                context, address.value, field->type, initializer) &&
+            lower_cxx_initialize_object_vtables(
+                context, address.value, field->type);
         if (initialized && context->partial_construction_owner &&
             field->type->cxx_class &&
             !lower_unregister_partial_member_cleanups_in_object(
@@ -30297,6 +30350,9 @@ static bool lower_struct_initializer(
                 !lower_initialize_struct_storage(
                     context, address.value, virtual_type->type,
                     virtual_item->expr) ||
+                (virtual_type->virtual_base_count == 0 &&
+                 !lower_cxx_initialize_object_vtables(
+                     context, address.value, virtual_type->type)) ||
                 !lower_register_partial_base_cleanup(
                     context, virtual_type, offset)) {
                 context->unsupported = true;
@@ -30363,7 +30419,10 @@ static bool lower_struct_initializer(
                     return false;
                 }
                 if (!lower_initialize_struct_storage(
-                        context, address.value, base_class->type, item->expr)) {
+                        context, address.value, base_class->type, item->expr) ||
+                    (base_class->virtual_base_count == 0 &&
+                     !lower_cxx_initialize_object_vtables(
+                         context, address.value, base_class->type))) {
                     return false;
                 }
                 if (!lower_register_partial_base_cleanup(
@@ -30378,7 +30437,7 @@ static bool lower_struct_initializer(
             const TypeField* field;
             if (member->is_static) continue;
             field = lower_struct_declared_field(type, cls, member->name);
-            if (!field) {
+            if (!field || !field->type) {
                 context->unsupported = true;
                 return false;
             }
@@ -30390,6 +30449,31 @@ static bool lower_struct_initializer(
                 if (initializer->compound_cxx_default_member_init_only) {
                     /* Default-initialized scalar subobjects with no DMI are
                      * intentionally absent from the synthesized initializer. */
+                    RccIrLowerValue object = lower_value(
+                        base, rcc_ir_type_pointer(0u), true);
+                    RccIrLowerValue address;
+                    if (member->initializer) {
+                        context->unsupported = true;
+                        return false;
+                    }
+                    if (field->type->kind != TYPE_STRUCT &&
+                        field->type->kind != TYPE_ARRAY) {
+                        continue;
+                    }
+                    address = lower_byte_offset_address(
+                        context, object, (uint64_t)field->offset);
+                    if (!address.valid ||
+                        (field->type->kind == TYPE_ARRAY
+                             ? (!lower_cxx_initialize_array_object_vtables(
+                                    context, address.value, field->type, 0u) ||
+                                !lower_register_partial_array_cleanups_in_object(
+                                    context, field->type, address, 0u))
+                             : (!lower_cxx_initialize_object_vtables(
+                                    context, address.value, field->type) ||
+                                !lower_register_partial_member_cleanup(
+                                    context, field, address)))) {
+                        return false;
+                    }
                     continue;
                 }
                 context->unsupported = true;
@@ -30649,9 +30733,7 @@ static bool lower_cxx_initialize_object_vtables(
     if (!context || !type) return false;
     if (type->kind != TYPE_STRUCT) return true;
     cls = type->cxx_class;
-    if (type->cxx_vtable_size <= 0 &&
-        (!cls || (cls->secondary_vtable_count <= 0 &&
-                  cls->virtual_base_count <= 0))) {
+    if (!cls && type->cxx_vtable_size <= 0) {
         return true;
     }
     if (type->cxx_vtable_size > 0) {
@@ -30664,6 +30746,14 @@ static bool lower_cxx_initialize_object_vtables(
         }
     }
     if (!cls) return true;
+    if (cls->base_count < 0 || cls->virtual_base_count < 0 ||
+        cls->secondary_vtable_count < 0 ||
+        (cls->base_count > 0 && (!cls->bases || !cls->base_offsets)) ||
+        (cls->virtual_base_count > 0 && !cls->virtual_bases) ||
+        (cls->secondary_vtable_count > 0 && !cls->secondary_vtables)) {
+        context->unsupported = true;
+        return false;
+    }
     if (cls->virtual_base_count > 0) {
         if (cls->virtual_base_pointer_offset < 0 ||
             !cls->virtual_base_table_symbol ||
@@ -30674,10 +30764,6 @@ static bool lower_cxx_initialize_object_vtables(
             context->unsupported = true;
             return false;
         }
-    }
-    if (cls->base_count > 0 && !cls->base_offsets) {
-        context->unsupported = true;
-        return false;
     }
     for (int index = 0; index < cls->base_count; ++index) {
         const CxxClass* base = cls->bases[index].base;
@@ -30784,6 +30870,133 @@ static bool lower_cxx_initialize_object_vtables(
                 context, object, (uint64_t)type->size, offset,
                 table_symbol)) {
             context->unsupported = true;
+            return false;
+        }
+    }
+    if (!lower_cxx_initialize_member_object_vtables(
+            context, object, type, 0u)) {
+        return false;
+    }
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        const CxxClass* base = cls->virtual_bases[virtual_index].base;
+        RccIrLowerValue object_value = lower_value(
+            object, rcc_ir_type_pointer(0u), true);
+        RccIrLowerValue address;
+        if (!base || !base->type ||
+            cls->virtual_bases[virtual_index].offset < 0) {
+            context->unsupported = true;
+            return false;
+        }
+        address = lower_byte_offset_address(
+            context, object_value,
+            (uint64_t)cls->virtual_bases[virtual_index].offset);
+        if (!address.valid ||
+            !lower_cxx_initialize_member_object_vtables(
+                context, address.value, base->type, 0u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_cxx_initialize_array_object_vtables(
+    RccIrLowerContext* context, RccIrValue object,
+    const Type* array_type, unsigned depth) {
+    const Type* element_type;
+    if (!context || !array_type || depth >= 32u ||
+        array_type->kind != TYPE_ARRAY || !array_type->base ||
+        array_type->array_len < 0 || array_type->array_len > 4096) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    element_type = array_type;
+    while (element_type && element_type->kind == TYPE_ARRAY) {
+        element_type = element_type->base;
+    }
+    if (!element_type || element_type->kind != TYPE_STRUCT ||
+        !element_type->cxx_class) {
+        return true;
+    }
+    for (int64_t index = 0; index < array_type->array_len; ++index) {
+        RccIrLowerValue address = lower_array_element_address(
+            context, object, array_type->base, (uint64_t)index);
+        if (!address.valid) return false;
+        if (array_type->base->kind == TYPE_ARRAY) {
+            if (!lower_cxx_initialize_array_object_vtables(
+                    context, address.value, array_type->base, depth + 1u)) {
+                return false;
+            }
+        } else if (array_type->base->kind == TYPE_STRUCT &&
+                   !lower_cxx_initialize_object_vtables(
+                       context, address.value, array_type->base)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_cxx_initialize_member_object_vtables(
+    RccIrLowerContext* context, RccIrValue object,
+    const Type* type, unsigned depth) {
+    const CxxClass* cls;
+    RccIrLowerValue object_value;
+    if (!context || object == RCC_IR_VALUE_NONE || !type ||
+        type->kind != TYPE_STRUCT ||
+        depth >= 32u) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    cls = type->cxx_class;
+    if (!cls) return true;
+    if (cls->base_count < 0 ||
+        (cls->base_count > 0 && (!cls->bases || !cls->base_offsets))) {
+        context->unsupported = true;
+        return false;
+    }
+    object_value = lower_value(object, rcc_ir_type_pointer(0u), true);
+    for (const TypeParam* member = cls->fields; member;
+         member = member->next) {
+        const TypeField* field;
+        RccIrLowerValue address;
+        if (member->is_static || !member->name) continue;
+        field = lower_struct_declared_field(type, cls, member->name);
+        if (!field || !field->type || field->offset < 0 ||
+            field->offset > type->size ||
+            field->type->size > type->size - field->offset) {
+            context->unsupported = true;
+            return false;
+        }
+        if (field->type->kind != TYPE_STRUCT &&
+            field->type->kind != TYPE_ARRAY) {
+            continue;
+        }
+        address = lower_byte_offset_address(
+            context, object_value, (uint64_t)field->offset);
+        if (!address.valid) return false;
+        if (field->type->kind == TYPE_ARRAY) {
+            if (!lower_cxx_initialize_array_object_vtables(
+                    context, address.value, field->type, depth + 1u)) {
+                return false;
+            }
+        } else if (!lower_cxx_initialize_object_vtables(
+                       context, address.value, field->type)) {
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        RccIrLowerValue address;
+        if (cls->bases[index].is_virtual) continue;
+        if (!base || !base->type || cls->base_offsets[index] < 0) {
+            context->unsupported = true;
+            return false;
+        }
+        address = lower_byte_offset_address(
+            context, object_value, (uint64_t)cls->base_offsets[index]);
+        if (!address.valid ||
+            !lower_cxx_initialize_member_object_vtables(
+                context, address.value, base->type, depth + 1u)) {
             return false;
         }
     }
@@ -31504,6 +31717,7 @@ static bool lower_dynamic_static_aggregate_initializer(
     bool constructor_initializer;
     bool class_array_initializer;
     bool default_class_initializer;
+    bool default_initializer;
     if (!context ||
         !lower_dynamic_static_aggregate_initializer_supported(declaration)) {
         if (context) context->unsupported = true;
@@ -31516,6 +31730,8 @@ static bool lower_dynamic_static_aggregate_initializer(
         lower_dynamic_static_class_array_initializer_supported(declaration);
     default_class_initializer =
         lower_dynamic_static_class_default_initializer_supported(declaration);
+    default_initializer =
+        lower_dynamic_static_default_initializer_supported(declaration);
     guard = declaration->var_reference_temporary_guard;
     symbol = lower_append(
         context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
@@ -31606,6 +31822,15 @@ static bool lower_dynamic_static_aggregate_initializer(
         context->partial_construction_owner = previous_partial_owner;
         context->partial_construction_cleanup_declaration =
             previous_partial_cleanup_declaration;
+        if (!initialized) return false;
+        field = NULL;
+        has_field_designators = false;
+    } else if (default_initializer) {
+        bool initialized = declaration->type->kind == TYPE_ARRAY
+            ? lower_cxx_initialize_array_object_vtables(
+                  context, object.value, declaration->type, 0u)
+            : lower_cxx_initialize_object_vtables(
+                  context, object.value, declaration->type);
         if (!initialized) return false;
         field = NULL;
         has_field_designators = false;
@@ -32442,8 +32667,25 @@ static bool lower_declaration(RccIrLowerContext* context,
             return false;
         }
     }
-    return !is_struct || lower_cxx_initialize_object_vtables(
-        context, allocation->result, declaration->type);
+    if (is_array) {
+        if (!lower_cxx_initialize_array_object_vtables(
+                context, allocation->result, declaration->type, 0u)) {
+            return false;
+        }
+        return !declaration->var_cleanups ||
+            lower_push_scope_cleanup_plan(
+                context, declaration->var_cleanups);
+    }
+    if (is_struct) {
+        if (!lower_cxx_initialize_object_vtables(
+                context, allocation->result, declaration->type)) {
+            return false;
+        }
+        return !declaration->var_cleanups ||
+            lower_push_scope_cleanup_plan(
+                context, declaration->var_cleanups);
+    }
+    return true;
 }
 
 static RccIrType lower_cxx_exception_word_type(void) {
