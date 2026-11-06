@@ -17775,8 +17775,8 @@ static bool sema_cxx_default_initialization_needs_lowering(
         (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
         return true;
     }
-    if (cls->has_user_constructor || cls->has_field_initializer ||
-        cls->vtable_size > 0 || object_type->cxx_vtable_size > 0) {
+    if (cls->has_user_constructor || cls->vtable_size > 0 ||
+        object_type->cxx_vtable_size > 0) {
         return true;
     }
     for (int index = 0; index < cls->base_count; ++index) {
@@ -17797,8 +17797,27 @@ static bool sema_cxx_default_initialization_needs_lowering(
     }
     for (TypeParam* parameter = cls->fields; parameter;
          parameter = parameter->next) {
-        if (!parameter->is_static && parameter->type &&
-            sema_cxx_default_initialization_needs_lowering(
+        TypeField* field = NULL;
+        if (parameter->is_static) continue;
+        for (TypeField* candidate = object_type->fields;
+             candidate; candidate = candidate->next) {
+            if (candidate->name && parameter->name &&
+                candidate->cxx_declaring_class == cls &&
+                strcmp(candidate->name, parameter->name) == 0) {
+                field = candidate;
+                break;
+            }
+        }
+        if (!field || !field->type) return true;
+        if (field->initializer) {
+            if (!sema_cxx_default_member_initializer_supported(
+                    field->type, field->initializer) ||
+                !sema_noexcept_expr(field->initializer)) {
+                return true;
+            }
+            continue;
+        }
+        if (sema_cxx_default_initialization_needs_lowering(
                 parameter->type, depth + 1)) {
             return true;
         }
