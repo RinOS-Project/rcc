@@ -5414,6 +5414,16 @@ static bool debug_inline_integer_expression_type_allow_volatile(
          type->kind == TYPE_ENUM);
 }
 
+static bool debug_inline_integer_expression_type_allow_atomic(
+    const Type* type) {
+    Type value_type;
+    if (!type || !type->is_atomic) return false;
+    value_type = *type;
+    value_type.is_atomic = false;
+    return debug_inline_integer_expression_type(&value_type) ||
+        debug_inline_integer_expression_type_allow_volatile(&value_type);
+}
+
 static uint8_t debug_inline_integer_comparison_opcode(ExprKind kind) {
     switch (kind) {
         case EXPR_EQ: return 0x29u;
@@ -5887,6 +5897,8 @@ typedef struct DebugInlineI686ExpressionRelocations
     DebugInlineI686ExpressionRelocations;
 
 static bool debug_inline_i686_relocations_allow_volatile(
+    const DebugInlineI686ExpressionRelocations* relocations);
+static bool debug_inline_i686_relocations_allow_atomic(
     const DebugInlineI686ExpressionRelocations* relocations);
 
 static bool debug_inline_parameter_i686_append_storage_u32(
@@ -6651,6 +6663,9 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
     if ((!debug_inline_integer_expression_type(value->type) &&
          !(debug_inline_i686_relocations_allow_volatile(relocations) &&
            debug_inline_integer_expression_type_allow_volatile(
+               value->type)) &&
+         !(debug_inline_i686_relocations_allow_atomic(relocations) &&
+           debug_inline_integer_expression_type_allow_atomic(
                value->type))) ||
         value->type->size <= 0 || value->type->size > 8) {
         return false;
@@ -6903,9 +6918,9 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
         value->type->size == 8 && value->binary_lhs->type &&
         value->binary_lhs->type->size == 8 && value->binary_rhs->type &&
         value->binary_rhs->type->size == 8 &&
-        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             value->binary_lhs->type, value->type, 0u) &&
-        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             value->binary_rhs->type, value->type, 0u)) {
         uint8_t operation_opcode = value->kind == EXPR_BITAND ? 0x1au :
             value->kind == EXPR_BITOR ? 0x21u : 0x27u;
@@ -7501,9 +7516,10 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
             (source->type->is_volatile &&
              (!debug_inline_i686_relocations_allow_volatile(relocations) ||
               (!source->var_is_global && !source->var_is_static_local))) ||
-            source->type->is_atomic ||
+            (source->type->is_atomic &&
+             !debug_inline_i686_relocations_allow_atomic(relocations)) ||
             source->type->is_reference ||
-            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
                 source->type, value->type, 0u)) {
             return false;
         }
@@ -9456,6 +9472,11 @@ struct DebugInlineI686ExpressionRelocations {
     bool allow_volatile;
     bool allow_atomic;
 };
+
+static bool debug_inline_i686_relocations_allow_atomic(
+    const DebugInlineI686ExpressionRelocations* relocations) {
+    return relocations && relocations->allow_atomic;
+}
 
 static bool debug_inline_i686_relocations_allow_volatile(
     const DebugInlineI686ExpressionRelocations* relocations) {
@@ -12209,9 +12230,9 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
             mod, expression->binary_rhs, depth + 1u);
     }
     if ((!debug_inline_integer_expression_type(type) &&
-         !debug_inline_integer_expression_type_allow_volatile(type)) ||
-        type->size <= 0 || type->size > 8 || type->is_atomic ||
-        type->is_reference) {
+         !debug_inline_integer_expression_type_allow_volatile(type) &&
+         !debug_inline_integer_expression_type_allow_atomic(type)) ||
+        type->size <= 0 || type->size > 8 || type->is_reference) {
         return false;
     }
     if (debug_inline_integer_literal_bits(
@@ -12261,9 +12282,11 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
                 (declaration->type->is_volatile &&
                  !declaration->var_is_global &&
                  !declaration->var_is_static_local) ||
-                declaration->type->is_atomic ||
+                (declaration->type->is_atomic &&
+                 !debug_inline_integer_expression_type_allow_atomic(
+                     declaration->type)) ||
                 declaration->type->is_reference ||
-                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
                     declaration->type, type, 0u)) {
                 return false;
             }

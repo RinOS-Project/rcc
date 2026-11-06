@@ -14739,6 +14739,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_indirect_reference_initializer_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 92 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_atomic_load_xor_divide_entry";
+    } else if (expected_constant == INT64_MIN + 93 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_atomic_load_xor_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -15153,7 +15161,9 @@ static void verify_inline_integer_expression_parameter(
          expected_constant == INT64_MIN + 84 ||
          expected_constant == INT64_MIN + 85 ||
          expected_constant == INT64_MIN + 86 ||
-         expected_constant == INT64_MIN + 87) &&
+         expected_constant == INT64_MIN + 87 ||
+         expected_constant == INT64_MIN + 92 ||
+         expected_constant == INT64_MIN + 93) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
         verify_inline_i686_s64_xor_variable_division_expression(
             object, info->data, expression_end, expression_start, info,
@@ -21066,6 +21076,20 @@ int main(int argc, char** argv)
                 argv[index],
                 "debug_inline_nonconstant_signed_long_long_atomic_store_tls_remainder_entry",
                 true, true, false, false, false, false, false, true);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_signed_long_long_parameter_inline",
+                "debug_inline_nonconstant_signed_long_long_atomic_dividend",
+                false, 0x1bu, 8u, INT64_MIN + 92,
+                "debug_inline_nonconstant_signed_long_long_atomic_divisor",
+                false);
+            verify_inline_integer_expression_parameter(
+                argv[index], ARCH_X86,
+                "debug_nonconstant_signed_long_long_parameter_inline",
+                "debug_inline_nonconstant_signed_long_long_atomic_dividend",
+                false, 0x1du, 8u, INT64_MIN + 93,
+                "debug_inline_nonconstant_signed_long_long_atomic_divisor",
+                false);
         }
         return 0;
     }
