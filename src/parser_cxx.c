@@ -5006,7 +5006,7 @@ static bool cxx_template_non_type_constant_value_in_context(
                        expression, context, NULL, NULL, value_out)) {
         return true;
     }
-    if (expression->kind == EXPR_IDENT && !expression->ident_decl) {
+    if (expression->kind == EXPR_IDENT) {
         Decl* declaration = cxx_template_lookup_namespace_declaration(
             context, expression->ident_name);
         if (declaration && declaration->kind == DECL_ENUM_CONST) {
@@ -5041,7 +5041,7 @@ static bool cxx_template_non_type_constant_value_as_type_in_context(
         source_type->is_long_double != target_type->is_long_double) {
         return false;
     }
-    if (expression->kind == EXPR_IDENT && !expression->ident_decl) {
+    if (expression->kind == EXPR_IDENT) {
         Decl* declaration = cxx_template_lookup_namespace_declaration(
             context, expression->ident_name);
         if (declaration && declaration->kind == DECL_VAR &&
@@ -6309,9 +6309,119 @@ static Decl* cxx_template_integer_call_function(
     return direct_declaration;
 }
 
+static bool cxx_template_namespace_component_equals(
+    const char* candidate, const char* component, size_t component_length) {
+    return candidate && strlen(candidate) == component_length &&
+        memcmp(candidate, component, component_length) == 0;
+}
+
+/* Namespace lookup for a retained template definition follows the source
+ * lexical context, including module-private namespace components.  Ordinary
+ * namespace lookup deliberately hides those components from importers, but
+ * that visibility filter must not discard a namespace needed by a reachable
+ * template default or constraint. */
+static CxxNamespace* cxx_template_find_reachable_namespace(
+    CxxNamespace* scope, const char* qualified_name) {
+    CxxNamespace* current = scope;
+    const char* component = qualified_name;
+    if (!scope || !qualified_name || !*qualified_name) return NULL;
+    while (*component) {
+        const char* separator = strstr(component, "::");
+        size_t component_length = separator
+            ? (size_t)(separator - component) : strlen(component);
+        CxxNamespace* next = NULL;
+        if (component_length == 0u) return NULL;
+        for (CxxNamespace* child = current->children; child;
+             child = child->next) {
+            if (cxx_template_namespace_component_equals(
+                    child->name, component, component_length)) {
+                next = child;
+                break;
+            }
+        }
+        for (int index = 0; !next &&
+             index < current->namespace_alias_count; ++index) {
+            if (cxx_template_namespace_component_equals(
+                    current->namespace_alias_names[index], component,
+                    component_length)) {
+                next = current->namespace_alias_targets[index];
+            }
+        }
+        if (!next) return NULL;
+        current = next;
+        if (!separator) break;
+        component = separator + 2;
+    }
+    return current;
+}
+
 static Decl* cxx_template_lookup_namespace_declaration(
     CxxTemplate* tmpl, const char* name) {
+    const char* qualified_name = name;
+    const char* last_separator = NULL;
+    const char* declaration_name;
+    bool globally_qualified = false;
     if (!tmpl || !name || !*name) return NULL;
+    if (qualified_name[0] == ':' && qualified_name[1] == ':') {
+        globally_qualified = true;
+        qualified_name += 2;
+    }
+    for (const char* cursor = qualified_name; *cursor; ++cursor) {
+        if (cursor[0] == ':' && cursor[1] == ':') {
+            last_separator = cursor;
+            ++cursor;
+        }
+    }
+    if (last_separator) {
+        size_t namespace_length = (size_t)(last_separator - qualified_name);
+        char* namespace_name = rcc_alloc(namespace_length + 1u);
+        Decl* result = NULL;
+        const char* exact_name = globally_qualified ? name + 2 : name;
+        if (!namespace_name) rcc_fatal("out of memory");
+        memcpy(namespace_name, qualified_name, namespace_length);
+        namespace_name[namespace_length] = '\0';
+        declaration_name = last_separator + 2;
+        for (CxxNamespace* scope = tmpl->ns; scope && !result;
+             scope = scope->parent) {
+            for (DeclList* item = scope->decls; item; item = item->next) {
+                Decl* declaration = item->decl;
+                if (declaration && declaration->name &&
+                    strcmp(declaration->name, exact_name) == 0) {
+                    result = declaration;
+                    break;
+                }
+            }
+        }
+        for (CxxNamespace* scope = globally_qualified
+                 ? g_global_namespace : tmpl->ns;
+             scope && !result;
+             scope = globally_qualified ? NULL : scope->parent) {
+            CxxNamespace* target_namespace;
+            target_namespace = cxx_template_find_reachable_namespace(
+                scope, namespace_name);
+            if (!target_namespace) continue;
+            for (DeclList* item = target_namespace->decls; item;
+                 item = item->next) {
+                Decl* declaration = item->decl;
+                const char* unqualified_name;
+                const char* separator;
+                if (!declaration || !declaration->name) continue;
+                unqualified_name = declaration->name;
+                separator = strrchr(unqualified_name, ':');
+                if (separator && separator > unqualified_name &&
+                    separator[-1] == ':') {
+                    unqualified_name = separator + 1;
+                }
+                if (strcmp(unqualified_name, declaration_name) == 0) {
+                    result = declaration;
+                    break;
+                }
+            }
+            if (result) break;
+        }
+        rcc_free(namespace_name);
+        return result;
+    }
     for (CxxNamespace* ns = tmpl->ns; ns; ns = ns->parent) {
         for (DeclList* item = ns->decls; item; item = item->next) {
             Decl* declaration = item->decl;
