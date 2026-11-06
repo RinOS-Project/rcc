@@ -17046,7 +17046,7 @@ static bool sema_cxx_default_member_initializer_supported(
         !constructor->method ||
         !(declaration = constructor->method->decl) ||
         !declaration->func_is_cxx_constructor ||
-        !declaration->func_is_noexcept || constructor->is_deleted ||
+        !declaration->func_body || constructor->is_deleted ||
         !constructor->initializers_are_supported ||
         constructor->parameter_count < 0 ||
         constructor->parameter_count > 64 ||
@@ -17069,9 +17069,12 @@ static bool sema_cxx_default_member_initializer_supported(
                 parameter->type, parameter_declaration->decl->type) ||
             !argument ||
             argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            argument->cxx_temporary_owner ||
+            argument->cxx_temporary_cleanups ||
             !argument->expr || !argument->expr->type ||
             !type_is_scalar(argument->expr->type) ||
-            argument->expr->type->cxx_is_member_pointer) {
+            argument->expr->type->cxx_is_member_pointer ||
+            !sema_noexcept_expr(argument->expr)) {
             return false;
         }
         ++parameter_count;
