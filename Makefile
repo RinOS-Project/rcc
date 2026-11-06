@@ -28679,6 +28679,15 @@ test-cxx-nullptr-bool-conversion: $(RCXX_TARGET)
 
 test-cxx-conversion-reference-ranking-ambiguous: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-gcc$(EXE_SUFFIX) tests/cxx_function_reference_lvalue_ranking.cpp
+	$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-gcc$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-x86.ro tests/cxx_function_reference_lvalue_ranking.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 -S -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-x64-o0.s tests/cxx_function_reference_lvalue_ranking.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-rcc-o0$(EXE_SUFFIX) $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-x64-o0.s
+	$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-rcc-o0$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-x64-o2.s tests/cxx_function_reference_lvalue_ranking.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-rcc-o2$(EXE_SUFFIX) $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-x64-o2.s
+	$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/function-lvalue-rcc-o2$(EXE_SUFFIX)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_noexcept_function_pointer_reference_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/noexcept-pointer-reference-gcc.log)
 	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/noexcept-pointer-reference-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/noexcept-pointer-reference-x86.ro)

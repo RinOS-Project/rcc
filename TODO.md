@@ -9,6 +9,11 @@
   ambiguous overload regression; GCC C++20 and RCC i686/AMD64 diagnostics,
   including absent-object checks, pass in
   `test-cxx-conversion-reference-ranking-ambiguous`.
+- [x] Cover the separate [over.ics.rank] tie-break for an lvalue function
+  designator: both function-reference categories remain viable, but `T&` wins
+  over `T&&`. Check the GCC oracle, both RCC targets, and optimized/unoptimized
+  generated AMD64 execution in
+  `test-cxx-conversion-reference-ranking-ambiguous`.
 
 ## RCC continuation (2026-11-05, Windows atomic test gate)
 
