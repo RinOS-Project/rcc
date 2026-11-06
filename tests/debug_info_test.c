@@ -10764,10 +10764,16 @@ static void verify_inline_i686_computed_division_expression(
     const char* inline_name = is_signed
         ? "debug_nonconstant_signed_long_long_parameter_inline"
         : "debug_nonconstant_unsigned_long_long_parameter_inline";
+    bool atomic_rmw_tree = atomic_store_tree && call_site_name &&
+        strstr(call_site_name, "_atomic_local_rmw_") != NULL;
     bool atomic_store_pointer_tree = atomic_store_tree && call_site_name &&
         strstr(call_site_name, "_atomic_store_pointer_") != NULL;
     const char* dividend_name = bitwise_tree
         ? "computed_bitwise_division_dividend"
+        : atomic_rmw_tree
+              ? (strstr(call_site_name, "_rmw_sub_")
+                     ? "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_sub_dividend"
+                     : "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_dividend")
         : atomic_store_tree
               ? (atomic_store_pointer_tree
                      ? "computed_atomic_store_pointer_division_dividend"
@@ -10788,6 +10794,8 @@ static void verify_inline_i686_computed_division_expression(
                      : "computed_unsigned_division_dividend");
     const char* divisor_name = bitwise_tree
         ? "computed_bitwise_division_divisor"
+        : atomic_rmw_tree
+              ? "computed_atomic_rmw_divisor"
         : atomic_store_tree
               ? (atomic_store_pointer_tree
                      ? "computed_atomic_store_pointer_division_divisor"
@@ -10957,12 +10965,16 @@ static void verify_inline_i686_computed_division_expression(
                 divisor_bits, remainder, !constant_divisor,
                 is_signed ? 1 : 0, constant_divisor, info, NULL, NULL);
             if (is_signed) {
-                int64_t dividend = conditional_tree
+                int64_t dividend = atomic_rmw_tree
+                    ? ((int64_t)dividend_bits ^ INT64_C(0x100000001))
+                    : conditional_tree
                     ? ((signed_dividends[dividend_index] & 1)
                            ? signed_dividends[dividend_index] + 17
                            : -signed_dividends[dividend_index])
                     : signed_dividends[dividend_index] + 17;
-                int64_t divisor = conditional_tree
+                int64_t divisor = atomic_rmw_tree
+                    ? signed_divisors[divisor_index]
+                    : conditional_tree
                     ? ((signed_divisors[divisor_index] & 1)
                            ? signed_divisors[divisor_index] * 2 + 1
                            : signed_divisors[divisor_index] + 4)
@@ -21201,6 +21213,23 @@ int main(int argc, char** argv)
                 false, 0x1du, 8u, INT64_MIN + 99,
                 "debug_inline_nonconstant_signed_long_long_volatile_atomic_local_load_xor_remainder_divisor",
                 false);
+        }
+        return 0;
+    }
+    if (argc == 6 &&
+        strcmp(argv[1], "--verify-inline-atomic-rmw-expression") == 0) {
+        for (int index = 2; index < 6; ++index) {
+            ObjectFile* object = objfile_read(argv[index]);
+            assert(object && object->arch == ARCH_X86);
+            objfile_free(object);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_divide_entry",
+                true, false, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_sub_remainder_entry",
+                true, true, false, false, false, false, false, true);
         }
         return 0;
     }

@@ -13,6 +13,8 @@ static void optimize_expr(Expr** expression);
 static void optimize_stmt(Stmt* statement);
 static void propagate_block_constants(Stmt* statement);
 static void eliminate_block_dead_stores(Stmt* statement);
+static bool inline_scalar_local_address_escapes(
+    const Decl* caller, const Decl* local);
 
 /* A bounded fixed point is used only to resolve declaration-order
  * dependencies between the conservative pure-scalar inline candidates.
@@ -2192,6 +2194,38 @@ static bool inline_scalar_atomic_read_evaluation_tree(
                        expression->binary_lhs) &&
                 inline_scalar_atomic_read_evaluation_tree(
                     expression->binary_rhs);
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN: {
+            const Expr* destination = expression->binary_lhs;
+            const Expr* update = expression->binary_rhs;
+            const Decl* declaration = destination &&
+                    destination->kind == EXPR_IDENT
+                ? destination->ident_decl : NULL;
+            const Type* object_type = declaration
+                ? declaration->type : NULL;
+            return declaration && declaration->kind == DECL_VAR &&
+                !declaration->var_is_global &&
+                !declaration->var_is_static_local &&
+                !declaration->var_is_thread_local &&
+                !declaration->var_is_vla &&
+                !declaration->var_dynamic_initializer && object_type &&
+                object_type->is_atomic && !object_type->is_volatile &&
+                !object_type->is_reference &&
+                type_is_integer((Type*)object_type) &&
+                object_type->size == 8 &&
+                expression->type &&
+                type_is_integer((Type*)expression->type) &&
+                expression->type->size == 8 && update && update->type &&
+                !update->type->is_atomic && !update->type->is_volatile &&
+                !update->type->is_reference &&
+                type_is_integer(update->type) &&
+                update->type->size > 0 && update->type->size <= 8 &&
+                !expression_has_side_effect(update) &&
+                inline_scalar_argument_safe_evaluation_tree(update) &&
+                optimize_inline_caller &&
+                !inline_scalar_local_address_escapes(
+                    optimize_inline_caller, declaration);
+        }
         case EXPR_COND:
             return inline_scalar_atomic_read_evaluation_tree(
                        expression->cond_test) &&
@@ -2450,6 +2484,19 @@ static Expr* clone_inline_scalar_expression(
                 expression->binary_rhs, bindings, binding_count);
             if (!left || !right) return NULL;
             clone = expr_binary(EXPR_ASSIGN, left, right, expression->loc);
+            clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
+            return clone;
+        }
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN: {
+            Expr* left = clone_inline_scalar_expression(
+                expression->binary_lhs, bindings, binding_count);
+            Expr* right = clone_inline_scalar_expression(
+                expression->binary_rhs, bindings, binding_count);
+            if (!left || !right) return NULL;
+            clone = expr_binary(expression->kind, left, right,
+                                expression->loc);
             clone->type = expression->type;
             inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
@@ -7294,6 +7341,19 @@ static void mark_address_escapes_stmt(const Stmt* statement,
         case STMT_NULL:
             return;
     }
+}
+
+static bool inline_scalar_local_address_escapes(
+    const Decl* caller, const Decl* local) {
+    DeadStoreLocal candidate;
+    if (!caller || caller->kind != DECL_FUNC || !caller->func_body ||
+        !local || local->kind != DECL_VAR) {
+        return true;
+    }
+    memset(&candidate, 0, sizeof(candidate));
+    candidate.declaration = (Decl*)local;
+    mark_address_escapes_stmt(caller->func_body, &candidate);
+    return candidate.escaped;
 }
 
 static void mark_dead_store_reads(const Expr* expression,

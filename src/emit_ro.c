@@ -6647,6 +6647,40 @@ static bool debug_inline_parameter_i686_u64_atomic_store_value(
             &result_type, target_type, 0u);
 }
 
+static const Expr* debug_inline_parameter_i686_u64_atomic_local_rmw_value(
+    const Expr* expression) {
+    const Expr* destination;
+    const Expr* update;
+    const Decl* declaration;
+    const Type* object_type;
+    if (!expression ||
+        (expression->kind != EXPR_ADD_ASSIGN &&
+         expression->kind != EXPR_SUB_ASSIGN) ||
+        !(destination = expression->binary_lhs) ||
+        destination->kind != EXPR_IDENT ||
+        !(declaration = destination->ident_decl) ||
+        declaration->kind != DECL_VAR || declaration->var_is_global ||
+        declaration->var_is_static_local ||
+        declaration->var_is_thread_local || declaration->var_is_vla ||
+        declaration->var_dynamic_initializer ||
+        !(object_type = declaration->type) || !object_type->is_atomic ||
+        object_type->is_volatile || object_type->is_reference ||
+        !debug_inline_integer_expression_type_allow_atomic(object_type) ||
+        object_type->size != 8 || !expression->type ||
+        (!debug_inline_integer_expression_type(expression->type) &&
+         !debug_inline_integer_expression_type_allow_atomic(
+             expression->type)) ||
+        expression->type->size != 8 ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            expression->type, object_type, 0u) ||
+        !(update = expression->binary_rhs) || !update->type ||
+        !debug_inline_integer_expression_type(update->type) ||
+        update->type->size <= 0 || update->type->size > 8) {
+        return NULL;
+    }
+    return destination;
+}
+
 static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
     const Module* mod, const Expr* value, bool high_word, uint8_t* expression,
     size_t capacity, size_t* expression_size, unsigned int depth,
@@ -6659,6 +6693,15 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
         return debug_inline_parameter_i686_u64_append_word_expression_relocatable(
             mod, value->binary_rhs, high_word, expression, capacity,
             expression_size, depth + 1u, relocations);
+    }
+    {
+        const Expr* atomic_rmw_value =
+            debug_inline_parameter_i686_u64_atomic_local_rmw_value(value);
+        if (atomic_rmw_value) {
+            return debug_inline_parameter_i686_u64_append_word_expression_relocatable(
+                mod, atomic_rmw_value, high_word, expression, capacity,
+                expression_size, depth + 1u, relocations);
+        }
     }
     if ((!debug_inline_integer_expression_type(value->type) &&
          !(debug_inline_i686_relocations_allow_volatile(relocations) &&
@@ -12227,6 +12270,14 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
     if (debug_inline_parameter_i686_u64_atomic_store_value(expression)) {
         return debug_inline_parameter_i686_u64_frame_expression_tree(
             mod, expression->binary_rhs, depth + 1u);
+    }
+    {
+        const Expr* atomic_rmw_value =
+            debug_inline_parameter_i686_u64_atomic_local_rmw_value(expression);
+        if (atomic_rmw_value) {
+            return debug_inline_parameter_i686_u64_frame_expression_tree(
+                mod, atomic_rmw_value, depth + 1u);
+        }
     }
     if ((!debug_inline_integer_expression_type(type) &&
          !debug_inline_integer_expression_type_allow_volatile(type) &&

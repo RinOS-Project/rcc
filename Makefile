@@ -3284,6 +3284,34 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 32 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -g -O1 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-inline-g.ro \
+		tests/debug_info_atomic_rmw.c
+	$(RCC_TARGET) --target i686-unknown-rinos -g -O2 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-inline-o2-g.ro \
+		tests/debug_info_atomic_rmw.c
+	$(RCC_TARGET) --target i686-unknown-rinos -O1 -S \
+		-o $(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o1.s \
+		tests/debug_info_atomic_rmw.c
+	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o1.s,2)
+	$(RCC_TARGET) --target i686-unknown-rinos -O2 -S \
+		-o $(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o2.s \
+		tests/debug_info_atomic_rmw.c
+	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o2.s,2)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -g -O1 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.ro \
+		tests/debug_info_atomic_rmw.c \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.log
+	$(GREP) -F -q 'debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_divide_entry' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.log,1)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -g -O2 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.ro \
+		tests/debug_info_atomic_rmw.c \
+		>$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.log
+	$(GREP) -F -q 'debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_divide_entry' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.log,1)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -g -O1 -fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.ro \
 		tests/debug_info.c \
@@ -3435,6 +3463,12 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		--verify-inline-atomic-store-expression \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.ro
+	$(TEST_OUT)/debug-info-inline-expression/verify \
+		--verify-inline-atomic-rmw-expression \
+		$(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-inline-o2-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.ro
 	$(TEST_OUT)/debug-info-inline-expression/verify \
 		--verify-inline-reference-alias \
 		$(TEST_OUT)/debug-info-inline-expression/cxx-reference-alias-x86.ro \
