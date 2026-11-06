@@ -25,6 +25,7 @@ extern bool rcc_parser_type_lookup_is_ambiguous(const char* name);
 extern bool rcc_parser_cxx_split_template_close(void);
 extern bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void);
 extern bool rcc_parser_module_imported_record(void);
+extern Expr* parse_logical_or_expression(void);
 
 /* The current template is only needed while parsing dependent declarations;
  * instantiated types are resolved by the later template semantic phase. */
@@ -5099,7 +5100,7 @@ static Expr* parse_cxx_requires_clause_expression(void) {
         if (constraint) return constraint;
         parenthesized = match(TOK_LPAREN);
     }
-    constraint = parse_assignment_expression();
+    constraint = parse_logical_or_expression();
     if (parenthesized) {
         expect(TOK_RPAREN, ") after requires-clause");
     }

@@ -4553,6 +4553,13 @@ static Expr* parse_logor(void) {
     return e;
 }
 
+/* C++ requires-clauses use a constraint-expression at this grammar level;
+ * expose logical-or parsing so a following `= delete` or initializer remains
+ * for the member/function declarator parser. */
+Expr* parse_logical_or_expression(void) {
+    return parse_logor();
+}
+
 /* Conditional: a ? b : c */
 static Expr* parse_conditional(void) {
     Expr* e = parse_logor();

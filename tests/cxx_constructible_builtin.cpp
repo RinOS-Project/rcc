@@ -1151,6 +1151,12 @@ struct OrderedConstrainedAssignment {
     OrderedConstrainedAssignment& operator=(T&&) noexcept { return *this; }
 };
 
+template <typename T>
+struct OrderedConstrainedClassMember {
+    int select(T) requires AssignmentAtLeastIntSize<T> = delete;
+    int select(T) noexcept requires AssignmentDoubleSize<T> { return 1; }
+};
+
 struct DeletedTemplateCopyAssignment {
     template <typename Marker>
     DeletedTemplateCopyAssignment& operator=(
@@ -1760,6 +1766,10 @@ static_assert(__is_nothrow_assignable(OrderedConstrainedAssignment&, double),
 static_assert(!__is_trivially_assignable(OrderedConstrainedAssignment&,
                                          double),
               "a selected assignment function template is not trivial");
+static int check_ordered_constrained_class_member(
+    OrderedConstrainedClassMember<double>& value) {
+    return value.select(1.0);
+}
 static_assert(!__is_assignable(OrderedConstrainedAssignment&, int),
               "the less-constrained deleted assignment template remains selected");
 static_assert(__is_assignable(DeletedTemplateCopyAssignment&,
