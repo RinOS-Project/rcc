@@ -39105,10 +39105,42 @@ static Expr* sema_cxx_default_initialization_expression(
         *needs_initialization = true;
         return initializer;
     }
-    if (type->kind == TYPE_UNION || cls->virtual_base_count != 0 ||
-        cls->base_count < 0 || (cls->base_count && !cls->bases)) {
+    if (type->kind == TYPE_UNION || cls->base_count < 0 ||
+        (cls->base_count && !cls->bases) ||
+        (cls->virtual_base_count && !cls->virtual_bases)) {
         *supported = false;
         return NULL;
+    }
+
+    /* The synthesized aggregate form below has no slot for a virtual-base
+     * initializer.  It can still represent default initialization when the
+     * complete-object virtual-base closure is entirely trivial and has no
+     * constructor, DMI, or cleanup work; those subobjects need no stores. */
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxClass* base = cls->virtual_bases[index].base;
+        if (!base || !base->type ||
+            sema_cxx_default_initialization_needs_lowering(
+                base->type, depth + 1) ||
+            !rcc_sema_cxx_trivial(base->type) ||
+            !rcc_sema_cxx_trivially_destructible(base->type)) {
+            *supported = false;
+            return NULL;
+        }
+    }
+    /* Mixed virtual and non-virtual direct-base lists need a distinct base
+     * initializer representation.  Keep that shape rejected until it can be
+     * lowered without confusing the base entries with member initializers. */
+    if (cls->virtual_base_count != 0) {
+        if (!cls->has_field_initializer) {
+            *supported = false;
+            return NULL;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            if (!cls->bases[index].is_virtual) {
+                *supported = false;
+                return NULL;
+            }
+        }
     }
 
     /* Build the implicit default constructor's base/member work as a regular
@@ -39124,10 +39156,11 @@ static Expr* sema_cxx_default_initialization_expression(
             ExprList* item;
             bool base_needs_initialization = false;
             bool base_supported = true;
-            if (cls->bases[base_index].is_virtual || !base || !base->type) {
+            if (!base || !base->type) {
                 *supported = false;
                 return NULL;
             }
+            if (cls->bases[base_index].is_virtual) continue;
             base_initializer = sema_cxx_default_initialization_expression(
                 base->type, loc, depth + 1, array_element_budget,
                 &base_needs_initialization, &base_supported);
