@@ -1720,13 +1720,27 @@ static bool codegen_runtime_global_constructor(const Type* type,
 
 bool codegen_runtime_global_aggregate_initializer(
     const Type* type, const Expr* initializer) {
-    return rcc_parser_is_cxx_mode() && type && type->cxx_class &&
-           (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
-           ast_cxx_is_aggregate((Type*)type) && initializer &&
-           initializer->kind == EXPR_COMPOUND &&
-           !initializer->compound_constructor &&
-           !initializer->compound_paren_init &&
-           initializer->compound_init && type->size > 0;
+    bool normalized_default_initialization;
+    if (!rcc_parser_is_cxx_mode() || !type || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor ||
+        initializer->compound_copy_init ||
+        initializer->compound_paren_init || !initializer->compound_init ||
+        type->size <= 0) {
+        return false;
+    }
+    if (type->cxx_class &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        ast_cxx_is_aggregate((Type*)type)) {
+        return true;
+    }
+    normalized_default_initialization =
+        initializer->compound_cxx_default_member_normalized &&
+        initializer->compound_cxx_default_member_init_only;
+    return normalized_default_initialization &&
+        ((type->kind == TYPE_ARRAY && type->base) ||
+         (type->kind == TYPE_STRUCT && type->cxx_class &&
+          type->cxx_class->virtual_base_count > 0));
 }
 
 bool codegen_runtime_global_paren_aggregate(const Type* type,
@@ -24216,11 +24230,15 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
     if (codegen_runtime_global_aggregate_initializer(type, initializer)) {
         int32_t temporary_offset = initializer->compound_offset;
         if (temporary_offset >= 0) return false;
-        gen_zero_local_storage(mod, temporary_offset, (size_t)type->size);
+        if (gen_local_initializer_requires_zero(type, initializer)) {
+            gen_zero_local_storage(mod, temporary_offset,
+                                   (size_t)type->size);
+        }
         if (!gen_local_initializer(
                 mod, type, initializer, temporary_offset)) {
             return false;
         }
+        gen_local_vtable_init(mod, type, EBP, temporary_offset);
         gen_decl_storage_address32(mod, declaration);
         emit_mov_reg_reg(mod, ECX, EAX);
         emit_byte(mod, 0x8D); /* LEA EDX, [EBP+disp32] */
