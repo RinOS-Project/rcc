@@ -14241,10 +14241,15 @@ static void gen64_push_conditional_field_receiver_cleanup(
         }
         return;
     }
+    /* The field getter's address is the lvalue result in RAX. Registering its
+     * exception cleanup emits a runtime call, so preserve that result across
+     * the call before the conditional arm copies/forwards it. */
+    emit64_push_reg(mod, RAX);
     previous = active_cleanups64;
     gen64_push_call_temporary_cleanup(
         mod, NULL, expression->cxx_temporary_cleanups);
     if (active_cleanups64 == previous) {
+        emit64_pop_reg(mod, RAX);
         rcc_error(expression->loc,
                   "conditional field receiver cleanup could not be registered");
         return;
@@ -14252,6 +14257,7 @@ static void gen64_push_conditional_field_receiver_cleanup(
     active_cleanups64->has_conditional_selector_guard = true;
     active_cleanups64->conditional_selector_offset = selector_offset;
     active_cleanups64->conditional_selector_value = selector_value;
+    emit64_pop_reg(mod, RAX);
 }
 
 static void gen64_transfer_by_value_argument_cleanups64(

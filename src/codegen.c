@@ -23691,10 +23691,14 @@ static void gen_push_conditional_field_receiver_cleanup32(
         }
         return;
     }
+    /* The field getter's address is the lvalue result in EAX. Preserve it
+     * while exception cleanup registration emits a runtime call. */
+    emit_push_reg(mod, EAX);
     previous = active_cleanups;
     codegen_push_call_temporary_cleanup32(
         mod, NULL, expression->cxx_temporary_cleanups);
     if (active_cleanups == previous) {
+        emit_pop_reg(mod, EAX);
         rcc_error(expression->loc,
                   "conditional field receiver cleanup could not be registered");
         return;
@@ -23702,6 +23706,7 @@ static void gen_push_conditional_field_receiver_cleanup32(
     active_cleanups->has_conditional_selector_guard = true;
     active_cleanups->conditional_selector_offset = selector_offset;
     active_cleanups->conditional_selector_value = selector_value;
+    emit_pop_reg(mod, EAX);
 }
 
 static void gen_transfer_by_value_argument_cleanups32(

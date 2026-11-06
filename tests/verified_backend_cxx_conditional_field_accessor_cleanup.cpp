@@ -52,11 +52,12 @@ int consume_throwing_field_accessor_value(
 }
 
 static int verify_field_accessor_exception_cleanup() {
+    volatile bool choose_field = true;
     field_accessor_cleanup_order = 0;
     field_accessor_result_address = nullptr;
     try {
         consume_throwing_field_accessor_value(
-            true
+            choose_field
                 ? FieldAccessorSource{
                       FieldAccessorValue{
                           41, 1, &field_accessor_cleanup_order}}
