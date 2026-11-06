@@ -24081,15 +24081,101 @@ static bool lower_cxx_destructor_subobjects_supported(
         cls, depth, false, true);
 }
 
+/* Static objects whose default initialization has no constructor call can
+ * still need runtime work for vptr/vbptr state.  Validate their complete
+ * object layout separately from the older no-op-only predicate used by
+ * constructor lowering.  Virtual bases are walked from the most-derived
+ * closure once; base-subobject recursion leaves that closure to its owner. */
+static bool lower_cxx_static_default_subobject_supported(
+    const Type* type, unsigned depth, bool include_virtual_bases) {
+    const CxxClass* cls;
+    if (!type || depth >= 32u || type->is_reference || type->is_atomic ||
+        type->is_volatile) {
+        return false;
+    }
+    if (type_is_scalar((Type*)type)) return !type->is_const;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len > 0 && type->base &&
+            lower_cxx_static_default_subobject_supported(
+                type->base, depth + 1u, true);
+    }
+    if (type->kind != TYPE_STRUCT || !type->is_complete || type->size <= 0 ||
+        !(cls = type->cxx_class) || cls->has_user_constructor ||
+        cls->constructors || cls->has_field_initializer ||
+        type->cleanup_function || type->cleanup_field ||
+        cls->base_count < 0 || cls->virtual_base_count < 0 ||
+        (cls->base_count > 0 && (!cls->bases || !cls->base_offsets)) ||
+        (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
+        return false;
+    }
+    if (cls->virtual_base_count > 0) {
+        uint64_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        if (cls->virtual_base_pointer_offset < 0 ||
+            (uint64_t)cls->virtual_base_pointer_offset >
+                (uint64_t)type->size ||
+            pointer_size > (uint64_t)type->size -
+                (uint64_t)cls->virtual_base_pointer_offset ||
+            !cls->virtual_base_table_symbol) {
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        int offset = cls->base_offsets[index];
+        int extent = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || !base->type || base->virtual_base_count < 0 ||
+            offset < 0 || extent <= 0 || offset > type->size ||
+            extent > type->size - offset) {
+            return false;
+        }
+        if (!cls->bases[index].is_virtual &&
+            !lower_cxx_static_default_subobject_supported(
+                base->type, depth + 1u, false)) {
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxClass* base = cls->virtual_bases[index].base;
+        int offset = cls->virtual_bases[index].offset;
+        int extent = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || !base->type || base->virtual_base_count < 0 ||
+            offset < 0 || extent <= 0 || offset > type->size ||
+            extent > type->size - offset ||
+            (include_virtual_bases &&
+             !lower_cxx_static_default_subobject_supported(
+                 base->type, depth + 1u, false))) {
+            return false;
+        }
+    }
+    for (const TypeParam* member = cls->fields; member;
+         member = member->next) {
+        const TypeField* field;
+        if (member->is_static) continue;
+        field = lower_struct_declared_field(type, cls, member->name);
+        if (!field || !field->type || member->initializer ||
+            field->initializer || field->type->size <= 0 ||
+            field->offset < 0 ||
+            field->offset > type->size ||
+            field->type->size > type->size - field->offset ||
+            !lower_cxx_static_default_subobject_supported(
+                field->type, depth + 1u, true)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* A class-array member with no explicit initializer is default-initialized.
- * Permit recursively no-op non-virtual bases and class/array members while
- * preserving indeterminate scalar members.  Each element still begins a
- * lifetime and must receive its complete destructor cleanup registration. */
+ * Preserve indeterminate scalar members while each element receives its
+ * vptr/vbptr setup and complete destructor cleanup registration. */
 static bool lower_cxx_implicit_default_array_element_supported(
     const Type* type) {
     const CxxClass* cls = type ? type->cxx_class : NULL;
     if (!cls || !type->is_complete || cls->constructors ||
-        cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
         cls->has_field_initializer ||
         type->cleanup_function || type->cleanup_field) {
         return false;
@@ -24103,7 +24189,7 @@ static bool lower_cxx_implicit_default_array_element_supported(
             return false;
         }
     }
-    return lower_cxx_implicit_default_subobject_supported(type, 0u) &&
+    return lower_cxx_static_default_subobject_supported(type, 0u, true) &&
         lower_cxx_destructor_subobjects_supported(cls, 0u);
 }
 
@@ -24139,7 +24225,7 @@ static bool lower_dynamic_static_default_initializer_supported(
     if (type->kind != TYPE_STRUCT || !type->cxx_class ||
         type->cxx_class->has_user_constructor ||
         type->cxx_class->has_field_initializer ||
-        !lower_cxx_implicit_default_subobject_supported(type, 0u) ||
+        !lower_cxx_static_default_subobject_supported(type, 0u, true) ||
         !lower_struct_type_supported(type) ||
         !lower_cxx_destructor_cleanup_hook_supported(type)) {
         return false;
