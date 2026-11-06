@@ -3300,6 +3300,74 @@ static bool lower_dynamic_static_array_member_initializer_supported(
     return true;
 }
 
+static bool lower_dynamic_static_union_default_initializer_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    const Expr* initializer = declaration ? declaration->var_init : NULL;
+    const ExprList* item = initializer ? initializer->compound_init : NULL;
+    const TypeField* field;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        (!declaration->var_is_thread_local &&
+         !declaration->var_is_static_local) ||
+        !declaration->var_dynamic_initializer ||
+        !declaration->var_reference_temporary_guard ||
+        declaration->storage != STORAGE_STATIC || !type ||
+        type->kind != TYPE_UNION || !cls || cls->has_user_constructor ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        type->size <= 0 || type->size > 65536 || type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (type->align & (type->align - 1)) != 0 ||
+        !lower_union_type_supported(type) || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor ||
+        initializer->compound_paren_init ||
+        !initializer->compound_cxx_default_member_normalized ||
+        !initializer->compound_cxx_default_member_init_only ||
+        !item || item->next || item->designator_kind != INIT_DESIGNATOR_FIELD ||
+        !item->designator_field || !item->expr ||
+        item->cxx_temporary_owner || item->cxx_temporary_cleanups ||
+        (declaration->var_cleanups &&
+         !lower_cxx_destructor_cleanup_hook_supported(type))) {
+        return false;
+    }
+    for (field = type->fields; field; field = field->next) {
+        if (field->name &&
+            strcmp(field->name, item->designator_field) == 0) {
+            break;
+        }
+    }
+    if (!field || !field->initializer || field->initializer != item->expr ||
+        field->is_bitfield || !field->type || field->offset < 0 ||
+        field->offset > type->size ||
+        field->type->size > type->size - field->offset ||
+        field->type->is_atomic || field->type->is_reference ||
+        field->type->cleanup_function) {
+        return false;
+    }
+    if (field->type->kind == TYPE_STRUCT && field->type->cxx_class) {
+        if (item->expr->kind == EXPR_COMPOUND &&
+            item->expr->compound_cxx_default_member_normalized &&
+            item->expr->compound_cxx_default_member_init_only) {
+            return lower_dynamic_static_default_class_initializer_supported(
+                field->type, item->expr, 1u);
+        }
+        return lower_dynamic_static_class_member_initializer_supported(
+            field->type, item, 1u);
+    }
+    if (field->type->kind == TYPE_ARRAY) {
+        return lower_dynamic_static_array_member_initializer_supported(
+            field->type, item, 1u);
+    }
+    return (type_is_integer((Type*)field->type) ||
+            field->type->kind == TYPE_ENUM ||
+            type_is_floating((Type*)field->type) ||
+            (field->type->kind == TYPE_PTR &&
+             !field->type->cxx_is_member_pointer)) &&
+        (lower_cleanup_initializer_supported(item->expr) ||
+         lower_cleanup_scalar_call_initializer_supported(item->expr));
+}
+
 static bool lower_dynamic_static_class_array_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
@@ -3409,6 +3477,10 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
     size_t item_count = 0u;
     bool has_field_designators = false;
     bool has_positional_items = false;
+    if (lower_dynamic_static_union_default_initializer_supported(
+            declaration)) {
+        return true;
+    }
     if (lower_dynamic_static_default_initializer_supported(declaration)) {
         return true;
     }
