@@ -1738,6 +1738,7 @@ TEST_CI_TARGETS = \
 	test-ir \
 	test-ir-lowering \
 	test-verified-backend \
+	test-verified-cxx-temporary-cleanup \
 	test-optimize \
 	test-assignment-constraints \
 	test-debug-info \

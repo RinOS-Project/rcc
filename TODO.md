@@ -14919,10 +14919,10 @@ The current source, regression targets, and `.github/workflows/ci.yml` show
 these as implemented subsets rather than completed product claims:
 
 - C++20 has bounded named-module import/export/partition and transitive
-  header-unit implementations. Committed regression coverage includes the
-  nested header-unit graph and explicit unsupported-boundary diagnostics; a
-  dedicated named-module/partition regression target is not yet committed.
-  Full module semantics and coroutines remain open.
+  header-unit implementations. `test-cxx-modules` covers named modules,
+  partitions, multi-unit linking on i686/x86-64, and unsupported-boundary
+  diagnostics. It is part of `CXX_REGRESSION_TARGETS`, so `test-cxx` and the
+  production CI jobs run it; full module semantics and coroutines remain open.
 - Typed SSA, MIR, optimization passes, and verified object emission are live
   production paths. `-fverified-backend` remains opt-in and unsupported
   functions can fall back; full aggregate/vector/exception lowering remains
