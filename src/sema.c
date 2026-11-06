@@ -4562,8 +4562,8 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     return best_count == 1 ? candidates[best_index].method : NULL;
 }
 
-static bool sema_cxx_return_conversion_is_ambiguous(Expr* expression,
-                                                    Type* target) {
+static bool sema_cxx_user_conversion_is_ambiguous(Expr* expression,
+                                                  Type* target) {
     Type* source;
     bool ambiguous = false;
     if (!rcc_parser_is_cxx_mode() || !expression || !expression->type ||
@@ -33789,9 +33789,17 @@ static Type* sema_expr_impl(Expr* expr) {
                         const char* function_name =
                             expr->call_func->kind == EXPR_IDENT
                                 ? expr->call_func->ident_name : "<function>";
-                        rcc_error(argument->expr->loc,
-                                  "incompatible type for argument %d to '%s'",
-                                  argument_index, function_name);
+                        if (sema_cxx_user_conversion_is_ambiguous(
+                                argument->expr, parameter->type)) {
+                            rcc_error(argument->expr->loc,
+                                      "ambiguous user-defined conversion for "
+                                      "argument %d to '%s'",
+                                      argument_index, function_name);
+                        } else {
+                            rcc_error(argument->expr->loc,
+                                      "incompatible type for argument %d to '%s'",
+                                      argument_index, function_name);
+                        }
                     } else {
                         sema_prepare_reference_argument_cleanup(
                             argument, parameter->type);
@@ -34676,7 +34684,7 @@ static void sema_stmt(Stmt* stmt) {
                             current_func_ret->is_reference) {
                             rcc_error(stmt->loc,
                                       "invalid C++ reference binding in return");
-                        } else if (sema_cxx_return_conversion_is_ambiguous(
+                        } else if (sema_cxx_user_conversion_is_ambiguous(
                                        stmt->return_val, current_func_ret)) {
                             rcc_error(stmt->loc,
                                       "ambiguous user-defined conversion in "
@@ -39979,7 +39987,7 @@ static bool sema_validate_auto_return_stmt(Stmt* statement) {
                     current_func_ret->is_reference) {
                     rcc_error(statement->loc,
                               "invalid C++ reference binding in return");
-                } else if (sema_cxx_return_conversion_is_ambiguous(
+                } else if (sema_cxx_user_conversion_is_ambiguous(
                                statement->return_val, current_func_ret)) {
                     rcc_error(statement->loc,
                               "ambiguous user-defined conversion in C++ "

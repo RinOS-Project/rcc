@@ -15,6 +15,16 @@
   generated AMD64 execution in
   `test-cxx-conversion-reference-ranking-ambiguous`.
 
+## RCC continuation (2026-11-06, ambiguous conversion argument diagnostics)
+
+- [x] Preserve the ambiguous user-defined conversion result when a call
+  argument cannot bind. Report that ambiguity for both targets instead of
+  collapsing it into a generic argument type mismatch; retain the general
+  mismatch diagnostic for non-ambiguous failures. GCC's overloaded-conversion
+  diagnostic and RCC i686/AMD64 diagnostics pass in
+  `test-cxx-conversion-reference-ranking-ambiguous`; all existing focused
+  reference-ranking and inaccessible-conversion checks pass as well.
+
 ## RCC continuation (2026-11-05, Windows atomic test gate)
 
 - [x] Keep the Linux futex host-runtime checks in `test-atomic-wait` on
