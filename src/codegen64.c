@@ -5021,12 +5021,12 @@ static TypeField* gen64_cxx_default_init_member_field(
     return NULL;
 }
 
-static bool gen64_cxx_default_init_virtual_bases(
+static bool gen64_cxx_default_init_bases(
     Module* mod, Type* type, Expr* initializer, int32_t displacement) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     ExprList* item = initializer ? initializer->compound_init : NULL;
     if (!mod || !type || !cls || !initializer ||
-        cls->virtual_base_count <= 0 || cls->base_count < 0 ||
+        cls->base_count <= 0 || cls->virtual_base_count < 0 ||
         (cls->base_count > 0 && (!cls->bases || !cls->base_offsets))) {
         return false;
     }
@@ -5269,8 +5269,8 @@ static bool gen64_local_initializer(Module* mod, Type* type,
             !initializer->compound_value_init &&
             !initializer->compound_constructor &&
             !initializer->compound_copy_init &&
-            type->cxx_class->virtual_base_count > 0) {
-            return gen64_cxx_default_init_virtual_bases(
+            type->cxx_class->base_count > 0) {
+            return gen64_cxx_default_init_bases(
                 mod, type, initializer, displacement);
         }
         if (type->kind == TYPE_ARRAY) {

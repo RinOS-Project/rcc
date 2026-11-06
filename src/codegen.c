@@ -1740,7 +1740,7 @@ bool codegen_runtime_global_aggregate_initializer(
     return normalized_default_initialization &&
         ((type->kind == TYPE_ARRAY && type->base) ||
          (type->kind == TYPE_STRUCT && type->cxx_class &&
-          type->cxx_class->virtual_base_count > 0));
+          type->cxx_class->base_count > 0));
 }
 
 bool codegen_runtime_global_paren_aggregate(const Type* type,
@@ -21928,12 +21928,12 @@ static TypeField* gen_cxx_default_init_member_field32(
     return NULL;
 }
 
-static bool gen_cxx_default_init_virtual_bases32(
+static bool gen_cxx_default_init_bases32(
     Module* mod, Type* type, Expr* initializer, int32_t displacement) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     ExprList* item = initializer ? initializer->compound_init : NULL;
     if (!mod || !type || !cls || !initializer ||
-        cls->virtual_base_count <= 0 || cls->base_count < 0 ||
+        cls->base_count <= 0 || cls->virtual_base_count < 0 ||
         (cls->base_count > 0 && (!cls->bases || !cls->base_offsets))) {
         return false;
     }
@@ -22186,8 +22186,8 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
             !initializer->compound_value_init &&
             !initializer->compound_constructor &&
             !initializer->compound_copy_init &&
-            type->cxx_class->virtual_base_count > 0) {
-            return gen_cxx_default_init_virtual_bases32(
+            type->cxx_class->base_count > 0) {
+            return gen_cxx_default_init_bases32(
                 mod, type, initializer, displacement);
         }
         if (type->kind == TYPE_ARRAY) {
