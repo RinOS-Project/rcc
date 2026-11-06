@@ -7426,6 +7426,22 @@ static bool debug_inline_parameter_i686_u64_append_word_expression_relocatable(
     if (value->kind == EXPR_IDENT && value->ident_decl) {
         const Decl* source = value->ident_decl;
         int64_t frame_offset;
+        if (source->kind == DECL_VAR && source->type &&
+            source->type->is_reference) {
+            const Expr* reference_source = source->var_init;
+            if (!source->type->base || !reference_source ||
+                reference_source->kind != EXPR_IDENT ||
+                !reference_source->type ||
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    source->type->base, value->type, 0u) ||
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    reference_source->type, value->type, 0u)) {
+                return false;
+            }
+            return debug_inline_parameter_i686_u64_append_word_expression_relocatable(
+                mod, reference_source, high_word, expression, capacity,
+                expression_size, depth + 1u, relocations);
+        }
         if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
             source->var_is_vla || !source->type ||
             (source->type->is_volatile &&
@@ -12152,6 +12168,21 @@ static bool debug_inline_parameter_i686_u64_frame_expression_tree(
         case EXPR_IDENT: {
             const Decl* declaration = expression->ident_decl;
             int64_t frame_offset;
+            if (declaration && declaration->kind == DECL_VAR &&
+                declaration->type && declaration->type->is_reference) {
+                const Expr* reference_source = declaration->var_init;
+                if (!declaration->type->base || !reference_source ||
+                    reference_source->kind != EXPR_IDENT ||
+                    !reference_source->type ||
+                    !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                        declaration->type->base, type, 0u) ||
+                    !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                        reference_source->type, type, 0u)) {
+                    return false;
+                }
+                return debug_inline_parameter_i686_u64_frame_expression_tree(
+                    mod, reference_source, depth + 1u);
+            }
             if (!declaration ||
                 (declaration->kind != DECL_VAR &&
                  declaration->kind != DECL_PARAM) ||

@@ -193,6 +193,10 @@ long long debug_inline_nonconstant_signed_long_long_global_dividend =
     -0x7123456789abcdefLL;
 long long debug_inline_nonconstant_signed_long_long_global_divisor =
     -0x100000001LL;
+long long& debug_inline_nonconstant_signed_long_long_global_dividend_ref =
+    debug_inline_nonconstant_signed_long_long_global_dividend;
+long long& debug_inline_nonconstant_signed_long_long_global_divisor_ref =
+    debug_inline_nonconstant_signed_long_long_global_divisor;
 thread_local long long debug_inline_nonconstant_signed_long_long_tls_dividend =
     -0x7123456789abcdefLL;
 thread_local long long debug_inline_nonconstant_signed_long_long_tls_divisor =
@@ -2384,6 +2388,48 @@ debug_inline_nonconstant_signed_long_long_volatile_static_xor_remainder_entry(
     return debug_nonconstant_signed_long_long_parameter_inline(
         (signed_volatile_static_xor_remainder_dividend ^ 0x100000001LL) %
         signed_volatile_static_xor_remainder_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_reference_xor_divide_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_global_dividend_ref ^
+         0x100000001LL) /
+        debug_inline_nonconstant_signed_long_long_global_divisor_ref);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_reference_xor_remainder_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (debug_inline_nonconstant_signed_long_long_global_dividend_ref ^
+         0x100000001LL) %
+        debug_inline_nonconstant_signed_long_long_global_divisor_ref);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_local_reference_xor_divide_entry(
+    void)
+{
+    long long& dividend_ref =
+        debug_inline_nonconstant_signed_long_long_global_dividend;
+    long long& divisor_ref =
+        debug_inline_nonconstant_signed_long_long_global_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (dividend_ref ^ 0x100000001LL) / divisor_ref);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_local_reference_xor_remainder_entry(
+    void)
+{
+    long long& dividend_ref =
+        debug_inline_nonconstant_signed_long_long_global_dividend;
+    long long& divisor_ref =
+        debug_inline_nonconstant_signed_long_long_global_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (dividend_ref ^ 0x100000001LL) % divisor_ref);
 }
 
 extern "C" long long
