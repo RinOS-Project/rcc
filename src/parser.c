@@ -4184,6 +4184,24 @@ static Expr* parse_postfix(void) {
 static Expr* parse_unary(void) {
     SourceLoc loc = peek()->loc;
 
+    if (parser_cxx_mode && rcc_parser_cxx_standard_at_least(20) &&
+        check(TOK_IDENT) && peek()->value.str_val &&
+        (strcmp(peek()->value.str_val, "co_await") == 0 ||
+         strcmp(peek()->value.str_val, "co_yield") == 0)) {
+        bool is_yield = strcmp(peek()->value.str_val, "co_yield") == 0;
+        const char* keyword = is_yield ? "co_yield" : "co_await";
+        advance();
+        rcc_error(loc,
+                  "C++20 coroutine keyword '%s' is not supported by RCC++",
+                  keyword);
+        if (is_yield) {
+            (void)parse_assignment();
+        } else {
+            (void)parse_unary();
+        }
+        return expr_int(0, loc);
+    }
+
     if (check(TOK_IDENT) &&
         (strcmp(peek()->value.str_val, "__real__") == 0 ||
          strcmp(peek()->value.str_val, "__imag__") == 0)) {
