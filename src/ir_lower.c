@@ -11266,16 +11266,38 @@ static bool lower_nontrivial_temporary_call_arguments_supported(
     const Expr* expression) {
     const ExprList* argument;
     const Expr* function;
+    const Type* function_type;
+    const TypeMethod* method;
+    bool conversion_method_call;
     if (!expression || expression->kind != EXPR_CALL ||
-        expression->call_method || expression->call_is_new ||
-        expression->call_is_delete || !expression->call_func ||
-        expression->call_func->kind != EXPR_IDENT ||
-        !expression->call_func->ident_decl ||
-        expression->call_func->ident_decl->kind != DECL_FUNC ||
-        !lower_noexcept_expression(expression->call_func)) {
+        expression->call_is_new || expression->call_is_delete ||
+        !expression->call_func) {
         return false;
     }
     function = expression->call_func;
+    method = expression->call_method;
+    conversion_method_call = method &&
+        method->kind == TYPE_METHOD_FUNCTION && method->name &&
+        strcmp(method->name, "operator conversion") == 0 &&
+        method->function_decl && expression->cxx_call_is_noexcept;
+    if (conversion_method_call) {
+        /* Conversion-function leaves construct the conditional result in its
+         * shared destination. Admit only a resolved noexcept conversion;
+         * field-backed inline methods and throwing conversions still need
+         * their own result/exception lifetime lowering. */
+        function_type = method->function_decl->type;
+        if (!lower_noexcept_expression(expression)) return false;
+    } else {
+        const Decl* callee;
+        if (method || function->kind != EXPR_IDENT ||
+            !function->ident_decl ||
+            function->ident_decl->kind != DECL_FUNC ||
+            !lower_noexcept_expression(function)) {
+            return false;
+        }
+        callee = function->ident_decl;
+        function_type = callee->type;
+    }
     for (argument = expression->call_args; argument;
          argument = argument->next) {
         if (!lower_noexcept_expression(argument->expr) ||
@@ -11287,13 +11309,12 @@ static bool lower_nontrivial_temporary_call_arguments_supported(
             return false;
         }
     }
-    return function->ident_decl->type &&
-        function->ident_decl->type->kind == TYPE_FUNC &&
-        expression->type && function->ident_decl->type->ret_type &&
+    return function_type && function_type->kind == TYPE_FUNC &&
+        expression->type && function_type->ret_type &&
         type_is_compatible(
-            function->ident_decl->type->ret_type, expression->type) &&
+            (Type*)function_type->ret_type, (Type*)expression->type) &&
         type_is_compatible(
-            expression->type, function->ident_decl->type->ret_type);
+            (Type*)expression->type, (Type*)function_type->ret_type);
 }
 
 static bool lower_nontrivial_conditional_copy_supported(

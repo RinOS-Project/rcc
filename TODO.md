@@ -2237,9 +2237,12 @@
         branch choices, cleanup order, fallback-free i686/AMD64 objects, and x64
         execution in `test-verified-cxx-temporary-cleanup`. A non-virtual,
         `noexcept` ordinary member-function call returning the same class is
-        also covered as a branch arm. Field-backed inline member calls,
-        conversions, potentially throwing expressions, and automatic-object
-        cleanup remain outside this conditional-temporary subset.
+        also covered as a branch arm. Resolved `noexcept` conversion-function
+        calls are covered as conditional leaves in
+        `test-verified-cxx-conditional-conversion-cleanup`; field-backed inline
+        member calls, other conversions, potentially throwing expressions, and
+        automatic-object cleanup remain outside this conditional-temporary
+        subset.
   - [x] Validate noexcept fixed-member cleanup plans recursively for class
         prvalue reference arguments of a selected conditional branch call;
         emit the inner temporary cleanup immediately after that call and the
@@ -2251,6 +2254,12 @@
         choices, exactly-once destruction of the selected temporary,
         fallback-free i686/AMD64 objects, and x64 execution in
         `test-verified-cxx-temporary-cleanup`.
+  - [x] Lower resolved `noexcept` conversion-function calls as leaves of a
+        same-type class-prvalue conditional passed to a reference parameter.
+        Verify both selected conversions and exactly-once destruction in the
+        focused fixture, with zero typed-SSA fallback on i686/AMD64 at `-O0`
+        and `-O2`, GCC C++20 runtime, legacy i686 object generation, and legacy
+        AMD64 execution in `test-verified-cxx-conditional-conversion-cleanup`.
   - [x] Lower fixed-size array-loop cleanup plans recursively for nontrivial
         subobjects of class-prvalue reference temporaries, including nested
         arrays. Emit reverse element destruction and verify the observed order
