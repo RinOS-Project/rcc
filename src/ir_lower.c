@@ -10274,10 +10274,22 @@ static bool lower_cxx_empty_noop_constructor_supported(
         if (initializer->is_default_member_initializer) {
             int64_t constant_value;
             if (member->type && member->type->kind == TYPE_ARRAY) {
-                if (initializer->constructor || initializer->arguments ||
-                    !initializer->value ||
-                    !lower_cxx_integer_array_default_member_initializer_supported(
-                        member->type, initializer->value, 0u)) {
+                const Type* array_element = member->type;
+                while (array_element &&
+                       array_element->kind == TYPE_ARRAY) {
+                    array_element = array_element->base;
+                }
+                if (array_element && array_element->cxx_class) {
+                    if (initializer->value || !initializer->constructor ||
+                        initializer->arguments ||
+                        initializer->constructor->parameter_count != 0) {
+                        return false;
+                    }
+                } else if (initializer->constructor ||
+                           initializer->arguments ||
+                           !initializer->value ||
+                           !lower_cxx_integer_array_default_member_initializer_supported(
+                               member->type, initializer->value, 0u)) {
                     return false;
                 }
             } else if (member->type &&
@@ -29354,6 +29366,22 @@ static bool lower_struct_initializer(
             if (member_initializer->is_default_member_initializer) {
                 int64_t constant_value;
                 if (field->type->kind == TYPE_ARRAY) {
+                    const Type* element_type =
+                        lower_cxx_class_array_element(field->type);
+                    if (element_type) {
+                        if (member_initializer->value ||
+                            !member_initializer->constructor ||
+                            member_initializer->arguments ||
+                            member_initializer->constructor->parameter_count != 0 ||
+                            !lower_cxx_emit_class_array_constructors(
+                                context, field->type, element_type,
+                                member_initializer->constructor, NULL,
+                                address, 0u)) {
+                            context->unsupported = true;
+                            goto constructor_lowering_failure;
+                        }
+                        continue;
+                    }
                     if (member_initializer->constructor ||
                         member_initializer->arguments ||
                         !member_initializer->value ||
