@@ -30380,90 +30380,27 @@ static bool lower_reference_owner_partial_init_supported(
 static bool lower_initialize_bitfield_storage(
     RccIrLowerContext* context, RccIrValue base,
     const TypeField* field, const Expr* initializer) {
-    RccIrType storage_type;
+    const Expr* expression;
     RccIrLowerValue base_address;
     RccIrLowerValue address;
     RccIrLowerValue value;
-    RccIrLowerValue current;
-    RccIrLowerValue field_mask_value;
-    RccIrLowerValue clear_mask_value;
-    RccIrLowerValue shift_value;
-    RccIrValue operands[2];
-    RccIrInstruction* instruction;
-    uint32_t storage_width;
-    uint64_t field_mask;
-    uint64_t storage_mask;
-    uint64_t shifted_field_mask;
-    const Expr* expression;
-
     if (!context || !field || !field->type || !field->is_bitfield ||
-        !initializer || field->bit_width == 0u ||
-        !lower_type(field->type, &storage_type) ||
-        storage_type.kind != RCC_IR_TYPE_INTEGER ||
-        field->type->size > 8) {
+        field->offset < 0 || !initializer) {
         if (context) context->unsupported = true;
         return false;
     }
-    storage_width = (uint32_t)field->type->size * 8u;
-    if (storage_width == 0u || storage_width > 64u ||
-        field->bit_width > storage_width ||
-        field->bit_offset > storage_width - field->bit_width) {
-        context->unsupported = true;
-        return false;
-    }
-    field_mask = field->bit_width == 64u
-        ? UINT64_MAX : (UINT64_C(1) << field->bit_width) - 1u;
-    storage_mask = storage_width == 64u
-        ? UINT64_MAX : (UINT64_C(1) << storage_width) - 1u;
-    shifted_field_mask = field_mask << field->bit_offset;
     expression = lower_scalar_initializer_expression(initializer);
     if (!expression) {
         context->unsupported = true;
         return false;
     }
     value = lower_expression(context, expression);
-    value = lower_cast(context, value, field->type);
+    if (!value.valid) return false;
     base_address = lower_value(base, rcc_ir_type_pointer(0u), true);
     address = lower_byte_offset_address(
         context, base_address, (uint64_t)field->offset);
-    field_mask_value = lower_integer_constant(
-        context, storage_type, true, field_mask);
-    clear_mask_value = lower_integer_constant(
-        context, storage_type, true, storage_mask ^ shifted_field_mask);
-    shift_value = lower_integer_constant(
-        context, storage_type, true, field->bit_offset);
-    current = lower_load_address(context, address, field->type);
-    if (!value.valid || !address.valid || !field_mask_value.valid ||
-        !clear_mask_value.valid || !shift_value.valid || !current.valid) {
-        return false;
-    }
-
-    operands[0] = value.value;
-    operands[1] = field_mask_value.value;
-    instruction = lower_append(
-        context, RCC_IR_AND, storage_type, operands, 2u, NULL, 0u);
-    if (!instruction) return false;
-    value = lower_value(instruction->result, storage_type, true);
-    operands[0] = value.value;
-    operands[1] = shift_value.value;
-    instruction = lower_append(
-        context, RCC_IR_SHL, storage_type, operands, 2u, NULL, 0u);
-    if (!instruction) return false;
-    value = lower_value(instruction->result, storage_type, true);
-
-    operands[0] = current.value;
-    operands[1] = clear_mask_value.value;
-    instruction = lower_append(
-        context, RCC_IR_AND, storage_type, operands, 2u, NULL, 0u);
-    if (!instruction) return false;
-    current = lower_value(instruction->result, storage_type, true);
-    operands[0] = current.value;
-    operands[1] = value.value;
-    instruction = lower_append(
-        context, RCC_IR_OR, storage_type, operands, 2u, NULL, 0u);
-    if (!instruction) return false;
-    value = lower_value(instruction->result, storage_type, true);
-    return lower_store_address(context, address, value);
+    return address.valid && lower_store_bitfield_value(
+        context, address, field, value);
 }
 
 static bool lower_initialize_struct_field(
