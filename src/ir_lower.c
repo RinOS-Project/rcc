@@ -3295,19 +3295,23 @@ static bool lower_dynamic_static_class_constructor_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
     const Expr* initializer = declaration ? declaration->var_init : NULL;
+    const CxxClass* cls = type ? type->cxx_class : NULL;
     if (!declaration || declaration->kind != DECL_VAR ||
         (!declaration->var_is_thread_local &&
          !declaration->var_is_static_local) ||
         !declaration->var_dynamic_initializer ||
         !declaration->var_reference_temporary_guard ||
         declaration->storage != STORAGE_STATIC || !type ||
-        type->kind != TYPE_STRUCT || !type->cxx_class ||
-        !type->cxx_class->has_user_constructor ||
+        type->kind != TYPE_STRUCT || !cls ||
+        !cls->has_user_constructor ||
         type->size <= 0 || type->size > 65536 || type->align <= 0 ||
         type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 ||
-        type->cxx_class->virtual_base_count != 0 ||
-        type->cxx_class->vtable_size != 0 ||
+        cls->base_count < 0 || cls->virtual_base_count < 0 ||
+        cls->secondary_vtable_count < 0 ||
+        (cls->base_count != 0 && (!cls->bases || !cls->base_offsets)) ||
+        (cls->virtual_base_count != 0 && !cls->virtual_bases) ||
+        (cls->secondary_vtable_count != 0 && !cls->secondary_vtables) ||
         !lower_struct_type_supported(type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         !initializer->compound_constructor ||
@@ -3316,6 +3320,30 @@ static bool lower_dynamic_static_class_constructor_initializer_supported(
         (declaration->var_cleanups &&
          !lower_cxx_destructor_cleanup_hook_supported(type))) {
         return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        int offset = cls->base_offsets[index];
+        int extent = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || !base->type || base->virtual_base_count < 0 ||
+            offset < 0 || extent <= 0 || offset > type->size ||
+            extent > type->size - offset) {
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxClass* base = cls->virtual_bases[index].base;
+        int offset = cls->virtual_bases[index].offset;
+        int extent = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || !base->type || base->virtual_base_count < 0 ||
+            offset < 0 || extent <= 0 || offset > type->size ||
+            extent > type->size - offset) {
+            return false;
+        }
     }
     return true;
 }
