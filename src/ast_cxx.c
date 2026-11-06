@@ -2273,6 +2273,8 @@ static bool cxx_mangle_template_value_expr_matches(
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
         case EXPR_NOEXCEPT:
             return cxx_mangle_template_value_expr_matches(
                 left->unary_operand, right->unary_operand, depth + 1u);
@@ -9081,6 +9083,8 @@ static bool cxx_template_redeclaration_expr_matches(
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
         case EXPR_NOEXCEPT:
             return cxx_template_redeclaration_expr_matches(
                 left->unary_operand, left_template, left_requires_params,
@@ -9926,6 +9930,8 @@ static int template_parameter_pack_index_expression(CxxTemplate* tmpl,
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
@@ -12355,6 +12361,8 @@ static bool template_expr_contains_type_parameter(Expr* expression,
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
         case EXPR_NOEXCEPT:
             return template_expr_contains_type_parameter(
                 expression->unary_operand, parameter_name, depth + 1);
@@ -12470,6 +12478,8 @@ static bool template_expr_contains_identifier(Expr* expression,
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
@@ -12607,6 +12617,8 @@ static void template_replace_pack_identifier(Expr* expression,
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
@@ -14828,6 +14840,8 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
             copy->unary_operand = template_clone_expr(

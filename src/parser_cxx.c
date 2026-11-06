@@ -4615,6 +4615,8 @@ static void cxx_bind_template_constant_address_argument_impl(
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             cxx_bind_template_constant_address_argument_impl(
                 expression->unary_operand, active_functions);
             break;
@@ -26055,6 +26057,8 @@ static void cxx_constructor_rebind_initializer_expression(
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             cxx_constructor_rebind_initializer_expression(
                 expression->unary_operand, pattern_parameters,
                 instantiated_parameters, visited);
@@ -29269,6 +29273,8 @@ static bool cxx_dependent_decltype_calls_are_viable(
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return cxx_dependent_decltype_calls_are_viable(
                 expression->unary_operand, depth + 1u);
         case EXPR_CAST:
@@ -41894,6 +41900,8 @@ static Expr* cxx_constraint_substitute_nontype_expression(
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             expression->unary_operand =
                 cxx_constraint_substitute_nontype_expression(
                     expression->unary_operand, tmpl, arguments,
@@ -54963,14 +54971,6 @@ static void cxx_skip_unsupported_statement(void) {
     }
 }
 
-static const char* cxx_unsupported_coroutine_keyword(void) {
-    if (!rcc_parser_cxx_standard_at_least(20)) return NULL;
-    if (cxx_identifier_is(peek(), "co_await")) return "co_await";
-    if (cxx_identifier_is(peek(), "co_yield")) return "co_yield";
-    if (cxx_identifier_is(peek(), "co_return")) return "co_return";
-    return NULL;
-}
-
 static bool cxx_unsupported_module_directive(void) {
     if (!rcc_parser_cxx_standard_at_least(20)) return false;
     if (cxx_identifier_is(peek(), "module") ||
@@ -55081,14 +55081,18 @@ static Stmt* parse_cxx_local_class_definition(void) {
 }
 
 static Stmt* parse_cxx_statement(void) {
-    const char* coroutine_keyword = cxx_unsupported_coroutine_keyword();
-    if (coroutine_keyword) {
-        SourceLoc loc = peek()->loc;
+    if (rcc_parser_cxx_standard_at_least(20) &&
+        cxx_identifier_is(peek(), "co_return")) {
+        SourceLoc loc = advance()->loc;
+        Expr* expression = check(TOK_SEMICOLON)
+            ? NULL : parse_cxx_expression();
+        Stmt* statement;
+        expect(TOK_SEMICOLON, ";");
         rcc_error(loc,
-                  "C++20 coroutine keyword '%s' is not supported by RCC++",
-                  coroutine_keyword);
-        cxx_skip_unsupported_statement();
-        return stmt_null(loc);
+                  "C++20 coroutine keyword 'co_return' is not supported by RCC++");
+        statement = stmt_return(expression, loc);
+        statement->cxx_is_co_return = true;
+        return statement;
     }
 
     if (cxx_local_class_definition_starts()) {

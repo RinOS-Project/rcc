@@ -19791,6 +19791,12 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             return lower_integer_constant(
                 context, type, expression->type->is_unsigned,
                 expression->cxx_noexcept_value ? 1u : 0u);
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
+            rcc_error(expression->loc,
+                      "coroutine expression reached IR lowering before coroutine transformation");
+            context->unsupported = true;
+            return lower_invalid_value();
         case EXPR_CHAR_LIT:
             if (!lower_type(expression->type, &type)) {
                 context->unsupported = true;
@@ -34909,6 +34915,12 @@ static bool lower_statement_impl(RccIrLowerContext* context,
         case STMT_DECL:
             return lower_declaration(context, statement->decl);
         case STMT_RETURN:
+            if (statement->cxx_is_co_return) {
+                rcc_error(statement->loc,
+                          "co_return reached IR lowering before coroutine transformation");
+                context->unsupported = true;
+                return false;
+            }
             if (context->ast_return_type &&
                 context->ast_return_type->is_reference &&
                 !lower_mark_wide_local_address_escaped(

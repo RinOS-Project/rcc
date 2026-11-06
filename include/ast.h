@@ -632,6 +632,8 @@ typedef enum {
     EXPR_VA_END,        /* __builtin_va_end(list) */
     EXPR_VA_COPY,       /* __builtin_va_copy(destination, source) */
     EXPR_VA_ARG,        /* __builtin_va_arg(list, type) */
+    EXPR_CXX_CO_AWAIT,  /* C++20 await-expression before coroutine lowering. */
+    EXPR_CXX_CO_YIELD,  /* C++20 yield-expression before coroutine lowering. */
 } ExprKind;
 
 typedef enum {
@@ -1413,6 +1415,9 @@ struct Stmt {
      * prvalue operand needs temporary storage to form that pointer, even
      * though C++ does not extend the temporary beyond the return full-expression. */
     bool return_reference_result;
+    /* `co_return` is distinct from `return` until coroutine lowering selects
+     * the promise return_value/return_void operation. */
+    bool cxx_is_co_return;
     int return_reference_temporary_offset;
     bool c23_is_maybe_unused;
     bool c23_is_fallthrough;

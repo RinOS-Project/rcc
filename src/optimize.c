@@ -4025,6 +4025,8 @@ static bool expression_mentions_decl(const Expr* expression,
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return expression_mentions_decl(expression->unary_operand,
                                             declaration);
         case EXPR_CAST:
@@ -4224,6 +4226,8 @@ static bool expression_modifies_decl(const Expr* expression,
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return expression_modifies_decl(expression->unary_operand,
                                             declaration);
         case EXPR_CXX_TYPEID:
@@ -4460,6 +4464,8 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_VA_END:
         case EXPR_VA_COPY:
         case EXPR_VA_ARG:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return true;
         case EXPR_POS:
         case EXPR_NEG:
@@ -5962,6 +5968,8 @@ static void optimize_expr(Expr** expression) {
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             optimize_expr(&value->unary_operand);
             break;
         case EXPR_ADDR:
@@ -6575,6 +6583,8 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
         case EXPR_BITNOT:
         case EXPR_DEREF:
         case EXPR_NOEXCEPT:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             propagate_constant_expr(&value->unary_operand, state);
             optimize_expr(expression);
             return;
@@ -7107,6 +7117,8 @@ static void mark_address_escapes_expr(const Expr* expression,
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             mark_address_escapes_expr(expression->unary_operand, locals);
             return;
         case EXPR_CAST:
@@ -7448,6 +7460,8 @@ static void mark_dead_store_reads(const Expr* expression,
         case EXPR_PREDEC:
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             mark_dead_store_reads(expression->unary_operand, locals);
             return;
         case EXPR_ADDR:

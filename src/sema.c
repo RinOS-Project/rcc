@@ -31883,6 +31883,14 @@ static Type* sema_expr_impl(Expr* expr) {
             break;
         }
 
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
+            sema_expr(expr->unary_operand);
+            rcc_error(expr->loc,
+                      "coroutine expression requires coroutine lowering");
+            expr->type = type_int;
+            break;
+
         case EXPR_NOEXCEPT:
             sema_expr(expr->unary_operand);
             expr->cxx_noexcept_value =
@@ -34751,6 +34759,12 @@ static void sema_stmt(Stmt* stmt) {
             break;
 
         case STMT_RETURN:
+            if (stmt->cxx_is_co_return) {
+                if (stmt->return_val) sema_expr(stmt->return_val);
+                rcc_error(stmt->loc,
+                          "co_return requires coroutine lowering");
+                break;
+            }
             stmt->return_reference_result =
                 !current_func_auto_return_pending && stmt->return_val &&
                 current_func_ret && current_func_ret->is_reference;

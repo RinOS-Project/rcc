@@ -1479,6 +1479,8 @@ static bool parser_overflow_p_argument_has_side_effect(
         case EXPR_VA_END:
         case EXPR_VA_COPY:
         case EXPR_VA_ARG:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return true;
         case EXPR_IDENT:
             return expression->type && expression->type->is_volatile;
@@ -4190,16 +4192,20 @@ static Expr* parse_unary(void) {
          strcmp(peek()->value.str_val, "co_yield") == 0)) {
         bool is_yield = strcmp(peek()->value.str_val, "co_yield") == 0;
         const char* keyword = is_yield ? "co_yield" : "co_await";
+        Expr* operand;
         advance();
         rcc_error(loc,
                   "C++20 coroutine keyword '%s' is not supported by RCC++",
                   keyword);
         if (is_yield) {
-            (void)parse_assignment();
+            operand = parse_assignment();
         } else {
-            (void)parse_unary();
+            operand = parse_unary();
         }
-        return expr_int(0, loc);
+        if (!operand) return expr_int(0, loc);
+        return expr_unary(is_yield ? EXPR_CXX_CO_YIELD
+                                   : EXPR_CXX_CO_AWAIT,
+                          operand, loc);
     }
 
     if (check(TOK_IDENT) &&
