@@ -39325,7 +39325,9 @@ static Expr* sema_cxx_default_initialization_expression(
                 !(type_is_arithmetic(field->type) ||
                   field->type->kind == TYPE_ENUM ||
                   field->type->kind == TYPE_PTR ||
-                  field->type->kind == TYPE_NULLPTR) ||
+                  field->type->kind == TYPE_NULLPTR ||
+                  (field->type->kind == TYPE_STRUCT &&
+                   field->type->cxx_class)) ||
                 !sema_cxx_default_member_initializer_supported(
                     field->type, field->initializer)) {
                 *supported = false;
