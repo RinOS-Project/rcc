@@ -17153,13 +17153,23 @@ static bool sema_cxx_union_default_member_initializer_supported(
     Type* union_type, Expr* initializer) {
     TypeField* field;
     ExprList* item;
+    CxxClass* cls = union_type ? union_type->cxx_class : NULL;
     if (!union_type || union_type->kind != TYPE_UNION ||
-        union_type->size <= 0 || !union_type->fields || !initializer ||
-        initializer->kind != EXPR_COMPOUND || initializer->compound_constructor ||
+        union_type->size <= 0 || union_type->size > 512 ||
+        !union_type->fields || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor || !initializer->compound_type ||
+        initializer->compound_type->kind != TYPE_UNION ||
+        (cls && cls->has_user_constructor) ||
+        !type_is_compatible(union_type, initializer->compound_type) ||
         !initializer->type ||
         !type_is_compatible(union_type, initializer->type) ||
         !sema_expr(initializer) || !(item = initializer->compound_init) ||
-        item->next || item->designator_kind == INIT_DESIGNATOR_INDEX ||
+        item->next || item->cxx_temporary_owner ||
+        item->cxx_temporary_cleanups || !item->expr ||
+        item->expr->cxx_temporary_owner ||
+        item->expr->cxx_temporary_cleanups ||
+        item->designator_kind == INIT_DESIGNATOR_INDEX ||
         (item->designator_kind != INIT_DESIGNATOR_NONE &&
          item->designator_kind != INIT_DESIGNATOR_FIELD)) {
         return false;
