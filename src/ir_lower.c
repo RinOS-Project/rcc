@@ -10273,16 +10273,43 @@ static bool lower_cxx_empty_noop_constructor_supported(
         if (!member || member_initializer_count >= member_count) return false;
         if (initializer->is_default_member_initializer) {
             int64_t constant_value;
-            if (initializer->constructor || initializer->arguments ||
-                !initializer->value) {
-                return false;
-            }
             if (member->type && member->type->kind == TYPE_ARRAY) {
-                if (!lower_cxx_integer_array_default_member_initializer_supported(
+                if (initializer->constructor || initializer->arguments ||
+                    !initializer->value ||
+                    !lower_cxx_integer_array_default_member_initializer_supported(
                         member->type, initializer->value, 0u)) {
                     return false;
                 }
+            } else if (member->type &&
+                       member->type->kind == TYPE_STRUCT) {
+                const TypeParam* member_decl = cls->fields;
+                Expr nested_initializer;
+                while (member_decl &&
+                       (member_decl->is_static || !member_decl->name ||
+                        strcmp(member_decl->name, initializer->field) != 0)) {
+                    member_decl = member_decl->next;
+                }
+                if (!member_decl || !member_decl->type ||
+                    !member_decl->type->cxx_class ||
+                    !initializer->constructor || initializer->arguments) {
+                    return false;
+                }
+                memset(&nested_initializer, 0, sizeof(nested_initializer));
+                nested_initializer.kind = EXPR_COMPOUND;
+                nested_initializer.type = member_decl->type;
+                nested_initializer.compound_constructor =
+                    initializer->constructor;
+                nested_initializer.compound_value_init =
+                    member_decl->initializer &&
+                    member_decl->initializer->kind == EXPR_COMPOUND &&
+                    member_decl->initializer->compound_value_init;
+                if (!lower_cxx_empty_noop_constructor_supported(
+                        &nested_initializer)) {
+                    return false;
+                }
             } else if (!member->type ||
+                       initializer->constructor || initializer->arguments ||
+                       !initializer->value ||
                        (!type_is_integer(member->type) &&
                         member->type->kind != TYPE_ENUM) ||
                        !initializer->value->type ||
@@ -29335,6 +29362,43 @@ static bool lower_struct_initializer(
                         !lower_array_initializer(
                             context, address.value, field->type,
                             member_initializer->value)) {
+                        context->unsupported = true;
+                        goto constructor_lowering_failure;
+                    }
+                    continue;
+                }
+                if (field->type->kind == TYPE_STRUCT) {
+                    const TypeParam* member_decl =
+                        type->cxx_class->fields;
+                    Expr nested_initializer;
+                    while (member_decl &&
+                           (member_decl->is_static ||
+                            !member_decl->name ||
+                            strcmp(member_decl->name,
+                                   member_initializer->field) != 0)) {
+                        member_decl = member_decl->next;
+                    }
+                    if (!member_decl || !member_decl->type ||
+                        !member_decl->initializer ||
+                        !member_initializer->constructor ||
+                        member_initializer->arguments) {
+                        context->unsupported = true;
+                        goto constructor_lowering_failure;
+                    }
+                    memset(&nested_initializer, 0,
+                           sizeof(nested_initializer));
+                    nested_initializer.kind = EXPR_COMPOUND;
+                    nested_initializer.type = field->type;
+                    nested_initializer.compound_constructor =
+                        member_initializer->constructor;
+                    nested_initializer.compound_value_init =
+                        member_decl->initializer->kind == EXPR_COMPOUND &&
+                        member_decl->initializer->compound_value_init;
+                    if (!lower_initialize_struct_storage(
+                            context, address.value, field->type,
+                            &nested_initializer) ||
+                        !lower_register_partial_member_cleanup(
+                            context, field, address)) {
                         context->unsupported = true;
                         goto constructor_lowering_failure;
                     }
