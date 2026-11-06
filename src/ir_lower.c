@@ -2845,7 +2845,12 @@ static bool lower_dynamic_static_class_member_constructor_supported(
         type->size <= 0 || type->size > 65536 || type->align <= 0 ||
         type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 ||
-        type->cxx_class->virtual_base_count != 0 ||
+        type->cxx_class->base_count < 0 ||
+        type->cxx_class->virtual_base_count < 0 ||
+        (type->cxx_class->base_count != 0 &&
+         (!type->cxx_class->bases || !type->cxx_class->base_offsets)) ||
+        (type->cxx_class->virtual_base_count != 0 &&
+         !type->cxx_class->virtual_bases) ||
         type->cxx_class->vtable_size != 0 ||
         !lower_struct_type_supported(type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
@@ -2855,6 +2860,32 @@ static bool lower_dynamic_static_class_member_constructor_supported(
         !lower_cleanup_constructor_call_supported(initializer) ||
         !lower_cleanup_initializer_supported(initializer)) {
         return false;
+    }
+    for (int index = 0; index < type->cxx_class->base_count; ++index) {
+        const CxxClass* base = type->cxx_class->bases[index].base;
+        int offset = type->cxx_class->base_offsets[index];
+        int extent = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || !base->type || base->virtual_base_count < 0 ||
+            offset < 0 || extent <= 0 || offset > type->size ||
+            extent > type->size - offset) {
+            return false;
+        }
+    }
+    for (int index = 0;
+         index < type->cxx_class->virtual_base_count; ++index) {
+        const CxxClass* base =
+            type->cxx_class->virtual_bases[index].base;
+        int offset = type->cxx_class->virtual_bases[index].offset;
+        int extent = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || !base->type || base->virtual_base_count < 0 ||
+            offset < 0 || extent <= 0 || offset > type->size ||
+            extent > type->size - offset) {
+            return false;
+        }
     }
     for (const ExprList* argument = initializer->compound_init;
          argument; argument = argument->next) {
