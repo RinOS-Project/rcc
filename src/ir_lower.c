@@ -29825,7 +29825,7 @@ static RccIrLowerValue lower_cxx_delete_expression(
     return void_result;
 }
 
-static bool lower_cxx_emit_constructor_call(
+static bool lower_cxx_emit_constructor_call_impl(
     RccIrLowerContext* context, const Expr* initializer,
     RccIrValue object) {
     const CxxConstructorInfo* constructor = initializer
@@ -30036,6 +30036,29 @@ static bool lower_cxx_emit_constructor_call(
         return false;
     }
     return true;
+}
+
+static bool lower_cxx_emit_constructor_call(
+    RccIrLowerContext* context, const Expr* initializer,
+    RccIrValue object) {
+    const Decl* previous_partial_owner;
+    const Decl* previous_partial_cleanup_declaration;
+    bool emitted;
+    if (!context) return false;
+    previous_partial_owner = context->partial_construction_owner;
+    previous_partial_cleanup_declaration =
+        context->partial_construction_cleanup_declaration;
+    /* Constructor arguments can contain their own prvalue subobjects. Keep
+     * those temporary cleanups separate from the destination's partial
+     * construction record; the caller records the destination after success. */
+    context->partial_construction_owner = NULL;
+    context->partial_construction_cleanup_declaration = NULL;
+    emitted = lower_cxx_emit_constructor_call_impl(
+        context, initializer, object);
+    context->partial_construction_owner = previous_partial_owner;
+    context->partial_construction_cleanup_declaration =
+        previous_partial_cleanup_declaration;
+    return emitted;
 }
 
 static bool lower_cxx_emit_class_array_constructors(
