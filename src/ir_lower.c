@@ -2845,7 +2845,6 @@ static bool lower_dynamic_static_class_member_constructor_supported(
         !lower_struct_type_supported(type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         !initializer->compound_constructor ||
-        initializer->compound_paren_init ||
         aggregate_item->cxx_temporary_owner ||
         aggregate_item->cxx_temporary_cleanups ||
         !lower_cleanup_constructor_call_supported(initializer) ||
@@ -3060,6 +3059,46 @@ static bool lower_dynamic_static_array_member_initializer_supported(
     return true;
 }
 
+static bool lower_dynamic_static_class_array_initializer_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    const Type* element_type = type;
+    const Expr* initializer = declaration ? declaration->var_init : NULL;
+    ExprList aggregate_item;
+    while (element_type && element_type->kind == TYPE_ARRAY) {
+        element_type = element_type->base;
+    }
+    if (!declaration || declaration->kind != DECL_VAR ||
+        (!declaration->var_is_thread_local &&
+         !declaration->var_is_static_local) ||
+        !declaration->var_dynamic_initializer ||
+        !declaration->var_reference_temporary_guard ||
+        declaration->storage != STORAGE_STATIC || !type ||
+        type->kind != TYPE_ARRAY || type->size <= 0 ||
+        type->size > 65536 || type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (type->align & (type->align - 1)) != 0 || type->is_volatile ||
+        !element_type || element_type->kind != TYPE_STRUCT ||
+        !element_type->cxx_class ||
+        !element_type->cxx_class->has_user_constructor ||
+        element_type->cxx_class->has_field_initializer ||
+        element_type->cxx_class->base_count != 0 ||
+        element_type->cxx_class->virtual_base_count != 0 ||
+        element_type->cxx_class->vtable_size != 0 ||
+        !lower_struct_type_supported(element_type) || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor ||
+        initializer->compound_paren_init ||
+        (declaration->var_cleanups &&
+         !lower_cxx_destructor_cleanup_hook_supported(element_type))) {
+        return false;
+    }
+    memset(&aggregate_item, 0, sizeof(aggregate_item));
+    aggregate_item.expr = (Expr*)initializer;
+    return lower_dynamic_static_array_member_initializer_supported(
+        type, &aggregate_item, 0u);
+}
+
 static bool lower_dynamic_static_class_constructor_initializer_supported(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
@@ -3100,6 +3139,10 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
     size_t item_count = 0u;
     bool has_field_designators = false;
     bool has_positional_items = false;
+    if (lower_dynamic_static_class_array_initializer_supported(
+            declaration)) {
+        return true;
+    }
     if (lower_dynamic_static_class_constructor_initializer_supported(
             declaration)) {
         return true;
@@ -30821,6 +30864,7 @@ static bool lower_dynamic_static_aggregate_initializer(
     bool has_field_designators;
     bool track_partial_members;
     bool constructor_initializer;
+    bool class_array_initializer;
     if (!context ||
         !lower_dynamic_static_aggregate_initializer_supported(declaration)) {
         if (context) context->unsupported = true;
@@ -30829,6 +30873,8 @@ static bool lower_dynamic_static_aggregate_initializer(
     constructor_initializer =
         lower_dynamic_static_class_constructor_initializer_supported(
             declaration);
+    class_array_initializer =
+        lower_dynamic_static_class_array_initializer_supported(declaration);
     guard = declaration->var_reference_temporary_guard;
     symbol = lower_append(
         context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
@@ -30878,6 +30924,25 @@ static bool lower_dynamic_static_aggregate_initializer(
                 context, object.value, declaration->type)) {
             return false;
         }
+        field = NULL;
+        has_field_designators = false;
+    } else if (class_array_initializer) {
+        const Decl* previous_partial_owner =
+            context->partial_construction_owner;
+        const Decl* previous_partial_cleanup_declaration =
+            context->partial_construction_cleanup_declaration;
+        bool initialized;
+        if (track_partial_members) {
+            context->partial_construction_owner = declaration;
+            context->partial_construction_cleanup_declaration = declaration;
+        }
+        initialized = lower_array_initializer(
+            context, object.value, declaration->type,
+            declaration->var_init);
+        context->partial_construction_owner = previous_partial_owner;
+        context->partial_construction_cleanup_declaration =
+            previous_partial_cleanup_declaration;
+        if (!initialized) return false;
         field = NULL;
         has_field_designators = false;
     } else {
@@ -31007,10 +31072,13 @@ static bool lower_dynamic_static_aggregate_initializer(
         ++field_index;
     }
     if (context->unsupported) return false;
-    if (track_partial_members &&
-        !lower_unregister_partial_member_cleanups(
-            context, declaration, declaration, object)) {
-        return false;
+    if (track_partial_members) {
+        bool unregistered = class_array_initializer
+            ? lower_unregister_partial_array_cleanups_in_object(
+                  context, declaration->type, object, 0u)
+            : lower_unregister_partial_member_cleanups(
+                  context, declaration, declaration, object);
+        if (!unregistered) return false;
     }
 
     if (declaration->var_cleanups) {
