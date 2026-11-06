@@ -9122,6 +9122,50 @@ static bool cxx_implicit_default_subobject_supported(Type* type,
     return true;
 }
 
+static bool cxx_implicit_default_union_dmi_supported(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    bool has_initializer = false;
+    if (!type || type->kind != TYPE_UNION || !type->is_complete || !cls ||
+        cls->has_user_constructor || cls->constructors ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        cls->vtable_size != 0 || type->cleanup_function ||
+        type->cleanup_field) {
+        return false;
+    }
+    if (cls->destructor_method) {
+        Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            destructor->func_params) {
+            return false;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!field->type || field->is_bitfield ||
+            !cxx_constructor_scalar_type(field->type) ||
+            field->type->is_const || field->type->is_reference ||
+            field->type->is_atomic) {
+            return false;
+        }
+        if (!field->initializer) continue;
+        if (has_initializer ||
+            !cxx_constructor_scalar_constant(field->initializer)) {
+            return false;
+        }
+        has_initializer = true;
+    }
+    return has_initializer;
+}
+
+static bool cxx_implicit_default_subobject_initializer_supported(
+    Type* type, unsigned depth) {
+    return cxx_implicit_default_subobject_supported(type, depth) ||
+        (type && type->kind == TYPE_UNION && depth < 64u &&
+         cxx_implicit_default_union_dmi_supported(type));
+}
+
 /* Constructor default arguments are stored on both the declaration
  * parameters and the function type parameters.  Keep the parser-side
  * arity checks independent from semantic analysis so direct initialization
@@ -9535,7 +9579,9 @@ static bool cxx_implicit_default_array_element_supported(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     if (!cls || !type->is_complete || cls->constructors ||
         cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
-        cls->has_field_initializer ||
+        (cls->has_field_initializer &&
+         !(type->kind == TYPE_UNION &&
+           cxx_implicit_default_union_dmi_supported(type))) ||
         type->cleanup_function || type->cleanup_field) {
         return false;
     }
@@ -9546,7 +9592,7 @@ static bool cxx_implicit_default_array_element_supported(Type* type) {
             return false;
         }
     }
-    return cxx_implicit_default_subobject_supported(type, 0u);
+    return cxx_implicit_default_subobject_initializer_supported(type, 0u);
 }
 
 /* The initializer parser represents C++ `{}` as a value-init compound with a
@@ -10240,7 +10286,7 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                       !(field->type->kind == TYPE_ARRAY
                             ? cxx_implicit_default_array_element_supported(
                                   member_class->type)
-                            : cxx_implicit_default_subobject_supported(
+                            : cxx_implicit_default_subobject_initializer_supported(
                                   member_class->type, 0u)))) ||
                     !member_class->type || member_argument_count >= 32u ||
                     (member_constructor &&
