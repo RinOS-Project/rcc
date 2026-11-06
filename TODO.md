@@ -14977,8 +14977,9 @@ Continue in this order:
 
 ## RCC continuation (2026-11-06, inherited lvalue-ref-qualified conversions)
 
-- [x] Compare a derived `operator int() const &` with an inherited
-      `operator int() &` restored by `using`. GCC C++20 and RCC both select the
-      inherited conversion for a derived lvalue; the conversion-operator suite
-      passes GCC execution, i686/AMD64 generation, and generated AMD64
+- [x] Compare inherited and same-target derived conversion functions across
+      `&`/`&&` and volatile/nonvolatile implicit-object bindings, with and
+      without an added `const` qualifier. GCC C++20 and RCC agree across all
+      eight lvalue/rvalue combinations in the conversion-operator suite, which
+      passes i686/AMD64 generation, GCC execution, and generated AMD64
       execution in `test-cxx-conversion-operator`.

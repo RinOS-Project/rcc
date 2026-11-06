@@ -294,6 +294,108 @@ public:
     }
 };
 
+class ConversionInheritedConstLvalueBase {
+public:
+    operator int() const & {
+        return 601;
+    }
+};
+
+class ConversionInheritedConstLvalueDerived
+    : public ConversionInheritedConstLvalueBase {
+public:
+    using ConversionInheritedConstLvalueBase::operator int;
+
+    operator int() & {
+        return 607;
+    }
+};
+
+class ConversionInheritedConstVolatileLvalueBase {
+public:
+    operator int() const volatile & {
+        return 617;
+    }
+};
+
+class ConversionInheritedConstVolatileLvalueDerived
+    : public ConversionInheritedConstVolatileLvalueBase {
+public:
+    using ConversionInheritedConstVolatileLvalueBase::operator int;
+
+    operator int() volatile & {
+        return 619;
+    }
+};
+
+class ConversionInheritedVolatileLvalueBase {
+public:
+    operator int() volatile & {
+        return 623;
+    }
+};
+
+class ConversionInheritedVolatileLvalueDerived
+    : public ConversionInheritedVolatileLvalueBase {
+public:
+    using ConversionInheritedVolatileLvalueBase::operator int;
+
+    operator int() const volatile & {
+        return 629;
+    }
+};
+
+class ConversionInheritedConstRvalueBase {
+public:
+    operator int() const && {
+        return 631;
+    }
+};
+
+class ConversionInheritedConstRvalueDerived
+    : public ConversionInheritedConstRvalueBase {
+public:
+    using ConversionInheritedConstRvalueBase::operator int;
+
+    operator int() && {
+        return 641;
+    }
+};
+
+class ConversionInheritedConstVolatileRvalueBase {
+public:
+    operator int() const volatile && {
+        return 659;
+    }
+};
+
+class ConversionInheritedConstVolatileRvalueDerived
+    : public ConversionInheritedConstVolatileRvalueBase {
+public:
+    using ConversionInheritedConstVolatileRvalueBase::operator int;
+
+    operator int() volatile && {
+        return 661;
+    }
+};
+
+class ConversionInheritedVolatileRvalueBase {
+public:
+    operator int() volatile && {
+        return 673;
+    }
+};
+
+class ConversionInheritedVolatileRvalueDerived
+    : public ConversionInheritedVolatileRvalueBase {
+public:
+    using ConversionInheritedVolatileRvalueBase::operator int;
+
+    operator int() const volatile && {
+        return 677;
+    }
+};
+
 class ConversionCvRefQualifiedSource {
 public:
     operator int() const & {
@@ -964,6 +1066,11 @@ int main() {
     ConversionRefQualifiedInheritedDerived inherited_ref_conversion_source;
     ConversionSameTypeLvalueRefQualifiedInheritedDerived
         inherited_lvalue_ref_conversion_source;
+    ConversionInheritedConstLvalueDerived inherited_const_lvalue_source;
+    volatile ConversionInheritedConstVolatileLvalueDerived
+        inherited_const_volatile_lvalue_source{};
+    volatile ConversionInheritedVolatileLvalueDerived
+        inherited_volatile_lvalue_source{};
     const volatile ConversionCvRefQualifiedInheritedDerived
         inherited_cvref_conversion_source{};
     NonTemplateWinsConversionSource non_template_wins_conversion_source;
@@ -1059,6 +1166,20 @@ int main() {
         487) return 10;
     if (take_integer(inherited_lvalue_ref_conversion_source) != 503) {
         return 11;
+    }
+    if (take_integer(inherited_const_lvalue_source) != 607 ||
+        take_integer(inherited_const_volatile_lvalue_source) != 619 ||
+        take_integer(inherited_volatile_lvalue_source) != 623) {
+        return 12;
+    }
+    if (take_integer(ConversionInheritedConstRvalueDerived{}) != 641 ||
+        take_integer(static_cast<volatile
+                         ConversionInheritedConstVolatileRvalueDerived&&>(
+            ConversionInheritedConstVolatileRvalueDerived{})) != 661 ||
+        take_integer(static_cast<volatile
+                         ConversionInheritedVolatileRvalueDerived&&>(
+            ConversionInheritedVolatileRvalueDerived{})) != 673) {
+        return 13;
     }
     if (take_integer(ConversionCvRefQualifiedSource{}) != 457) return 7;
     if (take_integer(ConversionUnqualifiedRefQualifiedSource{}) != 461) {
