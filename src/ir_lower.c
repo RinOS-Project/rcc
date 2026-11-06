@@ -25293,7 +25293,6 @@ static bool lower_cxx_initialize_constructor_members(
         constructor->initializers->is_delegating_constructor;
     if (!context || !cls || !constructor ||
         !constructor->initializers_are_supported ||
-        cls->vtable_size != 0 ||
         (!is_delegating_constructor && cls->base_count != 0 &&
          (!cls->bases || !cls->base_offsets ||
           !lower_cxx_throwing_constructor_with_bases_supported(
@@ -26025,7 +26024,11 @@ static bool lower_cxx_initialize_constructor_members(
             return false;
         }
     }
-    return true;
+    /* Base constructors install their own dispatch tables while they run.
+     * After this class's bases and members are complete, install the tables
+     * for this constructor's dynamic type before lowering its body. */
+    return lower_cxx_initialize_object_vtables(
+        context, object.value, cls->type);
 }
 
 static bool lower_cxx_unregister_constructor_partial_member_cleanups(
