@@ -31,8 +31,9 @@
   `test-cxx-conversion-reference-ranking-ambiguous`; invalid outputs remain
   absent.
 - [x] Preserve ambiguous conversion-function status in scalar
-  copy-initializers. GCC and RCC i686/AMD64 diagnostics cover call arguments,
-  reference binding, and scalar initialization in
+  copy-initializers from lvalues and class prvalues. GCC and RCC i686/AMD64
+  diagnostics cover call arguments, reference binding, and scalar
+  initialization in
   `test-cxx-conversion-reference-ranking-ambiguous`; no invalid object is
   emitted.
 

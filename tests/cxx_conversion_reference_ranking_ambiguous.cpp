@@ -42,3 +42,8 @@ int initialize_ambiguous_scalar(ScalarConversionRankingSource& source) {
     long long value = source;
     return static_cast<int>(value);
 }
+
+int initialize_ambiguous_scalar_prvalue() {
+    long long value = ScalarConversionRankingSource{};
+    return static_cast<int>(value);
+}
