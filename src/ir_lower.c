@@ -4383,6 +4383,16 @@ static bool lower_i686_wide_scalar_expression_type(const Expr* expression) {
                     expression->binary_lhs->type) &&
                 lower_i686_wide_scalar_type(
                     expression->binary_rhs->type);
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+            return expression->binary_lhs && expression->binary_rhs &&
+                lower_i686_wide_atomic_scalar_type(
+                    expression->binary_lhs->type) &&
+                expression->binary_rhs->type &&
+                type_is_integer(expression->binary_rhs->type) &&
+                expression->binary_rhs->type->size > 0 &&
+                expression->binary_rhs->type->size <= 8 &&
+                !expression->binary_rhs->type->is_bit_precise;
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -7601,6 +7611,76 @@ static bool lower_wide_scalar_expression_impl(
         }
         *result = value;
         return true;
+    }
+    if ((expression->kind == EXPR_ADD_ASSIGN ||
+         expression->kind == EXPR_SUB_ASSIGN) &&
+        (lower_i686_wide_scalar_type(expression->type) ||
+         lower_i686_wide_atomic_scalar_type(expression->type)) &&
+        expression->binary_lhs && expression->binary_rhs &&
+        lower_i686_wide_atomic_scalar_type(
+            expression->binary_lhs->type) &&
+        expression->binary_rhs->type &&
+        type_is_integer(expression->binary_rhs->type) &&
+        expression->binary_rhs->type->size > 0 &&
+        expression->binary_rhs->type->size <= 8 &&
+        !expression->binary_rhs->type->is_bit_precise) {
+        RccIrLowerValue object_address;
+        RccIrLowerValue order;
+        RccIrLowerValue result_address;
+        RccIrLowerWideValue operand;
+        RccIrLowerWideValue previous;
+        RccIrValue call_operands[4];
+        RccIrInstruction* allocation;
+        RccIrInstruction* call;
+        RccIrInstruction* capture;
+        bool subtract = expression->kind == EXPR_SUB_ASSIGN;
+
+        /* RinOS's i686 64-bit atomic runtime uses a lock-backed fetch-add/sub
+         * entry point.  It supplies the indivisible update while avoiding a
+         * typed-SSA CAS instruction the i686 backend cannot represent. */
+        object_address = lower_lvalue_address(
+            context, expression->binary_lhs);
+        if (!object_address.valid ||
+            object_address.type.kind != RCC_IR_TYPE_POINTER ||
+            !lower_wide_scalar_expression(
+                context, expression->binary_rhs, &operand)) {
+            return false;
+        }
+        order = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 5u);
+        if (!order.valid) return false;
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return false;
+        rcc_ir_set_immediate(allocation, 8u);
+        allocation->alignment = 4u;
+        result_address = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+        call_operands[0] = object_address.value;
+        call_operands[1] = operand.low.value;
+        call_operands[2] = operand.high.value;
+        call_operands[3] = order.value;
+        call = lower_append(
+            context, RCC_IR_CALL, rcc_ir_type_void(),
+            call_operands, 4u, NULL, 0u);
+        if (!call) return false;
+        rcc_ir_set_callee(
+            call, subtract ? "__atomic_fetch_sub_8"
+                           : "__atomic_fetch_add_8");
+        capture = lower_append(
+            context, RCC_IR_CAPTURE_RETURN_PAIR, rcc_ir_type_void(),
+            &result_address.value, 1u, NULL, 0u);
+        if (!capture) return false;
+        rcc_ir_set_immediate(capture, 8u);
+        if (!lower_wide_scalar_load(
+                context, result_address, expression->type->is_unsigned,
+                &previous)) {
+            return false;
+        }
+        return lower_wide_scalar_binary(
+            context, subtract ? EXPR_SUB : EXPR_ADD,
+            previous, operand, expression->type->is_unsigned, result);
     }
     if ((expression->kind == EXPR_ADD_ASSIGN ||
          expression->kind == EXPR_SUB_ASSIGN ||
@@ -32595,8 +32675,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
         case STMT_NULL:
             return true;
         case STMT_EXPR:
-            if (statement->expr && lower_i686_wide_scalar_type(
-                    statement->expr->type)) {
+            if (statement->expr && lower_i686_wide_scalar_expression_type(
+                    statement->expr)) {
                 RccIrLowerWideValue value;
                 (void)lower_wide_scalar_expression(
                     context, statement->expr, &value);

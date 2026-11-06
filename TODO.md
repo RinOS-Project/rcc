@@ -14925,3 +14925,14 @@ Continue in this order:
       without ordinary lookup exposing its private base name, and a private
       concept constraint remains evaluable while its name stays hidden.
       `test-cxx-modules` compiles and links both cases for i686 and x86_64.
+
+## RCC continuation (2026-11-06, typed-SSA i686 64-bit atomic compound assignment)
+
+- [x] Lower i686 64-bit atomic `+=` and `-=` through the existing lock-backed
+      libc fetch-add/sub runtime while preserving sequentially consistent RMW
+      semantics, single evaluation of the lvalue and operand, and the updated
+      expression value. Cover signed operand extension and unsigned carry/
+      borrow; require zero typed-SSA fallback at `-O0`/`-O2` on i686 and
+      AMD64, link the i686 result with `atomic_runtime_i686.c`, validate the
+      RIN, and execute the GCC host and generated AMD64 objects through
+      `test-verified-atomic-wide-compound`.
