@@ -2272,8 +2272,6 @@
         GCC C++20 and legacy AMD64 exception-unwind execution also pass;
         legacy i686 exception assembly is generated and assembled. The full
         regression is `test-verified-cxx-conditional-field-accessor-cleanup`.
-        Non-identifier conditional lvalue sources and throwing copy/move
-        constructors with partial-result cleanup remain open.
     - [x] Preserve copy-initialization for a same-type class prvalue
           conditional's named lvalue arm and invoke the selected user-defined
           copy constructor directly into the shared result object. Verify both
@@ -2301,7 +2299,12 @@
           verified i686/AMD64 O0/O2 with zero fallback, legacy i686 assembly,
           and legacy AMD64 execution in
           test-verified-cxx-conditional-move-constructor.
-    - [ ] Support throwing copy/move constructors with partial-result cleanup.
+    - [x] Clean up a nontrivial member already constructed when a conditional
+          copy or move constructor throws. Verify exact member/source cleanup
+          order and copy/move counts for throwing, successful, and unselected
+          arms against GCC C++20, verified i686/AMD64 O0/O2 with zero fallback,
+          legacy i686 assembly, and legacy AMD64 execution in
+          test-verified-cxx-conditional-throwing-copy-move.
   - [x] Lower fixed-size array-loop cleanup plans recursively for nontrivial
         subobjects of class-prvalue reference temporaries, including nested
         arrays. Emit reverse element destruction and verify the observed order
