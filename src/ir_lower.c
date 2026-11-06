@@ -25440,6 +25440,13 @@ static bool lower_cxx_value_initialized_subobject_supported(
                 /* The nested class has no destructor or user-provided
                  * constructor in this subset. Its aggregate DMI can run
                  * without adding another cleanup state. */
+            } else if (field->type->kind == TYPE_UNION &&
+                       lower_cxx_value_initialized_union_supported(
+                           context, field->type, depth + 1u) &&
+                       lower_cleanup_initializer_supported(
+                           field->initializer)) {
+                /* The active union variant is validated separately; the
+                 * enclosing aggregate still has no union destructor state. */
             } else if (field->type->kind == TYPE_ARRAY &&
                        lower_cxx_value_initialized_subobject_supported(
                            context, field->type, depth + 1u) &&
@@ -25607,6 +25614,11 @@ static bool lower_cxx_zero_value_initialized_subobject(
                     }
                 } else if (field->type->kind == TYPE_STRUCT &&
                            !lower_initialize_struct_storage(
+                               context, member.value, field->type,
+                               field->initializer)) {
+                    return false;
+                } else if (field->type->kind == TYPE_UNION &&
+                           !lower_initialize_union_storage(
                                context, member.value, field->type,
                                field->initializer)) {
                     return false;
