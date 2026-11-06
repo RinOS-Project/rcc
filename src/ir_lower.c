@@ -9818,6 +9818,42 @@ static int lower_cxx_constructor_parameter_index(
     return -1;
 }
 
+static bool lower_cxx_integer_array_default_member_initializer_supported(
+    const Type* type, const Expr* initializer, unsigned depth) {
+    const ExprList* item;
+    int64_t cursor = 0;
+    if (!type || !initializer || depth >= 32u ||
+        type->kind != TYPE_ARRAY || !type->base || type->array_len <= 0 ||
+        initializer->kind != EXPR_COMPOUND) {
+        return false;
+    }
+    for (item = initializer->compound_init; item; item = item->next) {
+        int64_t constant_value;
+        if (item->designator_kind == INIT_DESIGNATOR_FIELD) return false;
+        if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+            cursor = item->designator_index;
+        } else if (item->designator_kind != INIT_DESIGNATOR_NONE) {
+            return false;
+        }
+        if (cursor < 0 || cursor >= type->array_len || !item->expr) {
+            return false;
+        }
+        if (type->base->kind == TYPE_ARRAY) {
+            if (!lower_cxx_integer_array_default_member_initializer_supported(
+                    type->base, item->expr, depth + 1u)) {
+                return false;
+            }
+        } else if ((!type_is_integer(type->base) &&
+                    type->base->kind != TYPE_ENUM) ||
+                   !expr_eval_integer_constant(
+                       item->expr, &constant_value)) {
+            return false;
+        }
+        ++cursor;
+    }
+    return true;
+}
+
 static bool lower_cxx_base_name_matches(
     const CxxClass* base, const char* declared_name,
     const CxxConstructorInitializer* initializer) {
@@ -10237,14 +10273,22 @@ static bool lower_cxx_empty_noop_constructor_supported(
         if (!member || member_initializer_count >= member_count) return false;
         if (initializer->is_default_member_initializer) {
             int64_t constant_value;
-            if (!member->type ||
-                (!type_is_integer(member->type) &&
-                 member->type->kind != TYPE_ENUM) ||
-                initializer->constructor || initializer->arguments ||
-                !initializer->value || !initializer->value->type ||
-                !type_is_integer(initializer->value->type) ||
-                !expr_eval_integer_constant(
-                    initializer->value, &constant_value)) {
+            if (initializer->constructor || initializer->arguments ||
+                !initializer->value) {
+                return false;
+            }
+            if (member->type && member->type->kind == TYPE_ARRAY) {
+                if (!lower_cxx_integer_array_default_member_initializer_supported(
+                        member->type, initializer->value, 0u)) {
+                    return false;
+                }
+            } else if (!member->type ||
+                       (!type_is_integer(member->type) &&
+                        member->type->kind != TYPE_ENUM) ||
+                       !initializer->value->type ||
+                       !type_is_integer(initializer->value->type) ||
+                       !expr_eval_integer_constant(
+                           initializer->value, &constant_value)) {
                 return false;
             }
             ++member_initializer_count;
@@ -29282,6 +29326,20 @@ static bool lower_struct_initializer(
             }
             if (member_initializer->is_default_member_initializer) {
                 int64_t constant_value;
+                if (field->type->kind == TYPE_ARRAY) {
+                    if (member_initializer->constructor ||
+                        member_initializer->arguments ||
+                        !member_initializer->value ||
+                        !lower_cxx_integer_array_default_member_initializer_supported(
+                            field->type, member_initializer->value, 0u) ||
+                        !lower_array_initializer(
+                            context, address.value, field->type,
+                            member_initializer->value)) {
+                        context->unsupported = true;
+                        goto constructor_lowering_failure;
+                    }
+                    continue;
+                }
                 if ((!type_is_integer(field->type) &&
                      field->type->kind != TYPE_ENUM) ||
                     member_initializer->constructor ||
