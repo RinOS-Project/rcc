@@ -24428,11 +24428,10 @@ static bool lower_cxx_implicit_default_array_element_supported(
         }
     }
     if (type->kind == TYPE_UNION) {
-        bool has_initializers = false;
         if (cls->base_count != 0 || cls->virtual_base_count != 0 ||
             !lower_union_type_supported(type) ||
             !lower_cxx_implicit_default_member_subobject_supported(
-                type, 0u, &has_initializers)) {
+                type, 0u, NULL)) {
             return false;
         }
         return true;
