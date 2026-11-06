@@ -6101,6 +6101,27 @@ static Decl* cxx_template_integer_call_select_candidate(
     }
 }
 
+static CxxNamespace* cxx_template_find_reachable_namespace(
+    CxxNamespace* scope, const char* qualified_name);
+
+static bool cxx_template_qualified_name_suffix_matches(
+    const char* candidate_name, const char* source_name) {
+    size_t candidate_length;
+    size_t source_length;
+    if (!candidate_name || !source_name) return false;
+    candidate_length = strlen(candidate_name);
+    source_length = strlen(source_name);
+    if (candidate_length < source_length ||
+        memcmp(candidate_name + candidate_length - source_length,
+               source_name, source_length) != 0) {
+        return false;
+    }
+    return candidate_length == source_length ||
+        (candidate_length >= source_length + 2u &&
+         candidate_name[candidate_length - source_length - 1u] == ':' &&
+         candidate_name[candidate_length - source_length - 2u] == ':');
+}
+
 static Decl* cxx_template_integer_call_function(
     const Expr* expression, CxxTemplate* tmpl) {
     const Expr* function_expression;
@@ -6135,6 +6156,16 @@ static Decl* cxx_template_integer_call_function(
             char* namespace_name = cxx_copy_name_span(name, namespace_length);
             call_namespace = cxx_namespace_find(
                 g_global_namespace, namespace_name);
+            if (!call_namespace && !active_ast) {
+                for (CxxNamespace* scope = tmpl && tmpl->ns
+                         ? tmpl->ns : active_namespace;
+                     scope; scope = scope->parent) {
+                    call_namespace =
+                        cxx_template_find_reachable_namespace(
+                            scope, namespace_name);
+                    if (call_namespace) break;
+                }
+            }
             if (cxx_namespace_has_visible_using(call_namespace)) {
                 return NULL;
             }
@@ -6172,12 +6203,18 @@ static Decl* cxx_template_integer_call_function(
         if (!candidates) return NULL;
         for (DeclList* item = declarations; item; item = item->next) {
             Decl* candidate = item->decl;
-            if (!candidate || !candidate->name ||
+            bool name_matches = candidate && candidate->name &&
                 (active_ast
-                     ? strcmp(candidate->name, name) != 0
-                     : !cxx_friend_function_name_matches(
+                     ? strcmp(candidate->name, name) == 0 ||
+                         cxx_template_qualified_name_suffix_matches(
+                             candidate->name, name)
+                     : cxx_friend_function_name_matches(
                            call_namespace, candidate->name,
-                           separator + 1))) {
+                           separator + 1) ||
+                         cxx_template_qualified_name_suffix_matches(
+                             candidate->name, name));
+            if (!candidate || !candidate->name ||
+                !name_matches) {
                 continue;
             }
             if (candidate->kind == DECL_FUNC &&

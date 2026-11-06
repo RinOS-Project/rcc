@@ -24,6 +24,9 @@ enum ReachablePrivateEnum {
 
 namespace reachable_detail {
 constexpr int reachable_private_default_size = 5;
+constexpr int reachable_private_default_size_from_function() {
+    return 6;
+}
 
 struct ReachableScoped {
     int scoped_value;
@@ -76,6 +79,12 @@ struct ReachablePublicDefaultSize {
 
 export template<int N = reachable_detail::reachable_private_default_size>
 struct ReachablePublicQualifiedDefaultSize {
+    int values[N];
+};
+
+export template<
+    int N = reachable_detail::reachable_private_default_size_from_function()>
+struct ReachablePublicQualifiedFunctionDefaultSize {
     int values[N];
 };
 
