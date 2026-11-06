@@ -309,6 +309,8 @@ static bool lower_switch_case(RccIrLowerContext* context,
                               const Stmt* statement);
 static bool lower_wide_switch_body_edge_safe(const Stmt* statement);
 static bool lower_struct_type_supported(const Type* type);
+static const TypeField* lower_struct_declared_field(
+    const Type* type, const CxxClass* owner, const char* name);
 static bool lower_storage_type_supported_internal(
     const Type* type, unsigned depth);
 static bool lower_storage_type_supported_ignoring_volatile_internal(
@@ -2868,6 +2870,166 @@ static bool lower_dynamic_static_class_member_constructor_supported(
     return true;
 }
 
+static bool lower_dynamic_static_default_class_initializer_supported(
+    const Type* type, const Expr* initializer, unsigned depth);
+
+static bool lower_dynamic_static_default_class_initializer_supported(
+    const Type* type, const Expr* initializer, unsigned depth) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    const ExprList* item;
+    ExprList constructor_item;
+    if (type && initializer && type->kind == TYPE_STRUCT && cls) {
+        memset(&constructor_item, 0, sizeof(constructor_item));
+        constructor_item.expr = (Expr*)initializer;
+        if (lower_dynamic_static_class_member_constructor_supported(
+                type, &constructor_item)) {
+            return true;
+        }
+    }
+    if (!type || depth >= 32u || type->kind != TYPE_STRUCT || !cls ||
+        type->is_volatile || type->size <= 0 || type->size > 65536 ||
+        type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (type->align & (type->align - 1)) != 0 ||
+        cls->has_user_constructor || cls->constructors ||
+        cls->vtable_size != 0 || cls->base_count < 0 ||
+        cls->virtual_base_count < 0 ||
+        (cls->base_count != 0 && (!cls->bases || !cls->base_offsets)) ||
+        (cls->virtual_base_count != 0 && !cls->virtual_bases) ||
+        !lower_struct_type_supported(type) || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        !initializer->compound_cxx_default_member_normalized ||
+        !initializer->compound_cxx_default_member_init_only ||
+        initializer->compound_constructor || initializer->compound_paren_init) {
+        return false;
+    }
+
+    item = initializer->compound_init;
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        int offset = cls->base_offsets[index];
+        int extent = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || !base->type || base->virtual_base_count < 0 ||
+            offset < 0 || extent <= 0 || offset > type->size ||
+            extent > type->size - offset) {
+            return false;
+        }
+        if (cls->bases[index].is_virtual) continue;
+        if (!item || item->designator_kind != INIT_DESIGNATOR_NONE ||
+            !lower_dynamic_static_default_class_initializer_supported(
+                base->type, item->expr, depth + 1u)) {
+            return false;
+        }
+        item = item->next;
+    }
+
+    if (initializer->compound_cxx_is_base_subobject) {
+        if (initializer->compound_cxx_virtual_base_initializers) {
+            return false;
+        }
+    } else {
+        const ExprList* virtual_item =
+            initializer->compound_cxx_virtual_base_initializers;
+        for (int index = 0; index < cls->virtual_base_count; ++index) {
+            const CxxClass* base = cls->virtual_bases[index].base;
+            int offset = cls->virtual_bases[index].offset;
+            int extent = base && base->virtual_base_count > 0
+                ? base->nonvirtual_size
+                : base && base->type ? base->type->size : 0;
+            if (!base || !base->type || base->virtual_base_count < 0 ||
+                offset < 0 || extent <= 0 || offset > type->size ||
+                extent > type->size - offset || !virtual_item ||
+                virtual_item->designator_kind != INIT_DESIGNATOR_INDEX ||
+                virtual_item->designator_index != index ||
+                !lower_dynamic_static_default_class_initializer_supported(
+                    base->type, virtual_item->expr, depth + 1u)) {
+                return false;
+            }
+            virtual_item = virtual_item->next;
+        }
+        if (virtual_item) return false;
+    }
+
+    for (const TypeParam* member = cls->fields; member;
+         member = member->next) {
+        const TypeField* field;
+        bool matched = false;
+        if (member->is_static) continue;
+        field = lower_struct_declared_field(type, cls, member->name);
+        if (!field || !field->type || field->offset < 0 ||
+            field->offset > type->size ||
+            field->type->size > type->size - field->offset ||
+            field->type->is_atomic || field->type->is_reference ||
+            field->type->cleanup_function) {
+            return false;
+        }
+        if (item && item->designator_kind == INIT_DESIGNATOR_FIELD &&
+            item->designator_field && member->name &&
+            strcmp(item->designator_field, member->name) == 0) {
+            matched = true;
+        } else if (item && item->designator_kind != INIT_DESIGNATOR_FIELD) {
+            return false;
+        }
+        if (!matched) {
+            if (member->initializer) return false;
+            continue;
+        }
+        if (!item->expr || item->cxx_temporary_owner ||
+            item->cxx_temporary_cleanups) {
+            return false;
+        }
+        if (field->type->cxx_class) {
+            const Expr* member_initializer = item->expr;
+            if (!(member_initializer->kind == EXPR_COMPOUND &&
+                  member_initializer->compound_cxx_default_member_normalized &&
+                  member_initializer->compound_cxx_default_member_init_only
+                      ? lower_dynamic_static_default_class_initializer_supported(
+                            field->type, member_initializer, depth + 1u)
+                      : lower_dynamic_static_class_member_initializer_supported(
+                            field->type, item, depth + 1u))) {
+                return false;
+            }
+        } else if (field->type->kind == TYPE_ARRAY) {
+            if (!lower_dynamic_static_array_member_initializer_supported(
+                    field->type, item, depth + 1u)) {
+                return false;
+            }
+        } else if (!(type_is_integer((Type*)field->type) ||
+                     field->type->kind == TYPE_ENUM ||
+                     type_is_floating((Type*)field->type) ||
+                     (field->type->kind == TYPE_PTR &&
+                      !field->type->cxx_is_member_pointer))) {
+            return false;
+        }
+        item = item->next;
+    }
+    return item == NULL;
+}
+
+static bool lower_dynamic_static_class_default_initializer_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    const Expr* initializer = declaration ? declaration->var_init : NULL;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        (!declaration->var_is_thread_local &&
+         !declaration->var_is_static_local) ||
+        !declaration->var_dynamic_initializer ||
+        !declaration->var_reference_temporary_guard ||
+        declaration->storage != STORAGE_STATIC || !type ||
+        type->kind != TYPE_STRUCT || !type->cxx_class ||
+        (type->cxx_class->base_count == 0 &&
+         type->cxx_class->virtual_base_count == 0) ||
+        !lower_dynamic_static_default_class_initializer_supported(
+            type, initializer, 0u) ||
+        (declaration->var_cleanups &&
+         !lower_cxx_destructor_cleanup_hook_supported(type))) {
+        return false;
+    }
+    return true;
+}
+
 static bool lower_dynamic_static_class_member_initializer_supported(
     const Type* type, const ExprList* aggregate_item, unsigned depth) {
     const Expr* initializer = aggregate_item
@@ -2884,6 +3046,12 @@ static bool lower_dynamic_static_class_member_initializer_supported(
     if (lower_dynamic_static_class_member_constructor_supported(
             type, aggregate_item)) {
         return true;
+    }
+    if (default_member_initialization && type && type->cxx_class &&
+        (type->cxx_class->base_count != 0 ||
+         type->cxx_class->virtual_base_count != 0)) {
+        return lower_dynamic_static_default_class_initializer_supported(
+            type, initializer, depth);
     }
     if (!type || depth >= 32u || type->kind != TYPE_STRUCT ||
         !type->cxx_class ||
@@ -3103,8 +3271,9 @@ static bool lower_dynamic_static_class_array_initializer_supported(
         !element_type || element_type->kind != TYPE_STRUCT ||
         !element_type->cxx_class ||
         (!element_type->cxx_class->has_user_constructor &&
-         !element_type->cxx_class->has_field_initializer) ||
-        element_type->cxx_class->virtual_base_count != 0 ||
+         !element_type->cxx_class->has_field_initializer &&
+         element_type->cxx_class->base_count == 0 &&
+         element_type->cxx_class->virtual_base_count == 0) ||
         element_type->cxx_class->vtable_size != 0 ||
         !lower_struct_type_supported(element_type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
@@ -3168,6 +3337,10 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
         return true;
     }
     if (lower_dynamic_static_class_constructor_initializer_supported(
+            declaration)) {
+        return true;
+    }
+    if (lower_dynamic_static_class_default_initializer_supported(
             declaration)) {
         return true;
     }
@@ -11243,6 +11416,11 @@ static bool lower_cleanup_initializer_supported(const Expr* initializer) {
          item = item->next) {
         if (!lower_cleanup_initializer_supported(item->expr)) return false;
     }
+    for (const ExprList* item =
+             initializer->compound_cxx_virtual_base_initializers;
+         item; item = item->next) {
+        if (!lower_cleanup_initializer_supported(item->expr)) return false;
+    }
     return true;
 }
 
@@ -11260,6 +11438,11 @@ static bool lower_cleanup_initializer_may_throw(const Expr* initializer) {
         if (!declaration || !declaration->func_is_noexcept) return true;
     }
     for (const ExprList* item = initializer->compound_init;
+         item; item = item->next) {
+        if (lower_cleanup_initializer_may_throw(item->expr)) return true;
+    }
+    for (const ExprList* item =
+             initializer->compound_cxx_virtual_base_initializers;
          item; item = item->next) {
         if (lower_cleanup_initializer_may_throw(item->expr)) return true;
     }
@@ -31260,6 +31443,7 @@ static bool lower_dynamic_static_aggregate_initializer(
     bool track_partial_members;
     bool constructor_initializer;
     bool class_array_initializer;
+    bool default_class_initializer;
     if (!context ||
         !lower_dynamic_static_aggregate_initializer_supported(declaration)) {
         if (context) context->unsupported = true;
@@ -31270,6 +31454,8 @@ static bool lower_dynamic_static_aggregate_initializer(
             declaration);
     class_array_initializer =
         lower_dynamic_static_class_array_initializer_supported(declaration);
+    default_class_initializer =
+        lower_dynamic_static_class_default_initializer_supported(declaration);
     guard = declaration->var_reference_temporary_guard;
     symbol = lower_append(
         context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
@@ -31302,7 +31488,8 @@ static bool lower_dynamic_static_aggregate_initializer(
     track_partial_members = declaration->var_init &&
         !constructor_initializer &&
         declaration->var_cleanups != NULL &&
-        lower_cleanup_initializer_may_throw(declaration->var_init);
+        (default_class_initializer ||
+         lower_cleanup_initializer_may_throw(declaration->var_init));
     symbol = lower_append(
         context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
         NULL, 0u, NULL, 0u);
@@ -31335,6 +31522,27 @@ static bool lower_dynamic_static_aggregate_initializer(
         initialized = lower_array_initializer(
             context, object.value, declaration->type,
             declaration->var_init);
+        context->partial_construction_owner = previous_partial_owner;
+        context->partial_construction_cleanup_declaration =
+            previous_partial_cleanup_declaration;
+        if (!initialized) return false;
+        field = NULL;
+        has_field_designators = false;
+    } else if (default_class_initializer) {
+        const Decl* previous_partial_owner =
+            context->partial_construction_owner;
+        const Decl* previous_partial_cleanup_declaration =
+            context->partial_construction_cleanup_declaration;
+        bool initialized;
+        if (track_partial_members) {
+            context->partial_construction_owner = declaration;
+            context->partial_construction_cleanup_declaration = declaration;
+        }
+        initialized = lower_initialize_struct_storage(
+                context, object.value, declaration->type,
+                declaration->var_init) &&
+            lower_cxx_initialize_object_vtables(
+                context, object.value, declaration->type);
         context->partial_construction_owner = previous_partial_owner;
         context->partial_construction_cleanup_declaration =
             previous_partial_cleanup_declaration;
@@ -31472,11 +31680,19 @@ static bool lower_dynamic_static_aggregate_initializer(
     }
     if (context->unsupported) return false;
     if (track_partial_members) {
-        bool unregistered = class_array_initializer
-            ? lower_unregister_partial_array_cleanups_in_object(
-                  context, declaration->type, object, 0u)
-            : lower_unregister_partial_member_cleanups(
-                  context, declaration, declaration, object);
+        bool unregistered;
+        if (class_array_initializer) {
+            unregistered = lower_unregister_partial_array_cleanups_in_object(
+                context, declaration->type, object, 0u);
+        } else if (default_class_initializer) {
+            unregistered = lower_unregister_partial_member_cleanups(
+                    context, declaration, declaration, object) &&
+                lower_unregister_partial_base_cleanups(
+                    context, declaration, declaration, declaration->type);
+        } else {
+            unregistered = lower_unregister_partial_member_cleanups(
+                context, declaration, declaration, object);
+        }
         if (!unregistered) return false;
     }
 
