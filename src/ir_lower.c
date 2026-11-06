@@ -25186,7 +25186,8 @@ static bool lower_cxx_union_default_member_initializer_supported(
     }
     if (!field || !field->type || field->is_bitfield || field->offset != 0 ||
         !type_is_scalar((Type*)field->type) || field->type->is_reference ||
-        field->type->is_atomic || field->type->cxx_is_member_pointer ||
+        field->type->is_atomic ||
+        type_is_cxx_member_function_pointer(field->type) ||
         !item->expr) {
         return false;
     }
@@ -25194,7 +25195,7 @@ static bool lower_cxx_union_default_member_initializer_supported(
          alternative = alternative->next) {
         if (!alternative->type ||
             !type_is_scalar((Type*)alternative->type) ||
-            alternative->type->cxx_is_member_pointer) {
+            type_is_cxx_member_function_pointer(alternative->type)) {
             return false;
         }
     }
@@ -27702,7 +27703,7 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
     const TypeField* field;
     if (!type || depth >= 32u || type->size <= 0 || type->is_reference ||
         type->is_volatile || type->is_atomic ||
-        type->cxx_is_member_pointer ||
+        type_is_cxx_member_function_pointer(type) ||
         !lower_storage_type_supported_internal(type, depth)) {
         return false;
     }
@@ -27795,7 +27796,7 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
             if (!field->type || field->is_bitfield ||
                 !type_is_scalar((Type*)field->type) ||
                 field->type->is_reference || field->type->is_atomic ||
-                field->type->cxx_is_member_pointer) {
+                type_is_cxx_member_function_pointer(field->type)) {
                 return false;
             }
             if (!field->initializer) continue;
@@ -27959,7 +27960,7 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
             if (!field->type || field->is_bitfield || field->offset != 0 ||
                 !type_is_scalar((Type*)field->type) ||
                 field->type->is_reference || field->type->is_atomic ||
-                field->type->cxx_is_member_pointer) {
+                type_is_cxx_member_function_pointer(field->type)) {
                 context->unsupported = true;
                 return false;
             }
