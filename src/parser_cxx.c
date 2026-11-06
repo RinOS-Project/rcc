@@ -13053,7 +13053,8 @@ static bool cxx_class_declares_conversion_target(CxxClass* cls,
 }
 
 static bool class_uses_base_conversion_target(CxxClass* cls, CxxClass* base,
-                                              Type* conversion_type) {
+                                              Type* conversion_type,
+                                              AccessSpec* using_access) {
     if (!cls || !base || !conversion_type) return false;
     for (int index = 0; index < cls->using_base_member_count; ++index) {
         const char* base_name = cls->using_base_members[index].base_name;
@@ -13065,11 +13066,21 @@ static bool class_uses_base_conversion_target(CxxClass* cls, CxxClass* base,
             !type_is_same_template_argument(declared_type, conversion_type)) {
             continue;
         }
-        if (strcmp(base_name, base->name) == 0) return true;
+        if (strcmp(base_name, base->name) == 0) {
+            if (using_access) {
+                *using_access = cls->using_base_members[index].access;
+            }
+            return true;
+        }
         suffix = strstr(base_name, "::");
         while (suffix) {
             suffix += 2;
-            if (strcmp(suffix, base->name) == 0) return true;
+            if (strcmp(suffix, base->name) == 0) {
+                if (using_access) {
+                    *using_access = cls->using_base_members[index].access;
+                }
+                return true;
+            }
             suffix = strstr(suffix, "::");
         }
     }
@@ -13218,8 +13229,13 @@ static void register_inherited_class_methods(CxxClass* cls,
         }
         for (method = base->type->methods; method; method = method->next) {
             TypeMethod* inherited;
+            AccessSpec conversion_using_access = ACCESS_PUBLIC;
             bool is_conversion = method->name &&
                 strcmp(method->name, "operator conversion") == 0;
+            bool conversion_selected_by_using = is_conversion &&
+                class_uses_base_conversion_target(
+                    cls, base, method->return_type,
+                    &conversion_using_access);
             if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
                 !method->function_decl ||
                 (class_has_method_declaration(cls, method->function_decl) &&
@@ -13228,8 +13244,7 @@ static void register_inherited_class_methods(CxxClass* cls,
                 (is_conversion
                      ? (cxx_class_declares_conversion_target(
                             cls, method->return_type) &&
-                        !class_uses_base_conversion_target(
-                            cls, base, method->return_type))
+                        !conversion_selected_by_using)
                      : ((class_declares_method_name(cls, method->name) ||
                          class_has_using_base_member_name(cls,
                                                           method->name)) &&
@@ -13239,7 +13254,10 @@ static void register_inherited_class_methods(CxxClass* cls,
             }
             inherited = ast_arena_alloc(sizeof(*inherited));
             *inherited = *method;
-            if (cls->bases[base_index].access == ACCESS_PROTECTED &&
+            if (conversion_selected_by_using) {
+                inherited->cxx_access = conversion_using_access;
+                inherited->cxx_access_owner = cls;
+            } else if (cls->bases[base_index].access == ACCESS_PROTECTED &&
                 inherited->cxx_access == ACCESS_PUBLIC) {
                 inherited->cxx_access = ACCESS_PROTECTED;
                 inherited->cxx_access_owner = cls;

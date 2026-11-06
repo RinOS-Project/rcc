@@ -1025,6 +1025,8 @@ static bool sema_type_is_variably_modified(Type* type);
 static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
                                                bool is_parameter);
 static void sema_validate_restrict_type(Type* type, SourceLoc loc);
+static bool sema_cxx_method_owner_selected_by_using(
+    CxxClass* cls, const char* name, CxxClass* owner);
 
 static bool sema_cxx_public_base(Type* derived, Type* target,
                                   int* adjustment, int depth) {
@@ -4102,6 +4104,9 @@ static int sema_cxx_conversion_object_qualification_rank(
     if (source_type->cxx_class != this_type->cxx_class) {
         Type source_class_type = *source_type;
         Type this_class_type = *this_type;
+        CxxClass* source_class = source_type->cxx_class;
+        CxxClass* owner_class = method->this_owner
+            ? method->this_owner->cxx_class : NULL;
         source_class_type.is_const = false;
         source_class_type.is_volatile = false;
         source_class_type.is_reference = false;
@@ -4112,7 +4117,23 @@ static int sema_cxx_conversion_object_qualification_rank(
         this_class_type.is_rvalue_reference = false;
         if (!sema_cxx_unique_public_base(&source_class_type,
                                         &this_class_type, NULL)) {
-            return -1;
+            int base_subobject_paths =
+                sema_cxx_nonvirtual_all_base_paths(
+                    &source_class_type, &this_class_type, 0u) +
+                sema_cxx_all_virtual_member_base_paths(
+                    &source_class_type, &this_class_type);
+            bool exposed_by_public_using =
+                method->cxx_access == ACCESS_PUBLIC &&
+                method->cxx_access_owner == source_class && owner_class &&
+                method->name &&
+                sema_cxx_method_owner_selected_by_using(
+                    source_class, method->name, owner_class);
+            /* A public using-declaration can restore a conversion inherited
+             * through a private or protected base. Only admit that path when
+             * the selected member has one unambiguous base subobject. */
+            if (!exposed_by_public_using || base_subobject_paths != 1) {
+                return -1;
+            }
         }
         if (inherited_from_base) *inherited_from_base = true;
         /* A conversion function inherited from a base still has an implicit
