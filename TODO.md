@@ -14081,6 +14081,10 @@ remains a separate open item.
         Verify ordinary, constrained, and inherited `operator=` viability with
         GCC C++20 and RCC i686/AMD64 `__is_assignable` checks in
         `test-atomic-private-access`.
+  - [x] Verify inherited lvalue- and rvalue-ref-qualified `operator=` viability
+        against the assignment expression's object value category. GCC C++20
+        syntax checks and RCC i686/AMD64 compilation pass in
+        `cxx_atomic_private_access_traits.cpp`.
 
 ## RCC continuation (2026-11-03, inherited overloaded-operator using-declarations)
 

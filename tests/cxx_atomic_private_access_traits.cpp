@@ -275,6 +275,36 @@ static_assert(!ATOMIC_IS_ASSIGNABLE(
                   AtomicInheritedConstrainedTemplateAssignment&, double),
               "an unsatisfied inherited assignment constraint is rejected");
 
+struct AtomicLvalueAssignmentToken {};
+struct AtomicRvalueAssignmentToken {};
+
+struct AtomicRefQualifiedAssignmentBase {
+    int& operator=(AtomicLvalueAssignmentToken) &;
+    long& operator=(AtomicRvalueAssignmentToken) &&;
+};
+
+struct AtomicRefQualifiedAssignmentDerived
+    : AtomicRefQualifiedAssignmentBase {
+    using AtomicRefQualifiedAssignmentBase::operator=;
+};
+
+static_assert(ATOMIC_IS_ASSIGNABLE(
+                  AtomicRefQualifiedAssignmentDerived&,
+                  AtomicLvalueAssignmentToken),
+              "an inherited lvalue-qualified assignment accepts lvalue objects");
+static_assert(!ATOMIC_IS_ASSIGNABLE(
+                  AtomicRefQualifiedAssignmentDerived&&,
+                  AtomicLvalueAssignmentToken),
+              "an inherited lvalue-qualified assignment rejects rvalue objects");
+static_assert(!ATOMIC_IS_ASSIGNABLE(
+                  AtomicRefQualifiedAssignmentDerived&,
+                  AtomicRvalueAssignmentToken),
+              "an inherited rvalue-qualified assignment rejects lvalue objects");
+static_assert(ATOMIC_IS_ASSIGNABLE(
+                  AtomicRefQualifiedAssignmentDerived&&,
+                  AtomicRvalueAssignmentToken),
+              "an inherited rvalue-qualified assignment accepts rvalue objects");
+
 #ifndef __RCC__
 static_assert(sizeof(std::atomic<AtomicFriendSubobjectOwner>) > 0,
               "std::atomic accepts an Owner that is a friend");
