@@ -1,5 +1,15 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-11-06, CWG 2815 function-reference ranking)
+
+- [x] Treat binding a `noexcept` function expression to a reference to an
+  otherwise-identical potentially-throwing function as a function-pointer
+  conversion, and keep that sequence indistinguishable from the competing
+  `noexcept` function-pointer parameter during overload ranking. Add the
+  ambiguous overload regression; GCC C++20 and RCC i686/AMD64 diagnostics,
+  including absent-object checks, pass in
+  `test-cxx-conversion-reference-ranking-ambiguous`.
+
 ## RCC continuation (2026-11-05, Windows atomic test gate)
 
 - [x] Keep the Linux futex host-runtime checks in `test-atomic-wait` on

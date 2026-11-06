@@ -14919,6 +14919,14 @@ static int cxx_conversion_rank_detail_at_context(
                     return 0;
                 }
             }
+            if (source->kind == TYPE_FUNC &&
+                target_base->kind == TYPE_FUNC) {
+                /* A function reference cannot treat removal of noexcept as
+                 * identity. Apply the function-pointer conversion rules to
+                 * the referred-to function type (CWG 2815). */
+                return sema_cxx_function_type_conversion_rank(
+                    source, target_base);
+            }
             if (rcc_parser_is_cxx_mode() &&
                 (source->kind == TYPE_STRUCT ||
                  source->kind == TYPE_UNION) &&
@@ -15697,6 +15705,46 @@ static bool cxx_array_reference_and_decay_tie(
                                    pointer_target->base, false);
 }
 
+/* CWG 2815 makes binding a noexcept function expression to a reference to an
+ * otherwise-identical potentially-throwing function a function-pointer
+ * conversion, rather than an identity conversion. When the competing
+ * parameter is a function pointer, the lvalue transformations and exception
+ * specification adjustment leave these sequences indistinguishable. */
+static bool cxx_noexcept_function_pointer_reference_tie(
+    Expr* argument, Type* left_target, Type* right_target) {
+    Type* source = argument ? argument->type : NULL;
+    Type* reference_function = NULL;
+    Type* pointer_function = NULL;
+    Type* targets[2] = { left_target, right_target };
+    if (source && source->kind == TYPE_PTR && source->is_reference) {
+        source = source->base;
+    }
+    if (!source || source->kind != TYPE_FUNC ||
+        !source->function_is_noexcept) {
+        return false;
+    }
+    for (int index = 0; index < 2; ++index) {
+        Type* target = targets[index];
+        if (!target || target->kind != TYPE_PTR || !target->base ||
+            target->base->kind != TYPE_FUNC) {
+            return false;
+        }
+        if (target->is_reference) {
+            if (reference_function) return false;
+            reference_function = target->base;
+        } else {
+            if (pointer_function) return false;
+            pointer_function = target->base;
+        }
+    }
+    return reference_function && pointer_function &&
+           !reference_function->function_is_noexcept &&
+           sema_cxx_function_type_conversion_rank(
+               source, reference_function) >= 0 &&
+           sema_cxx_function_type_conversion_rank(
+               source, pointer_function) >= 0;
+}
+
 static Type* cxx_braced_array_reference_target(Type* target) {
     if (target && target->kind == TYPE_PTR && target->is_reference) {
         target = target->base;
@@ -15767,6 +15815,10 @@ static int cxx_conversion_vector_relation(
                 argument->expr,
                 left_targets ? left_targets[index] : NULL,
                 right_targets ? right_targets[index] : NULL);
+        bool noexcept_function_pointer_reference_tie =
+            index >= argument_offset && argument && left_targets &&
+            right_targets && cxx_noexcept_function_pointer_reference_tie(
+                argument->expr, left_targets[index], right_targets[index]);
         bool initializer_list_sequence_comparison = false;
         bool array_list_sequence_comparison = false;
         if (index >= argument_offset && argument &&
@@ -15813,6 +15865,7 @@ static int cxx_conversion_vector_relation(
             /* Distinct user-defined conversion functions are not ordered by
              * the ranks of their trailing standard conversions. */
         } else if (!array_reference_decay_tie &&
+                   !noexcept_function_pointer_reference_tie &&
                    !initializer_list_sequence_comparison &&
                    !array_list_sequence_comparison) {
             if (left[index] < right[index]) left_better = true;
