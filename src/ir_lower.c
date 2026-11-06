@@ -376,6 +376,8 @@ static bool lower_cleanup_initializer_may_throw(const Expr* initializer);
 static bool lower_cleanup_constructor_call_supported(
     const Expr* initializer);
 static bool lower_noexcept_expression(const Expr* expression);
+static bool lower_cleanup_scalar_call_initializer_supported(
+    const Expr* initializer);
 static bool lower_cxx_implicit_default_array_element_supported(
     const Type* type);
 static bool lower_dynamic_static_default_initializer_supported(
@@ -3040,6 +3042,10 @@ static bool lower_dynamic_static_default_class_initializer_supported(
                      type_is_floating((Type*)field->type) ||
                      (field->type->kind == TYPE_PTR &&
                       !field->type->cxx_is_member_pointer))) {
+            return false;
+        } else if (!lower_cleanup_initializer_supported(item->expr) &&
+                   !lower_cleanup_scalar_call_initializer_supported(
+                       item->expr)) {
             return false;
         }
         item = item->next;
@@ -11468,6 +11474,34 @@ static bool lower_cleanup_call_initializer_supported(
     }
     return lower_abi_return_layout(call->type, &return_type) !=
         LOWER_ABI_RETURN_UNSUPPORTED;
+}
+
+/* A scalar DMI may call a potentially throwing direct function after all
+ * earlier base/member cleanups have been registered. Keep its arguments
+ * non-throwing and free of temporary cleanup work so the caller can unwind
+ * the partially constructed owner without an untracked argument lifetime. */
+static bool lower_cleanup_scalar_call_initializer_supported(
+    const Expr* initializer) {
+    const ExprList* argument;
+    if (!initializer || initializer->kind != EXPR_CALL ||
+        initializer->call_is_new || initializer->call_is_delete ||
+        !initializer->type || !type_is_scalar(initializer->type) ||
+        !initializer->call_func ||
+        initializer->call_func->kind != EXPR_IDENT ||
+        !initializer->call_func->ident_decl ||
+        initializer->call_func->ident_decl->kind != DECL_FUNC ||
+        lower_noexcept_expression(initializer)) {
+        return false;
+    }
+    for (argument = initializer->call_args; argument;
+         argument = argument->next) {
+        if (!argument->expr || argument->cxx_temporary_owner ||
+            argument->cxx_temporary_cleanups ||
+            !lower_noexcept_expression(argument->expr)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool lower_cleanup_initializer_supported(const Expr* initializer) {

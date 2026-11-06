@@ -17021,6 +17021,9 @@ static bool sema_cxx_default_member_constant(Type* field_type,
     return sema_constexpr_scalar_convert(&value, field_type, &value);
 }
 
+static bool sema_cxx_throwing_scalar_default_member_initializer_supported(
+    Type* field_type, Expr* initializer);
+
 static bool sema_cxx_default_member_initializer_supported(
     Type* field_type, Expr* initializer) {
     CxxConstructorInfo* constructor;
@@ -17030,6 +17033,10 @@ static bool sema_cxx_default_member_initializer_supported(
     ExprList* argument;
     unsigned parameter_count = 0u;
     if (sema_cxx_default_member_constant(field_type, initializer)) {
+        return true;
+    }
+    if (sema_cxx_throwing_scalar_default_member_initializer_supported(
+            field_type, initializer)) {
         return true;
     }
     if (!field_type || field_type->kind != TYPE_STRUCT || !initializer ||
@@ -17073,6 +17080,35 @@ static bool sema_cxx_default_member_initializer_supported(
         argument = argument->next;
     }
     return parameter_count == (unsigned)constructor->parameter_count;
+}
+
+/* Potentially throwing scalar DMIs are safe for the bounded initializer
+ * lowering when the throwing operation is one direct scalar call.  The
+ * lowerer registers completed base/member cleanup before evaluating it, so
+ * keep argument evaluation non-throwing and without temporary owners. */
+static bool sema_cxx_throwing_scalar_default_member_initializer_supported(
+    Type* field_type, Expr* initializer) {
+    if (!field_type || !type_is_scalar(field_type) || !initializer ||
+        !sema_expr(initializer) || !initializer->type ||
+        !type_is_scalar(initializer->type) ||
+        cxx_conversion_rank(initializer, field_type) < 0 ||
+        initializer->kind != EXPR_CALL || initializer->call_is_new ||
+        initializer->call_is_delete || !initializer->call_func ||
+        initializer->call_func->kind != EXPR_IDENT ||
+        !initializer->call_func->ident_decl ||
+        initializer->call_func->ident_decl->kind != DECL_FUNC ||
+        sema_noexcept_expr(initializer)) {
+        return false;
+    }
+    for (ExprList* argument = initializer->call_args; argument;
+         argument = argument->next) {
+        if (!argument->expr || argument->cxx_temporary_owner ||
+            argument->cxx_temporary_cleanups ||
+            !sema_noexcept_expr(argument->expr)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool sema_cxx_type_has_default_member_initializers(
