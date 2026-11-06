@@ -17046,6 +17046,8 @@ static bool sema_cxx_default_member_constant(Type* field_type,
 
 static bool sema_cxx_throwing_scalar_default_member_initializer_supported(
     Type* field_type, Expr* initializer);
+static bool sema_cxx_union_default_member_initializer_supported(
+    Type* union_type, Expr* initializer);
 static bool sema_cxx_array_default_member_initializer_supported(
     Type* array_type, Expr* initializer, unsigned depth);
 
@@ -17066,6 +17068,10 @@ static bool sema_cxx_default_member_initializer_supported(
     }
     if (sema_cxx_array_default_member_initializer_supported(
             field_type, initializer, 0u)) {
+        return true;
+    }
+    if (sema_cxx_union_default_member_initializer_supported(
+            field_type, initializer)) {
         return true;
     }
     if (!field_type || field_type->kind != TYPE_STRUCT || !initializer ||
@@ -17143,6 +17149,54 @@ static bool sema_cxx_throwing_scalar_default_member_initializer_supported(
     return true;
 }
 
+static bool sema_cxx_union_default_member_initializer_supported(
+    Type* union_type, Expr* initializer) {
+    TypeField* field;
+    ExprList* item;
+    if (!union_type || union_type->kind != TYPE_UNION ||
+        union_type->size <= 0 || !union_type->fields || !initializer ||
+        initializer->kind != EXPR_COMPOUND || initializer->compound_constructor ||
+        !initializer->type ||
+        !type_is_compatible(union_type, initializer->type) ||
+        !sema_expr(initializer) || !(item = initializer->compound_init) ||
+        item->next || item->designator_kind == INIT_DESIGNATOR_INDEX ||
+        (item->designator_kind != INIT_DESIGNATOR_NONE &&
+         item->designator_kind != INIT_DESIGNATOR_FIELD)) {
+        return false;
+    }
+    field = union_type->fields;
+    if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+        field = NULL;
+        for (TypeField* candidate = union_type->fields;
+             candidate; candidate = candidate->next) {
+            if (candidate->name && item->designator_field &&
+                strcmp(candidate->name, item->designator_field) == 0) {
+                field = candidate;
+                break;
+            }
+        }
+    }
+    if (!field || field->offset != 0 || !field->type ||
+        !type_is_scalar(field->type) || field->type->is_reference ||
+        field->type->is_atomic ||
+        type_is_cxx_member_function_pointer(field->type) || !item->expr ||
+        !sema_expr(item->expr) || !item->expr->type ||
+        cxx_conversion_rank(item->expr, field->type) < 0 ||
+        (!sema_noexcept_expr(item->expr) &&
+         !sema_cxx_throwing_scalar_default_member_initializer_supported(
+             field->type, item->expr))) {
+        return false;
+    }
+    for (TypeField* alternative = union_type->fields;
+         alternative; alternative = alternative->next) {
+        if (!alternative->type || !type_is_scalar(alternative->type) ||
+            type_is_cxx_member_function_pointer(alternative->type)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool sema_cxx_array_default_member_initializer_supported(
     Type* array_type, Expr* initializer, unsigned depth) {
     int64_t count = 0;
@@ -17187,6 +17241,10 @@ static bool sema_cxx_array_default_member_initializer_supported(
             }
         } else if (element_type->kind == TYPE_STRUCT &&
                    sema_cxx_default_member_initializer_supported(
+                       element_type, item->expr)) {
+            requires_explicit_elements = true;
+        } else if (element_type->kind == TYPE_UNION &&
+                   sema_cxx_union_default_member_initializer_supported(
                        element_type, item->expr)) {
             requires_explicit_elements = true;
         } else {
