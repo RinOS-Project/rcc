@@ -25397,10 +25397,13 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
     for (const TypeParam* member = cls->fields; member; member = member->next) {
         const CxxConstructorInitializer* initializer = NULL;
         const TypeField* field;
+        const Type* element_type =
+            lower_cxx_class_array_element(member ? member->type : NULL);
         RccIrLowerValue address;
         if (member->is_static || !member->name || !member->type ||
-            member->type->kind != TYPE_STRUCT ||
-            !member->type->cxx_nontrivial) {
+            (!element_type &&
+             (member->type->kind != TYPE_STRUCT ||
+              !member->type->cxx_nontrivial))) {
             continue;
         }
         for (const CxxConstructorInitializer* candidate =
@@ -25412,7 +25415,9 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
                 break;
             }
         }
-        if (!initializer || !initializer->constructor) continue;
+        if (!initializer || (!element_type && !initializer->constructor)) {
+            continue;
+        }
         field = lower_struct_declared_field(
             cls->type, cls, member->name);
         address = field
@@ -25420,8 +25425,11 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
                   context, object, (uint64_t)field->offset)
             : lower_invalid_value();
         if (!field || !address.valid ||
-            !lower_cxx_delete_subobject_cleanup_change(
-                context, field->type, address, false, 0u)) {
+            (element_type
+                 ? !lower_unregister_partial_array_cleanups_in_object(
+                       context, field->type, address, 0u)
+                 : !lower_cxx_delete_subobject_cleanup_change(
+                       context, field->type, address, false, 0u))) {
             context->unsupported = true;
             return false;
         }
