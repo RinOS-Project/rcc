@@ -29825,6 +29825,29 @@ static bool lower_struct_initializer(
             context->unsupported = true;
             return false;
         }
+        if (cls->virtual_base_count < 0 ||
+            (cls->virtual_base_count != 0 && !cls->virtual_bases)) {
+            context->unsupported = true;
+            return false;
+        }
+        for (int index = 0; index < cls->virtual_base_count; ++index) {
+            const CxxVirtualBaseInfo* virtual_base =
+                &cls->virtual_bases[index];
+            const CxxClass* virtual_type = virtual_base->base;
+            int offset = virtual_base->offset;
+            if (!virtual_type || !virtual_type->type ||
+                virtual_type->type->size <= 0 || offset < 0 ||
+                offset > type->size ||
+                virtual_type->type->size > type->size - offset ||
+                !lower_cxx_implicit_default_subobject_supported(
+                    virtual_type->type, 0u) ||
+                !rcc_sema_cxx_trivial(virtual_type->type) ||
+                !rcc_sema_cxx_trivially_destructible(
+                    virtual_type->type)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
         if (!has_explicit_base_initializers) {
             if (!cls->has_field_initializer ||
                 initializer->compound_constructor) {

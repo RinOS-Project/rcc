@@ -39118,7 +39118,10 @@ static Expr* sema_cxx_default_initialization_expression(
      * constructor, DMI, or cleanup work; those subobjects need no stores. */
     for (int index = 0; index < cls->virtual_base_count; ++index) {
         CxxClass* base = cls->virtual_bases[index].base;
-        if (!base || !base->type ||
+        int offset = cls->virtual_bases[index].offset;
+        if (!base || !base->type || base->type->size <= 0 || offset < 0 ||
+            offset > type->size ||
+            base->type->size > type->size - offset ||
             sema_cxx_default_initialization_needs_lowering(
                 base->type, depth + 1) ||
             !rcc_sema_cxx_trivial(base->type) ||
