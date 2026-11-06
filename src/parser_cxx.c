@@ -9061,6 +9061,31 @@ static bool cxx_implicit_default_subobject_supported(Type* type,
             cxx_implicit_default_subobject_supported(
                 type->base, depth + 1u);
     }
+    if (type->kind == TYPE_UNION && type->is_complete &&
+        (cls = type->cxx_class) && !cls->has_user_constructor &&
+        !cls->constructors && !cls->has_field_initializer &&
+        cls->base_count == 0 && cls->virtual_base_count == 0 &&
+        cls->vtable_size == 0 && !type->cleanup_function &&
+        !type->cleanup_field) {
+        if (cls->destructor_method) {
+            Decl* destructor = cls->destructor_method->decl;
+            if (!destructor || !destructor->func_body ||
+                !destructor->func_is_cxx_destructor ||
+                !destructor->func_is_noexcept ||
+                !destructor->func_this_param || destructor->func_params) {
+                return false;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (!field->is_static &&
+                (!field->type || field->initializer || field->is_bitfield ||
+                 field->type->is_const || field->type->is_reference ||
+                 field->type->is_atomic || !type_is_scalar(field->type))) {
+                return false;
+            }
+        }
+        return true;
+    }
     if (!type->is_complete || type->kind != TYPE_STRUCT ||
         !(cls = type->cxx_class) ||
         cls->has_user_constructor || cls->has_field_initializer ||

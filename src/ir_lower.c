@@ -10296,6 +10296,31 @@ static bool lower_cxx_implicit_default_subobject_supported(
             lower_cxx_implicit_default_subobject_supported(
                 type->base, depth + 1u);
     }
+    if (type->kind == TYPE_UNION && type->is_complete &&
+        (cls = type->cxx_class) && !cls->has_user_constructor &&
+        !cls->constructors && !cls->has_field_initializer &&
+        cls->base_count == 0 && cls->virtual_base_count == 0 &&
+        cls->vtable_size == 0 && !type->cleanup_function &&
+        !type->cleanup_field && lower_union_type_supported(type)) {
+        if (cls->destructor_method) {
+            const Decl* destructor = cls->destructor_method->decl;
+            if (!destructor || !destructor->func_body ||
+                !destructor->func_is_cxx_destructor ||
+                !destructor->func_is_noexcept ||
+                !destructor->func_this_param || destructor->func_params) {
+                return false;
+            }
+        }
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            if (!field->type || field->initializer || field->is_bitfield ||
+                field->type->is_const || field->type->is_reference ||
+                field->type->is_atomic || !type_is_scalar(field->type)) {
+                return false;
+            }
+        }
+        return true;
+    }
     if (!type->is_complete || type->kind != TYPE_STRUCT ||
         !(cls = type->cxx_class) ||
         cls->has_user_constructor || cls->has_field_initializer ||
@@ -24402,7 +24427,7 @@ static bool lower_cxx_implicit_default_array_element_supported(
     }
     if (type->kind == TYPE_UNION) {
         if (cls->base_count != 0 || cls->virtual_base_count != 0 ||
-            !cls->destructor_method || !lower_union_type_supported(type)) {
+            !lower_union_type_supported(type)) {
             return false;
         }
         for (const TypeField* field = type->fields; field;
@@ -25788,6 +25813,15 @@ static bool lower_cxx_initialize_constructor_members(
         }
         value_initialize = lower_cxx_constructor_initializer_value_initializes(
             initializer, field->type);
+        if (field->type->kind == TYPE_UNION &&
+            !initializer->constructor &&
+            !initializer->is_default_member_initializer &&
+            !initializer->value && !initializer->arguments &&
+            !value_initialize &&
+            lower_cxx_implicit_default_subobject_supported(
+                field->type, 0u)) {
+            continue;
+        }
         if ((field->type->kind == TYPE_STRUCT ||
              field->type->kind == TYPE_UNION) &&
             !value_initialize && !initializer->constructor) {
@@ -26065,6 +26099,20 @@ static bool lower_cxx_initialize_constructor_members(
         }
         value_initialize = lower_cxx_constructor_initializer_value_initializes(
             initializer, field->type);
+        if (field->type->kind == TYPE_UNION &&
+            !initializer->constructor &&
+            !initializer->is_default_member_initializer &&
+            !initializer->value && !initializer->arguments &&
+            !value_initialize &&
+            lower_cxx_implicit_default_subobject_supported(
+                field->type, 0u)) {
+            if (!address.valid || !lower_cxx_change_subobject_cleanup(
+                    context, field->type, address, true, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT &&
             !initializer->constructor && !initializer->value &&
             !initializer->arguments &&
@@ -26299,7 +26347,8 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
         RccIrLowerValue address;
         if (member->is_static || !member->name || !member->type ||
             (!element_type &&
-             (member->type->kind != TYPE_STRUCT ||
+             ((member->type->kind != TYPE_STRUCT &&
+               member->type->kind != TYPE_UNION) ||
               !member->type->cxx_nontrivial))) {
             continue;
         }
@@ -26314,7 +26363,8 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
         }
         if (!initializer ||
             (!element_type && !initializer->constructor &&
-             !(member->type->kind == TYPE_STRUCT &&
+             !((member->type->kind == TYPE_STRUCT ||
+                member->type->kind == TYPE_UNION) &&
                !initializer->value && !initializer->arguments &&
                !initializer->is_default_member_initializer &&
                lower_cxx_implicit_default_subobject_supported(
