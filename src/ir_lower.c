@@ -366,6 +366,10 @@ static bool lower_cleanup_initializer_may_throw(const Expr* initializer);
 static bool lower_cleanup_constructor_call_supported(
     const Expr* initializer);
 static bool lower_noexcept_expression(const Expr* expression);
+static bool lower_cxx_implicit_default_array_element_supported(
+    const Type* type);
+static bool lower_dynamic_static_default_initializer_supported(
+    const Decl* declaration);
 
 static const Decl* lower_direct_aggregate_declaration(
     const Expr* expression) {
@@ -3156,6 +3160,9 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
     size_t item_count = 0u;
     bool has_field_designators = false;
     bool has_positional_items = false;
+    if (lower_dynamic_static_default_initializer_supported(declaration)) {
+        return true;
+    }
     if (lower_dynamic_static_class_array_initializer_supported(
             declaration)) {
         return true;
@@ -23712,6 +23719,46 @@ static bool lower_cxx_implicit_default_array_element_supported(
     return lower_cxx_destructor_subobjects_supported(cls, 0u);
 }
 
+static bool lower_dynamic_static_default_initializer_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    const Type* element_type;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        (!declaration->var_is_thread_local &&
+         !declaration->var_is_static_local) ||
+        !declaration->var_dynamic_initializer ||
+        !declaration->var_reference_temporary_guard ||
+        !declaration->var_cleanups || declaration->var_init ||
+        declaration->storage != STORAGE_STATIC || !type ||
+        type->size <= 0 || type->size > 65536 || type->is_volatile ||
+        type->is_reference || type->is_atomic || type->cleanup_function ||
+        type->cleanup_field || type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (type->align & (type->align - 1)) != 0) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        element_type = lower_cxx_class_array_element(type);
+        if (!element_type ||
+            !lower_cxx_implicit_default_array_element_supported(
+                element_type) ||
+            !lower_cxx_class_array_count(type, element_type, NULL) ||
+            !lower_cxx_destructor_cleanup_hook_supported(element_type)) {
+            return false;
+        }
+        return true;
+    }
+    if (type->kind != TYPE_STRUCT || !type->cxx_class ||
+        type->cxx_class->has_user_constructor ||
+        type->cxx_class->has_field_initializer ||
+        !lower_cxx_implicit_default_subobject_supported(type, 0u) ||
+        !lower_struct_type_supported(type) ||
+        !lower_cxx_destructor_cleanup_hook_supported(type)) {
+        return false;
+    }
+    return true;
+}
+
 static bool lower_cxx_emit_destructor_call(
     RccIrLowerContext* context, const Decl* destructor,
     RccIrLowerValue object) {
@@ -30999,7 +31046,8 @@ static bool lower_dynamic_static_aggregate_initializer(
             context, "__cxa_guard_abort", guard_address, true)) {
         return false;
     }
-    track_partial_members = !constructor_initializer &&
+    track_partial_members = declaration->var_init &&
+        !constructor_initializer &&
         declaration->var_cleanups != NULL &&
         lower_cleanup_initializer_may_throw(declaration->var_init);
     symbol = lower_append(
@@ -31038,6 +31086,9 @@ static bool lower_dynamic_static_aggregate_initializer(
         context->partial_construction_cleanup_declaration =
             previous_partial_cleanup_declaration;
         if (!initialized) return false;
+        field = NULL;
+        has_field_designators = false;
+    } else if (!declaration->var_init) {
         field = NULL;
         has_field_designators = false;
     } else {
@@ -31265,8 +31316,9 @@ static bool lower_dynamic_static_aggregate_initializer(
         context->terminated = false;
     }
 
-    for (item = declaration->var_init->compound_init; item;
-         item = item->next) {
+    for (item = declaration->var_init
+             ? declaration->var_init->compound_init : NULL;
+         item; item = item->next) {
         if (item->cxx_temporary_cleanups &&
             !lower_change_current_cleanup_plan(
                 context, item->cxx_temporary_cleanups, false)) {

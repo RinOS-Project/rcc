@@ -3126,6 +3126,10 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
                 return false;
             }
         }
+        if (!declaration->var_init && declaration->var_cleanups &&
+            declaration->var_reference_temporary_guard) {
+            declaration->var_dynamic_initializer = true;
+        }
         codegen_add_vtable_pointer(mod, MODULE_SYMBOL_TLS, offset,
                                    declaration->type);
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
@@ -3161,6 +3165,10 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         mod->bss.size = (size_t)(aligned + size);
         if (alignment > mod->bss.align) mod->bss.align = alignment;
         declaration->var_offset = offset;
+        if (declaration->var_cleanups &&
+            declaration->var_reference_temporary_guard) {
+            declaration->var_dynamic_initializer = true;
+        }
         module_add_symbol(mod, decl_link_name(declaration), offset, true,
                           MODULE_SYMBOL_BSS, false);
         return true;
@@ -3397,6 +3405,10 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                               "unsupported thread-local initializer for '%s'",
                               declaration->name);
                 }
+            }
+            if (!declaration->var_init && declaration->var_cleanups &&
+                declaration->var_reference_temporary_guard) {
+                declaration->var_dynamic_initializer = true;
             }
             codegen_add_vtable_pointer(mod, MODULE_SYMBOL_TLS, offset,
                                        declaration->type);
