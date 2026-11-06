@@ -10189,11 +10189,15 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 Type* type = field->type;
                 if (!type || (!type->cxx_dependent && type->size <= 0) ||
                     (!cxx_constructor_scalar_type(type) &&
-                     !type->cxx_dependent && type->kind != TYPE_ARRAY) ||
+                     !type->cxx_dependent &&
+                     type->kind != TYPE_ARRAY &&
+                     type->kind != TYPE_UNION) ||
                     !cxx_constructor_dmi_value_is_lowerable(
                         cls, field, type, field->initializer) ||
-                    (type->kind == TYPE_ARRAY && type->size > 512) ||
+                    ((type->kind == TYPE_ARRAY ||
+                      type->kind == TYPE_UNION) && type->size > 512) ||
                     (type->kind != TYPE_ARRAY &&
+                     type->kind != TYPE_UNION &&
                      ((g_opts.target_arch == ARCH_X86 && type->size > 8) ||
                       (g_opts.target_arch == ARCH_X64 && type->size > 8)))) {
                     valid = false;
@@ -11157,6 +11161,49 @@ static bool cxx_constructor_dmi_value_is_lowerable(
         return cxx_constructor_dmi_expression_is_lowerable(
             cls, initialized_field, expression);
     }
+    if (type->kind == TYPE_UNION) {
+        const ExprList* item;
+        const TypeField* field;
+        if (type->size <= 0 || type->size > 512 ||
+            expression->kind != EXPR_COMPOUND ||
+            !expression->compound_type ||
+            expression->compound_type->kind != TYPE_UNION ||
+            !type_is_compatible(type, expression->compound_type) ||
+            !(item = expression->compound_init) || item->next ||
+            item->designator_kind == INIT_DESIGNATOR_INDEX) {
+            return false;
+        }
+        field = type->fields;
+        if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+            field = NULL;
+            for (const TypeField* candidate = type->fields;
+                 candidate; candidate = candidate->next) {
+                if (candidate->name && item->designator_field &&
+                    strcmp(candidate->name, item->designator_field) == 0) {
+                    field = candidate;
+                    break;
+                }
+            }
+        } else if (item->designator_kind != INIT_DESIGNATOR_NONE) {
+            return false;
+        }
+        if (!field || !field->type || field->is_bitfield ||
+            field->offset != 0 ||
+            !cxx_constructor_scalar_type((Type*)field->type) ||
+            field->type->is_reference || field->type->is_atomic ||
+            !item->expr) {
+            return false;
+        }
+        for (const TypeField* alternative = type->fields; alternative;
+             alternative = alternative->next) {
+            if (!alternative->type ||
+                !cxx_constructor_scalar_type((Type*)alternative->type)) {
+                return false;
+            }
+        }
+        return cxx_constructor_dmi_expression_is_lowerable(
+            cls, initialized_field, item->expr);
+    }
     if (type->kind == TYPE_ARRAY) {
         if (!type->base || type->array_len <= 0 || type->array_len > 64 ||
             expression->kind != EXPR_COMPOUND) {
@@ -11786,11 +11833,14 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             if (initializer->is_default_member_initializer) {
                 bool is_array = field->type &&
                     field->type->kind == TYPE_ARRAY;
+                bool is_union = field->type &&
+                    field->type->kind == TYPE_UNION;
                 if (!cxx_constructor_dmi_value_is_lowerable(
                         cls, field, field->type, initializer->value) ||
                     !field->type || field->type->size <= 0 ||
-                    (is_array && field->type->size > 512) ||
-                    (!is_array && field->type->size > 8)) {
+                    ((is_array || is_union) &&
+                     field->type->size > 512) ||
+                    (!is_array && !is_union && field->type->size > 8)) {
                     supported = false;
                     break;
                 }
