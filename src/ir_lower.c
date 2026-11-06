@@ -11471,8 +11471,12 @@ static bool lower_unregister_partial_base_cleanups(
     if (!context || !cleanup_declaration || !owner || !owner_type) {
         return false;
     }
-    if (!cls || cls->base_count <= 0) return true;
-    if (!cls->bases || !cls->base_offsets) return false;
+    if (!cls) return true;
+    if (cls->base_count < 0 || cls->virtual_base_count < 0 ||
+        (cls->base_count > 0 && (!cls->bases || !cls->base_offsets)) ||
+        (cls->virtual_base_count > 0 && !cls->virtual_bases)) {
+        return false;
+    }
     for (int index = 0; index < cls->base_count; ++index) {
         const CxxClass* base_class = cls->bases[index].base;
         if (cls->bases[index].is_virtual) continue;
@@ -11485,6 +11489,20 @@ static bool lower_unregister_partial_base_cleanups(
             if (lower_cleanup_action_is_direct_base(
                     action, owner, base_class->type,
                     cls->base_offsets[index]) &&
+                !lower_change_current_exception_cleanup(
+                    context, action, false)) {
+                return false;
+            }
+        }
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxClass* base_class = cls->virtual_bases[index].base;
+        int offset = cls->virtual_bases[index].offset;
+        if (!base_class || !base_class->type || offset < 0) return false;
+        for (const CxxCleanupPlan* action = cleanup_declaration->var_cleanups;
+             action; action = action->next) {
+            if (lower_cleanup_action_is_direct_base(
+                    action, owner, base_class->type, offset) &&
                 !lower_change_current_exception_cleanup(
                     context, action, false)) {
                 return false;
@@ -29550,6 +29568,9 @@ static bool lower_struct_initializer(
                     RccIrLowerValue object;
                     RccIrLowerValue address;
                     int virtual_base_index;
+                    if (initializer->compound_cxx_is_base_subobject) {
+                        continue;
+                    }
                     if (!member_initializer->constructor) continue;
                     for (virtual_base_index = 0;
                          virtual_base_index < cls->virtual_base_count;
@@ -29581,7 +29602,11 @@ static bool lower_struct_initializer(
                             member_initializer->constructor,
                             member_initializer->arguments,
                             initializer->compound_constructor,
-                            constructor_arguments, 0u)) {
+                            constructor_arguments, 0u) ||
+                        !lower_register_partial_base_cleanup(
+                            context, base_class,
+                            cls->virtual_bases[
+                                virtual_base_index].offset)) {
                         context->unsupported = true;
                         goto constructor_lowering_failure;
                     }
@@ -29809,6 +29834,8 @@ static bool lower_struct_initializer(
     if (type->cxx_class && type->cxx_class->base_count > 0) {
         const CxxClass* cls = type->cxx_class;
         const CxxClass* first_nonvirtual_base = NULL;
+        const ExprList* virtual_item =
+            initializer->compound_cxx_virtual_base_initializers;
         for (int index = 0; index < cls->base_count; ++index) {
             if (!cls->bases[index].is_virtual) {
                 first_nonvirtual_base = cls->bases[index].base;
@@ -29830,26 +29857,68 @@ static bool lower_struct_initializer(
             context->unsupported = true;
             return false;
         }
+        if (initializer->compound_cxx_is_base_subobject && virtual_item) {
+            context->unsupported = true;
+            return false;
+        }
         for (int index = 0; index < cls->virtual_base_count; ++index) {
             const CxxVirtualBaseInfo* virtual_base =
                 &cls->virtual_bases[index];
             const CxxClass* virtual_type = virtual_base->base;
             int offset = virtual_base->offset;
+            int base_subobject_size = virtual_type &&
+                    virtual_type->virtual_base_count > 0
+                ? virtual_type->nonvirtual_size
+                : virtual_type && virtual_type->type
+                    ? virtual_type->type->size : 0;
             if (!virtual_type || !virtual_type->type ||
-                virtual_type->type->size <= 0 || offset < 0 ||
+                base_subobject_size <= 0 || offset < 0 ||
                 offset > type->size ||
-                virtual_type->type->size > type->size - offset ||
-                !lower_cxx_implicit_default_subobject_supported(
-                    virtual_type->type, 0u) ||
-                !rcc_sema_cxx_trivial(virtual_type->type) ||
-                !rcc_sema_cxx_trivially_destructible(
-                    virtual_type->type)) {
+                base_subobject_size > type->size - offset) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+        for (int previous = -1; virtual_item;
+             virtual_item = virtual_item->next) {
+            int index = virtual_item->designator_index;
+            const CxxClass* virtual_type;
+            int offset;
+            RccIrLowerValue object;
+            RccIrLowerValue address;
+            if (virtual_item->designator_kind != INIT_DESIGNATOR_INDEX ||
+                index <= previous || index >= cls->virtual_base_count) {
+                context->unsupported = true;
+                return false;
+            }
+            previous = index;
+            virtual_type = cls->virtual_bases[index].base;
+            offset = cls->virtual_bases[index].offset;
+            if (!virtual_type || !virtual_type->type || offset < 0 ||
+                !virtual_item->expr ||
+                (virtual_item->expr->type &&
+                 !type_is_compatible(
+                     (Type*)virtual_type->type, virtual_item->expr->type))) {
+                context->unsupported = true;
+                return false;
+            }
+            object = lower_value(base, rcc_ir_type_pointer(0u), true);
+            address = lower_byte_offset_address(
+                context, object, (uint64_t)offset);
+            if (!address.valid ||
+                !lower_initialize_struct_storage(
+                    context, address.value, virtual_type->type,
+                    virtual_item->expr) ||
+                !lower_register_partial_base_cleanup(
+                    context, virtual_type, offset)) {
                 context->unsupported = true;
                 return false;
             }
         }
         if (!has_explicit_base_initializers) {
-            if (!cls->has_field_initializer ||
+            if ((!cls->has_field_initializer &&
+                 !initializer->compound_cxx_virtual_base_initializers &&
+                 !initializer->compound_cxx_is_base_subobject) ||
                 initializer->compound_constructor) {
                 context->unsupported = true;
                 return false;
@@ -29862,15 +29931,6 @@ static bool lower_struct_initializer(
                     return false;
                 }
                 if (cls->bases[index].is_virtual) {
-                    if (cls->virtual_base_count == 0 ||
-                        !lower_cxx_implicit_default_subobject_supported(
-                            base_class->type, 0u) ||
-                        !rcc_sema_cxx_trivial(base_class->type) ||
-                        !rcc_sema_cxx_trivially_destructible(
-                            base_class->type)) {
-                        context->unsupported = true;
-                        return false;
-                    }
                     continue;
                 }
                 if (base_class->has_user_constructor ||
@@ -29889,18 +29949,6 @@ static bool lower_struct_initializer(
                 RccIrLowerValue base_value;
                 RccIrLowerValue address;
                 if (cls->bases[index].is_virtual) {
-                    const CxxClass* virtual_base = cls->bases[index].base;
-                    if (!initializer->compound_cxx_default_member_init_only ||
-                        cls->virtual_base_count == 0 || !virtual_base ||
-                        !virtual_base->type ||
-                        !lower_cxx_implicit_default_subobject_supported(
-                            virtual_base->type, 0u) ||
-                        !rcc_sema_cxx_trivial(virtual_base->type) ||
-                        !rcc_sema_cxx_trivially_destructible(
-                            virtual_base->type)) {
-                        context->unsupported = true;
-                        return false;
-                    }
                     continue;
                 }
                 if (!item ||

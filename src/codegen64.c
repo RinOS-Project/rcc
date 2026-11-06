@@ -5022,6 +5022,8 @@ static TypeField* gen64_cxx_default_init_member_field(
 static bool gen64_cxx_default_init_bases(
     Module* mod, Type* type, Expr* initializer, int32_t displacement) {
     CxxClass* cls = type ? type->cxx_class : NULL;
+    ExprList* virtual_item = initializer
+        ? initializer->compound_cxx_virtual_base_initializers : NULL;
     ExprList* item = initializer ? initializer->compound_init : NULL;
     if (!mod || !type || !cls || !initializer ||
         cls->base_count <= 0 || cls->virtual_base_count < 0 ||
@@ -5029,8 +5031,43 @@ static bool gen64_cxx_default_init_bases(
         return false;
     }
 
-    /* Consume one positional item for each direct non-virtual base. Virtual
-     * bases have already been proven trivial and work-free by sema. */
+    /* Initialize the most-derived virtual-base closure before direct bases
+     * and members. Indexed entries allow trivial virtual bases to be omitted. */
+    if (cls->virtual_base_count > 0 && !cls->virtual_bases) return false;
+    for (int previous = -1; virtual_item;
+         virtual_item = virtual_item->next) {
+        int index = virtual_item->designator_index;
+        CxxClass* base;
+        int base_size;
+        int offset;
+        int64_t target;
+        if (virtual_item->designator_kind != INIT_DESIGNATOR_INDEX ||
+            index <= previous || index >= cls->virtual_base_count) {
+            return false;
+        }
+        previous = index;
+        base = cls->virtual_bases[index].base;
+        base_size = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        offset = cls->virtual_bases[index].offset;
+        target = (int64_t)displacement + offset;
+        if (!base || base->virtual_base_count < 0 || !base->type ||
+            base_size <= 0 || offset < 0 ||
+            offset > type->size || base_size > type->size - offset ||
+            target < INT32_MIN || target > INT32_MAX ||
+            !virtual_item->expr ||
+            (virtual_item->expr->type &&
+             !type_is_compatible(base->type, virtual_item->expr->type)) ||
+            !gen64_local_initializer(mod, base->type, virtual_item->expr,
+                                     (int32_t)target)) {
+            return false;
+        }
+        gen64_cxx_exception_change_local_subobject(
+            mod, base->type, (int32_t)target, false);
+    }
+
+    /* Consume one positional item for each direct non-virtual base. */
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
         int offset = cls->base_offsets[index];
@@ -5088,6 +5125,15 @@ static bool gen64_cxx_default_init_bases(
     if (item) return false;
 
     /* Keep partial-construction cleanup active until all initializers finish. */
+    for (virtual_item = initializer->compound_cxx_virtual_base_initializers;
+         virtual_item; virtual_item = virtual_item->next) {
+        int index = virtual_item->designator_index;
+        CxxClass* base = cls->virtual_bases[index].base;
+        int64_t target = (int64_t)displacement +
+            cls->virtual_bases[index].offset;
+        gen64_cxx_exception_change_local_subobject(
+            mod, base->type, (int32_t)target, true);
+    }
     item = initializer->compound_init;
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
@@ -5123,6 +5169,10 @@ static void gen64_cxx_call_constructor(Module* mod,
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
                                         CxxConstructorInfo* constructor,
                                         ExprList* arguments);
+static void gen64_cxx_initialize_object_mode_with_zero(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool initialize_virtual_bases,
+    bool zero_initialize);
 static void gen64_cxx_initialize_object_with_zero(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     ExprList* arguments, bool zero_initialize);
@@ -5159,9 +5209,10 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         initializer->compound_constructor && type->cxx_class) {
         emit64_lea(mod, RAX, RBP, displacement);
         emit64_mov_reg_reg(mod, RCX, RAX);
-        gen64_cxx_initialize_object_with_zero(
+        gen64_cxx_initialize_object_mode_with_zero(
             mod, type, initializer->compound_constructor,
             initializer->compound_value_init ? NULL : initializer->compound_init,
+            !initializer->compound_cxx_is_base_subobject,
             gen64_cxx_value_initialization_zeroes_constructor(
                 initializer->compound_constructor,
                 initializer->compound_value_init));
@@ -7828,6 +7879,11 @@ static Expr* gen64_cxx_bind_constructor_expression(
             copy->compound_init =
                 gen64_cxx_bind_constructor_expression_list(
                     constructor, expression->compound_init, arguments);
+            copy->compound_cxx_virtual_base_initializers =
+                gen64_cxx_bind_constructor_expression_list(
+                    constructor,
+                    expression->compound_cxx_virtual_base_initializers,
+                    arguments);
             break;
         case EXPR_CXX_TYPEID:
             copy->cxx_typeid_operand =
@@ -14423,10 +14479,11 @@ static bool gen64_static_reference_aggregate_into_owner(
         if (expression->compound_constructor && type->cxx_class) {
             gen64_reference_temporary_owner_address(mod, owner);
             emit64_mov_reg_reg(mod, RCX, RAX);
-            gen64_cxx_initialize_object_with_zero(
+            gen64_cxx_initialize_object_mode_with_zero(
                 mod, type, expression->compound_constructor,
                 expression->compound_value_init
                     ? NULL : expression->compound_init,
+                !expression->compound_cxx_is_base_subobject,
                 gen64_cxx_value_initialization_zeroes_constructor(
                     expression->compound_constructor,
                     expression->compound_value_init));

@@ -39122,7 +39122,7 @@ static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
 
 static Expr* sema_cxx_default_initialization_expression(
     Type* type, SourceLoc loc, int depth, int* array_element_budget,
-    bool* needs_initialization, bool* supported) {
+    bool is_base_subobject, bool* needs_initialization, bool* supported) {
     CxxClass* cls;
     Expr* initializer;
     if (!type || !array_element_budget || !needs_initialization ||
@@ -39150,6 +39150,7 @@ static Expr* sema_cxx_default_initialization_expression(
         if (type->array_len == 0) return NULL;
         first = sema_cxx_default_initialization_expression(
             type->base, loc, depth + 1, array_element_budget,
+            is_base_subobject,
             &element_needs_initialization, &element_supported);
         if (!element_supported) {
             *supported = false;
@@ -39164,6 +39165,7 @@ static Expr* sema_cxx_default_initialization_expression(
             Expr* element = index == 0 ? first :
                 sema_cxx_default_initialization_expression(
                     type->base, loc, depth + 1, array_element_budget,
+                    is_base_subobject,
                     &element_needs_initialization, &element_supported);
             ExprList* item;
             if (!element_supported || !element_needs_initialization ||
@@ -39204,6 +39206,7 @@ static Expr* sema_cxx_default_initialization_expression(
         initializer->compound_constructor = constructor;
         initializer->compound_init = arguments;
         initializer->compound_cxx_default_member_init_only = true;
+        initializer->compound_cxx_is_base_subobject = is_base_subobject;
         *needs_initialization = true;
         return initializer;
     }
@@ -39260,22 +39263,53 @@ static Expr* sema_cxx_default_initialization_expression(
         return NULL;
     }
 
-    /* The synthesized aggregate form below has no slot for a virtual-base
-     * initializer.  It can still represent default initialization when the
-     * complete-object virtual-base closure is entirely trivial and has no
-     * constructor, DMI, or cleanup work; those subobjects need no stores. */
+    /* A complete object initializes its virtual-base closure before direct
+     * bases and members. A base subobject leaves that work to its most-derived
+     * object. Keep this list separate from compound_init, whose entries are
+     * direct bases followed by field designators. */
+    ExprList* virtual_initializers = NULL;
+    ExprList** virtual_tail = &virtual_initializers;
     for (int index = 0; index < cls->virtual_base_count; ++index) {
         CxxClass* base = cls->virtual_bases[index].base;
         int offset = cls->virtual_bases[index].offset;
-        if (!base || !base->type || base->type->size <= 0 || offset < 0 ||
+        int base_subobject_size = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        if (!base || base->virtual_base_count < 0 || !base->type ||
+            base_subobject_size <= 0 || offset < 0 ||
             offset > type->size ||
-            base->type->size > type->size - offset ||
-            sema_cxx_default_initialization_needs_lowering(
-                base->type, depth + 1) ||
-            !rcc_sema_cxx_trivial(base->type) ||
-            !rcc_sema_cxx_trivially_destructible(base->type)) {
+            base_subobject_size > type->size - offset) {
             *supported = false;
             return NULL;
+        }
+        if (!is_base_subobject) {
+            Expr* base_initializer;
+            ExprList* item;
+            bool base_needs_initialization = false;
+            bool base_supported = true;
+            base_initializer = sema_cxx_default_initialization_expression(
+                base->type, loc, depth + 1, array_element_budget, true,
+                &base_needs_initialization, &base_supported);
+            if (!base_supported ||
+                (base_needs_initialization && !base_initializer)) {
+                *supported = false;
+                return NULL;
+            }
+            if (!base_initializer) {
+                base_initializer = expr_initializer_list(NULL, loc);
+                base_initializer->compound_type = base->type;
+                base_initializer->compound_cxx_default_member_normalized =
+                    true;
+                base_initializer->compound_cxx_default_member_init_only =
+                    true;
+                base_initializer->compound_cxx_is_base_subobject = true;
+            }
+            item = exprlist_new(base_initializer);
+            item->designator_kind = INIT_DESIGNATOR_INDEX;
+            item->designator_index = index;
+            item->designator_field = NULL;
+            *virtual_tail = item;
+            virtual_tail = &item->next;
         }
     }
     /* Build the implicit default constructor's base/member work as a regular
@@ -39283,7 +39317,7 @@ static Expr* sema_cxx_default_initialization_expression(
      * indeterminate values are not overwritten by zero initialization. */
     {
         ExprList* items = NULL;
-        bool has_subobject_initialization = false;
+        bool has_subobject_initialization = virtual_initializers != NULL;
         int base_index;
         for (base_index = 0; base_index < cls->base_count; ++base_index) {
             CxxClass* base = cls->bases[base_index].base;
@@ -39298,6 +39332,7 @@ static Expr* sema_cxx_default_initialization_expression(
             if (cls->bases[base_index].is_virtual) continue;
             base_initializer = sema_cxx_default_initialization_expression(
                 base->type, loc, depth + 1, array_element_budget,
+                true,
                 &base_needs_initialization, &base_supported);
             if (!base_supported ||
                 (base_needs_initialization && !base_initializer)) {
@@ -39314,6 +39349,7 @@ static Expr* sema_cxx_default_initialization_expression(
                 base_initializer->compound_type = base->type;
                 base_initializer->compound_cxx_default_member_normalized = true;
                 base_initializer->compound_cxx_default_member_init_only = true;
+                base_initializer->compound_cxx_is_base_subobject = true;
             }
             item = exprlist_new(base_initializer);
             item->designator_kind = INIT_DESIGNATOR_NONE;
@@ -39366,6 +39402,7 @@ static Expr* sema_cxx_default_initialization_expression(
             } else {
                 member_initializer = sema_cxx_default_initialization_expression(
                     field->type, loc, depth + 1, array_element_budget,
+                    false,
                     &member_needs_initialization, &member_supported);
                 if (!member_supported ||
                     (member_needs_initialization && !member_initializer)) {
@@ -39384,8 +39421,11 @@ static Expr* sema_cxx_default_initialization_expression(
         }
         initializer = expr_initializer_list(items, loc);
         initializer->compound_type = type;
+        initializer->compound_cxx_virtual_base_initializers =
+            virtual_initializers;
         initializer->compound_cxx_default_member_normalized = true;
         initializer->compound_cxx_default_member_init_only = true;
+        initializer->compound_cxx_is_base_subobject = is_base_subobject;
         *needs_initialization = has_subobject_initialization;
         return initializer;
     }
@@ -39421,7 +39461,7 @@ static void sema_cxx_synthesize_default_constructor_initializer(
         return;
     }
     initializer = sema_cxx_default_initialization_expression(
-        type, declaration->loc, 0, &array_element_budget,
+        type, declaration->loc, 0, &array_element_budget, false,
         &needs_initialization, &supported);
     if (supported && needs_initialization && initializer) {
         declaration->var_init = initializer;

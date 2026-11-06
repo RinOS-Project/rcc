@@ -1148,6 +1148,9 @@ struct Expr {
         struct {
             Type* compound_type;
             ExprList* compound_init;
+            /* Implicit default initialization of the complete object may
+             * initialize virtual bases before direct bases and members. */
+            ExprList* compound_cxx_virtual_base_initializers;
             int compound_offset;     /* Assigned automatic-storage slot. */
             bool compound_value_init; /* Spelled as an empty C++ {} list. */
             bool compound_copy_init;  /* C++ copy-initialization (`T t = x`). */
@@ -1161,6 +1164,10 @@ struct Expr {
             /* A null source initializer is default-initialization: omitted
              * scalar subobjects remain indeterminate. */
             bool compound_cxx_default_member_init_only;
+            /* This expression initializes a base subobject, so its
+             * constructor must not initialize the most-derived virtual
+             * bases. */
+            bool compound_cxx_is_base_subobject;
             /* Compiler-created list passed as the single argument to a
              * std::initializer_list constructor. */
             bool compound_cxx_initializer_list_argument;
