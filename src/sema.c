@@ -39024,45 +39024,6 @@ static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
     }
 }
 
-static bool sema_cxx_default_member_initializers_are_direct(
-    Type* type, int depth) {
-    CxxClass* cls;
-    if (!type || depth > 32 ||
-        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
-        return false;
-    }
-    cls = type->cxx_class;
-    if (!cls || cls->has_user_constructor || cls->base_count != 0 ||
-        cls->virtual_base_count != 0 || !cls->has_field_initializer) {
-        return false;
-    }
-    for (TypeParam* member = cls->fields; member; member = member->next) {
-        TypeField* field = NULL;
-        if (member->is_static) continue;
-        for (TypeField* candidate = type->fields; candidate;
-             candidate = candidate->next) {
-            if (candidate->name && member->name &&
-                strcmp(candidate->name, member->name) == 0) {
-                field = candidate;
-                break;
-            }
-        }
-        if (!field || !field->type) return false;
-        if (field->initializer) {
-            if (!sema_cxx_default_member_initializer_supported(
-                    field->type, field->initializer)) {
-                return false;
-            }
-        } else if (sema_cxx_default_initialization_needs_lowering(
-                       field->type, depth + 1)) {
-            /* This aggregate-only synthesis does not manufacture an
-             * implicit constructor for a nontrivial member. */
-            return false;
-        }
-    }
-    return true;
-}
-
 static Expr* sema_cxx_default_initialization_expression(
     Type* type, SourceLoc loc, int depth, int* array_element_budget,
     bool* needs_initialization, bool* supported) {
@@ -39134,23 +39095,121 @@ static Expr* sema_cxx_default_initialization_expression(
         *needs_initialization = true;
         return initializer;
     }
-    if (cls->has_field_initializer) {
-        if (!sema_cxx_default_member_initializers_are_direct(type, depth)) {
-            *supported = false;
+    if (type->kind == TYPE_UNION || cls->virtual_base_count != 0 ||
+        cls->base_count < 0 || (cls->base_count && !cls->bases)) {
+        *supported = false;
+        return NULL;
+    }
+
+    /* Build the implicit default constructor's base/member work as a regular
+     * aggregate initializer.  Untouched scalar members stay absent so their
+     * indeterminate values are not overwritten by zero initialization. */
+    {
+        ExprList* items = NULL;
+        bool has_subobject_initialization = false;
+        int base_index;
+        for (base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            Expr* base_initializer;
+            ExprList* item;
+            bool base_needs_initialization = false;
+            bool base_supported = true;
+            if (cls->bases[base_index].is_virtual || !base || !base->type) {
+                *supported = false;
+                return NULL;
+            }
+            base_initializer = sema_cxx_default_initialization_expression(
+                base->type, loc, depth + 1, array_element_budget,
+                &base_needs_initialization, &base_supported);
+            if (!base_supported ||
+                (base_needs_initialization && !base_initializer)) {
+                *supported = false;
+                return NULL;
+            }
+            if (base_needs_initialization) {
+                has_subobject_initialization = true;
+            } else if (!base_initializer) {
+                /* The IR base walk consumes one positional entry per direct
+                 * base.  This no-op entry preserves layout order without
+                 * clearing a trivially default-initialized base. */
+                base_initializer = expr_initializer_list(NULL, loc);
+                base_initializer->compound_type = base->type;
+                base_initializer->compound_cxx_default_member_normalized = true;
+                base_initializer->compound_cxx_default_member_init_only = true;
+            }
+            item = exprlist_new(base_initializer);
+            item->designator_kind = INIT_DESIGNATOR_NONE;
+            item->designator_index = 0;
+            item->designator_field = NULL;
+            item->expr->type = base->type;
+            item->next = items;
+            items = item;
+        }
+
+        /* Reverse the prepended base entries back to declaration order. */
+        if (cls->base_count > 1) {
+            ExprList* reversed = NULL;
+            while (items) {
+                ExprList* item = items;
+                items = items->next;
+                item->next = reversed;
+                reversed = item;
+            }
+            items = reversed;
+        }
+
+        for (TypeParam* member = cls->fields; member; member = member->next) {
+            TypeField* field = NULL;
+            Expr* member_initializer = NULL;
+            bool member_needs_initialization = false;
+            bool member_supported = true;
+            if (member->is_static) continue;
+            for (TypeField* candidate = type->fields; candidate;
+                 candidate = candidate->next) {
+                if (candidate->name && member->name &&
+                    strcmp(candidate->name, member->name) == 0) {
+                    field = candidate;
+                    break;
+                }
+            }
+            if (!field || !field->type || !field->name) {
+                *supported = false;
+                return NULL;
+            }
+            if (field->initializer) {
+                if (!sema_cxx_default_member_initializer_supported(
+                        field->type, field->initializer)) {
+                    *supported = false;
+                    return NULL;
+                }
+                member_initializer = field->initializer;
+                member_needs_initialization = true;
+            } else {
+                member_initializer = sema_cxx_default_initialization_expression(
+                    field->type, loc, depth + 1, array_element_budget,
+                    &member_needs_initialization, &member_supported);
+                if (!member_supported ||
+                    (member_needs_initialization && !member_initializer)) {
+                    *supported = false;
+                    return NULL;
+                }
+            }
+            if (!member_needs_initialization) continue;
+            exprlist_append_designated(&items, member_initializer,
+                                       INIT_DESIGNATOR_FIELD, 0,
+                                       field->name);
+            has_subobject_initialization = true;
+        }
+        if (!has_subobject_initialization && cls->base_count == 0) {
             return NULL;
         }
-        initializer = sema_cxx_default_member_initializer(type, NULL, loc);
-        if (!initializer) {
-            *supported = false;
-            return NULL;
-        }
-        *needs_initialization = true;
+        initializer = expr_initializer_list(items, loc);
+        initializer->compound_type = type;
+        initializer->compound_cxx_default_member_normalized = true;
+        initializer->compound_cxx_default_member_init_only = true;
+        *needs_initialization = has_subobject_initialization;
         return initializer;
     }
-    if (sema_cxx_default_initialization_needs_lowering(type, depth)) {
-        *supported = false;
-    }
-    return NULL;
 }
 
 static void sema_cxx_synthesize_default_constructor_initializer(
@@ -39171,12 +39230,15 @@ static void sema_cxx_synthesize_default_constructor_initializer(
         declaration->var_init = initializer;
         return;
     }
-    if (type->kind != TYPE_ARRAY) return;
     initializer = sema_cxx_default_initialization_expression(
         type, declaration->loc, 0, &array_element_budget,
         &needs_initialization, &supported);
-    if (supported && needs_initialization) {
+    if (supported && needs_initialization && initializer) {
         declaration->var_init = initializer;
+    } else if ((!supported || needs_initialization) &&
+               sema_cxx_default_initialization_needs_lowering(type, 0)) {
+        rcc_error(declaration->loc,
+                  "default initialization requires unsupported constructor or member initialization");
     }
 }
 

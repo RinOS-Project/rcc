@@ -29396,12 +29396,24 @@ static bool lower_struct_initializer(
             const TypeField* field;
             if (member->is_static) continue;
             field = lower_struct_declared_field(type, cls, member->name);
-            if (!item || !field ||
+            if (!field) {
+                context->unsupported = true;
+                return false;
+            }
+            if (!item ||
                 (item->designator_kind != INIT_DESIGNATOR_NONE &&
                  (item->designator_kind != INIT_DESIGNATOR_FIELD ||
                   !item->designator_field ||
-                  strcmp(item->designator_field, member->name) != 0)) ||
-                !lower_initialize_struct_field(
+                  strcmp(item->designator_field, member->name) != 0))) {
+                if (initializer->compound_cxx_default_member_init_only) {
+                    /* Default-initialized scalar subobjects with no DMI are
+                     * intentionally absent from the synthesized initializer. */
+                    continue;
+                }
+                context->unsupported = true;
+                return false;
+            }
+            if (!lower_initialize_struct_field(
                     context, base, field, item, initializer)) {
                 context->unsupported = true;
                 return false;
