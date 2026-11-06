@@ -277,6 +277,23 @@ public:
     }
 };
 
+class ConversionSameTypeLvalueRefQualifiedInheritedBase {
+public:
+    operator int() & {
+        return 503;
+    }
+};
+
+class ConversionSameTypeLvalueRefQualifiedInheritedDerived
+    : public ConversionSameTypeLvalueRefQualifiedInheritedBase {
+public:
+    using ConversionSameTypeLvalueRefQualifiedInheritedBase::operator int;
+
+    operator int() const & {
+        return 509;
+    }
+};
+
 class ConversionCvRefQualifiedSource {
 public:
     operator int() const & {
@@ -945,6 +962,8 @@ int main() {
     ConversionImplicitObjectDerived implicit_object_conversion_source;
     ConversionObjectRankDerived object_rank_conversion_source;
     ConversionRefQualifiedInheritedDerived inherited_ref_conversion_source;
+    ConversionSameTypeLvalueRefQualifiedInheritedDerived
+        inherited_lvalue_ref_conversion_source;
     const volatile ConversionCvRefQualifiedInheritedDerived
         inherited_cvref_conversion_source{};
     NonTemplateWinsConversionSource non_template_wins_conversion_source;
@@ -1038,6 +1057,9 @@ int main() {
     }
     if (take_integer(ConversionSameTypeRefQualifiedInheritedDerived{}) !=
         487) return 10;
+    if (take_integer(inherited_lvalue_ref_conversion_source) != 503) {
+        return 11;
+    }
     if (take_integer(ConversionCvRefQualifiedSource{}) != 457) return 7;
     if (take_integer(ConversionUnqualifiedRefQualifiedSource{}) != 461) {
         return 8;

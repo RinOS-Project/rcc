@@ -14974,3 +14974,11 @@ Continue in this order:
       for ordinary C VLAs such as `debug_vla_location`; i686 and x86-64
       `-O1`/`-O2` verified debug-info objects have zero fallback, and both the
       focused inline-expression suite and full `test-debug-info` gate pass.
+
+## RCC continuation (2026-11-06, inherited lvalue-ref-qualified conversions)
+
+- [x] Compare a derived `operator int() const &` with an inherited
+      `operator int() &` restored by `using`. GCC C++20 and RCC both select the
+      inherited conversion for a derived lvalue; the conversion-operator suite
+      passes GCC execution, i686/AMD64 generation, and generated AMD64
+      execution in `test-cxx-conversion-operator`.
