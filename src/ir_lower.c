@@ -36173,11 +36173,16 @@ static RccIrLowerValue lower_coroutine_await_expression(
         ? expression->cxx_coroutine_await_plan : NULL;
     RccIrLowerCoroutineContinuation* continuation;
     RccIrBlock* suspend_block;
+    RccIrBlock* suspended_block;
     RccIrLowerValue ready;
+    RccIrLowerValue suspend_result;
     RccIrLowerValue result;
     if (!context || !context->coroutine_resume || !await_plan ||
         await_plan->is_initial_suspend || await_plan->is_final_suspend ||
-        await_plan->await_suspend_call->type->kind != TYPE_VOID ||
+        !await_plan->await_suspend_call ||
+        !await_plan->await_suspend_call->type ||
+        (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
+         await_plan->await_suspend_call->type->kind != TYPE_BOOL) ||
         !lower_coroutine_initialize_awaiter(
             context, context->declaration, await_plan, NULL, 0u)) {
         if (context) context->unsupported = true;
@@ -36207,13 +36212,33 @@ static RccIrLowerValue lower_coroutine_await_expression(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    (void)lower_expression(context, await_plan->await_suspend_call);
-    if (context->unsupported ||
-        !lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
+    suspend_result = lower_expression(
+        context, await_plan->await_suspend_call);
+    if (context->unsupported || !suspend_result.valid) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (await_plan->await_suspend_call->type->kind == TYPE_BOOL) {
+        RccIrLowerValue should_suspend = lower_truth(
+            context, suspend_result);
+        suspended_block = rcc_ir_block_add(
+            context->function, "coroutine.await.suspended");
+        if (!should_suspend.valid || !suspended_block ||
+            !lower_conditional_branch(
+                context, should_suspend, suspended_block->id,
+                continuation->block->id)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        context->current = suspended_block;
+        context->terminated = false;
+    }
+    if (!lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
                       NULL, 0u, NULL, 0u)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
+    context->terminated = true;
     context->current = continuation->block;
     context->terminated = false;
     result = lower_expression(context, await_plan->await_resume_call);
@@ -36346,6 +36371,8 @@ static bool lower_coroutine_minimal_function_supported(
     }
     for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
          await_plan; await_plan = await_plan->next) {
+        bool body_await_plan = !await_plan->is_initial_suspend &&
+            !await_plan->is_final_suspend;
         ++await_count;
         if (await_plan == declaration->func_coroutine_initial_suspend_plan) {
             saw_initial_suspend = await_plan->is_initial_suspend &&
@@ -36368,7 +36395,9 @@ static bool lower_coroutine_minimal_function_supported(
         }
         if (!await_plan->await_suspend_call ||
             !await_plan->await_suspend_call->type ||
-            await_plan->await_suspend_call->type->kind != TYPE_VOID ||
+            (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
+             !(body_await_plan &&
+               await_plan->await_suspend_call->type->kind == TYPE_BOOL)) ||
             !lower_noexcept_expression(await_plan->awaiter_initializer) ||
             !lower_noexcept_expression(await_plan->await_ready_condition) ||
             !lower_noexcept_expression(await_plan->await_suspend_call) ||

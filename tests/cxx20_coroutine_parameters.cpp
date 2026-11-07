@@ -20,10 +20,11 @@ struct rcc_coroutine_parameter_ready_awaiter {
 struct rcc_coroutine_parameter_awaiter {
     int value;
 
-    bool await_ready() const noexcept { return true; }
+    bool await_ready() const noexcept { return false; }
     template<class Promise>
-    void await_suspend(std::coroutine_handle<Promise>) const noexcept {
+    bool await_suspend(std::coroutine_handle<Promise>) const noexcept {
         rcc_coroutine_parameter_suspend_total += value;
+        return value == 0;
     }
     void await_resume() const noexcept {}
 };
