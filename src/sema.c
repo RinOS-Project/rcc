@@ -41104,6 +41104,72 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
     return await_plan;
 }
 
+/* The coroutine replacement body initializes the promise from lvalues that
+ * denote the coroutine's parameter copies when such a constructor overload
+ * is viable; otherwise it default-initializes the promise.  Keep the selected
+ * direct-initialization expression on the synthetic promise declaration so
+ * later frame lowering can evaluate it after the parameter copies exist. */
+static void sema_initialize_cxx_coroutine_promise(Decl* declaration) {
+    Decl* promise_object;
+    Type* promise_type;
+    ExprList* arguments = NULL;
+    Expr* initializer;
+    int argument_count;
+    bool ambiguous = false;
+    CxxConstructorInfo* constructor;
+    if (!declaration || !declaration->func_coroutine_promise_type) return;
+    promise_type = declaration->func_coroutine_promise_type;
+    promise_object = declaration->func_coroutine_promise_object;
+    if (!promise_object) {
+        promise_object = decl_var(
+            "__rcc_coroutine_promise", promise_type, NULL,
+            declaration->loc);
+        declaration->func_coroutine_promise_object = promise_object;
+    }
+    if (promise_object->var_init) return;
+
+    if (declaration->func_this_param) {
+        Expr* this_pointer = expr_ident("this", declaration->loc);
+        Expr* this_object;
+        this_pointer->ident_decl = declaration->func_this_param;
+        this_pointer->type = declaration->func_this_param->type;
+        this_object = expr_unary(
+            EXPR_DEREF, this_pointer, declaration->loc);
+        this_object->type = declaration->func_this_param->type
+            ? declaration->func_this_param->type->base : NULL;
+        exprlist_append(&arguments, this_object);
+    }
+    for (DeclList* parameter = declaration->func_params;
+         parameter; parameter = parameter->next) {
+        Decl* parameter_decl = parameter->decl;
+        Expr* argument;
+        if (!parameter_decl || !parameter_decl->type) continue;
+        argument = expr_ident(
+            parameter_decl->name ? parameter_decl->name
+                                 : "__rcc_coroutine_parameter",
+            parameter_decl->loc);
+        argument->ident_decl = parameter_decl;
+        argument->type = parameter_decl->type;
+        exprlist_append(&arguments, argument);
+    }
+    argument_count = sema_cxx_argument_count(arguments);
+    constructor = NULL;
+    if (argument_count > 0) {
+        constructor = sema_cxx_select_type_trait_constructor_ex(
+            promise_type, arguments, argument_count, true, true, true, true,
+            &ambiguous);
+    }
+    if (constructor && !ambiguous) {
+        initializer = expr_initializer_list(arguments, declaration->loc);
+        initializer->compound_type = promise_type;
+        initializer->compound_paren_init = true;
+        (void)sema_expr(initializer);
+        promise_object->var_init = initializer;
+        return;
+    }
+    sema_cxx_synthesize_default_constructor_initializer(promise_object);
+}
+
 static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
     Expr* call;
     SourceLoc loc;
@@ -41128,6 +41194,7 @@ static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
         declaration->func_coroutine_get_return_object_checked = true;
         call = sema_cxx_coroutine_promise_call(
             declaration, "get_return_object", NULL, loc);
+        sema_initialize_cxx_coroutine_promise(declaration);
         if (call) {
             (void)sema_expr(call);
             if (call->cxx_selected_method && call->type && return_type) {
