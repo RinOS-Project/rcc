@@ -8421,6 +8421,9 @@ static bool lower_wide_scalar_expression_impl(
         RccIrLowerWideValue right;
         RccIrLowerWideValue value;
         ExprKind binary_kind = lower_compound_binary_kind(expression->kind);
+        bool evaluate_rhs_first = context->coroutine_resume &&
+            lower_coroutine_expression_contains_await(
+                expression->binary_rhs);
         if (expression->binary_lhs->kind == EXPR_IDENT &&
             expression->binary_lhs->ident_decl) {
             local = lower_find_local(
@@ -8461,6 +8464,11 @@ static bool lower_wide_scalar_expression_impl(
                 return true;
             }
         }
+        if (evaluate_rhs_first &&
+            !lower_wide_scalar_expression(
+                context, expression->binary_rhs, &right)) {
+            return false;
+        }
         address = lower_lvalue_address(context, expression->binary_lhs);
         if (!lower_wide_scalar_load(
                 context, address, expression->binary_lhs->type->is_unsigned,
@@ -8468,14 +8476,16 @@ static bool lower_wide_scalar_expression_impl(
             return false;
         }
         if (binary_kind == EXPR_LSHIFT || binary_kind == EXPR_RSHIFT) {
-            if (!lower_wide_scalar_expression(
-                    context, expression->binary_rhs, &right) ||
+            if ((!evaluate_rhs_first &&
+                 !lower_wide_scalar_expression(
+                     context, expression->binary_rhs, &right)) ||
                 !lower_wide_scalar_shift(
                     context, binary_kind, left, right.low,
                     expression->type->is_unsigned, &value)) {
                 return false;
             }
-        } else if (!lower_wide_scalar_expression(
+        } else if (!evaluate_rhs_first &&
+                   !lower_wide_scalar_expression(
                        context, expression->binary_rhs, &right)) {
             return false;
         } else if (binary_kind == EXPR_MUL) {
@@ -36476,8 +36486,16 @@ static bool lower_coroutine_compound_assignment_await_target_supported(
         !lower_coroutine_scalar_frame_value_supported(target_type) ||
         !lower_coroutine_scalar_frame_value_supported(expression->type) ||
         (g_opts.target_arch == ARCH_X86 &&
-         (lower_i686_wide_scalar_type(target_type) ||
-          lower_i686_wide_scalar_type(rhs_type)))) {
+         lower_i686_wide_scalar_type(rhs_type) &&
+         !lower_i686_wide_scalar_type(target_type)) ||
+        (g_opts.target_arch == ARCH_X86 &&
+         lower_i686_wide_scalar_type(target_type) &&
+         !type_is_integer((Type*)rhs_type) &&
+         rhs_type->kind != TYPE_ENUM) ||
+        (g_opts.target_arch == ARCH_X86 &&
+         lower_i686_wide_scalar_type(target_type) &&
+         (rhs_type->is_bit_precise || rhs_type->size <= 0 ||
+          rhs_type->size > 8))) {
         return false;
     }
     if (target_type->kind == TYPE_PTR) {
