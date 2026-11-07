@@ -723,6 +723,10 @@ static bool sema_exception_body_has_unregistered_cleanup(const Stmt* stmt);
 static bool sema_exception_body_has_vla(const Stmt* stmt);
 static bool sema_exception_body_has_call(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
+static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration);
+static Expr* sema_cxx_coroutine_promise_call(
+    Decl* declaration, const char* method_name, ExprList* arguments,
+    SourceLoc loc);
 static Type* sema_expr_impl(Expr* expr);
 static Type* sema_resolve_typeof_type(Type* type);
 static bool sema_cxx_is_untyped_braced_initializer(const Expr* expression);
@@ -23216,6 +23220,7 @@ static TypeMethod* sema_cxx_type_trait_assignment_method(
         declaration->kind = DECL_FUNC;
         declaration->func_is_coroutine = false;
         declaration->func_coroutine_promise_type = NULL;
+        declaration->func_coroutine_promise_lookup_attempted = false;
         declaration->name = rcc_intern("__rcc_type_trait_operator_assign");
         declaration->loc = loc;
         declaration->func_params = decllist_new(parameter_declaration);
@@ -31896,18 +31901,45 @@ static Type* sema_expr_impl(Expr* expr) {
         }
 
         case EXPR_CXX_CO_AWAIT:
-        case EXPR_CXX_CO_YIELD:
+        case EXPR_CXX_CO_YIELD: {
+            bool is_yield = expr->kind == EXPR_CXX_CO_YIELD;
             if (current_cxx_function_decl) {
                 current_cxx_function_decl->func_is_coroutine = true;
+                if (!current_func_auto_return_pending) {
+                    sema_resolve_cxx_coroutine_promise_type(
+                        current_cxx_function_decl);
+                }
             } else {
                 rcc_error(expr->loc,
                           "coroutine expression is not within a function");
             }
+            if (is_yield && current_cxx_function_decl &&
+                current_cxx_function_decl->func_coroutine_promise_type) {
+                Expr* yield_call = sema_cxx_coroutine_promise_call(
+                    current_cxx_function_decl, "yield_value",
+                    exprlist_new(expr->unary_operand), expr->loc);
+                if (yield_call) {
+                    (void)sema_expr(yield_call);
+                    expr->kind = EXPR_CXX_CO_AWAIT;
+                    expr->unary_operand = yield_call;
+                    rcc_error(expr->loc,
+                              "coroutine expression requires coroutine lowering");
+                    expr->type = type_int;
+                    break;
+                }
+            }
             sema_expr(expr->unary_operand);
-            rcc_error(expr->loc,
-                      "coroutine expression requires coroutine lowering");
+            if (!current_cxx_function_decl ||
+                !current_cxx_function_decl
+                     ->func_coroutine_promise_lookup_attempted ||
+                current_cxx_function_decl
+                    ->func_coroutine_promise_type) {
+                rcc_error(expr->loc,
+                          "coroutine expression requires coroutine lowering");
+            }
             expr->type = type_int;
             break;
+        }
 
         case EXPR_NOEXCEPT:
             sema_expr(expr->unary_operand);
@@ -40594,7 +40626,11 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
         !declaration->type || declaration->type->kind != TYPE_FUNC) {
         return;
     }
-    if (!sema_validate_cxx_coroutine_eligibility(declaration)) return;
+    if (declaration->func_coroutine_promise_lookup_attempted) return;
+    if (!sema_validate_cxx_coroutine_eligibility(declaration)) {
+        declaration->func_coroutine_promise_lookup_attempted = true;
+        return;
+    }
     return_type = declaration->type->ret_type;
     if (!return_type || return_type->cxx_dependent) return;
     if (declaration->func_method_owner &&
@@ -40609,6 +40645,7 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
             return;
         }
     }
+    declaration->func_coroutine_promise_lookup_attempted = true;
 #if defined(__GNUC__) || defined(__clang__)
     if (rcc_parser_cxx_resolve_coroutine_traits) {
         traits_class = rcc_parser_cxx_resolve_coroutine_traits(
@@ -40639,6 +40676,25 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
         return;
     }
     declaration->func_coroutine_promise_type = promise_type;
+}
+
+static Expr* sema_cxx_coroutine_promise_call(
+    Decl* declaration, const char* method_name, ExprList* arguments,
+    SourceLoc loc) {
+    Decl* promise_object;
+    Expr* object;
+    Expr* member;
+    if (!declaration || !declaration->func_coroutine_promise_type ||
+        !method_name) {
+        return NULL;
+    }
+    promise_object = decl_var(
+        "__rcc_coroutine_promise",
+        declaration->func_coroutine_promise_type, NULL, loc);
+    object = expr_ident(promise_object->name, loc);
+    object->ident_decl = promise_object;
+    member = expr_member(object, method_name, loc);
+    return expr_call(member, arguments, loc);
 }
 
 static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
@@ -40696,27 +40752,17 @@ static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
         case STMT_RETURN:
             if (statement->cxx_is_co_return &&
                 declaration->func_coroutine_promise_type) {
-                Decl* promise_object = decl_var(
-                    "__rcc_coroutine_promise",
-                    declaration->func_coroutine_promise_type, NULL,
-                    statement->loc);
-                Expr* object = expr_ident(promise_object->name,
-                                          statement->loc);
-                Expr* member;
                 Expr* call;
-
-                object->ident_decl = promise_object;
-                member = expr_member(
-                    object,
+                call = sema_cxx_coroutine_promise_call(
+                    declaration,
                     statement->return_val ? "return_value" : "return_void",
-                    statement->loc);
-                call = expr_call(
-                    member,
                     statement->return_val
                         ? exprlist_new(statement->return_val) : NULL,
                     statement->loc);
-                (void)sema_expr(call);
-                statement->return_val = call;
+                if (call) {
+                    (void)sema_expr(call);
+                    statement->return_val = call;
+                }
             }
             break;
         case STMT_EXPR:

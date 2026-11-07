@@ -1682,6 +1682,9 @@ struct Decl {
             bool func_is_coroutine;
             /* Resolved from the coroutine return type's promise_type. */
             Type* func_coroutine_promise_type;
+            /* Avoid repeating a failed, non-dependent traits lookup at each
+             * coroutine expression; dependent lookups remain retryable. */
+            bool func_coroutine_promise_lookup_attempted;
             bool func_is_template_instance;
             bool func_is_explicit_template_specialization;
             /* Member-function template candidates defer body substitution
