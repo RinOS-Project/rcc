@@ -1715,6 +1715,7 @@ struct Decl {
             /* Set when C++20 coroutine syntax occurs in this function. */
             bool func_is_coroutine;
             bool func_coroutine_fallthrough_return_added;
+            bool func_coroutine_return_overloads_checked;
             unsigned func_coroutine_next_suspend_index;
             /* Resolved from the coroutine return type's promise_type. */
             Type* func_coroutine_promise_type;

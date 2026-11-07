@@ -23240,6 +23240,7 @@ static TypeMethod* sema_cxx_type_trait_assignment_method(
         declaration = ast_arena_alloc(sizeof(*declaration));
         declaration->kind = DECL_FUNC;
         declaration->func_is_coroutine = false;
+        declaration->func_coroutine_return_overloads_checked = false;
         declaration->func_coroutine_next_suspend_index = 1u;
         declaration->func_coroutine_promise_type = NULL;
         declaration->func_coroutine_promise_object = NULL;
@@ -41084,6 +41085,16 @@ static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
         return;
     }
     loc = declaration->loc;
+    if (!declaration->func_coroutine_return_overloads_checked) {
+        declaration->func_coroutine_return_overloads_checked = true;
+        if (sema_cxx_coroutine_class_has_member_name(
+                declaration->func_coroutine_promise_type, "return_void") &&
+            sema_cxx_coroutine_class_has_member_name(
+                declaration->func_coroutine_promise_type, "return_value")) {
+            rcc_error(loc,
+                      "coroutine promise cannot declare both return_void and return_value");
+        }
+    }
     if (!declaration->func_coroutine_get_return_object_checked) {
         Expr* return_object;
         Type* return_type = declaration->type->ret_type;
@@ -41195,6 +41206,10 @@ static void sema_append_cxx_coroutine_fallthrough_return(
         declaration->func_coroutine_fallthrough_return_added ||
         !declaration->func_coroutine_promise_type ||
         !(body = declaration->func_body)) {
+        return;
+    }
+    if (!sema_cxx_coroutine_class_has_member_name(
+            declaration->func_coroutine_promise_type, "return_void")) {
         return;
     }
     if (body->kind != STMT_BLOCK) {
