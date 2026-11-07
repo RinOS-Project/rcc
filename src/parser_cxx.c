@@ -15414,6 +15414,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
         CxxClass* enclosing_class = active_class;
         active_class = cls;
         has_definition = true;
+        cls->has_definition = true;
         AccessSpec current_access = is_struct
             ? ACCESS_PUBLIC : ACCESS_PRIVATE;
 
@@ -26827,10 +26828,12 @@ static Type* instantiate_class_template_for_owner(
     SourceLoc loc) {
     CxxClass* definition;
     CxxClass* instance;
+    CxxClass* instance_to_complete = NULL;
     char* tag = NULL;
     size_t tag_capacity = 0u;
     size_t tag_length = 0u;
     int index;
+    int instance_cache_index = -1;
     uint32_t constructor_mask;
     bool has_value_parameters = false;
     CxxClass* saved_local_class_instance;
@@ -27152,16 +27155,26 @@ static Type* instantiate_class_template_for_owner(
             substitution_value_present, loc, true, NULL)) {
         return type_int;
     }
+    definition = tmpl->templated_class;
     for (index = 0; index < tmpl->instance_count; ++index) {
         if (class_template_instance_matches(
                 tmpl, index, arguments, value_args, value_present,
                 argument_count, pack_index, owner_class)) {
+            CxxClass* cached_instance =
+                (CxxClass*)tmpl->instances[index].instantiated;
+            if (cached_instance && !cached_instance->has_definition &&
+                definition->has_definition) {
+                instance_to_complete = cached_instance;
+                instance_cache_index = index;
+                break;
+            }
             return ((CxxClass*)tmpl->instances[index].instantiated)->type;
         }
     }
 
-    definition = tmpl->templated_class;
-    if (tmpl->specialization_arg_count > 0) {
+    if (instance_to_complete) {
+        tag = ast_arena_strdup(instance_to_complete->name);
+    } else if (tmpl->specialization_arg_count > 0) {
         char instance_suffix[32];
         char* specialization_suffix = NULL;
         size_t suffix_capacity = 0u;
@@ -27206,6 +27219,17 @@ static Type* instantiate_class_template_for_owner(
         instance->type = type_union(instance->name);
         instance->type->cxx_class = instance;
     }
+    if (instance_to_complete) {
+        Type* stable_type = instance_to_complete->type;
+        *instance_to_complete = *instance;
+        if (stable_type && instance->type) {
+            *stable_type = *instance->type;
+            instance_to_complete->type = stable_type;
+            stable_type->cxx_class = instance_to_complete;
+        }
+        instance = instance_to_complete;
+    }
+    instance->has_definition = definition->has_definition;
     instance->is_final = definition->is_final;
     instance->is_deprecated = definition->is_deprecated;
     instance->deprecated_message = definition->deprecated_message;
@@ -28058,34 +28082,37 @@ static Type* instantiate_class_template_for_owner(
                                                constructor_mask);
     }
 
-    tmpl->instances = ast_arena_grow(
-        tmpl->instances,
-        sizeof(tmpl->instances[0]) * (size_t)tmpl->instance_count,
-        sizeof(tmpl->instances[0]) * (size_t)(tmpl->instance_count + 1));
-    tmpl->instances[tmpl->instance_count].args = instance->template_args;
-    tmpl->instances[tmpl->instance_count].value_args = NULL;
-    tmpl->instances[tmpl->instance_count].value_present = NULL;
-    tmpl->instances[tmpl->instance_count].pack_args = NULL;
-    tmpl->instances[tmpl->instance_count].pack_values = NULL;
-    tmpl->instances[tmpl->instance_count].pack_value_present = NULL;
-    tmpl->instances[tmpl->instance_count].pack_offsets = NULL;
-    tmpl->instances[tmpl->instance_count].pack_counts = NULL;
-    tmpl->instances[tmpl->instance_count].pack_count = 0;
+    if (instance_cache_index < 0) {
+        instance_cache_index = tmpl->instance_count;
+        tmpl->instances = ast_arena_grow(
+            tmpl->instances,
+            sizeof(tmpl->instances[0]) * (size_t)tmpl->instance_count,
+            sizeof(tmpl->instances[0]) * (size_t)(tmpl->instance_count + 1));
+    }
+    tmpl->instances[instance_cache_index].args = instance->template_args;
+    tmpl->instances[instance_cache_index].value_args = NULL;
+    tmpl->instances[instance_cache_index].value_present = NULL;
+    tmpl->instances[instance_cache_index].pack_args = NULL;
+    tmpl->instances[instance_cache_index].pack_values = NULL;
+    tmpl->instances[instance_cache_index].pack_value_present = NULL;
+    tmpl->instances[instance_cache_index].pack_offsets = NULL;
+    tmpl->instances[instance_cache_index].pack_counts = NULL;
+    tmpl->instances[instance_cache_index].pack_count = 0;
     if (has_value_parameters) {
-        tmpl->instances[tmpl->instance_count].value_args = ast_arena_alloc(
+        tmpl->instances[instance_cache_index].value_args = ast_arena_alloc(
             sizeof(int64_t) * (size_t)argument_count);
-        tmpl->instances[tmpl->instance_count].value_present = ast_arena_alloc(
+        tmpl->instances[instance_cache_index].value_present = ast_arena_alloc(
             sizeof(bool) * (size_t)argument_count);
-        memcpy(tmpl->instances[tmpl->instance_count].value_args, value_args,
+        memcpy(tmpl->instances[instance_cache_index].value_args, value_args,
                sizeof(int64_t) * (size_t)argument_count);
-        memcpy(tmpl->instances[tmpl->instance_count].value_present,
+        memcpy(tmpl->instances[instance_cache_index].value_present,
                value_present, sizeof(bool) * (size_t)argument_count);
     }
     if (pack_index >= 0) {
         int actual_pack_count = tmpl->is_local_class_template &&
                 tmpl->pending_pack_count >= 0
             ? tmpl->pending_pack_count : argument_count - pack_index;
-        tmpl->instances[tmpl->instance_count].pack_count = actual_pack_count;
+        tmpl->instances[instance_cache_index].pack_count = actual_pack_count;
         if (actual_pack_count > 0 &&
             (tmpl->params[pack_index].kind == TPARAM_TYPE ||
              tmpl->params[pack_index].kind == TPARAM_TEMPLATE ||
@@ -28093,9 +28120,9 @@ static Type* instantiate_class_template_for_owner(
             Type** pack_args = tmpl->is_local_class_template &&
                     tmpl->pending_pack_count >= 0
                 ? tmpl->pending_pack_args : arguments + pack_index;
-            tmpl->instances[tmpl->instance_count].pack_args =
+            tmpl->instances[instance_cache_index].pack_args =
                 ast_arena_alloc(sizeof(Type*) * (size_t)actual_pack_count);
-            memcpy(tmpl->instances[tmpl->instance_count].pack_args,
+            memcpy(tmpl->instances[instance_cache_index].pack_args,
                    pack_args, sizeof(Type*) * (size_t)actual_pack_count);
         }
         if (actual_pack_count > 0 &&
@@ -28107,21 +28134,24 @@ static Type* instantiate_class_template_for_owner(
                     tmpl->pending_pack_count >= 0
                 ? tmpl->pending_pack_value_present
                 : (bool*)value_present + pack_index;
-            tmpl->instances[tmpl->instance_count].pack_values = ast_arena_alloc(
+            tmpl->instances[instance_cache_index].pack_values = ast_arena_alloc(
                 sizeof(int64_t) * (size_t)actual_pack_count);
-            tmpl->instances[tmpl->instance_count].pack_value_present =
+            tmpl->instances[instance_cache_index].pack_value_present =
                 ast_arena_alloc(sizeof(bool) * (size_t)actual_pack_count);
-            memcpy(tmpl->instances[tmpl->instance_count].pack_values,
+            memcpy(tmpl->instances[instance_cache_index].pack_values,
                    pack_values, sizeof(int64_t) * (size_t)actual_pack_count);
-            memcpy(tmpl->instances[tmpl->instance_count].pack_value_present,
+            memcpy(tmpl->instances[instance_cache_index].pack_value_present,
                    pack_value_present,
                    sizeof(bool) * (size_t)actual_pack_count);
         }
     }
-    tmpl->instances[tmpl->instance_count].arg_count = argument_count;
-    tmpl->instances[tmpl->instance_count].owner_class = owner_class;
-    tmpl->instances[tmpl->instance_count].instantiated = instance;
-    ++tmpl->instance_count;
+    tmpl->instances[instance_cache_index].arg_count = argument_count;
+    tmpl->instances[instance_cache_index].owner_class = owner_class;
+    tmpl->instances[instance_cache_index].instantiated = instance;
+    if (instance_cache_index == tmpl->instance_count) {
+        ++tmpl->instance_count;
+    }
+    if (!definition->has_definition) instance->type->is_complete = false;
     return instance->type;
 }
 

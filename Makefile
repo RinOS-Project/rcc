@@ -1453,6 +1453,9 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-constraints \
 	test-cxx-friend-requires-forms \
 	test-cxx20-unsupported-boundaries \
+	test-cxx-class-template-forward-definition \
+	test-cxx20-coroutine-eager \
+	test-cxx20-coroutine-suspended-awaits \
 	test-cxx-named-concepts \
 	test-cxx-alias-templates \
 	test-cxx-nested-class-templates \
@@ -4337,6 +4340,32 @@ test-cxx20-unsupported-boundaries: $(RCXX_TARGET)
 	$(GREP) -F -q "std::coroutine_traits<R, Args...>::promise_type is unavailable" $(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x64.ro)
 	@echo "C++20 module and coroutine unsupported-boundary diagnostics completed"
+
+.PHONY: test-cxx-class-template-forward-definition
+test-cxx-class-template-forward-definition: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-forward-definition)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-template-forward-definition,cxx_class_template_forward_definition.cpp,1)
+	@echo "C++ class-template forward-definition tests completed"
+
+.PHONY: test-cxx20-coroutine-eager
+test-cxx20-coroutine-eager: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-eager)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-eager,cxx20_coroutine_eager.cpp,11)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_eager_void_coroutinev_resume,$(TEST_OUT)/cxx20-coroutine-eager/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_eager_void_coroutinev_destroy,$(TEST_OUT)/cxx20-coroutine-eager/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_eager_void_coroutinev_resume,$(TEST_OUT)/cxx20-coroutine-eager/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_eager_void_coroutinev_destroy,$(TEST_OUT)/cxx20-coroutine-eager/verified-x64.ro)
+	@echo "C++20 eager coroutine verified-backend tests completed"
+
+.PHONY: test-cxx20-coroutine-suspended-awaits
+test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-suspended-awaits)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-suspended-awaits,cxx20_coroutine_suspended_awaits.cpp,14)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_resume,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_destroy,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_resume,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_destroy,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
+	@echo "C++20 suspended coroutine await tests completed"
 
 .PHONY: test-syntax-only
 test-syntax-only: $(RCC_TARGET) $(RCXX_TARGET)

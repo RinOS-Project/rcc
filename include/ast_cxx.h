@@ -124,6 +124,7 @@ struct CxxClass {
     bool is_module_reachable_private;
     bool is_struct;          /* struct vs class (default access) */
     bool is_union;           /* A union shares the class-member grammar. */
+    bool has_definition;      /* The class body has been parsed. */
     bool is_final;           /* C++ final class cannot be used as a base. */
     bool is_deprecated;
     const char* deprecated_message;

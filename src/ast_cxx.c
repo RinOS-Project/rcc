@@ -6458,6 +6458,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->name = name ? rcc_strdup(name) : NULL;
     cls->is_struct = is_struct;
     cls->is_union = false;
+    cls->has_definition = false;
     cls->is_final = false;
     cls->is_deprecated = false;
     cls->deprecated_message = NULL;
@@ -8677,7 +8678,9 @@ static bool cxx_template_template_signature_matches(
         const TemplateParam* left_parameter = &left->params[index];
         const TemplateParam* right_parameter = &right->params[index];
         if (left_parameter->kind != right_parameter->kind ||
-            left_parameter->is_pack != right_parameter->is_pack) {
+            left_parameter->is_pack != right_parameter->is_pack ||
+            (left_parameter->kind == TPARAM_NONTYPE &&
+             left_parameter->is_auto != right_parameter->is_auto)) {
             return false;
         }
         if (left_parameter->kind == TPARAM_TYPE) continue;
@@ -9562,6 +9565,57 @@ static void cxx_template_merge_default_arguments(CxxTemplate* target,
     }
 }
 
+static bool cxx_class_template_primary_redeclaration_matches(
+    const CxxTemplate* left, const CxxTemplate* right) {
+    if (!left || !right || left->kind != TMPL_CLASS ||
+        right->kind != TMPL_CLASS || left->primary_template ||
+        right->primary_template || left->is_concept || right->is_concept ||
+        left->enclosing_class != right->enclosing_class ||
+        left->enclosing_template != right->enclosing_template ||
+        left->is_local_class_template != right->is_local_class_template ||
+        !left->name || !right->name || strcmp(left->name, right->name) != 0 ||
+        left->param_count != right->param_count ||
+        (!!left->constraint != !!right->constraint) ||
+        (left->constraint &&
+         !cxx_template_redeclaration_expr_matches(
+             left->constraint,
+             left->constraint_context ? left->constraint_context : left,
+             NULL,
+             right->constraint,
+             right->constraint_context ? right->constraint_context : right,
+             NULL, 0))) {
+        return false;
+    }
+    for (int index = 0; index < left->param_count; ++index) {
+        const TemplateParam* left_parameter = &left->params[index];
+        const TemplateParam* right_parameter = &right->params[index];
+        if (left_parameter->kind != right_parameter->kind ||
+            left_parameter->is_pack != right_parameter->is_pack ||
+            (left_parameter->kind == TPARAM_NONTYPE &&
+             left_parameter->is_auto != right_parameter->is_auto)) {
+            return false;
+        }
+        if (left_parameter->kind == TPARAM_NONTYPE &&
+            !cxx_template_redeclaration_type_matches(
+                left_parameter->type, left, right_parameter->type, right,
+                0)) {
+            return false;
+        }
+        if (left_parameter->kind == TPARAM_TEMPLATE &&
+            !cxx_template_template_signature_matches(
+                left_parameter->template_signature,
+                right_parameter->template_signature)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool cxx_class_template_has_definition(const CxxTemplate* tmpl) {
+    return tmpl && tmpl->templated_class &&
+        tmpl->templated_class->has_definition;
+}
+
 CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     if (!ns || !tmpl) return NULL;
     tmpl->ns = ns;
@@ -9572,6 +9626,67 @@ CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
         rcc_parser_module_reachable_current_record_private();
     tmpl->is_module_imported_record =
         rcc_parser_module_imported_record();
+    for (int index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* existing = ns->templates[index];
+        bool has_distinct_module_reachable_context;
+        bool is_imported_module_redeclaration;
+        bool existing_complete;
+        bool incoming_complete;
+        if (existing == tmpl) return existing;
+        if (!cxx_class_template_primary_redeclaration_matches(existing,
+                                                               tmpl)) {
+            continue;
+        }
+        has_distinct_module_reachable_context =
+            existing->has_module_reachable_lookup_context !=
+            tmpl->has_module_reachable_lookup_context;
+        is_imported_module_redeclaration =
+            existing->is_module_imported_record !=
+                tmpl->is_module_imported_record ||
+            (existing->is_module_imported_record &&
+             tmpl->is_module_imported_record &&
+             existing->is_module_reachable_private !=
+                 tmpl->is_module_reachable_private);
+        existing->is_module_reachable_private =
+            existing->is_module_reachable_private &&
+            tmpl->is_module_reachable_private;
+        existing->is_module_imported_record =
+            existing->is_module_imported_record &&
+            tmpl->is_module_imported_record;
+        existing->has_module_reachable_lookup_context =
+            existing->has_module_reachable_lookup_context ||
+            tmpl->has_module_reachable_lookup_context;
+        if (!has_distinct_module_reachable_context &&
+            !is_imported_module_redeclaration &&
+            cxx_template_redefines_default_argument(existing, tmpl)) {
+            rcc_error((SourceLoc){0},
+                      "redefinition of default template argument for '%s'",
+                      tmpl->name);
+            return existing;
+        }
+        cxx_template_merge_default_arguments(existing, tmpl);
+        cxx_template_merge_default_arguments(tmpl, existing);
+        existing_complete = cxx_class_template_has_definition(existing);
+        incoming_complete = cxx_class_template_has_definition(tmpl);
+        if (existing_complete && incoming_complete) {
+            if (has_distinct_module_reachable_context ||
+                is_imported_module_redeclaration) {
+                return existing;
+            }
+            rcc_error((SourceLoc){0},
+                      "redefinition of class template '%s'", tmpl->name);
+            return existing;
+        }
+        if (!existing_complete && incoming_complete) {
+            existing->params = tmpl->params;
+            existing->param_count = tmpl->param_count;
+            existing->constraint = tmpl->constraint;
+            existing->constraint_context = tmpl->constraint_context;
+            existing->templated_class = tmpl->templated_class;
+            existing->class_def = tmpl->templated_class;
+        }
+        return existing;
+    }
     if (tmpl->friend_access && tmpl->func_def &&
         !tmpl->func_def->func_body &&
         cxx_template_has_default_argument(tmpl)) {

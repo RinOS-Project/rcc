@@ -4409,24 +4409,29 @@ static int compile_current_input(char** argv) {
         printf("Code generation (%s)...\n",
                g_opts.target_arch == ARCH_X64 ? "x86-64" : "x86-32");
     }
-    Module* mod;
-    if (g_opts.target_arch == ARCH_X64) {
-        mod = rcc_codegen64(ast);
-    } else {
-        mod = rcc_codegen(ast);
-    }
-    if (!mod || g_error_count > 0) {
-        fprintf(stderr, "rcc++: code generation failed with %d error(s)\n",
-                g_error_count);
-        if (mod) codegen_free(mod);
-        tokenlist_free(tokens);
-        rcc_free(pp_source);
-        pp_free(pp);
-        cxx_module_pending_clear(&module_pending);
-        return 1;
+    bool defer_legacy_codegen = g_opts.output_format == OUTPUT_OBJ &&
+        g_opts.verified_backend;
+    Module* mod = NULL;
+    if (!defer_legacy_codegen) {
+        if (g_opts.target_arch == ARCH_X64) {
+            mod = rcc_codegen64(ast);
+        } else {
+            mod = rcc_codegen(ast);
+        }
+        if (!mod || g_error_count > 0) {
+            fprintf(stderr,
+                    "rcc++: code generation failed with %d error(s)\n",
+                    g_error_count);
+            if (mod) codegen_free(mod);
+            tokenlist_free(tokens);
+            rcc_free(pp_source);
+            pp_free(pp);
+            cxx_module_pending_clear(&module_pending);
+            return 1;
+        }
     }
 
-    if (g_opts.verbose) {
+    if (g_opts.verbose && mod) {
         printf("Generated: %lu bytes code, %lu bytes data\n",
                (unsigned long)mod->code.size, (unsigned long)mod->data.size);
     }
@@ -4446,7 +4451,7 @@ static int compile_current_input(char** argv) {
         if (!rcc_create_signing_temp(g_opts.output_file, "rcc-unsigned",
                                      unsigned_path, sizeof(unsigned_path))) {
             perror("rcc++: cannot create unsigned staging file");
-            codegen_free(mod);
+            if (mod) codegen_free(mod);
             tokenlist_free(tokens);
             rcc_free(pp_source);
             pp_free(pp);
@@ -4482,7 +4487,20 @@ static int compile_current_input(char** argv) {
                     if (g_opts.verbose) {
                         printf("Verified backend fallback: %s\n", reason);
                     }
-                    emit_ok = rcc_emit_obj(mod, emit_path);
+                    if (!mod) {
+                        if (g_opts.target_arch == ARCH_X64) {
+                            mod = rcc_codegen64(ast);
+                        } else {
+                            mod = rcc_codegen(ast);
+                        }
+                    }
+                    if (!mod || g_error_count > 0) {
+                        fprintf(stderr,
+                                "rcc++: legacy fallback code generation failed with %d error(s)\n",
+                                g_error_count);
+                    } else {
+                        emit_ok = rcc_emit_obj(mod, emit_path);
+                    }
                 } else {
                     fprintf(stderr,
                             "rcc++: verified backend failed: %s\n", reason);
@@ -4511,7 +4529,7 @@ static int compile_current_input(char** argv) {
 
     if (!emit_ok) {
         fprintf(stderr, "rcc++: failed to write output\n");
-        codegen_free(mod);
+        if (mod) codegen_free(mod);
         tokenlist_free(tokens);
         rcc_free(pp_source);
         pp_free(pp);
@@ -4528,10 +4546,16 @@ static int compile_current_input(char** argv) {
 
     printf("rcc++: compiled '%s' -> '%s' (%s, C++%d)\n",
            g_opts.input_file, g_opts.output_file, fmt_name, g_cxx_standard);
-    printf("       %d tokens, %d declarations, %lu bytes\n",
-           tokens->count, decl_count, (unsigned long)(mod->code.size + mod->data.size + 64));
+    if (mod) {
+        printf("       %d tokens, %d declarations, %lu bytes\n",
+               tokens->count, decl_count,
+               (unsigned long)(mod->code.size + mod->data.size + 64));
+    } else {
+        printf("       %d tokens, %d declarations, verified object\n",
+               tokens->count, decl_count);
+    }
 
-    codegen_free(mod);
+    if (mod) codegen_free(mod);
     tokenlist_free(tokens);
     rcc_free(pp_source);
     pp_free(pp);
