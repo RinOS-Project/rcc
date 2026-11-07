@@ -233,6 +233,8 @@ static bool driver_validate_expr(Expr* expression)
         case EXPR_ADDR:
         case EXPR_DEREF: case EXPR_PREINC: case EXPR_PREDEC:
         case EXPR_POSTINC: case EXPR_POSTDEC:
+        case EXPR_CXX_CO_AWAIT:
+        case EXPR_CXX_CO_YIELD:
             return driver_validate_expr(expression->unary_operand);
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:

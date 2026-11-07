@@ -3854,6 +3854,7 @@ static void print_usage_cxx(void) {
     printf("  --itanium-abi=gnu|clang18  Select GNU or Clang 18 NTTP mangling\n");
     printf("  -g              Generate debug info\n");
     printf("  -S              Output assembly\n");
+    printf("  -fsyntax-only   Parse and check without generating output\n");
     printf("  -I/-D/-U        Include path and macro controls\n");
     printf("  -nostdinc       Don't search standard include paths\n");
     printf("  -MMD/-MF <file> Emit user-header dependencies\n");
@@ -3884,6 +3885,7 @@ static int parse_cxx_args(int argc, char** argv) {
     g_opts.sse2_enabled = true;
     g_opts.cxx_itanium_abi = RCC_CXX_ITANIUM_ABI_GNU;
     g_opts.input_count = 0;
+    g_opts.syntax_only = false;
 
     static struct option long_options[] = {
         {"help", no_argument, 0, 'h'},
@@ -3919,6 +3921,7 @@ static int parse_cxx_args(int argc, char** argv) {
         {"frounding-math", no_argument, 0, 23},
         {"fno-rounding-math", no_argument, 0, 24},
         {"itanium-abi", required_argument, 0, 25},
+        {"fsyntax-only", no_argument, 0, 26},
         {0, 0, 0, 0}
     };
 
@@ -4124,6 +4127,9 @@ static int parse_cxx_args(int argc, char** argv) {
                     return -1;
                 }
                 break;
+            case 26:
+                g_opts.syntax_only = true;
+                break;
             default:
                 return -1;
         }
@@ -4170,7 +4176,7 @@ static int parse_cxx_args(int argc, char** argv) {
                     "rcc++: error: -o cannot name one output for multiple input files\n");
             return -1;
         }
-        if (!g_opts.preprocess_only &&
+        if (!g_opts.preprocess_only && !g_opts.syntax_only &&
             g_opts.output_format != OUTPUT_OBJ &&
             g_opts.output_format != OUTPUT_ASM) {
             fprintf(stderr,
@@ -4185,20 +4191,22 @@ static int parse_cxx_args(int argc, char** argv) {
     }
 
     if (!rcc_validate_signing_options(
-            "rcc++", !g_opts.preprocess_only &&
+            "rcc++", !g_opts.preprocess_only && !g_opts.syntax_only &&
                      (g_opts.output_format == OUTPUT_RIN ||
                       g_opts.output_format == OUTPUT_RLL ||
                       g_opts.output_format == OUTPUT_DRV))) {
         return -1;
     }
     if (g_opts.verified_backend && !g_opts.preprocess_only &&
+        !g_opts.syntax_only &&
         g_opts.output_format != OUTPUT_OBJ) {
         fprintf(stderr,
                 "rcc++: error: -fverified-backend currently requires -c\n");
         return -1;
     }
     /* Default output file */
-    if (g_opts.input_count == 1 && g_opts.output_file[0] == '\0') {
+    if (!g_opts.syntax_only && g_opts.input_count == 1 &&
+        g_opts.output_file[0] == '\0') {
         const char* ext;
         switch (g_opts.output_format) {
             case OUTPUT_RIN: ext = ".rin"; break;
@@ -4380,6 +4388,16 @@ static int compile_current_input(char** argv) {
         pp_free(pp);
         cxx_module_pending_clear(&module_pending);
         return 1;
+    }
+    if (g_opts.syntax_only) {
+        if (g_opts.verbose) {
+            printf("Syntax-only analysis completed\n");
+        }
+        tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
+        cxx_module_pending_clear(&module_pending);
+        return 0;
     }
     if (g_opts.opt_level > 0) {
         if (g_opts.verbose) printf("Optimization (-O%d)...\n", g_opts.opt_level);

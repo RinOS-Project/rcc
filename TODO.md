@@ -15215,8 +15215,24 @@ Continue in this order:
 - [x] Remove the obsolete expectation that `co_return` is rejected by the
       lexer/parser. Confirm it enters coroutine semantic analysis and reports
       a missing `std::coroutine_traits<R, Args...>::promise_type` when no
-      promise is available, on i686 and x86-64; keep the separate unsupported
-      `co_await`/`co_yield` diagnostics and assert no object is emitted.
-      `test-cxx20-unsupported-boundaries` passes. Coroutine frame construction,
-      resume/destroy generation, and executable `co_await`/`co_yield` lowering
-      remain incomplete.
+      promise is available, on i686 and x86-64; invalid `co_await`/`co_yield`
+      expressions without a promise receive the same specific diagnostic, and
+      no object is emitted. `test-cxx20-unsupported-boundaries` passes.
+      Coroutine frame construction, resume/destroy generation, and executable
+      `co_await`/`co_yield` lowering remain incomplete.
+
+## RCC continuation (2026-11-07, C/C++ syntax-only and coroutine sema)
+
+- [x] Implement `-fsyntax-only` in RCC and RCC++ so preprocessing, parsing,
+      semantic checks, and driver policy validation can run without code
+      generation or output files. Verify C on both targets and C++ coroutine
+      semantics on both targets; `test-syntax-only` and
+      `test-cxx20-unsupported-boundaries` pass.
+- [x] Parse `co_await` and `co_yield` as coroutine expressions and resolve the
+      promise/awaiter protocol through sema. Fix `coroutine_handle` instantiation
+      when the standard `coroutine_handle<void>` specialization exists, and
+      remove the reversed promise-type diagnostic. A positive fixture exercises
+      `operator co_await`, `co_await`, `co_yield`, `co_return`, and initial/final
+      suspend on i686 and x86-64 using syntax-only mode. Missing promise types
+      still receive specific diagnostics. Coroutine frame state-machine,
+      resume/destroy code generation, and runtime execution remain open.

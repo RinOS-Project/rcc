@@ -4255,12 +4255,8 @@ static Expr* parse_unary(void) {
         (strcmp(peek()->value.str_val, "co_await") == 0 ||
          strcmp(peek()->value.str_val, "co_yield") == 0)) {
         bool is_yield = strcmp(peek()->value.str_val, "co_yield") == 0;
-        const char* keyword = is_yield ? "co_yield" : "co_await";
         Expr* operand;
         advance();
-        rcc_error(loc,
-                  "C++20 coroutine keyword '%s' is not supported by RCC++",
-                  keyword);
         if (is_yield) {
             operand = parse_assignment();
         } else {

@@ -102,6 +102,7 @@ typedef struct {
     const char* undefines[RCC_MAX_DEFINES];
     int undef_count;
     bool preprocess_only;       /* -E */
+    bool syntax_only;           /* -fsyntax-only */
     bool emit_dependencies;     /* -MMD */
     char dependency_file[RCC_MAX_PATH]; /* -MF */
 

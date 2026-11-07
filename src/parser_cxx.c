@@ -19546,14 +19546,25 @@ Type* rcc_parser_cxx_resolve_coroutine_handle(
     CxxTemplate* handle_template;
     CxxClass* handle_class;
     Type** arguments;
+    int64_t* value_arguments;
+    bool* value_present;
+    size_t value_count;
 
     if (!promise_type || promise_type->cxx_dependent) return NULL;
     handle_template = find_template("::std::coroutine_handle", TMPL_CLASS);
     if (!handle_template) return NULL;
     arguments = ast_arena_alloc(sizeof(*arguments));
+    value_count = handle_template->param_count > 0
+        ? (size_t)handle_template->param_count : 1u;
+    value_arguments = ast_arena_alloc(
+        sizeof(*value_arguments) * value_count);
+    value_present = ast_arena_alloc(sizeof(*value_present) * value_count);
+    if (!arguments || !value_arguments || !value_present) return NULL;
+    memset(value_arguments, 0, sizeof(*value_arguments) * value_count);
+    memset(value_present, 0, sizeof(*value_present) * value_count);
     arguments[0] = promise_type;
     handle_class = rcc_cxx_instantiate_class_template(
-        handle_template, arguments, NULL, NULL, 1, loc);
+        handle_template, arguments, value_arguments, value_present, 1, loc);
     return handle_class ? handle_class->type : NULL;
 }
 

@@ -26,6 +26,7 @@ static void print_usage(void) {
     printf("  -o <file>       Output file name\n");
     printf("  -c              Compile to object file (.ro)\n");
     printf("  -E              Preprocess only\n");
+    printf("  -fsyntax-only   Parse and check without generating output\n");
     printf("  -S              Output assembly\n");
     printf("  -shared         Create shared library (.rll)\n");
     printf("  -driver         Create driver (.drv)\n");
@@ -90,6 +91,7 @@ static int parse_args(int argc, char** argv) {
     g_opts.define_count = 0;
     g_opts.undef_count = 0;
     g_opts.input_count = 0;
+    g_opts.syntax_only = false;
 
     /* Manual argument parsing for better GCC compatibility */
     for (int i = 1; i < argc; i++) {
@@ -119,6 +121,8 @@ static int parse_args(int argc, char** argv) {
             g_opts.output_format_explicit = true;
         } else if (strcmp(arg, "-E") == 0) {
             g_opts.preprocess_only = true;
+        } else if (strcmp(arg, "-fsyntax-only") == 0) {
+            g_opts.syntax_only = true;
         } else if (strcmp(arg, "-S") == 0) {
             g_opts.output_format = OUTPUT_ASM;
             g_opts.output_format_explicit = true;
@@ -441,7 +445,7 @@ static int parse_args(int argc, char** argv) {
                     "rcc: error: -o cannot name one output for multiple input files\n");
             return -1;
         }
-        if (!g_opts.preprocess_only &&
+        if (!g_opts.preprocess_only && !g_opts.syntax_only &&
             g_opts.output_format != OUTPUT_OBJ &&
             g_opts.output_format != OUTPUT_ASM) {
             fprintf(stderr,
@@ -455,20 +459,22 @@ static int parse_args(int argc, char** argv) {
         }
     }
     if (!rcc_validate_signing_options(
-            "rcc", !g_opts.preprocess_only &&
+            "rcc", !g_opts.preprocess_only && !g_opts.syntax_only &&
                    (g_opts.output_format == OUTPUT_RIN ||
                     g_opts.output_format == OUTPUT_RLL ||
                     g_opts.output_format == OUTPUT_DRV))) {
         return -1;
     }
     if (g_opts.verified_backend && !g_opts.preprocess_only &&
+        !g_opts.syntax_only &&
         g_opts.output_format != OUTPUT_OBJ) {
         fprintf(stderr,
                 "rcc: error: -fverified-backend currently requires -c\n");
         return -1;
     }
     /* Default output file */
-    if (g_opts.input_count == 1 && g_opts.output_file[0] == '\0') {
+    if (!g_opts.syntax_only && g_opts.input_count == 1 &&
+        g_opts.output_file[0] == '\0') {
         const char* ext;
         switch (g_opts.output_format) {
             case OUTPUT_OBJ: ext = ".ro"; break;
@@ -734,6 +740,15 @@ static int compile_current_input(char** argv) {
         rcc_free(pp_source);
         pp_free(pp);
         return 1;
+    }
+    if (g_opts.syntax_only) {
+        if (g_opts.verbose) {
+            printf("Syntax-only analysis completed\n");
+        }
+        tokenlist_free(tokens);
+        rcc_free(pp_source);
+        pp_free(pp);
+        return 0;
     }
     if (g_opts.opt_level > 0 &&
         !(use_verified_backend && complex_translation_unit)) {
