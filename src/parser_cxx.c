@@ -55192,8 +55192,6 @@ static Stmt* parse_cxx_statement(void) {
             ? NULL : parse_cxx_expression();
         Stmt* statement;
         expect(TOK_SEMICOLON, ";");
-        rcc_error(loc,
-                  "C++20 coroutine keyword 'co_return' is not supported by RCC++");
         statement = stmt_return(expression, loc);
         statement->cxx_is_co_return = true;
         return statement;
