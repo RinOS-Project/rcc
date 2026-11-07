@@ -3331,23 +3331,31 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCC_TARGET) --target i686-unknown-rinos -O1 -S \
 		-o $(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o1.s \
 		tests/debug_info_atomic_rmw.c
-	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o1.s,2)
+	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o1.s,4)
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -S \
 		-o $(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o2.s \
 		tests/debug_info_atomic_rmw.c
-	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o2.s,2)
+	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-rmw-x86-o2.s,4)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -g -O1 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.ro \
 		tests/debug_info_atomic_rmw.c \
 		>$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.log
 	$(GREP) -F -q 'debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_divide_entry' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.log
+	$(GREP) -F -q 'debug_inline_nonconstant_unsigned_long_long_atomic_local_rmw_add_divide_entry' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-g.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -g -O2 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.ro \
 		tests/debug_info_atomic_rmw.c \
 		>$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.log
 	$(GREP) -F -q 'debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_divide_entry' \
+		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.log
+	$(GREP) -F -q 'debug_inline_nonconstant_unsigned_long_long_atomic_local_rmw_add_divide_entry' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-rmw-x86-inline-o2-g.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -g -O1 -fverified-backend -v -c \

@@ -10863,9 +10863,13 @@ static void verify_inline_i686_computed_division_expression(
     const char* dividend_name = bitwise_tree
         ? "computed_bitwise_division_dividend"
         : atomic_rmw_tree
-              ? (strstr(call_site_name, "_rmw_sub_")
-                     ? "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_sub_dividend"
-                     : "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_dividend")
+              ? is_signed
+                    ? (strstr(call_site_name, "_rmw_sub_")
+                           ? "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_sub_dividend"
+                           : "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_add_dividend")
+                    : (strstr(call_site_name, "_rmw_sub_")
+                           ? "debug_inline_nonconstant_unsigned_long_long_atomic_local_rmw_sub_dividend"
+                           : "debug_inline_nonconstant_unsigned_long_long_atomic_local_rmw_add_dividend")
         : atomic_store_tree
               ? (atomic_store_pointer_tree
                      ? "computed_atomic_store_pointer_division_dividend"
@@ -11083,7 +11087,9 @@ static void verify_inline_i686_computed_division_expression(
                     ? dividend % divisor : dividend / divisor);
             } else {
                 uint64_t dividend = atomic_store_tree
-                    ? (atomic_store_computed_tree
+                    ? (atomic_rmw_tree
+                           ? dividend_bits ^ UINT64_C(0x100000001)
+                       : atomic_store_computed_tree
                            ? dividend_bits +
                                  UINT64_C(0x123456789abcdef0)
                            : dividend_bits)
@@ -21766,6 +21772,14 @@ int main(int argc, char** argv)
                 argv[index],
                 "debug_inline_nonconstant_signed_long_long_atomic_local_rmw_sub_remainder_entry",
                 true, true, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_local_rmw_add_divide_entry",
+                false, false, false, false, false, false, false, true);
+            verify_inline_i686_computed_division_expression(
+                argv[index],
+                "debug_inline_nonconstant_unsigned_long_long_atomic_local_rmw_sub_remainder_entry",
+                false, true, false, false, false, false, false, true);
         }
         return 0;
     }

@@ -15182,3 +15182,16 @@ Continue in this order:
       `test-debug-info` pass. Namespace/block-scope `thread_local` reference
       object initialization, atomic stores/RMW, and broader optimized
       multi-piece lifetime/CFI coverage remain open.
+
+## RCC continuation (2026-11-07, unsigned atomic RMW i686 divmod DWARF)
+
+- [x] Verify unsigned i686 64-bit `/` and `%` inline-argument DWARF values
+      after volatile automatic `_Atomic unsigned long long` `+=` and `-=` RMW
+      updates. Apply the `0x100000001` XOR and a nonzero computed divisor
+      (`parameter * 2 + 1`), then check the 11-by-13 unsigned boundary matrix
+      on legacy and verified objects at `-O1` and `-O2`. Each assembly
+      optimization level contains the expected four `lock cmpxchg8b` sequences;
+      verified output emits six functions with zero fallback. Both
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+      Namespace-scope TLS reference initialization and broader optimized
+      multi-piece lifetime/CFI coverage remain open.
