@@ -1989,42 +1989,85 @@ static uint64_t ir_pass_cse_memory_access_bytes(
     return 0u;
 }
 
-static bool ir_pass_cse_memory_ranges_disjoint(
+static bool ir_pass_cse_memory_write_range_disjoint(
     const RccIrCseContext* context, const RccIrInstruction* load,
-    const RccIrInstruction* store) {
+    RccIrValue write_address, uint64_t write_bytes) {
     RccIrCseMemoryLocation load_location;
-    RccIrCseMemoryLocation store_location;
+    RccIrCseMemoryLocation write_location;
     uint64_t load_bytes;
-    uint64_t store_bytes;
     uint64_t load_end;
-    uint64_t store_end;
-    if (!context || !load || !store || load->operand_count != 1u ||
-        store->operand_count != 2u ||
+    if (!context || !load || load->operand_count != 1u ||
         !ir_pass_cse_memory_location(
             context, load->operands[0], 0u, &load_location) ||
         !ir_pass_cse_memory_location(
-            context, store->operands[1], 0u, &store_location) ||
-        !load_location.valid || !store_location.valid ||
+            context, write_address, 0u, &write_location) ||
+        !load_location.valid || !write_location.valid ||
         !ir_pass_value_is_unique_object(context, load_location.object) ||
-        !ir_pass_value_is_unique_object(context, store_location.object)) {
+        !ir_pass_value_is_unique_object(context, write_location.object)) {
         return false;
     }
-    if (load_location.object != store_location.object) return true;
+    if (load_location.object != write_location.object) return true;
     if (!load_location.byte_offset_known ||
-        !store_location.byte_offset_known) {
+        !write_location.byte_offset_known) {
         return false;
     }
     load_bytes = ir_pass_cse_memory_access_bytes(context, load, true);
-    store_bytes = ir_pass_cse_memory_access_bytes(context, store, false);
-    if (load_bytes == 0u || store_bytes == 0u ||
+    if (load_bytes == 0u || write_bytes == 0u ||
         load_bytes > UINT64_MAX - load_location.byte_offset ||
-        store_bytes > UINT64_MAX - store_location.byte_offset) {
+        write_bytes > UINT64_MAX - write_location.byte_offset) {
         return false;
     }
     load_end = load_location.byte_offset + load_bytes;
-    store_end = store_location.byte_offset + store_bytes;
-    return load_end <= store_location.byte_offset ||
-        store_end <= load_location.byte_offset;
+    return load_end <= write_location.byte_offset ||
+        write_location.byte_offset + write_bytes <=
+            load_location.byte_offset;
+}
+
+static bool ir_pass_cse_memory_ranges_disjoint(
+    const RccIrCseContext* context, const RccIrInstruction* load,
+    const RccIrInstruction* store) {
+    uint64_t store_bytes;
+    if (!context || !load || !store || store->opcode != RCC_IR_STORE ||
+        store->operand_count != 2u) {
+        return false;
+    }
+    store_bytes = ir_pass_cse_memory_access_bytes(context, store, false);
+    return ir_pass_cse_memory_write_range_disjoint(
+        context, load, store->operands[1], store_bytes);
+}
+
+static bool ir_pass_cse_memory_copy_disjoint_from_load(
+    const RccIrCseContext* context, const RccIrInstruction* load,
+    const RccIrInstruction* call) {
+    RccIrValue size_value;
+    RccIrInstruction* size_definition;
+    uint16_t size_width;
+    uint64_t size;
+    if (!context || !load || !call || call->opcode != RCC_IR_CALL ||
+        !call->callee || call->operand_count != 3u ||
+        (strcmp(call->callee, "memcpy") != 0 &&
+         strcmp(call->callee, "memmove") != 0)) {
+        return false;
+    }
+    size_value = call->operands[2];
+    if (size_value >= context->function->value_count ||
+        !context->value_definitions) {
+        return false;
+    }
+    size_definition = context->value_definitions[size_value];
+    size_width = context->function->value_types[size_value].bit_width;
+    if (!size_definition || size_definition->opcode != RCC_IR_CONST_INT ||
+        context->function->value_types[size_value].kind !=
+            RCC_IR_TYPE_INTEGER || size_width == 0u || size_width > 64u) {
+        return false;
+    }
+    size = size_definition->immediate;
+    if (size_width < 64u) {
+        size &= (UINT64_C(1) << size_width) - UINT64_C(1);
+    }
+    return size == 0u ||
+        ir_pass_cse_memory_write_range_disjoint(
+            context, load, call->operands[0], size);
 }
 
 static bool ir_pass_cse_restrict_roots_disjoint(
@@ -2343,12 +2386,24 @@ static void ir_pass_common_block(RccIrCseContext* context,
             ir_pass_remove_dead_store(context, instruction);
             ir_pass_record_store_value(context, instruction);
         } else if (instruction->opcode == RCC_IR_CALL) {
-            /* Without a call memory-effect summary, any call may mutate every
-             * address and invalidates all available loads.  It can also
-             * change a pointer parameter, so later restrict-root separation
-             * is disabled for this function walk. */
+            size_t retained = 0u;
+            size_t load_index;
+            /* Standard memcpy/memmove write only the known destination byte
+             * range.  Preserve loads proven outside that range; unknown calls
+             * still invalidate every load. */
+            for (load_index = 0u;
+                 load_index < context->block_load_count; ++load_index) {
+                RccIrInstruction* prior_load =
+                    context->block_loads[load_index];
+                if (ir_pass_cse_memory_copy_disjoint_from_load(
+                        context, prior_load, instruction)) {
+                    context->block_loads[retained++] = prior_load;
+                }
+            }
+            context->block_load_count = retained;
+            /* Calls can mutate unknown memory and pointer parameters, so
+             * store facts and later restrict-root separation are cleared. */
             context->restrict_aliasing_valid = false;
-            context->block_load_count = 0u;
             ir_pass_clear_block_store_facts(context);
         }
         if (!ir_pass_cse_candidate(instruction)) {
