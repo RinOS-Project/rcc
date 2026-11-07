@@ -36435,11 +36435,11 @@ static bool lower_coroutine_scalar_frame_value_supported(
     if (!type || type->is_reference || type->kind == TYPE_VOID ||
         type->kind == TYPE_FUNC || type->kind == TYPE_ARRAY ||
         type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
-        lower_cxx_type_has_destructor_cleanup(type) ||
-        !lower_abi_native_scalar_type(type, &ir_type)) {
+        lower_cxx_type_has_destructor_cleanup(type)) {
         return false;
     }
-    return true;
+    return lower_i686_wide_scalar_type(type) ||
+        lower_abi_native_scalar_type(type, &ir_type);
 }
 
 static bool lower_coroutine_copy_scalar_parameters_to_frame(
@@ -37238,21 +37238,28 @@ static bool lower_coroutine_count_expression_awaits(
                     expression->va_second_operand, body_await_count);
         case EXPR_CALL: {
             size_t await_count_before_call = *body_await_count;
-            size_t argument_count = 0u;
+            size_t argument_index = 0u;
+            bool first_argument_has_await = false;
             if (!lower_coroutine_count_expression_awaits(
                     expression->call_func, body_await_count)) {
                 return false;
             }
+            if (*body_await_count != await_count_before_call) return false;
             for (const ExprList* argument = expression->call_args;
                  argument; argument = argument->next) {
-                ++argument_count;
+                size_t await_count_before_argument = *body_await_count;
                 if (!lower_coroutine_count_expression_awaits(
                         argument->expr, body_await_count)) {
                     return false;
                 }
+                if (*body_await_count != await_count_before_argument) {
+                    if (argument_index != 0u) return false;
+                    first_argument_has_await = true;
+                }
+                ++argument_index;
             }
             if (*body_await_count != await_count_before_call &&
-                (argument_count != 1u || !expression->call_func ||
+                (!first_argument_has_await || !expression->call_func ||
                  expression->call_func->kind != EXPR_IDENT ||
                  !expression->call_func->ident_decl ||
                  expression->call_func->ident_decl->kind != DECL_FUNC ||

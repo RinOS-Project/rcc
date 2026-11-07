@@ -15300,8 +15300,10 @@ Continue in this order:
       Conditional and short-circuit
       expressions now lower their existing control-flow graphs across
       suspension, and indexed lvalues use the coroutine-aware pointer/index
-      lowering path. Await discovery now includes assignment targets, compound
-      assignments, member-pointer and other expression containers so
+      lowering path. A direct `noexcept` call can now lower additional arguments
+      after its first suspending argument resumes. Await discovery now includes
+      assignment targets, compound assignments, member-pointer and other
+      expression containers so
       unsupported forms fail closed instead of bypassing coroutine accounting.
       These new source paths have not received compiler/runtime acceptance;
       remaining i686 wide-scalar shapes and expression liveness still need
