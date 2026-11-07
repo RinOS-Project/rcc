@@ -36462,23 +36462,33 @@ static bool lower_coroutine_scalar_frame_value_supported(
         lower_abi_native_scalar_type(type, &ir_type);
 }
 
-static bool lower_coroutine_compound_assignment_await_target_supported(
+static bool lower_coroutine_assignment_await_target_supported(
     const Expr* expression) {
     const Expr* target;
     const Type* target_type;
     const Type* rhs_type;
     if (!expression || !expression->binary_lhs ||
-        !expression->binary_rhs ||
-        expression->binary_lhs->kind != EXPR_IDENT ||
-        !expression->binary_lhs->ident_decl ||
-        expression->binary_lhs->ident_decl->kind != DECL_VAR ||
-        expression->binary_lhs->ident_decl->var_is_global ||
-        expression->binary_lhs->ident_decl->var_is_static_local ||
-        expression->binary_lhs->ident_decl->var_is_thread_local ||
-        expression->binary_lhs->ident_decl->var_is_block_extern) {
+        !expression->binary_rhs) {
         return false;
     }
     target = expression->binary_lhs;
+    switch (target->kind) {
+        case EXPR_IDENT:
+            if (!target->ident_decl ||
+                target->ident_decl->kind != DECL_VAR) {
+                return false;
+            }
+            break;
+        case EXPR_DEREF:
+        case EXPR_INDEX:
+            break;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            if (!target->member_field) return false;
+            break;
+        default:
+            return false;
+    }
     target_type = target->type;
     rhs_type = expression->binary_rhs->type;
     if (!target_type || !rhs_type || target_type->is_atomic ||
@@ -37241,7 +37251,7 @@ static bool lower_coroutine_count_expression_awaits(
             }
             if (*body_await_count != await_count_before_assignment &&
                 (await_count_before_rhs != await_count_before_assignment ||
-                 !lower_coroutine_compound_assignment_await_target_supported(
+                 !lower_coroutine_assignment_await_target_supported(
                      expression))) {
                 return false;
             }
@@ -37260,15 +37270,8 @@ static bool lower_coroutine_count_expression_awaits(
                 return false;
             }
             if (*body_await_count != await_count_before_assignment &&
-                (!target || target->kind != EXPR_IDENT ||
-                 !target->ident_decl ||
-                 target->ident_decl->kind != DECL_VAR ||
-                 target->ident_decl->var_is_global ||
-                 target->ident_decl->var_is_static_local ||
-                 target->ident_decl->var_is_thread_local ||
-                 target->ident_decl->var_is_block_extern ||
-                 !lower_coroutine_scalar_frame_value_supported(
-                     target->type))) {
+                 !lower_coroutine_assignment_await_target_supported(
+                     expression)) {
                 return false;
             }
             return true;
@@ -37501,7 +37504,7 @@ static bool lower_coroutine_expression_liveness_supported_impl(
             if (!lower_coroutine_expression_contains_await(expression)) {
                 return true;
             }
-            return lower_coroutine_compound_assignment_await_target_supported(
+            return lower_coroutine_assignment_await_target_supported(
                     expression) &&
                 lower_coroutine_expression_liveness_supported_impl(
                     expression->binary_rhs, contains_multiple_awaits);

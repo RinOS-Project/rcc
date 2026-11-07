@@ -15315,12 +15315,13 @@ Continue in this order:
       scalar/pointer results, three 64-bit results, resume counts, and frame
       destruction on both architectures. Other expression families and value
       types remain open.
-- [ ] Coroutine compound assignments with suspending right operands now lower
-      for supported non-atomic local integer, enum, floating, and pointer
-      targets, including i686 wide integer compound operations. The right
-      operand resumes first, then the simple target is reloaded before the
-      update; complex/volatile/atomic targets remain unsupported. This source
-      change has not yet received compiler/build/runtime acceptance.
+- [ ] Assignments and compound assignments with suspending right operands now
+      lower for supported non-atomic scalar targets, including indexed/member/
+      dereference lvalues and i686 wide integer compound operations. The right
+      operand resumes first, then the target address is evaluated and compound
+      targets are reloaded before update. Complex/volatile/atomic targets
+      remain unsupported. This source change has not yet received
+      compiler/build/runtime acceptance.
 - [x] Track destruction for body awaiter objects with per-object frame active
       bytes. Exception and destroy entry now destroy only fully constructed,
       still-live body awaiters in reverse await-plan order, clearing active
