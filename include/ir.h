@@ -196,6 +196,9 @@ struct RccIrInstruction {
     RccIrIntPredicate predicate;
     /* Preserve observable C/C++ volatile memory accesses through lowering. */
     bool volatile_access;
+    /* A member access is rooted in a C union; scalar member accesses cannot
+     * use strict-alias disambiguation as if the union context were absent. */
+    bool union_member_access;
     /* Implement a C seq_cst atomic lvalue store with an x86 memory XCHG. */
     bool seq_cst_atomic_store;
     /* Mark the base of an x86-64 SysV variadic callee's register-save area. */

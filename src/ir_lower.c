@@ -25,6 +25,7 @@ typedef struct {
     bool is_unsigned;
     bool volatile_access;
     bool atomic_access;
+    bool union_member_access;
     bool valid;
 } RccIrLowerValue;
 
@@ -643,6 +644,7 @@ static RccIrLowerValue lower_invalid_value(void) {
     value.is_unsigned = false;
     value.volatile_access = false;
     value.atomic_access = false;
+    value.union_member_access = false;
     value.valid = false;
     return value;
 }
@@ -655,6 +657,7 @@ static RccIrLowerValue lower_value(RccIrValue id, RccIrType type,
     value.is_unsigned = is_unsigned;
     value.volatile_access = false;
     value.atomic_access = false;
+    value.union_member_access = false;
     value.valid = id != RCC_IR_VALUE_NONE;
     return value;
 }
@@ -1184,6 +1187,22 @@ static RccIrInstruction* lower_append(
         instruction->source_statement = context->current_statement;
         instruction->source_inline_call_index_plus_one =
             context->active_debug_inline_call_plus_one;
+        bool trace_value = instruction->result == 38u;
+        for (size_t trace_index = 0u;
+             trace_index < operand_count; ++trace_index) {
+            if (operands[trace_index] == 38u) trace_value = true;
+        }
+        if (context->coroutine_resume && trace_value) {
+            fprintf(stderr, "TRACE coro block=%s opcode=%d result=%u operands=",
+                    context->current->name ? context->current->name : "?",
+                    (int)opcode, (unsigned)instruction->result);
+            for (size_t trace_index = 0u;
+                 trace_index < operand_count; ++trace_index) {
+                fprintf(stderr, "%s%u", trace_index ? "," : "",
+                        (unsigned)operands[trace_index]);
+            }
+            fputc('\n', stderr);
+        }
     }
     return instruction;
 }
@@ -1975,7 +1994,11 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
                                   RccIrLowerValue source,
                                   const Type* target_type) {
     RccIrLowerValue value = lower_cast_impl(context, source, target_type);
-    return lower_normalize_bitint_value(context, value, target_type);
+    value = lower_normalize_bitint_value(context, value, target_type);
+    if (value.type.kind == RCC_IR_TYPE_POINTER) {
+        value.union_member_access |= source.union_member_access;
+    }
+    return value;
 }
 
 static bool lower_wide_scalar_value_valid(RccIrLowerWideValue value) {
@@ -2492,8 +2515,12 @@ static RccIrLowerValue lower_pointer_offset(
             operands, 2u, NULL, 0u);
         if (!instruction) return lower_invalid_value();
         rcc_ir_set_immediate(instruction, 1u);
-        return lower_value(
-            instruction->result, rcc_ir_type_pointer(0u), true);
+        {
+            RccIrLowerValue result = lower_value(
+                instruction->result, rcc_ir_type_pointer(0u), true);
+            result.union_member_access = pointer.union_member_access;
+            return result;
+        }
     }
     index_type = index.is_unsigned ? type_ulong : type_long;
     index = lower_cast(context, index, index_type);
@@ -2518,7 +2545,12 @@ static RccIrLowerValue lower_pointer_offset(
     if (!instruction) return lower_invalid_value();
     scale = (uint64_t)pointer_type->base->size;
     rcc_ir_set_immediate(instruction, scale);
-    return lower_value(instruction->result, rcc_ir_type_pointer(0u), true);
+    {
+        RccIrLowerValue result = lower_value(
+            instruction->result, rcc_ir_type_pointer(0u), true);
+        result.union_member_access = pointer.union_member_access;
+        return result;
+    }
 }
 
 static RccIrLowerValue lower_atomic_pointer_delta(
@@ -2835,6 +2867,7 @@ static RccIrLowerValue lower_byte_offset_address(
         RccIrLowerValue result = lower_value(
             address->result, rcc_ir_type_pointer(0u), true);
         result.volatile_access = base.volatile_access;
+        result.union_member_access = base.union_member_access;
         return result;
     }
 }
@@ -2865,6 +2898,7 @@ static RccIrLowerValue lower_dynamic_byte_offset_address(
         RccIrLowerValue result = lower_value(
             address->result, rcc_ir_type_pointer(0u), true);
         result.volatile_access = base.volatile_access;
+        result.union_member_access = base.union_member_access;
         return result;
     }
 }
@@ -2905,7 +2939,12 @@ static RccIrLowerValue lower_adjusted_pointer(
     select = lower_append(context, RCC_IR_SELECT, pointer_type,
                           operands, 3u, NULL, 0u);
     if (!select) return lower_invalid_value();
-    return lower_value(select->result, pointer_type, true);
+    {
+        RccIrLowerValue result = lower_value(
+            select->result, pointer_type, true);
+        result.union_member_access = pointer.union_member_access;
+        return result;
+    }
 }
 
 static RccIrLowerValue lower_virtual_base_member_pointer_object(
@@ -3978,7 +4017,14 @@ static RccIrLowerValue lower_conditional_glvalue_address(
     phi = lower_append(context, RCC_IR_PHI, rcc_ir_type_pointer(0u),
                        operands, 2u, targets, 2u);
     if (!phi) return lower_invalid_value();
-    return lower_value(phi->result, rcc_ir_type_pointer(0u), true);
+    {
+        RccIrLowerValue result = lower_value(
+            phi->result, rcc_ir_type_pointer(0u), true);
+        result.union_member_access =
+            arm_values[0].union_member_access ||
+            arm_values[1].union_member_access;
+        return result;
+    }
 }
 
 static bool lower_is_class_conditional_temporary(const Expr* expression) {
@@ -4359,6 +4405,8 @@ static RccIrLowerValue lower_lvalue_address_impl(
         {
             RccIrLowerValue address = lower_byte_offset_address(
                 context, base, (uint64_t)field->offset);
+            address.union_member_access |= base.union_member_access ||
+                aggregate_type->kind == TYPE_UNION;
             if (field->type->is_reference) {
                 return lower_load_address(context, address, field->type);
             }
@@ -4490,6 +4538,7 @@ static RccIrLowerValue lower_load_address(RccIrLowerContext* context,
                         NULL, 0u);
     if (!load) return lower_invalid_value();
     load->source_access_type = ast_type;
+    load->union_member_access = address.union_member_access;
     rcc_ir_set_volatile_access(
         load, address.volatile_access || ast_type->is_volatile ||
             address.atomic_access || ast_type->is_atomic);
@@ -4668,6 +4717,7 @@ static bool lower_store_address(RccIrLowerContext* context,
             context, RCC_IR_STORE, rcc_ir_type_void(),
             operands, 2u, NULL, 0u);
         if (!store) return false;
+        store->union_member_access = address.union_member_access;
         rcc_ir_set_volatile_access(
             store, address.volatile_access || address.atomic_access);
         rcc_ir_set_seq_cst_atomic_store(
@@ -5301,9 +5351,17 @@ static RccIrLowerValue lower_sysv_va_select(
     operands[2] = when_false.value;
     select = lower_append(context, RCC_IR_SELECT, when_true.type,
                           operands, 3u, NULL, 0u);
-    return select
-        ? lower_value(select->result, when_true.type, when_true.is_unsigned)
-        : lower_invalid_value();
+    if (!select) return lower_invalid_value();
+    {
+        RccIrLowerValue result = lower_value(
+            select->result, when_true.type, when_true.is_unsigned);
+        if (when_true.type.kind == RCC_IR_TYPE_POINTER) {
+            result.union_member_access =
+                when_true.union_member_access ||
+                when_false.union_member_access;
+        }
+        return result;
+    }
 }
 
 static RccIrLowerValue lower_sysv_va_start(
@@ -17126,12 +17184,17 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     RccIrLowerValue callee_value = lower_invalid_value();
     RccIrLowerValue member_pointer_receiver = lower_invalid_value();
     RccIrLowerValue receiver_temporary_address = lower_invalid_value();
+    RccIrLowerValue coroutine_object_spill_address = lower_invalid_value();
+    size_t coroutine_object_spill_operand_index = SIZE_MAX;
+    size_t coroutine_saved_spill_depth = 0u;
     int return_kind = LOWER_ABI_RETURN_SCALAR;
     bool indirect = false;
     bool member_pointer_call = expression &&
         expression->call_member_pointer_application != NULL;
     bool use_aggregate_result_destination = false;
     bool receiver_temporary_address_valid = false;
+    bool coroutine_object_spill_active = false;
+    bool coroutine_spill_implicit_object = false;
     bool register_temporary_cleanups = expression &&
         (!expression->cxx_call_is_noexcept ||
          lower_call_has_throwing_argument_after_temporary(expression));
@@ -17597,10 +17660,73 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         operands[index++] = aggregate_address.value;
     }
     parameter = function_type->params;
+    if (context->coroutine_resume && expression->cxx_selected_method &&
+        expression->cxx_selected_method->kind == TYPE_METHOD_FUNCTION &&
+        callee && callee->kind == DECL_FUNC &&
+        !expression->cxx_selected_method->is_virtual &&
+        expression->cxx_call_is_noexcept && expression->type &&
+        expression->type->kind == TYPE_VOID && argument_count == 2u) {
+        const ExprList* object_argument = expression->call_args;
+        const ExprList* value_argument = object_argument
+            ? object_argument->next : NULL;
+        size_t value_await_count = 0u;
+        if (object_argument && object_argument->expr &&
+            object_argument->expr->cxx_implicit_object_address &&
+            !lower_coroutine_expression_contains_await(
+                object_argument->expr) &&
+            value_argument && value_argument->expr &&
+            !value_argument->next &&
+            lower_coroutine_count_expression_awaits(
+                value_argument->expr, &value_await_count) &&
+            value_await_count == 1u) {
+            coroutine_spill_implicit_object = true;
+        }
+    }
+    if (coroutine_spill_implicit_object) {
+        const CxxCoroutineLoweringPlan* coroutine_plan =
+            context->declaration
+                ? context->declaration->func_coroutine_lowering_plan : NULL;
+        RccIrLowerValue frame;
+        size_t spill_offset;
+        coroutine_saved_spill_depth =
+            context->coroutine_expression_spill_depth;
+        if (!coroutine_plan ||
+            context->coroutine_frame == RCC_IR_VALUE_NONE ||
+            coroutine_saved_spill_depth >=
+                coroutine_plan->expression_spill_count ||
+            coroutine_saved_spill_depth >
+                (SIZE_MAX - coroutine_plan->expression_spill_offset) /
+                    RIN_CXX_CORO_FRAME_ALIGNMENT) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        spill_offset = coroutine_plan->expression_spill_offset +
+            coroutine_saved_spill_depth * RIN_CXX_CORO_FRAME_ALIGNMENT;
+        if (spill_offset > coroutine_plan->expression_spill_offset +
+                coroutine_plan->expression_spill_size ||
+            RIN_CXX_CORO_FRAME_ALIGNMENT >
+                coroutine_plan->expression_spill_offset +
+                    coroutine_plan->expression_spill_size - spill_offset) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        frame = lower_value(
+            context->coroutine_frame, rcc_ir_type_pointer(0u), true);
+        coroutine_object_spill_address = lower_byte_offset_address(
+            context, frame, (uint64_t)spill_offset);
+        if (!coroutine_object_spill_address.valid) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        context->coroutine_expression_spill_depth =
+            coroutine_saved_spill_depth + 1u;
+        coroutine_object_spill_active = true;
+    }
     for (argument = expression->call_args; argument;
          argument = argument->next) {
         RccIrLowerValue value;
         RccIrLowerWideValue wide_value;
+        size_t argument_operand_start = index;
         bool wide_scalar_argument = parameter &&
             lower_i686_wide_scalar_type(parameter->type);
         bool temporary_owner_bound = false;
@@ -17998,6 +18124,37 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             rcc_free(operands);
             return lower_invalid_value();
         }
+        if (coroutine_object_spill_active &&
+            argument == expression->call_args) {
+            if (index != argument_operand_start + 1u || !value.valid ||
+                value.type.kind != RCC_IR_TYPE_POINTER ||
+                !lower_store_address(
+                    context, coroutine_object_spill_address, value)) {
+                context->unsupported = true;
+                rcc_free(operands);
+                return lower_invalid_value();
+            }
+            coroutine_object_spill_operand_index = argument_operand_start;
+        }
+    }
+    if (coroutine_object_spill_active) {
+        RccIrInstruction* reload;
+        if (coroutine_object_spill_operand_index >= index) {
+            context->unsupported = true;
+            rcc_free(operands);
+            return lower_invalid_value();
+        }
+        reload = lower_append(
+            context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+            &coroutine_object_spill_address.value, 1u, NULL, 0u);
+        if (!reload) {
+            rcc_free(operands);
+            return lower_invalid_value();
+        }
+        operands[coroutine_object_spill_operand_index] = reload->result;
+        context->coroutine_expression_spill_depth =
+            coroutine_saved_spill_depth;
+        coroutine_object_spill_active = false;
     }
     if (expression->call_is_virtual) {
         size_t object_index = return_kind == LOWER_ABI_RETURN_SRET ? 1u : 0u;
@@ -21629,8 +21786,17 @@ static RccIrLowerValue lower_conditional_expression(
     phi = lower_append(context, RCC_IR_PHI, result_type, operands, 2u,
                        targets, 2u);
     if (!phi) return lower_invalid_value();
-    return lower_value(phi->result, result_type,
-                       result_ast_type && result_ast_type->is_unsigned);
+    {
+        RccIrLowerValue result = lower_value(
+            phi->result, result_type,
+            result_ast_type && result_ast_type->is_unsigned);
+        if (result_type.kind == RCC_IR_TYPE_POINTER) {
+            result.union_member_access =
+                then_value.union_member_access ||
+                else_value.union_member_access;
+        }
+        return result;
+    }
 }
 
 static RccIrLowerValue lower_logical_expression(
@@ -24968,6 +25134,8 @@ static bool lower_copy_union_storage(
             context, destination_base, (uint64_t)offset);
         RccIrLowerValue source_address = lower_byte_offset_address(
             context, source_base, (uint64_t)offset);
+        destination_address.union_member_access = true;
+        source_address.union_member_access = true;
         RccIrLowerValue value = lower_load_address(
             context, source_address, type_uchar);
         if (!destination_address.valid || !source_address.valid ||
@@ -32662,6 +32830,7 @@ static bool lower_zero_union_storage(
             context, base_value, (uint64_t)offset);
         RccIrLowerValue zero = lower_zero_initializer(
             context, type_uchar);
+        address.union_member_access = true;
         if (!address.valid || !zero.valid ||
             !lower_store_address(context, address, zero)) return false;
     }
@@ -32704,6 +32873,7 @@ static bool lower_union_initializer(
     address = lower_byte_offset_address(
         context, base_value, (uint64_t)field->offset);
     if (!address.valid) return false;
+    address.union_member_access = true;
     if (field->type->kind == TYPE_ARRAY) {
         return lower_array_initializer(
             context, address.value, field->type, item->expr);
@@ -37393,6 +37563,40 @@ static bool lower_coroutine_count_expression_awaits(
             size_t await_count_before_call = *body_await_count;
             size_t argument_index = 0u;
             bool first_argument_has_await = false;
+            bool implicit_object_call_value_has_await = false;
+            const ExprList* implicit_object_argument =
+                expression->call_args;
+            const ExprList* explicit_value_argument =
+                implicit_object_argument
+                    ? implicit_object_argument->next : NULL;
+            const TypeMethod* selected_method =
+                expression->cxx_selected_method;
+            if (selected_method &&
+                selected_method->kind == TYPE_METHOD_FUNCTION &&
+                selected_method->function_decl &&
+                !selected_method->is_virtual &&
+                expression->call_func &&
+                expression->call_func->kind == EXPR_IDENT &&
+                expression->call_func->ident_decl &&
+                expression->call_func->ident_decl->kind == DECL_FUNC &&
+                expression->cxx_call_is_noexcept &&
+                expression->type &&
+                expression->type->kind == TYPE_VOID &&
+                implicit_object_argument &&
+                implicit_object_argument->expr &&
+                implicit_object_argument->expr->cxx_implicit_object_address &&
+                !lower_coroutine_expression_contains_await(
+                    implicit_object_argument->expr) &&
+                explicit_value_argument &&
+                explicit_value_argument->expr &&
+                !explicit_value_argument->next) {
+                size_t explicit_value_await_count = 0u;
+                implicit_object_call_value_has_await =
+                    lower_coroutine_count_expression_awaits(
+                        explicit_value_argument->expr,
+                        &explicit_value_await_count) &&
+                    explicit_value_await_count == 1u;
+            }
             if (!lower_coroutine_count_expression_awaits(
                     expression->call_func, body_await_count)) {
                 return false;
@@ -37406,17 +37610,29 @@ static bool lower_coroutine_count_expression_awaits(
                     return false;
                 }
                 if (*body_await_count != await_count_before_argument) {
-                    if (argument_index != 0u) return false;
-                    first_argument_has_await = true;
+                    if (argument_index == 0u) {
+                        first_argument_has_await = true;
+                    } else if (argument_index == 1u &&
+                               implicit_object_call_value_has_await &&
+                               !first_argument_has_await) {
+                        /* The implicit object expression precedes the
+                         * awaited value in the ABI argument list. The call
+                         * lowering spills that object pointer into the
+                         * coroutine frame and reloads it after resumption. */
+                    } else {
+                        return false;
+                    }
                 }
                 ++argument_index;
             }
             if (*body_await_count != await_count_before_call &&
-                (!first_argument_has_await || !expression->call_func ||
-                 expression->call_func->kind != EXPR_IDENT ||
-                 !expression->call_func->ident_decl ||
-                 expression->call_func->ident_decl->kind != DECL_FUNC ||
-                 !expression->cxx_call_is_noexcept)) {
+                !((first_argument_has_await && expression->call_func &&
+                   expression->call_func->kind == EXPR_IDENT &&
+                   expression->call_func->ident_decl &&
+                   expression->call_func->ident_decl->kind == DECL_FUNC &&
+                   expression->cxx_call_is_noexcept) ||
+                  (implicit_object_call_value_has_await &&
+                   !first_argument_has_await))) {
                 return false;
             }
             return true;
@@ -37761,6 +37977,8 @@ static bool lower_coroutine_body_supported(
     size_t* body_await_count, bool inside_catch_handler) {
     const Decl* local;
     if (!statement) return true;
+    fprintf(stderr, "DEBUG visit coroutine stmt kind=%d awaits=%zu\n",
+            (int)statement->kind, *body_await_count);
     if (statement->kind == STMT_NULL) return true;
     if (statement->kind == STMT_DECL) {
         size_t await_count_before_initializer = *body_await_count;
@@ -37797,6 +38015,8 @@ static bool lower_coroutine_body_supported(
                   local->var_init) ||
               !lower_coroutine_expression_nothrow_around_await(
                   local->var_init)))) {
+            fprintf(stderr, "DEBUG rejected coroutine decl %s\n",
+                    local && local->name ? local->name : "<unnamed>");
             return false;
         }
         return true;
@@ -37982,6 +38202,32 @@ static bool lower_coroutine_body_supported(
     }
     if (statement->kind == STMT_RETURN) {
         size_t await_count_before_return = *body_await_count;
+        size_t diagnostic_await_count = 0u;
+        bool diagnostic_count_ok = statement->return_val &&
+            lower_coroutine_count_expression_awaits(
+                statement->return_val, &diagnostic_await_count);
+        if (statement->cxx_is_co_return && statement->return_val &&
+            statement->return_val->kind == EXPR_CALL) {
+            const Expr* call_expr = statement->return_val;
+            size_t count = 0u;
+            bool count_ok = lower_coroutine_count_expression_awaits(
+                call_expr, &count);
+            fprintf(stderr,
+                    "DEBUG co_return count_ok=%d count=%zu liveness=%d nothrow=%d selected=%p virtual=%d noexcept=%d func_kind=%d marker=%d args=%p\n",
+                    count_ok, count,
+                    lower_coroutine_expression_liveness_supported(call_expr),
+                    lower_coroutine_expression_nothrow_around_await(call_expr),
+                    (void*)call_expr->cxx_selected_method,
+                    call_expr->cxx_selected_method
+                        ? call_expr->cxx_selected_method->is_virtual : 0,
+                    call_expr->cxx_call_is_noexcept,
+                    call_expr->call_func
+                        ? (int)call_expr->call_func->kind : -1,
+                    call_expr->call_args && call_expr->call_args->expr
+                        ? call_expr->call_args->expr
+                            ->cxx_implicit_object_address : 0,
+                    (void*)call_expr->call_args);
+        }
         if (!statement->cxx_is_co_return || !statement->return_val ||
             !statement->return_val->type ||
             statement->return_val->type->kind != TYPE_VOID ||
@@ -37992,11 +38238,29 @@ static bool lower_coroutine_body_supported(
                   statement->return_val) ||
               !lower_coroutine_expression_nothrow_around_await(
                   statement->return_val)))) {
+            fprintf(stderr,
+                    "DEBUG rejected return cxx=%d val=%p valtype=%d kind=%d before=%zu actual=%zu countok=%d count=%zu live=%d nothrow=%d\n",
+                    statement->cxx_is_co_return,
+                    (void*)statement->return_val,
+                    statement->return_val && statement->return_val->type
+                        ? (int)statement->return_val->type->kind : -1,
+                    statement->return_val
+                        ? (int)statement->return_val->kind : -1,
+                    await_count_before_return, *body_await_count,
+                    diagnostic_count_ok, diagnostic_await_count,
+                    statement->return_val
+                        ? lower_coroutine_expression_liveness_supported(
+                              statement->return_val) : 0,
+                    statement->return_val
+                        ? lower_coroutine_expression_nothrow_around_await(
+                              statement->return_val) : 0);
             return false;
         }
         *found_return = true;
         return true;
     }
+    fprintf(stderr, "DEBUG unsupported coroutine stmt kind=%d\n",
+            (int)statement->kind);
     return false;
 }
 
@@ -38004,11 +38268,16 @@ static bool lower_coroutine_minimal_body_supported(
     const Stmt* statement, size_t* body_await_count,
     const char** reason_out) {
     bool found_return = false;
+    bool body_supported;
     *body_await_count = 0u;
     if (reason_out) *reason_out = "missing coroutine body";
-    if (!lower_coroutine_body_supported(
-            statement, &found_return, body_await_count, false) ||
-        !found_return) {
+    body_supported = lower_coroutine_body_supported(
+        statement, &found_return, body_await_count, false);
+    if (!body_supported || !found_return) {
+        fprintf(stderr,
+                "DEBUG body result supported=%d found_return=%d awaits=%zu kind=%d\n",
+                body_supported, found_return, *body_await_count,
+                statement ? (int)statement->kind : -1);
         if (reason_out) {
             *reason_out =
                 "coroutine body supports scalar or cleanup-tracked local declarations, "

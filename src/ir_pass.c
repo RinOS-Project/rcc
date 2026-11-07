@@ -1772,6 +1772,7 @@ typedef struct {
     RccIrValue* block_stores;
     size_t block_store_count;
     bool restrict_aliasing_valid;
+    bool has_union_memory_access;
     RccIrFunction* function;
     RccIrValue* replacements;
     size_t replacement_count;
@@ -2096,10 +2097,12 @@ static bool ir_pass_cse_allocated_effective_types_disjoint(
     uint64_t store_bytes;
     uint64_t load_end;
     uint64_t store_end;
-    if (!context || g_opts.cxx_mode || !load || !store ||
+    if (!context || context->has_union_memory_access ||
+        g_opts.cxx_mode || !load || !store ||
         load->opcode != RCC_IR_LOAD || load->operand_count != 1u ||
         load->volatile_access || store->opcode != RCC_IR_STORE ||
         store->operand_count != 2u || store->volatile_access ||
+        load->union_member_access || store->union_member_access ||
         !load->source_access_type || !store->source_access_type ||
         !ir_pass_cse_memory_location(
             context, load->operands[0], 0u, &load_location) ||
@@ -2620,6 +2623,9 @@ static bool ir_pass_common_subexpressions(
     for (index = 0u; index < context.block_count; ++index) {
         RccIrInstruction* instruction = context.blocks[index]->first;
         while (instruction) {
+            if (instruction->union_member_access) {
+                context.has_union_memory_access = true;
+            }
             if (instruction->result != RCC_IR_VALUE_NONE &&
                 instruction->result < function->value_count) {
                 context.value_definitions[instruction->result] = instruction;

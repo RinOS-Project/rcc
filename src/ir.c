@@ -414,6 +414,7 @@ RccIrInstruction* rcc_ir_append(RccIrBlock* block, RccIrOpcode opcode,
     instruction->symbol_is_code = false;
     instruction->symbol_is_tls = false;
     instruction->volatile_access = false;
+    instruction->union_member_access = false;
     instruction->seq_cst_atomic_store = false;
     instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->source_declaration = NULL;
@@ -620,6 +621,12 @@ static bool ir_verify_instruction_types(
         instruction->opcode != RCC_IR_STORE) {
         return ir_verify_error(verifier,
                                "volatile access flag requires load or store");
+    }
+    if (instruction->union_member_access &&
+        instruction->opcode != RCC_IR_LOAD &&
+        instruction->opcode != RCC_IR_STORE) {
+        return ir_verify_error(
+            verifier, "union-member access metadata requires load or store");
     }
     if (instruction->seq_cst_atomic_store &&
         (instruction->opcode != RCC_IR_STORE ||
