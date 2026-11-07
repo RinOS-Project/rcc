@@ -19,6 +19,14 @@ typedef struct {
 } RccIrCseMemoryLocation;
 
 typedef struct {
+    RccIrValue object;
+    RccIrValue value;
+    const Type* access_type;
+    uint64_t byte_offset;
+    uint64_t byte_count;
+} RccIrCseMemoryValueFact;
+
+typedef struct {
     RccIrInstruction* allocation;
     RccIrInstruction* initial_store;
     RccIrValue address;
@@ -1762,6 +1770,8 @@ typedef struct {
     bool* direct_allocas;
     bool* direct_data_symbols;
     bool* fresh_allocations;
+    bool* allocation_size_known;
+    uint64_t* allocation_sizes;
     bool* stable_pointer_slots;
     RccIrValue* stable_pointer_slot_values;
     RccIrInstruction** alloca_definitions;
@@ -1777,6 +1787,11 @@ typedef struct {
     uint64_t* block_store_byte_counts;
     bool* block_store_is_copy;
     size_t block_store_count;
+    RccIrCseMemoryValueFact* memory_value_facts;
+    size_t memory_value_fact_count;
+    size_t memory_value_fact_capacity;
+    RccIrCseMemoryValueFact* realloc_fact_buffer;
+    size_t realloc_fact_buffer_capacity;
     bool restrict_aliasing_valid;
     bool has_union_memory_access;
     RccIrFunction* function;
@@ -2277,13 +2292,34 @@ static bool ir_pass_cse_allocated_effective_types_disjoint(
         store_location.byte_offset < load_end;
 }
 
+static bool ir_pass_cse_constant_unsigned_value(
+    const RccIrCseContext* context, RccIrValue value,
+    uint64_t* value_out) {
+    RccIrInstruction* definition;
+    uint16_t width;
+    uint64_t value_bits;
+    if (!context || !value_out || value >= context->function->value_count ||
+        !context->value_definitions) {
+        return false;
+    }
+    definition = context->value_definitions[value];
+    width = context->function->value_types[value].bit_width;
+    if (!definition || definition->opcode != RCC_IR_CONST_INT ||
+        context->function->value_types[value].kind != RCC_IR_TYPE_INTEGER ||
+        width == 0u || width > 64u) {
+        return false;
+    }
+    value_bits = definition->immediate;
+    if (width < 64u) {
+        value_bits &= (UINT64_C(1) << width) - UINT64_C(1);
+    }
+    *value_out = value_bits;
+    return true;
+}
+
 static bool ir_pass_cse_memory_copy_length(
     const RccIrCseContext* context, const RccIrInstruction* call,
     uint64_t* length_out) {
-    RccIrValue size_value;
-    RccIrInstruction* size_definition;
-    uint16_t size_width;
-    uint64_t size;
     if (!context || !call || !length_out ||
         call->opcode != RCC_IR_CALL ||
         !call->callee || call->operand_count != 3u ||
@@ -2291,24 +2327,62 @@ static bool ir_pass_cse_memory_copy_length(
          strcmp(call->callee, "memmove") != 0)) {
         return false;
     }
-    size_value = call->operands[2];
-    if (size_value >= context->function->value_count ||
-        !context->value_definitions) {
+    return ir_pass_cse_constant_unsigned_value(
+        context, call->operands[2], length_out);
+}
+
+static bool ir_pass_cse_allocation_size(
+    const RccIrCseContext* context, const RccIrInstruction* allocation,
+    uint64_t* size_out) {
+    uint64_t first;
+    uint64_t second;
+    uint64_t total;
+    uint16_t size_width;
+    if (!context || !allocation || !size_out ||
+        allocation->opcode != RCC_IR_CALL || !allocation->callee) {
         return false;
     }
-    size_definition = context->value_definitions[size_value];
-    size_width = context->function->value_types[size_value].bit_width;
-    if (!size_definition || size_definition->opcode != RCC_IR_CONST_INT ||
-        context->function->value_types[size_value].kind !=
-            RCC_IR_TYPE_INTEGER || size_width == 0u || size_width > 64u) {
-        return false;
+    if ((strcmp(allocation->callee, "malloc") == 0 ||
+         strcmp(allocation->callee, "rin_malloc") == 0) &&
+        allocation->operand_count == 1u) {
+        return ir_pass_cse_constant_unsigned_value(
+            context, allocation->operands[0], size_out);
     }
-    size = size_definition->immediate;
-    if (size_width < 64u) {
-        size &= (UINT64_C(1) << size_width) - UINT64_C(1);
+    if (strcmp(allocation->callee, "calloc") == 0 &&
+        allocation->operand_count == 2u) {
+        if (allocation->operands[0] >= context->function->value_count ||
+            allocation->operands[1] >= context->function->value_count) {
+            return false;
+        }
+        size_width = context->function->value_types[
+            allocation->operands[0]].bit_width;
+        if (size_width == 0u || size_width > 64u ||
+            context->function->value_types[
+                allocation->operands[1]].bit_width != size_width) {
+            return false;
+        }
+        if (!ir_pass_cse_constant_unsigned_value(
+                context, allocation->operands[0], &first) ||
+            !ir_pass_cse_constant_unsigned_value(
+                context, allocation->operands[1], &second) ||
+            (second != 0u && first > UINT64_MAX / second)) {
+            return false;
+        }
+        total = first * second;
+        if (size_width < 64u &&
+            total > ((UINT64_C(1) << size_width) - UINT64_C(1))) {
+            return false;
+        }
+        *size_out = total;
+        return true;
     }
-    *length_out = size;
-    return true;
+    if ((strcmp(allocation->callee, "aligned_alloc") == 0 ||
+         strcmp(allocation->callee, "realloc") == 0) &&
+        allocation->operand_count == 2u) {
+        return ir_pass_cse_constant_unsigned_value(
+            context, allocation->operands[1], size_out);
+    }
+    return false;
 }
 
 static bool ir_pass_cse_memory_copy_disjoint_from_load(
@@ -2426,6 +2500,145 @@ static void ir_pass_clear_block_store_facts(RccIrCseContext* context) {
         context->block_store_is_copy[address] = false;
     }
     context->block_store_count = 0u;
+    context->memory_value_fact_count = 0u;
+}
+
+static bool ir_pass_cse_append_realloc_fact(
+    RccIrCseContext* context, RccIrValue object, RccIrValue value,
+    const Type* access_type, uint64_t byte_offset, uint64_t byte_count) {
+    RccIrCseMemoryValueFact* fact;
+    if (!context || !context->realloc_fact_buffer ||
+        context->realloc_fact_buffer_capacity == 0u ||
+        context->memory_value_fact_count >=
+            context->realloc_fact_buffer_capacity ||
+        value >= context->function->value_count || !access_type ||
+        access_type->is_volatile || access_type->is_atomic ||
+        byte_count == 0u || byte_count > UINT64_MAX - byte_offset) {
+        return false;
+    }
+    fact = &context->realloc_fact_buffer[
+        context->memory_value_fact_count++];
+    fact->object = object;
+    fact->value = value;
+    fact->access_type = access_type;
+    fact->byte_offset = byte_offset;
+    fact->byte_count = byte_count;
+    return true;
+}
+
+static bool ir_pass_cse_realloc_facts_within_prefix(
+    const RccIrCseMemoryValueFact* fact, uint64_t prefix_bytes) {
+    return fact && fact->byte_count != 0u &&
+        fact->byte_offset <= prefix_bytes &&
+        fact->byte_count <= prefix_bytes - fact->byte_offset;
+}
+
+static bool ir_pass_cse_capture_realloc_facts(
+    RccIrCseContext* context, const RccIrInstruction* realloc_call) {
+    RccIrCseMemoryLocation old_location;
+    RccIrValue old_object;
+    uint64_t prefix_bytes;
+    size_t previous_fact_count;
+    size_t index;
+    if (!context || !realloc_call || g_opts.cxx_mode ||
+        context->has_union_memory_access ||
+        realloc_call->opcode != RCC_IR_CALL ||
+        !realloc_call->callee ||
+        strcmp(realloc_call->callee, "realloc") != 0 ||
+        realloc_call->operand_count != 2u ||
+        realloc_call->result == RCC_IR_VALUE_NONE ||
+        realloc_call->result >= context->replacement_count ||
+        !context->fresh_allocations[realloc_call->result] ||
+        !context->allocation_size_known[realloc_call->result] ||
+        !context->memory_value_facts ||
+        context->memory_value_fact_capacity == 0u ||
+        !context->realloc_fact_buffer ||
+        context->memory_value_fact_capacity !=
+            context->realloc_fact_buffer_capacity ||
+        !ir_pass_cse_memory_location(
+            context, realloc_call->operands[0], 0u, &old_location) ||
+        !old_location.valid || !old_location.byte_offset_known ||
+        old_location.byte_offset != 0u ||
+        old_location.object >= context->replacement_count ||
+        !context->allocation_size_known[old_location.object]) {
+        return false;
+    }
+    {
+        RccIrInstruction* old_allocation =
+            context->value_definitions[old_location.object];
+        if (!old_allocation || old_allocation->opcode != RCC_IR_CALL ||
+            !ir_pass_cse_fresh_allocator(old_allocation->callee)) {
+            return false;
+        }
+    }
+    old_object = old_location.object;
+    prefix_bytes = context->allocation_sizes[old_object];
+    if (prefix_bytes > context->allocation_sizes[realloc_call->result]) {
+        prefix_bytes = context->allocation_sizes[realloc_call->result];
+    }
+    if (prefix_bytes == 0u) return false;
+    previous_fact_count = context->memory_value_fact_count;
+    if (previous_fact_count > context->memory_value_fact_capacity) {
+        return false;
+    }
+    context->memory_value_fact_count = 0u;
+    for (index = 0u; index < previous_fact_count; ++index) {
+        const RccIrCseMemoryValueFact* fact;
+        fact = &context->memory_value_facts[index];
+        if (fact->object != old_object) continue;
+        if (!ir_pass_cse_realloc_facts_within_prefix(
+                fact, prefix_bytes) ||
+            !ir_pass_cse_append_realloc_fact(
+                context, old_object, fact->value, fact->access_type,
+                fact->byte_offset, fact->byte_count)) {
+            context->memory_value_fact_count = 0u;
+            return false;
+        }
+    }
+    for (index = 0u; index < context->block_store_count; ++index) {
+        RccIrValue address = context->block_stores[index];
+        RccIrInstruction* write =
+            context->block_store_instructions[address];
+        RccIrCseMemoryLocation location;
+        const Type* access_type =
+            context->block_store_access_types[address];
+        uint64_t byte_count =
+            context->block_store_byte_counts[address];
+        if (!context->has_stored_values[address] || !write ||
+            write->volatile_access || write->union_member_access ||
+            !access_type || access_type->is_volatile ||
+            access_type->is_atomic ||
+            !ir_pass_cse_memory_location(
+                context, address, 0u, &location) ||
+            !location.valid || !location.byte_offset_known ||
+            location.object != old_object) {
+            continue;
+        }
+        if (byte_count == 0u ||
+            byte_count > UINT64_MAX - location.byte_offset ||
+            location.byte_offset > prefix_bytes ||
+            byte_count > prefix_bytes - location.byte_offset) {
+            continue;
+        }
+        if (!ir_pass_cse_append_realloc_fact(
+                context, old_object, context->stored_values[address],
+                access_type, location.byte_offset, byte_count)) {
+            context->memory_value_fact_count = 0u;
+            return false;
+        }
+    }
+    return context->memory_value_fact_count != 0u;
+}
+
+static void ir_pass_cse_restore_realloc_facts(
+    RccIrCseContext* context, RccIrValue new_object) {
+    size_t index;
+    if (!context || new_object >= context->replacement_count) return;
+    for (index = 0u; index < context->memory_value_fact_count; ++index) {
+        context->memory_value_facts[index] =
+            context->realloc_fact_buffer[index];
+        context->memory_value_facts[index].object = new_object;
+    }
 }
 
 static void ir_pass_clear_pending_stores(RccIrCseContext* context) {
@@ -2624,6 +2837,36 @@ static bool ir_pass_cse_typed_store_value_for_load(
         *value_out = stored_value;
         return true;
     }
+    for (size_t index = context->memory_value_fact_count;
+         index != 0u; --index) {
+        const RccIrCseMemoryValueFact* fact =
+            &context->memory_value_facts[index - 1u];
+        uint64_t load_end = load_location.byte_offset + load_bytes;
+        uint64_t fact_end;
+        if (fact->object != load_location.object) continue;
+        if (fact->byte_count == 0u ||
+            fact->byte_count > UINT64_MAX - fact->byte_offset) {
+            return false;
+        }
+        fact_end = fact->byte_offset + fact->byte_count;
+        if (load_end <= fact->byte_offset ||
+            fact_end <= load_location.byte_offset) {
+            continue;
+        }
+        if (fact->byte_offset != load_location.byte_offset ||
+            fact->byte_count != load_bytes || !fact->access_type ||
+            fact->access_type->is_volatile ||
+            fact->access_type->is_atomic ||
+            !type_c_effective_alias_compatible(
+                load->source_access_type, fact->access_type) ||
+            fact->value >= context->function->value_count ||
+            !rcc_ir_type_equal(
+                context->function->value_types[fact->value], load->type)) {
+            return false;
+        }
+        *value_out = fact->value;
+        return true;
+    }
     return false;
 }
 
@@ -2694,6 +2937,32 @@ static bool ir_pass_cse_copy_source_value(
         }
         *value_out = value;
         *access_type_out = access_type;
+        return true;
+    }
+    for (size_t index = context->memory_value_fact_count;
+         index != 0u; --index) {
+        const RccIrCseMemoryValueFact* fact =
+            &context->memory_value_facts[index - 1u];
+        uint64_t fact_end;
+        if (fact->object != source_location.object) continue;
+        if (fact->byte_count == 0u ||
+            fact->byte_count > UINT64_MAX - fact->byte_offset) {
+            return false;
+        }
+        fact_end = fact->byte_offset + fact->byte_count;
+        if (fact_end <= source_location.byte_offset ||
+            source_end <= fact->byte_offset) {
+            continue;
+        }
+        if (fact->byte_offset != source_location.byte_offset ||
+            fact->byte_count != copy_bytes || !fact->access_type ||
+            fact->access_type->is_volatile ||
+            fact->access_type->is_atomic ||
+            fact->value >= context->function->value_count) {
+            return false;
+        }
+        *value_out = fact->value;
+        *access_type_out = fact->access_type;
         return true;
     }
     for (size_t index = context->block_load_count; index != 0u; --index) {
@@ -2906,6 +3175,8 @@ static void ir_pass_common_block(RccIrCseContext* context,
             uint64_t copy_bytes = 0u;
             RccIrValue copied_value = RCC_IR_VALUE_NONE;
             const Type* copied_access_type = NULL;
+            bool has_realloc_facts =
+                ir_pass_cse_capture_realloc_facts(context, instruction);
             bool has_typed_copy_value =
                 ir_pass_cse_memory_copy_length(
                     context, instruction, &copy_bytes) &&
@@ -2929,7 +3200,10 @@ static void ir_pass_common_block(RccIrCseContext* context,
              * store facts and later restrict-root separation are cleared. */
             context->restrict_aliasing_valid = false;
             ir_pass_clear_block_store_facts(context);
-            if (has_typed_copy_value) {
+            if (has_realloc_facts) {
+                ir_pass_cse_restore_realloc_facts(
+                    context, instruction->result);
+            } else if (has_typed_copy_value) {
                 ir_pass_cse_record_memory_copy_value(
                     context, instruction, copy_bytes, copied_value,
                     copied_access_type);
@@ -3008,6 +3282,10 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.direct_data_symbols));
     context.fresh_allocations = rcc_alloc(
         function->value_count * sizeof(*context.fresh_allocations));
+    context.allocation_size_known = rcc_alloc(
+        function->value_count * sizeof(*context.allocation_size_known));
+    context.allocation_sizes = rcc_alloc(
+        function->value_count * sizeof(*context.allocation_sizes));
     context.stable_pointer_slots = rcc_alloc(
         function->value_count * sizeof(*context.stable_pointer_slots));
     context.stable_pointer_slot_values = rcc_alloc(
@@ -3036,6 +3314,12 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.block_store_byte_counts));
     context.block_store_is_copy = rcc_alloc(
         function->value_count * sizeof(*context.block_store_is_copy));
+    context.memory_value_facts = rcc_alloc(
+        function->value_count * sizeof(*context.memory_value_facts));
+    context.memory_value_fact_capacity = function->value_count;
+    context.realloc_fact_buffer = rcc_alloc(
+        function->value_count * sizeof(*context.realloc_fact_buffer));
+    context.realloc_fact_buffer_capacity = function->value_count;
     context.function = function;
     context.restrict_aliasing_valid = true;
     context.has_union_memory_access = function->has_union_access;
@@ -3049,6 +3333,8 @@ static bool ir_pass_common_subexpressions(
         context.direct_allocas[index] = false;
         context.direct_data_symbols[index] = false;
         context.fresh_allocations[index] = false;
+        context.allocation_size_known[index] = false;
+        context.allocation_sizes[index] = 0u;
         context.stable_pointer_slots[index] = false;
         context.stable_pointer_slot_values[index] = RCC_IR_VALUE_NONE;
         context.alloca_definitions[index] = NULL;
@@ -3096,6 +3382,16 @@ static bool ir_pass_common_subexpressions(
         }
     }
     for (index = 0u; index < function->value_count; ++index) {
+        RccIrInstruction* allocation = context.value_definitions[index];
+        uint64_t allocation_size;
+        if (context.fresh_allocations[index] && allocation &&
+            ir_pass_cse_allocation_size(
+                &context, allocation, &allocation_size)) {
+            context.allocation_size_known[index] = true;
+            context.allocation_sizes[index] = allocation_size;
+        }
+    }
+    for (index = 0u; index < function->value_count; ++index) {
         RccIrValue parameter_value;
         if (ir_pass_cse_stable_pointer_parameter_slot(
                 &context, (RccIrValue)index, &parameter_value)) {
@@ -3117,6 +3413,8 @@ cleanup:
     rcc_free(context.direct_allocas);
     rcc_free(context.direct_data_symbols);
     rcc_free(context.fresh_allocations);
+    rcc_free(context.allocation_size_known);
+    rcc_free(context.allocation_sizes);
     rcc_free(context.stable_pointer_slots);
     rcc_free(context.stable_pointer_slot_values);
     rcc_free(context.alloca_definitions);
@@ -3131,6 +3429,8 @@ cleanup:
     rcc_free(context.block_store_access_types);
     rcc_free(context.block_store_byte_counts);
     rcc_free(context.block_store_is_copy);
+    rcc_free(context.memory_value_facts);
+    rcc_free(context.realloc_fact_buffer);
     rcc_free(context.replacements);
     rcc_free(blocks);
     rcc_free(predecessors);
