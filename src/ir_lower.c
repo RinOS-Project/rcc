@@ -36223,8 +36223,20 @@ static RccIrLowerValue lower_coroutine_await_expression(
 static bool lower_coroutine_body_supported(
     const Stmt* statement, bool* found_return,
     size_t* body_await_count) {
+    const Decl* local;
     if (!statement) return true;
     if (statement->kind == STMT_NULL) return true;
+    if (statement->kind == STMT_DECL) {
+        local = statement->decl;
+        return local && local->kind == DECL_VAR &&
+            !local->var_is_global && !local->var_is_static_local &&
+            !local->var_is_thread_local && !local->var_is_block_extern &&
+            !local->var_is_vla && !local->var_cleanup &&
+            !local->var_cleanups && !local->var_dynamic_initializer &&
+            !local->var_reference_temporary_guard &&
+            !local->var_reference_temporary_owner &&
+            lower_coroutine_scalar_frame_value_supported(local->type);
+    }
     if (statement->kind == STMT_BLOCK) {
         for (const StmtList* item = statement->block_stmts;
              item; item = item->next) {
@@ -36262,7 +36274,9 @@ static bool lower_coroutine_minimal_body_supported(
     if (!lower_coroutine_body_supported(
             statement, &found_return, body_await_count) || !found_return) {
         if (reason_out) {
-            *reason_out = "coroutine body supports only void co_await expression statements and void co_return";
+            *reason_out =
+                "coroutine body supports only scalar local declarations, "
+                "void co_await expression statements, and void co_return";
         }
         return false;
     }
@@ -36375,7 +36389,8 @@ static bool lower_coroutine_minimal_function_supported(
     }
     for (const CxxCoroutineFrameField* field = plan->frame_fields;
          field; field = field->next) {
-        if (field->kind == CXX_COROUTINE_FRAME_LOCAL ||
+        if ((field->kind == CXX_COROUTINE_FRAME_LOCAL &&
+             !lower_coroutine_scalar_frame_value_supported(field->type)) ||
             lower_cxx_type_has_destructor_cleanup(field->type)) {
             if (reason_out) *reason_out = "frame local lifetime handling is not lowered yet";
             return false;

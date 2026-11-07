@@ -48,7 +48,10 @@ struct coroutine_traits {
 }
 
 void rcc_coroutine_scalar_parameters(int base, unsigned step) {
-    co_await rcc_coroutine_parameter_awaiter{base};
-    co_await rcc_coroutine_parameter_awaiter{base + (int)step};
+    int saved_base = base;
+    co_await rcc_coroutine_parameter_awaiter{saved_base};
+    unsigned resumed_step = step;
+    co_await rcc_coroutine_parameter_awaiter{
+        saved_base + (int)resumed_step};
     co_return;
 }
