@@ -41082,7 +41082,11 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
 #endif
     if (!handle_type) {
         rcc_error(loc,
-                  "std::coroutine_handle<promise_type> is unavailable");
+                  "std::coroutine_handle<promise_type> is unavailable (promise kind=%d dependent=%d complete=%d)",
+                  (int)declaration->func_coroutine_promise_type->kind,
+                  declaration->func_coroutine_promise_type->cxx_dependent,
+                  type_is_complete(
+                      declaration->func_coroutine_promise_type));
     } else {
         await_plan->coroutine_handle_type = handle_type;
     }
@@ -41571,6 +41575,8 @@ static bool sema_cxx_coroutine_set_allocation_size(
 static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
     CxxCoroutineLoweringPlan* plan;
     CxxCoroutineFrameField* field;
+    size_t target_pointer_size =
+        g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     size_t cursor = RIN_CXX_CORO_FRAME_HEADER_SIZE;
     size_t max_alignment = 8u;
     if (!declaration || !declaration->func_is_coroutine) return true;
@@ -41632,13 +41638,13 @@ static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
     for (field = plan->frame_fields; field; field = field->next) {
         if (field->kind != CXX_COROUTINE_FRAME_PROMISE) continue;
         size_t promise_alignment = field->alignment;
-        if (promise_alignment < sizeof(void*)) {
-            promise_alignment = sizeof(void*);
+        if (promise_alignment < target_pointer_size) {
+            promise_alignment = target_pointer_size;
         }
         if (promise_alignment > max_alignment) max_alignment = promise_alignment;
-        if (cursor > SIZE_MAX - sizeof(void*) ||
+        if (cursor > SIZE_MAX - target_pointer_size ||
             !sema_cxx_coroutine_frame_align(
-                cursor + sizeof(void*), promise_alignment,
+                cursor + target_pointer_size, promise_alignment,
                 &field->offset) ||
             field->size > SIZE_MAX - field->offset) return false;
         plan->promise_offset = field->offset;
