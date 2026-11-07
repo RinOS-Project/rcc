@@ -13,6 +13,7 @@
 #include "x86_select.h"
 #include "x86_legalize.h"
 #include "cxx_exception_type.h"
+#include <rin/cpp/coroutine_abi.h>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -35570,6 +35571,78 @@ static bool lower_parameters(RccIrLowerContext* context,
     return index == context->function->parameter_count;
 }
 
+static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
+    const CxxCoroutineLoweringPlan* plan = declaration
+        ? declaration->func_coroutine_lowering_plan : NULL;
+    const CxxCoroutineFrameField* promise = NULL;
+    const CxxCoroutineFrameField* field;
+    size_t target_pointer_size =
+        g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    size_t promise_backpointer_start;
+    uint64_t target_size_limit = g_opts.target_arch == ARCH_X64
+        ? UINT64_MAX : UINT32_MAX;
+    const Expr* allocation_size;
+    if (!plan || !plan->frame_layout_checked ||
+        !plan->frame_layout_supported ||
+        plan->frame_size < RIN_CXX_CORO_FRAME_HEADER_SIZE ||
+        plan->frame_size > target_size_limit ||
+        plan->frame_alignment < 8u || plan->frame_alignment > 8u ||
+        (plan->frame_size & (plan->frame_alignment - 1u)) != 0u ||
+        plan->promise_offset < RIN_CXX_CORO_FRAME_HEADER_SIZE +
+                                   target_pointer_size ||
+        plan->promise_offset >= plan->frame_size) {
+        return false;
+    }
+    promise_backpointer_start = plan->promise_offset - target_pointer_size;
+    for (field = plan->frame_fields; field; field = field->next) {
+        const CxxCoroutineFrameField* other;
+        size_t field_end;
+        if (!field->declaration || !field->type ||
+            field->alignment == 0u ||
+            (field->alignment & (field->alignment - 1u)) != 0u ||
+            field->alignment > plan->frame_alignment ||
+            field->offset < RIN_CXX_CORO_FRAME_HEADER_SIZE ||
+            field->offset % field->alignment != 0u ||
+            field->offset > plan->frame_size ||
+            field->size > plan->frame_size - field->offset) {
+            return false;
+        }
+        field_end = field->offset + field->size;
+        if (field->kind == CXX_COROUTINE_FRAME_PROMISE) {
+            if (promise || field->offset != plan->promise_offset) {
+                return false;
+            }
+            promise = field;
+        } else if (field->offset < plan->promise_offset &&
+                   field_end > promise_backpointer_start) {
+            return false;
+        }
+        for (other = field->next; other; other = other->next) {
+            size_t other_end;
+            if (field->offset > plan->frame_size ||
+                other->offset > plan->frame_size ||
+                other->size > plan->frame_size - other->offset) {
+                return false;
+            }
+            other_end = other->offset + other->size;
+            if (field->size != 0u && other->size != 0u &&
+                field->offset < other_end && other->offset < field_end) {
+                return false;
+            }
+        }
+    }
+    if (!promise || plan->frame_field_count == 0u) return false;
+    allocation_size = plan->allocation_call &&
+            plan->allocation_call->call_args
+        ? plan->allocation_call->call_args->expr : NULL;
+    while (allocation_size && allocation_size->kind == EXPR_CAST) {
+        allocation_size = allocation_size->cast_expr;
+    }
+    return allocation_size && allocation_size->kind == EXPR_INT_LIT &&
+        allocation_size->int_val >= 0 &&
+        (uint64_t)allocation_size->int_val == plan->frame_size;
+}
+
 RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
                                        RccIrModule** module_out,
                                        char* error, size_t error_size) {
@@ -35599,8 +35672,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         const CxxCoroutineLoweringPlan* coroutine_plan =
             declaration->func_coroutine_lowering_plan;
         if (error && error_size != 0u) {
-            if (!coroutine_plan || !coroutine_plan->frame_layout_checked ||
-                !coroutine_plan->frame_layout_supported) {
+            if (!lower_coroutine_frame_layout_valid(declaration)) {
                 snprintf(error, error_size,
                          "coroutine frame layout cannot represent this function's storage");
             } else {
