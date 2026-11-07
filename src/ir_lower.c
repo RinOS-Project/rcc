@@ -35596,9 +35596,17 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         return RCC_IR_LOWER_UNSUPPORTED;
     }
     if (declaration->func_is_coroutine) {
+        const CxxCoroutineLoweringPlan* coroutine_plan =
+            declaration->func_coroutine_lowering_plan;
         if (error && error_size != 0u) {
-            snprintf(error, error_size,
-                     "typed IR coroutine lowering is not implemented");
+            if (!coroutine_plan || !coroutine_plan->frame_layout_checked ||
+                !coroutine_plan->frame_layout_supported) {
+                snprintf(error, error_size,
+                         "coroutine frame layout cannot represent this function's storage");
+            } else {
+                snprintf(error, error_size,
+                         "coroutine continuation code generation is not implemented");
+            }
         }
         return RCC_IR_LOWER_UNSUPPORTED;
     }
