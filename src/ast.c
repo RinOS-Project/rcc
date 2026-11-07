@@ -950,11 +950,12 @@ static bool type_c_effective_alias_compatible_impl(
         type_is_compatible((Type*)a, (Type*)b)) {
         return true;
     }
+    /* Keep equal-rank, equal-storage integer identities in one may-alias
+     * class.  Some C implementation typedefs (notably wchar_t and the
+     * extended character integer typedefs) retain front-end identity flags
+     * even when their effective type is the underlying integer type. */
     if (type_is_integer((Type*)a) && type_is_integer((Type*)b) &&
-        a->kind == b->kind && a->kind != TYPE_BOOL &&
-        a->is_bit_precise == b->is_bit_precise &&
-        (!a->is_bit_precise || a->bit_width == b->bit_width) &&
-        a->is_unsigned != b->is_unsigned) {
+        a->kind == b->kind && a->size == b->size) {
         return true;
     }
     if (a->kind == TYPE_ENUM && a->enum_underlying_type &&

@@ -1732,6 +1732,7 @@ typedef struct {
     size_t block_load_count;
     bool* direct_allocas;
     bool* direct_data_symbols;
+    RccIrInstruction** alloca_definitions;
     RccIrValue* stored_values;
     RccIrInstruction** pending_stores;
     bool* has_stored_values;
@@ -1766,6 +1767,29 @@ static bool ir_pass_value_is_direct_object(
         ir_pass_value_is_direct_data_symbol(context, value);
 }
 
+static bool ir_pass_c_declared_local_load_type(
+    const RccIrCseContext* context, const RccIrInstruction* load) {
+    RccIrValue address;
+    RccIrInstruction* allocation;
+    const Decl* declaration;
+    if (!context || !load || g_opts.cxx_mode ||
+        load->opcode != RCC_IR_LOAD || load->operand_count != 1u ||
+        !load->source_access_type) {
+        return false;
+    }
+    address = load->operands[0];
+    if (!ir_pass_value_is_direct_alloca(context, address) ||
+        !context->alloca_definitions) {
+        return false;
+    }
+    allocation = context->alloca_definitions[address];
+    declaration = allocation
+        ? (const Decl*)allocation->source_declaration : NULL;
+    return declaration && declaration->kind == DECL_VAR &&
+        declaration->type && type_c_effective_alias_compatible(
+            declaration->type, load->source_access_type);
+}
+
 static bool ir_pass_store_is_disjoint_from_load(
     const RccIrCseContext* context, const RccIrInstruction* load,
     const RccIrInstruction* store) {
@@ -1777,9 +1801,16 @@ static bool ir_pass_store_is_disjoint_from_load(
     }
     load_address = load->operands[0];
     store_address = store->operands[1];
-    return load_address != store_address &&
+    if (load_address != store_address) {
+        return ir_pass_value_is_direct_alloca(context, load_address) &&
+            ir_pass_value_is_direct_alloca(context, store_address);
+    }
+    return !store->volatile_access &&
         ir_pass_value_is_direct_alloca(context, load_address) &&
-        ir_pass_value_is_direct_alloca(context, store_address);
+        ir_pass_c_declared_local_load_type(context, load) &&
+        store->source_access_type &&
+        !type_c_effective_alias_compatible(
+            load->source_access_type, store->source_access_type);
 }
 
 static void ir_pass_clear_block_store_facts(RccIrCseContext* context) {
@@ -2083,6 +2114,8 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.direct_allocas));
     context.direct_data_symbols = rcc_alloc(
         function->value_count * sizeof(*context.direct_data_symbols));
+    context.alloca_definitions = rcc_alloc(
+        function->value_count * sizeof(*context.alloca_definitions));
     context.stored_values = rcc_alloc(
         function->value_count * sizeof(*context.stored_values));
     context.pending_stores = rcc_alloc(
@@ -2103,6 +2136,7 @@ static bool ir_pass_common_subexpressions(
     for (index = 0u; index < function->value_count; ++index) {
         context.direct_allocas[index] = false;
         context.direct_data_symbols[index] = false;
+        context.alloca_definitions[index] = NULL;
         context.stored_values[index] = RCC_IR_VALUE_NONE;
         context.pending_stores[index] = NULL;
         context.has_stored_values[index] = false;
@@ -2115,6 +2149,7 @@ static bool ir_pass_common_subexpressions(
             if (instruction->opcode == RCC_IR_ALLOCA &&
                 instruction->result != RCC_IR_VALUE_NONE) {
                 context.direct_allocas[instruction->result] = true;
+                context.alloca_definitions[instruction->result] = instruction;
             } else if (instruction->opcode == RCC_IR_SYMBOL_ADDRESS &&
                        instruction->result != RCC_IR_VALUE_NONE &&
                        !instruction->symbol_is_code &&
@@ -2139,6 +2174,7 @@ cleanup:
     rcc_free(context.block_loads);
     rcc_free(context.direct_allocas);
     rcc_free(context.direct_data_symbols);
+    rcc_free(context.alloca_definitions);
     rcc_free(context.stored_values);
     rcc_free(context.pending_stores);
     rcc_free(context.has_stored_values);
