@@ -1762,6 +1762,8 @@ typedef struct {
     bool* direct_allocas;
     bool* direct_data_symbols;
     bool* fresh_allocations;
+    bool* stable_pointer_slots;
+    RccIrValue* stable_pointer_slot_values;
     RccIrInstruction** alloca_definitions;
     RccIrInstruction** value_definitions;
     RccIrCseMemoryLocation* memory_locations;
@@ -1819,6 +1821,66 @@ static bool ir_pass_value_is_direct_object(
         ir_pass_value_is_direct_data_symbol(context, value);
 }
 
+static bool ir_pass_cse_stable_pointer_parameter_slot(
+    const RccIrCseContext* context, RccIrValue slot,
+    RccIrValue* parameter_value_out) {
+    RccIrInstruction* allocation;
+    const Decl* declaration;
+    RccIrValue parameter_value = RCC_IR_VALUE_NONE;
+    RccIrInstruction* initial_store = NULL;
+    size_t store_count = 0u;
+    if (!context || !parameter_value_out ||
+        !ir_pass_value_is_direct_alloca(context, slot) ||
+        !context->alloca_definitions ||
+        !context->function->parameter_source_declarations) {
+        return false;
+    }
+    allocation = context->alloca_definitions[slot];
+    declaration = allocation
+        ? (const Decl*)allocation->source_declaration : NULL;
+    if (!declaration || declaration->kind != DECL_PARAM ||
+        !declaration->type || declaration->type->kind != TYPE_PTR) {
+        return false;
+    }
+    for (size_t index = 0u;
+         index < context->function->parameter_count; ++index) {
+        if ((const Decl*)context->function->
+                parameter_source_declarations[index] == declaration) {
+            if (parameter_value != RCC_IR_VALUE_NONE) return false;
+            parameter_value = context->function->parameters[index];
+        }
+    }
+    if (parameter_value == RCC_IR_VALUE_NONE) return false;
+    for (size_t block_index = 0u;
+         block_index < context->block_count; ++block_index) {
+        for (RccIrInstruction* instruction =
+                 context->blocks[block_index]->first;
+             instruction; instruction = instruction->next) {
+            if (instruction->opcode == RCC_IR_STORE &&
+                instruction->operand_count == 2u &&
+                instruction->operands[1] == slot) {
+                if (++store_count != 1u || instruction->volatile_access ||
+                    instruction->operands[0] != parameter_value) {
+                    return false;
+                }
+                initial_store = instruction;
+            }
+            for (size_t operand = 0u;
+                 operand < instruction->operand_count; ++operand) {
+                if (instruction->operands[operand] != slot) continue;
+                if (instruction == initial_store && operand == 1u) continue;
+                if (instruction->opcode == RCC_IR_LOAD && operand == 0u) {
+                    continue;
+                }
+                return false;
+            }
+        }
+    }
+    if (store_count != 1u || !initial_store) return false;
+    *parameter_value_out = parameter_value;
+    return true;
+}
+
 static bool ir_pass_cse_memory_location(
     const RccIrCseContext* context, RccIrValue value, size_t depth,
     RccIrCseMemoryLocation* output) {
@@ -1869,6 +1931,23 @@ static bool ir_pass_cse_memory_location(
         location->byte_offset = 0u;
         location->byte_offset_known = true;
         location->valid = true;
+    } else if (definition->opcode == RCC_IR_LOAD &&
+               definition->type.kind == RCC_IR_TYPE_POINTER &&
+               definition->operand_count == 1u &&
+               definition->operands[0] < context->replacement_count &&
+               context->stable_pointer_slots &&
+               context->stable_pointer_slots[
+                   definition->operands[0]]) {
+        RccIrCseMemoryLocation source;
+        RccIrValue parameter_value = context->stable_pointer_slot_values[
+            definition->operands[0]];
+        if (parameter_value != RCC_IR_VALUE_NONE &&
+            ir_pass_cse_memory_location(
+                context, parameter_value, depth + 1u, &source) &&
+            source.valid) {
+            *location = source;
+            location->state = 1u;
+        }
     } else if (definition->opcode == RCC_IR_CALL &&
                context->fresh_allocations[value]) {
         location->object = value;
@@ -2722,6 +2801,10 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.direct_data_symbols));
     context.fresh_allocations = rcc_alloc(
         function->value_count * sizeof(*context.fresh_allocations));
+    context.stable_pointer_slots = rcc_alloc(
+        function->value_count * sizeof(*context.stable_pointer_slots));
+    context.stable_pointer_slot_values = rcc_alloc(
+        function->value_count * sizeof(*context.stable_pointer_slot_values));
     context.alloca_definitions = rcc_alloc(
         function->value_count * sizeof(*context.alloca_definitions));
     context.value_definitions = rcc_alloc(
@@ -2753,6 +2836,8 @@ static bool ir_pass_common_subexpressions(
         context.direct_allocas[index] = false;
         context.direct_data_symbols[index] = false;
         context.fresh_allocations[index] = false;
+        context.stable_pointer_slots[index] = false;
+        context.stable_pointer_slot_values[index] = RCC_IR_VALUE_NONE;
         context.alloca_definitions[index] = NULL;
         context.value_definitions[index] = NULL;
         context.stored_values[index] = RCC_IR_VALUE_NONE;
@@ -2794,6 +2879,14 @@ static bool ir_pass_common_subexpressions(
             instruction = instruction->next;
         }
     }
+    for (index = 0u; index < function->value_count; ++index) {
+        RccIrValue parameter_value;
+        if (ir_pass_cse_stable_pointer_parameter_slot(
+                &context, (RccIrValue)index, &parameter_value)) {
+            context.stable_pointer_slots[index] = true;
+            context.stable_pointer_slot_values[index] = parameter_value;
+        }
+    }
     ir_pass_common_block(&context, 0u);
     if (context.failed) goto cleanup;
     if (!ir_pass_compact_values(
@@ -2808,6 +2901,8 @@ cleanup:
     rcc_free(context.direct_allocas);
     rcc_free(context.direct_data_symbols);
     rcc_free(context.fresh_allocations);
+    rcc_free(context.stable_pointer_slots);
+    rcc_free(context.stable_pointer_slot_values);
     rcc_free(context.alloca_definitions);
     rcc_free(context.value_definitions);
     rcc_free(context.memory_locations);

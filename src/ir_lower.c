@@ -39854,6 +39854,45 @@ static bool lower_coroutine_lower_minimal(
         source_context->unsupported = true;
         goto done;
     }
+    if (strstr(resume_function->name,
+               "rcc_coroutine_suspended_return_value") != NULL) {
+        for (RccIrBlock* trace_block = resume_function->first_block;
+             trace_block; trace_block = trace_block->next) {
+            for (RccIrInstruction* trace_instruction = trace_block->first;
+                 trace_instruction; trace_instruction =
+                     trace_instruction->next) {
+                bool trace_relevant = trace_instruction->result == 38u;
+                for (size_t trace_index = 0u;
+                     trace_index < trace_instruction->operand_count;
+                     ++trace_index) {
+                    if (trace_instruction->operands[trace_index] == 38u) {
+                        trace_relevant = true;
+                    }
+                }
+                if (trace_relevant ||
+                    (trace_block->name &&
+                     strcmp(trace_block->name,
+                            "coroutine.await.continue") == 0)) {
+                    fprintf(stderr,
+                            "TRACE preopt block=%s op=%d result=%u type=%d/%u operands=",
+                            trace_block->name ? trace_block->name : "?",
+                            (int)trace_instruction->opcode,
+                            (unsigned)trace_instruction->result,
+                            (int)trace_instruction->type.kind,
+                            (unsigned)trace_instruction->type.bit_width);
+                    for (size_t trace_index = 0u;
+                         trace_index < trace_instruction->operand_count;
+                         ++trace_index) {
+                        fprintf(stderr, "%s%u",
+                                trace_index ? "," : "",
+                                (unsigned)trace_instruction->operands[
+                                    trace_index]);
+                    }
+                    fputc('\n', stderr);
+                }
+            }
+        }
+    }
     failure_stage = "generated function optimization";
     {
         RccIrOptimizationStats stats;
