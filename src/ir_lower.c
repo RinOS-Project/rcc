@@ -35598,9 +35598,9 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     if (declaration->func_is_coroutine) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
-                     "coroutine function reached IR lowering before coroutine transformation");
+                     "typed IR coroutine lowering is not implemented");
         }
-        return RCC_IR_LOWER_INVALID;
+        return RCC_IR_LOWER_UNSUPPORTED;
     }
     has_scope_cleanups = lower_statement_has_scope_cleanups(
         declaration->func_body);
