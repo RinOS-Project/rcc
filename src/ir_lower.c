@@ -37197,6 +37197,11 @@ static bool lower_coroutine_count_expression_awaits(
             return expression->cxx_typeid_is_type ||
                 lower_coroutine_count_expression_awaits(
                     expression->cxx_typeid_operand, body_await_count);
+        case EXPR_CXX_FOLD:
+            return lower_coroutine_count_expression_awaits(
+                       expression->cxx_fold_init, body_await_count) &&
+                lower_coroutine_count_expression_awaits(
+                    expression->cxx_fold_pattern, body_await_count);
         case EXPR_COMPOUND:
             for (const ExprList* initializer = expression->compound_init;
                  initializer; initializer = initializer->next) {
@@ -37374,6 +37379,7 @@ static bool lower_coroutine_expression_liveness_supported_impl(
         case EXPR_CXX_MEMBER_PTR_DOT:
         case EXPR_CXX_MEMBER_PTR_ARROW:
         case EXPR_CXX_TYPEID:
+        case EXPR_CXX_FOLD:
         case EXPR_COMPOUND:
         case EXPR_GENERIC:
         case EXPR_VA_START:

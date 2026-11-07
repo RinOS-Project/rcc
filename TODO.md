@@ -15302,12 +15302,19 @@ Continue in this order:
       suspension, and indexed lvalues use the coroutine-aware pointer/index
       lowering path. A direct `noexcept` call can now lower additional arguments
       after its first suspending argument resumes. Await discovery now includes
-      assignment targets, compound assignments, member-pointer and other
+      assignment targets, compound assignments, member-pointer, fold and other
       expression containers so
       unsupported forms fail closed instead of bypassing coroutine accounting.
-      These new source paths have not received compiler/runtime acceptance;
-      remaining i686 wide-scalar shapes and expression liveness still need
-      implementation and acceptance.
+      `test-cxx20-coroutine-expression-spills` now accepts pointer addition and
+      difference, pointer/index awaits in indexed lvalues, scalar bitwise/shift
+      and comparison, conditional and short-circuit expressions, plus i686
+      wide-scalar addition, XOR/shift, and comparison across suspensions. Its
+      i686/x86-64 `-O0`/`-O2` verified matrix emits 47 functions with zero
+      fallback. The generated x86-64 object executes against the production
+      RinCRT bootstrap and libcxx runtime in WSL, checking seven scalar/pointer
+      results, three 64-bit results, resume counts, and frame destruction.
+      Other expression families, value types, and i686 runtime execution remain
+      open.
 - [x] Track destruction for body awaiter objects with per-object frame active
       bytes. Exception and destroy entry now destroy only fully constructed,
       still-live body awaiters in reverse await-plan order, clearing active
@@ -15315,15 +15322,20 @@ Continue in this order:
       unwind, final-suspend protocol execution, or coroutine destruction
       terminates. `unhandled_exception()` now has a nested exception frame: if
       it throws, the coroutine is marked done with no awaiter active and the
-      same exception is rethrown to its caller/resumer. These source changes
-      still need compiler/runtime acceptance; general throwing destructor
-      shapes remain open.
-- [ ] Execute the coroutine exception paths against the RinOS runtime, checking
-      `unhandled_exception()`, caught values, exception payload destruction,
-      and live-local cleanup after resumption.
-- [ ] Extend the verified subset to throwing final-suspend operations and
-      destructors during unwind,
-      reference/union lifetimes, suspend-spanning `try/catch`/`co_return`, and
+      same exception is rethrown to its caller/resumer. These changes pass the
+      `test-cxx20-coroutine-exceptions` four-way verified matrix with 50
+      functions and zero fallback. The WSL host runtime test executes generated
+      x86-64 coroutine code against RinCRT/libcxx and verifies exception and
+      cleanup results; general throwing-destructor shapes remain open.
+- [x] Execute the coroutine exception paths against the production RinCRT
+      bootstrap and libcxx runtime, checking `unhandled_exception()`, caught
+      values, exception payload destruction, and live-local cleanup after
+      resumption. `test-cxx20-coroutine-exceptions` passes in the WSL host
+      harness with allocation and process-exit adapters.
+- [x] Reject a potentially throwing `final_suspend()` await expression as
+      required by C++20. `test-cxx20-coroutine-final-suspend-boundary` checks
+      the diagnostic on i686 and x86-64.
+- [ ] Extend the verified subset to throwing destructors during unwind,
+      reference/union lifetimes, suspend-spanning `try/catch`/`co_return`,
       remaining awaiter initializer forms and throwing awaiter destruction,
-      general pointer/wide expression liveness, and end-to-end nested or
-      multiple-await acceptance for other expression and value types.
+      and additional nested/multiple-await expression and value types.
