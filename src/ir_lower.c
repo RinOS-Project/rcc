@@ -36160,6 +36160,30 @@ static bool lower_coroutine_mark_done(RccIrLowerContext* context) {
     return !context->unsupported;
 }
 
+static bool lower_coroutine_resume_transfer_handle(
+    RccIrLowerContext* context, RccIrLowerValue handle_object) {
+    RccIrLowerValue handle_pointer;
+    RccIrLowerValue frame;
+    if (!context || !handle_object.valid ||
+        handle_object.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    /* RinOS coroutine_handle objects store their frame pointer at offset 0. */
+    handle_pointer = lower_byte_offset_address(
+        context, handle_object, 0u);
+    frame = lower_load_address(
+        context, handle_pointer, type_ptr(type_void));
+    if (!frame.valid ||
+        !rcc_ir_type_equal(frame.type, rcc_ir_type_pointer(0u))) {
+        context->unsupported = true;
+        return false;
+    }
+    (void)lower_cxx_runtime_call(
+        context, "rin_coro_resume", rcc_ir_type_void(), &frame.value, 1u);
+    return !context->unsupported;
+}
+
 static bool lower_coroutine_emit_final_suspend(
     RccIrLowerContext* context) {
     const Decl* declaration = context ? context->declaration : NULL;
@@ -36168,9 +36192,13 @@ static bool lower_coroutine_emit_final_suspend(
     RccIrBlock* ready_block;
     RccIrBlock* suspend_block;
     RccIrLowerValue ready;
+    RccIrLowerValue suspend_result;
     RccIrValue frame;
     if (!context || !context->coroutine_resume || !await_plan ||
-        await_plan->await_suspend_call->type->kind != TYPE_VOID ||
+        !await_plan->await_suspend_call ||
+        !await_plan->await_suspend_call->type ||
+        (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
+         !await_plan->await_suspend_returns_handle) ||
         !lower_coroutine_initialize_awaiter(
             context, declaration, await_plan, NULL, 0u)) {
         if (context) context->unsupported = true;
@@ -36210,8 +36238,11 @@ static bool lower_coroutine_emit_final_suspend(
         context->unsupported = true;
         return false;
     }
-    (void)lower_expression(context, await_plan->await_suspend_call);
-    if (context->unsupported ||
+    suspend_result = lower_expression(
+        context, await_plan->await_suspend_call);
+    if (context->unsupported || !suspend_result.valid ||
+        (await_plan->await_suspend_returns_handle &&
+         !lower_coroutine_resume_transfer_handle(context, suspend_result)) ||
         !lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
                       NULL, 0u, NULL, 0u)) {
         context->unsupported = true;
@@ -36276,27 +36307,11 @@ static RccIrLowerValue lower_coroutine_await_expression(
     }
     suspend_returns_handle = await_plan->await_suspend_returns_handle;
     if (suspend_returns_handle) {
-        RccIrLowerValue handle_pointer;
-        if (!rcc_ir_type_equal(
-                suspend_result.type, rcc_ir_type_pointer(0u))) {
+        if (!lower_coroutine_resume_transfer_handle(
+                context, suspend_result)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
-        /* RinOS coroutine_handle objects store their frame pointer at offset 0. */
-        handle_pointer = lower_byte_offset_address(
-            context, suspend_result, 0u);
-        RccIrLowerValue handle = lower_load_address(
-            context, handle_pointer, type_ptr(type_void));
-        if (!handle.valid ||
-            !rcc_ir_type_equal(
-                handle.type, rcc_ir_type_pointer(0u))) {
-            context->unsupported = true;
-            return lower_invalid_value();
-        }
-        (void)lower_cxx_runtime_call(
-            context, "rin_coro_resume", rcc_ir_type_void(),
-            &handle.value, 1u);
-        if (context->unsupported) return lower_invalid_value();
     } else if (await_plan->await_suspend_call->type->kind == TYPE_BOOL) {
         RccIrLowerValue should_suspend = lower_truth(
             context, suspend_result);
@@ -36621,9 +36636,10 @@ static bool lower_coroutine_minimal_function_supported(
         if (!await_plan->await_suspend_call ||
             !await_plan->await_suspend_call->type ||
             (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
-             !(body_await_plan &&
-               (await_plan->await_suspend_call->type->kind == TYPE_BOOL ||
-                await_plan->await_suspend_returns_handle))) ||
+             !(((body_await_plan || await_plan->is_initial_suspend) &&
+                await_plan->await_suspend_call->type->kind == TYPE_BOOL) ||
+               (await_plan->await_suspend_returns_handle &&
+                await_plan->await_suspend_call->type->kind == TYPE_STRUCT))) ||
             (await_plan->await_suspend_returns_handle &&
              (await_plan->await_suspend_call->type->kind != TYPE_STRUCT ||
               await_plan->await_suspend_call->type->size !=
@@ -36990,7 +37006,10 @@ static bool lower_coroutine_emit_initial_suspend(
         ? declaration->func_coroutine_initial_suspend_plan : NULL;
     RccIrBlock* resume_block;
     RccIrBlock* suspend_block;
+    RccIrBlock* suspended_block;
+    RccIrBlock* continued_block;
     RccIrLowerValue ready;
+    RccIrLowerValue suspend_result;
     RccIrValue frame;
     if (!context || !await_plan ||
         !lower_coroutine_initialize_awaiter(
@@ -37037,9 +37056,9 @@ static bool lower_coroutine_emit_initial_suspend(
         }
         return false;
     }
-    (void)lower_expression(context, await_plan->await_suspend_call);
-    if (context->unsupported ||
-        !lower_coroutine_emit_return_object(context, return_object)) {
+    suspend_result = lower_expression(
+        context, await_plan->await_suspend_call);
+    if (context->unsupported || !suspend_result.valid) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
                      "initial_suspend await_suspend lowering failed");
@@ -37047,7 +37066,47 @@ static bool lower_coroutine_emit_initial_suspend(
         context->unsupported = true;
         return false;
     }
-    context->terminated = true;
+    if (await_plan->await_suspend_call->type->kind == TYPE_BOOL) {
+        RccIrLowerValue should_suspend = lower_truth(
+            context, suspend_result);
+        suspended_block = rcc_ir_block_add(
+            context->function, "coroutine.initial.suspended");
+        continued_block = rcc_ir_block_add(
+            context->function, "coroutine.initial.continued");
+        if (!should_suspend.valid || !suspended_block || !continued_block ||
+            !lower_conditional_branch(
+                context, should_suspend, suspended_block->id,
+                continued_block->id)) {
+            context->unsupported = true;
+            return false;
+        }
+        context->current = suspended_block;
+        context->terminated = false;
+        if (!lower_coroutine_emit_return_object(context, return_object)) {
+            context->unsupported = true;
+            return false;
+        }
+        context->current = continued_block;
+        context->terminated = false;
+        (void)lower_cxx_runtime_call(
+            context, resume_name, rcc_ir_type_void(), &frame, 1u);
+        if (context->unsupported ||
+            !lower_coroutine_emit_return_object(context, return_object)) {
+            context->unsupported = true;
+            return false;
+        }
+    } else {
+        if (await_plan->await_suspend_returns_handle &&
+            !lower_coroutine_resume_transfer_handle(
+                context, suspend_result)) {
+            context->unsupported = true;
+            return false;
+        }
+        if (!lower_coroutine_emit_return_object(context, return_object)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
     return true;
 }
 
