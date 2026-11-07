@@ -4459,6 +4459,17 @@ $(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-backend-asm$(EXE_
 test-cxx20-coroutine-expression-spills-runtime: $(RCXX_TARGET) \
 	$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-backend-asm$(EXE_SUFFIX)
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x86.ro \
+		tests/cxx20_coroutine_expression_spills.cpp \
+		>$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 47 function(s) emitted' \
+		$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x86.log,0)
+	$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-backend-asm$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x86.ro \
+		$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x86.s
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x64.ro \
