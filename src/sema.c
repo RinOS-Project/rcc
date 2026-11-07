@@ -23242,6 +23242,8 @@ static TypeMethod* sema_cxx_type_trait_assignment_method(
         declaration->func_is_coroutine = false;
         declaration->func_coroutine_promise_type = NULL;
         declaration->func_coroutine_promise_object = NULL;
+        declaration->func_coroutine_get_return_object_call = NULL;
+        declaration->func_coroutine_get_return_object_checked = false;
         declaration->func_coroutine_initial_suspend_plan = NULL;
         declaration->func_coroutine_final_suspend_plan = NULL;
         declaration->func_coroutine_unhandled_exception_call = NULL;
@@ -41077,6 +41079,33 @@ static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
         return;
     }
     loc = declaration->loc;
+    if (!declaration->func_coroutine_get_return_object_checked) {
+        Expr* return_object;
+        Type* return_type = declaration->type->ret_type;
+        declaration->func_coroutine_get_return_object_checked = true;
+        call = sema_cxx_coroutine_promise_call(
+            declaration, "get_return_object", NULL, loc);
+        if (call) {
+            (void)sema_expr(call);
+            if (call->cxx_selected_method && call->type && return_type) {
+                return_object = ast_arena_alloc(sizeof(*return_object));
+                *return_object = *call;
+                if (!implicit_cast(return_object, return_type)) {
+                    if (sema_cxx_user_conversion_is_ambiguous(
+                            return_object, return_type)) {
+                        rcc_error(loc,
+                                  "ambiguous conversion from promise.get_return_object() to coroutine return type");
+                    } else {
+                        rcc_error(loc,
+                                  "promise.get_return_object() result is not convertible to coroutine return type");
+                    }
+                } else {
+                    declaration->func_coroutine_get_return_object_call =
+                        return_object;
+                }
+            }
+        }
+    }
     if (!declaration->func_coroutine_initial_suspend_plan) {
         call = sema_cxx_coroutine_promise_call(
             declaration, "initial_suspend", NULL, loc);

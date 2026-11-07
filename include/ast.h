@@ -1719,6 +1719,9 @@ struct Decl {
             Type* func_coroutine_promise_type;
             /* Stable semantic object used by generated promise calls. */
             Decl* func_coroutine_promise_object;
+            /* Resolved once and converted to the coroutine return type. */
+            Expr* func_coroutine_get_return_object_call;
+            bool func_coroutine_get_return_object_checked;
             CxxCoroutineAwaitPlan* func_coroutine_initial_suspend_plan;
             CxxCoroutineAwaitPlan* func_coroutine_final_suspend_plan;
             Expr* func_coroutine_unhandled_exception_call;
