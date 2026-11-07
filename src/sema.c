@@ -41017,6 +41017,12 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
         !awaitable) {
         return NULL;
     }
+    if (!is_initial_suspend &&
+        declaration->func_coroutine_next_suspend_index == 0u) {
+        rcc_error(loc,
+                  "coroutine has too many suspension points for the state index ABI");
+        return NULL;
+    }
     if (apply_operator_co_await) {
         Expr* operator_call =
             sema_cxx_coroutine_apply_operator_co_await(awaitable, loc);
