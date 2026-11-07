@@ -76,10 +76,10 @@ ifeq ($(OS),Windows_NT)
 WSL_RINCOMPILER_ROOT ?= /mnt/e/RinOS/public-base/toolchain/RinCompiler
 VERIFIED_TEST_THREAD_FLAGS =
 WINDOWS_TEST_OUT = $(subst /,\,$(TEST_OUT))
-CHECK_INIT_ARRAY = $(FINDSTR) /c:".section .init_array"
-CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
-CHECK_FINI_ARRAY = $(FINDSTR) /c:".section .fini_array"
-CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(subst /,\,$(1))
+CHECK_INIT_ARRAY = $(GREP) -F -q ".section .init_array"
+CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) "$(1)"
+CHECK_FINI_ARRAY = $(GREP) -F -q ".section .fini_array"
+CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) "$(1)"
 CHECK_TEXT = $(FINDSTR) /c:"$(1)" "$(subst /,\,$(2))" >NUL
 CHECK_TEXT_ABSENT = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(2)')) { exit 2 }; if (Select-String -LiteralPath '$(2)' -SimpleMatch -Pattern '$(1)' -Quiet) { exit 1 }"
 GREP = $(POWERSHELL) -NoProfile -File "$(CURDIR)/scripts/rcc_grep.ps1"
@@ -24817,10 +24817,18 @@ test-global-initializers: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDA
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/global-initializers/cxx-x64.s \
 		tests/cxx_global_initializers.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-x86.s \
+		tests/cxx_global_init_priority.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -S \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-x64.s \
+		tests/cxx_global_init_priority.cpp
 	$(call CHECK_INIT_ARRAY_FILE,$(TEST_OUT)/global-initializers/c-x86.s)
 	$(call CHECK_INIT_ARRAY_FILE,$(TEST_OUT)/global-initializers/c-x64.s)
 	$(call CHECK_INIT_ARRAY_FILE,$(TEST_OUT)/global-initializers/cxx-x86.s)
 	$(call CHECK_INIT_ARRAY_FILE,$(TEST_OUT)/global-initializers/cxx-x64.s)
+	$(call CHECK_INIT_ARRAY_FILE,$(TEST_OUT)/global-initializers/cxx-priority-x86.s)
+	$(call CHECK_INIT_ARRAY_FILE,$(TEST_OUT)/global-initializers/cxx-priority-x64.s)
 	$(CC) -m32 -c $(TEST_OUT)/global-initializers/c-x86.s \
 		-o $(TEST_OUT)/global-initializers/c-x86.o
 	$(CC) -m32 -c $(TEST_OUT)/global-initializers/cxx-x86.s \
@@ -24829,6 +24837,14 @@ test-global-initializers: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDA
 		-o $(TEST_OUT)/global-initializers/c-x64.o
 	$(CC) -c $(TEST_OUT)/global-initializers/cxx-x64.s \
 		-o $(TEST_OUT)/global-initializers/cxx-x64.o
+	$(CC) -c $(TEST_OUT)/global-initializers/cxx-priority-x64.s \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-x64-host.o
+	$(OBJCOPY) --redefine-sym main=cxx_global_init_priority_source_main \
+		$(TEST_OUT)/global-initializers/cxx-priority-x64-host.o
+	$(CC) $(TEST_OUT)/global-initializers/cxx-priority-x64-host.o \
+		tests/cxx_global_initializers_host.c \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-x64-host
+	$(TEST_OUT)/global-initializers/cxx-priority-x64-host
 	$(OBJCOPY) --redefine-sym main=rcc_global_initializers_main \
 		$(TEST_OUT)/global-initializers/c-x64.o
 	$(CC) $(TEST_OUT)/global-initializers/c-x64.o \
@@ -24853,6 +24869,24 @@ test-global-initializers: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDA
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/global-initializers/cxx-x64.ro \
 		tests/cxx_global_initializers.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-a-x86.ro \
+		tests/cxx_global_init_priority.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-b-x86.ro \
+		tests/cxx_global_init_priority_mid.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-c-x86.ro \
+		tests/cxx_global_init_priority_same.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-a-x64.ro \
+		tests/cxx_global_init_priority.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-b-x64.ro \
+		tests/cxx_global_init_priority_mid.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-c-x64.ro \
+		tests/cxx_global_init_priority_same.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/global-initializers/c-x86.rin \
 		tests/c_global_initializers.c
@@ -24877,6 +24911,29 @@ test-global-initializers: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDA
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/global-initializers/cxx-linked-x86.rin \
 		$(TEST_OUT)/global-initializers/cxx-x86.ro
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-x86.rin \
+		$(TEST_OUT)/global-initializers/cxx-priority-a-x86.ro \
+		$(TEST_OUT)/global-initializers/cxx-priority-b-x86.ro \
+		$(TEST_OUT)/global-initializers/cxx-priority-c-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/global-initializers/cxx-priority-x64.rin \
+		$(TEST_OUT)/global-initializers/cxx-priority-a-x64.ro \
+		$(TEST_OUT)/global-initializers/cxx-priority-b-x64.ro \
+		$(TEST_OUT)/global-initializers/cxx-priority-c-x64.ro
+	$(CC) $(CFLAGS) -I../../RinOS-SDK/include -Iinclude \
+		-o $(TEST_OUT)/global-initializers/init-priority-test \
+		tests/cxx_global_init_priority_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/global-initializers/init-priority-test \
+		$(TEST_OUT)/global-initializers/cxx-priority-x86.rin \
+		$(TEST_OUT)/global-initializers/cxx-priority-a-x86.ro \
+		$(TEST_OUT)/global-initializers/cxx-priority-b-x86.ro \
+		$(TEST_OUT)/global-initializers/cxx-priority-c-x86.ro
+	$(TEST_OUT)/global-initializers/init-priority-test \
+		$(TEST_OUT)/global-initializers/cxx-priority-x64.rin \
+		$(TEST_OUT)/global-initializers/cxx-priority-a-x64.ro \
+		$(TEST_OUT)/global-initializers/cxx-priority-b-x64.ro \
+		$(TEST_OUT)/global-initializers/cxx-priority-c-x64.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		$(TEST_OUT)/global-initializers/c-x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
@@ -24893,7 +24950,21 @@ test-global-initializers: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDA
 		$(TEST_OUT)/global-initializers/c-linked-x64.rin
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		$(TEST_OUT)/global-initializers/cxx-linked-x86.rin
-	@echo "C17/C++20 scalar global initializer and current image format tests completed"
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/global-initializers/cxx-priority-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/global-initializers/cxx-priority-x64.rin
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/global-initializers/invalid-priority-range.ro tests/invalid_cxx_init_priority_range.cpp,$(TEST_OUT)/global-initializers/invalid-priority-range.log)
+	$(GREP) -F -q 'init_priority attribute requires an integer constant from 101 through 65535' $(TEST_OUT)/global-initializers/invalid-priority-range.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/global-initializers/invalid-priority-nonclass.ro tests/invalid_cxx_init_priority_nonclass.cpp,$(TEST_OUT)/global-initializers/invalid-priority-nonclass.log)
+	$(GREP) -F -q 'init_priority attribute requires a namespace-scope C++ class object' $(TEST_OUT)/global-initializers/invalid-priority-nonclass.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/global-initializers/invalid-priority-local.ro tests/invalid_cxx_init_priority_local.cpp,$(TEST_OUT)/global-initializers/invalid-priority-local.log)
+	$(GREP) -F -q 'init_priority attribute requires a namespace-scope C++ class object' $(TEST_OUT)/global-initializers/invalid-priority-local.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/global-initializers/invalid-priority-duplicate.ro tests/invalid_cxx_init_priority_duplicate.cpp,$(TEST_OUT)/global-initializers/invalid-priority-duplicate.log)
+	$(GREP) -F -q 'init_priority attribute may appear only once on a declaration' $(TEST_OUT)/global-initializers/invalid-priority-duplicate.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/global-initializers/invalid-priority-c.ro tests/invalid_c_init_priority.c,$(TEST_OUT)/global-initializers/invalid-priority-c.log)
+	$(GREP) -F -q 'init_priority attribute requires C++ mode' $(TEST_OUT)/global-initializers/invalid-priority-c.log
+	@echo "Global initializer priority, C++ diagnostics, and current image format tests completed"
 
 test-cxx-global-constructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-global-constructor)

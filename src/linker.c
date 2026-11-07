@@ -1189,10 +1189,8 @@ static bool linker_sort_global_initializer_array(Linker* ld) {
     for (PendingReloc* relocation = ld->relocs; relocation;
          relocation = relocation->next) {
         if ((size_t)relocation->section != section_index) continue;
-        if ((relocation->type != RELOC_ABS32 &&
-             relocation->type != RELOC_ABS64) ||
-            relocation->type != (pointer_size == 8u
-                                     ? RELOC_ABS64 : RELOC_ABS32) ||
+        if (relocation->type != (pointer_size == 8u
+                                     ? RELOC_ABS64 : RELOC_ABS32U) ||
             relocation->offset % pointer_size != 0u ||
             relocation->offset > section->size ||
             pointer_size > section->size - relocation->offset ||

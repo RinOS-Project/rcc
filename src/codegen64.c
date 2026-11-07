@@ -15430,6 +15430,9 @@ static void codegen_emit_global_init64_group(
     emit64_mov_reg_imm32(mod, RAX, 0u);
     emit64_leave(mod);
     emit64_ret(mod);
+    /* Priority callbacks are translation-unit local.  Keep the suffix in
+     * their object-local symbol names so rld can still sort init-array
+     * relocations across objects without collisions between TUs. */
     module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
     codegen_add_init_array_entry(mod, name);
 }

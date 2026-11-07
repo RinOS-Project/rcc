@@ -15195,3 +15195,17 @@ Continue in this order:
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
       Namespace-scope TLS reference initialization and broader optimized
       multi-piece lifetime/CFI coverage remain open.
+
+## RCC continuation (2026-11-07, C++ global initializer priority)
+
+- [x] Verify GNU-compatible `init_priority` ordering for 101, 150, 200, and
+      default priority, including same-priority source/input order across three
+      C++ translation units. Execute the x86-64 callback and inspect the linked
+      i686/x86-64 RIN `.init_array` entries against their `.ro` callback symbol
+      addresses; both images pass `rinvalidate`. Fix RLD's i686 initializer
+      relocation check to accept the canonical `ABS32U` pointer relocation;
+      x86-64 continues to require `ABS64`. Add explicit diagnostics for
+      out-of-range values, non-class and local objects, duplicate attributes,
+      and use in C mode. `test-global-initializers` passes on Windows.
+      RinOS loader execution and broader optimized multi-piece lifetime/CFI
+      coverage remain open.
