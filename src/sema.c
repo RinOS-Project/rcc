@@ -41122,6 +41122,8 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
              !sema_cxx_is_coroutine_handle_type(suspend_value_type))) {
             rcc_error(loc,
                       "await_suspend must return void, bool, or std::coroutine_handle<Z>");
+        } else if (sema_cxx_is_coroutine_handle_type(suspend_value_type)) {
+            await_plan->await_suspend_returns_handle = true;
         }
     }
 

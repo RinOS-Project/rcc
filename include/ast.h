@@ -734,6 +734,7 @@ struct CxxCoroutineAwaitPlan {
     bool from_yield;
     bool is_initial_suspend;
     bool is_final_suspend;
+    bool await_suspend_returns_handle;
     CxxCoroutineAwaitPlan* next;
 };
 

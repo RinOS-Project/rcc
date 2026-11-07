@@ -36177,12 +36177,14 @@ static RccIrLowerValue lower_coroutine_await_expression(
     RccIrLowerValue ready;
     RccIrLowerValue suspend_result;
     RccIrLowerValue result;
+    bool suspend_returns_handle;
     if (!context || !context->coroutine_resume || !await_plan ||
         await_plan->is_initial_suspend || await_plan->is_final_suspend ||
         !await_plan->await_suspend_call ||
         !await_plan->await_suspend_call->type ||
         (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
-         await_plan->await_suspend_call->type->kind != TYPE_BOOL) ||
+         await_plan->await_suspend_call->type->kind != TYPE_BOOL &&
+         !await_plan->await_suspend_returns_handle) ||
         !lower_coroutine_initialize_awaiter(
             context, context->declaration, await_plan, NULL, 0u)) {
         if (context) context->unsupported = true;
@@ -36218,7 +36220,30 @@ static RccIrLowerValue lower_coroutine_await_expression(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    if (await_plan->await_suspend_call->type->kind == TYPE_BOOL) {
+    suspend_returns_handle = await_plan->await_suspend_returns_handle;
+    if (suspend_returns_handle) {
+        RccIrLowerValue handle_pointer;
+        if (!rcc_ir_type_equal(
+                suspend_result.type, rcc_ir_type_pointer(0u))) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        /* RinOS coroutine_handle objects store their frame pointer at offset 0. */
+        handle_pointer = lower_byte_offset_address(
+            context, suspend_result, 0u);
+        RccIrLowerValue handle = lower_load_address(
+            context, handle_pointer, type_ptr(type_void));
+        if (!handle.valid ||
+            !rcc_ir_type_equal(
+                handle.type, rcc_ir_type_pointer(0u))) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        (void)lower_cxx_runtime_call(
+            context, "rin_coro_resume", rcc_ir_type_void(),
+            &handle.value, 1u);
+        if (context->unsupported) return lower_invalid_value();
+    } else if (await_plan->await_suspend_call->type->kind == TYPE_BOOL) {
         RccIrLowerValue should_suspend = lower_truth(
             context, suspend_result);
         suspended_block = rcc_ir_block_add(
@@ -36397,7 +36422,12 @@ static bool lower_coroutine_minimal_function_supported(
             !await_plan->await_suspend_call->type ||
             (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
              !(body_await_plan &&
-               await_plan->await_suspend_call->type->kind == TYPE_BOOL)) ||
+               (await_plan->await_suspend_call->type->kind == TYPE_BOOL ||
+                await_plan->await_suspend_returns_handle))) ||
+            (await_plan->await_suspend_returns_handle &&
+             (await_plan->await_suspend_call->type->kind != TYPE_STRUCT ||
+              await_plan->await_suspend_call->type->size !=
+                  (g_opts.target_arch == ARCH_X64 ? 8 : 4))) ||
             !lower_noexcept_expression(await_plan->awaiter_initializer) ||
             !lower_noexcept_expression(await_plan->await_ready_condition) ||
             !lower_noexcept_expression(await_plan->await_suspend_call) ||

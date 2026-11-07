@@ -1457,6 +1457,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx20-coroutine-eager \
 	test-cxx20-coroutine-suspended-awaits \
 	test-cxx20-coroutine-parameters \
+	test-cxx20-coroutine-handle-transfer \
 	test-cxx-named-concepts \
 	test-cxx-alias-templates \
 	test-cxx-nested-class-templates \
@@ -4377,6 +4378,18 @@ test-cxx20-coroutine-parameters: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z31rcc_coroutine_scalar_parametersij_resume,$(TEST_OUT)/cxx20-coroutine-parameters/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z31rcc_coroutine_scalar_parametersij_destroy,$(TEST_OUT)/cxx20-coroutine-parameters/verified-x64.ro)
 	@echo "C++20 coroutine scalar parameter tests completed"
+
+.PHONY: test-cxx20-coroutine-handle-transfer
+test-cxx20-coroutine-handle-transfer: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-handle-transfer)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-handle-transfer,cxx20_coroutine_handle_transfer.cpp,13)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_handle_transferv_resume,$(TEST_OUT)/cxx20-coroutine-handle-transfer/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_handle_transferv_destroy,$(TEST_OUT)/cxx20-coroutine-handle-transfer/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_handle_transferv_resume,$(TEST_OUT)/cxx20-coroutine-handle-transfer/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_handle_transferv_destroy,$(TEST_OUT)/cxx20-coroutine-handle-transfer/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,rin_coro_resume,$(TEST_OUT)/cxx20-coroutine-handle-transfer/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,rin_coro_resume,$(TEST_OUT)/cxx20-coroutine-handle-transfer/verified-x64.ro)
+	@echo "C++20 coroutine handle-transfer tests completed"
 
 .PHONY: test-syntax-only
 test-syntax-only: $(RCC_TARGET) $(RCXX_TARGET)
