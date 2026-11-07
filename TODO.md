@@ -15252,7 +15252,7 @@ Continue in this order:
       destruction. The final-suspend fixture uses a runtime-selected boolean
       and passes the i686/x86-64 `-O0`/`-O2` verified matrix with 14 emitted
       functions and zero fallback. Runtime execution remains open.
-- [ ] Route exceptions from coroutine body expressions and local initializers
+- [x] Route supported coroutine body exceptions and local-initializer failures
       through a resume-entry exception frame to the promise's
       `unhandled_exception()`. Preserve locals across normal suspension by
       discarding per-resume cleanup records; clear active bytes as current
@@ -15270,8 +15270,15 @@ Continue in this order:
       No-suspend `try/catch` regions and rethrow from their handlers are
       admitted in coroutine bodies. Final
       `await_suspend(bool)` distinguishes suspension from immediate completion.
-      Compiler/build/runtime acceptance has not been run, so this item remains
-      open along with throwing awaiter initialization/destruction, throwing
-      final-suspend operations and destructors during unwind, reference/union
-      lifetimes, suspend-spanning `try/catch`/`co_return`, and general
-      nested/multiple-await expression liveness.
+      `test-cxx20-coroutine-exceptions` covers body throw, throwing local
+      initialization, catch/rethrow, class throw after suspension, a live local
+      destroyed after suspension, and exceptions from `await_ready`,
+      `await_suspend`, and `await_resume`. Its i686/x86-64 `-O0`/`-O2` verified
+      matrix emits 35 functions with zero fallback.
+- [ ] Execute the coroutine exception paths against the RinOS runtime, checking
+      `unhandled_exception()`, caught values, exception payload destruction,
+      and live-local cleanup after resumption.
+- [ ] Extend the verified subset to throwing awaiter initialization/destruction,
+      throwing final-suspend operations and destructors during unwind,
+      reference/union lifetimes, suspend-spanning `try/catch`/`co_return`, and
+      general nested or multiple-await expression liveness.

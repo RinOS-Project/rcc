@@ -1456,6 +1456,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-class-template-forward-definition \
 	test-cxx20-coroutine-eager \
 	test-cxx20-coroutine-final-suspend-bool \
+	test-cxx20-coroutine-exceptions \
 	test-cxx20-coroutine-suspended-awaits \
 	test-cxx20-coroutine-return-object \
 	test-cxx20-coroutine-awaiter-lifetime \
@@ -4372,6 +4373,25 @@ test-cxx20-coroutine-final-suspend-bool: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z32rcc_coroutine_final_suspend_boolv_resume,$(TEST_OUT)/cxx20-coroutine-final-suspend-bool/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z32rcc_coroutine_final_suspend_boolv_destroy,$(TEST_OUT)/cxx20-coroutine-final-suspend-bool/verified-x64.ro)
 	@echo "C++20 coroutine final-suspend bool tests completed"
+
+.PHONY: test-cxx20-coroutine-exceptions
+test-cxx20-coroutine-exceptions: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-exceptions)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-exceptions,cxx20_coroutine_exceptions.cpp,35)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_coroutine_body_throwv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_coroutine_body_throwv_destroy,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z31rcc_coroutine_initializer_throwv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z26rcc_coroutine_caught_throwv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z33rcc_coroutine_throw_after_suspendv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z39rcc_coroutine_throw_class_after_suspendv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z28rcc_coroutine_protocol_throwv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,rin_cpp_exception_throw,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,rin_cpp_exception_throw_object_with_cleanup,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,rin_cpp_exception_install,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,rin_cpp_exception_rethrow_frame,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,rin_cpp_exception_register_current_coroutine_cleanup,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,_ZN31rcc_coroutine_exception_promise19unhandled_exceptionEv,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
+	@echo "C++20 coroutine exception handoff tests completed"
 
 .PHONY: test-cxx20-coroutine-suspended-awaits
 test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)
