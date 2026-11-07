@@ -36508,6 +36508,9 @@ static bool lower_coroutine_minimal_function_supported(
     const Decl* declaration, const char** reason_out) {
     const CxxCoroutineLoweringPlan* plan = declaration
         ? declaration->func_coroutine_lowering_plan : NULL;
+    const Decl* promise = declaration
+        ? declaration->func_coroutine_promise_object : NULL;
+    const Decl* cleanup_indices[32];
     size_t await_count = 0u;
     size_t body_await_count = 0u;
     size_t body_plan_count = 0u;
@@ -36519,8 +36522,11 @@ static bool lower_coroutine_minimal_function_supported(
         !declaration->type->ret_type) {
         return false;
     }
-    if (declaration->type->ret_type->kind != TYPE_VOID) {
-        if (reason_out) *reason_out = "coroutine return object is not void";
+    if (g_opts.target_arch != ARCH_X64 &&
+        lower_i686_wide_scalar_type(declaration->type->ret_type)) {
+        if (reason_out) {
+            *reason_out = "i686 wide scalar coroutine return is not supported";
+        }
         return false;
     }
     if (declaration->func_this_param &&
@@ -36543,20 +36549,42 @@ static bool lower_coroutine_minimal_function_supported(
         }
     }
     if (plan->has_allocation_failure_return) {
-        if (reason_out) *reason_out = "allocation-failure return is not lowered yet";
-        return false;
+        Expr* failure_return = plan->allocation_failure_return_call;
+        if (!failure_return || !failure_return->type ||
+            !type_is_compatible(
+                failure_return->type, declaration->type->ret_type) ||
+            !type_is_compatible(
+                declaration->type->ret_type, failure_return->type) ||
+            !lower_noexcept_expression(failure_return)) {
+            if (reason_out) {
+                *reason_out = "allocation-failure return must be noexcept and match the coroutine return type";
+            }
+            return false;
+        }
     }
     if (!declaration->func_coroutine_get_return_object_call ||
         !declaration->func_coroutine_get_return_object_call->type ||
-        declaration->func_coroutine_get_return_object_call->type->kind !=
-            TYPE_VOID) {
-        if (reason_out) *reason_out = "get_return_object must return void";
+        !type_is_compatible(
+            declaration->func_coroutine_get_return_object_call->type,
+            declaration->type->ret_type) ||
+        !type_is_compatible(
+            declaration->type->ret_type,
+            declaration->func_coroutine_get_return_object_call->type)) {
+        if (reason_out) {
+            *reason_out = "get_return_object result must match the coroutine return type";
+        }
         return false;
     }
-    if (!declaration->func_coroutine_promise_type ||
-        lower_cxx_type_has_destructor_cleanup(
-            declaration->func_coroutine_promise_type)) {
-        if (reason_out) *reason_out = "promise destruction is not lowered yet";
+    if (!declaration->func_coroutine_promise_type || !promise ||
+        (lower_cxx_type_has_destructor_cleanup(
+             declaration->func_coroutine_promise_type) &&
+         (promise->var_cleanup || !promise->var_cleanups ||
+          !lower_temporary_cleanup_plan_list_supported(
+              promise->var_cleanups, promise, cleanup_indices, 0u,
+              false)))) {
+        if (reason_out) {
+            *reason_out = "promise destructor cleanup is not supported by the coroutine destroy entry";
+        }
         return false;
     }
     if (!lower_coroutine_minimal_body_supported(
@@ -36622,7 +36650,8 @@ static bool lower_coroutine_minimal_function_supported(
          field; field = field->next) {
         if ((field->kind == CXX_COROUTINE_FRAME_LOCAL &&
              !lower_coroutine_scalar_frame_value_supported(field->type)) ||
-            lower_cxx_type_has_destructor_cleanup(field->type)) {
+            (field->kind != CXX_COROUTINE_FRAME_PROMISE &&
+             lower_cxx_type_has_destructor_cleanup(field->type))) {
             if (reason_out) *reason_out = "frame local lifetime handling is not lowered yet";
             return false;
         }
@@ -36714,6 +36743,187 @@ static bool lower_coroutine_emit_frame_init(
     return !context->unsupported;
 }
 
+static bool lower_coroutine_emit_return_object(
+    RccIrLowerContext* context, RccIrLowerValue object) {
+    Type* return_type = context ? (Type*)context->ast_return_type : NULL;
+    RccIrLowerValue result = lower_invalid_value();
+    RccIrLowerValue high = lower_invalid_value();
+    RccIrValue return_values[2];
+    size_t return_count = 1u;
+    RccIrInstruction* return_instruction;
+    if (!context || !return_type) return false;
+
+    if (return_type->kind == TYPE_VOID) {
+        if (!lower_emit_scope_cleanups_until(context, NULL) ||
+            !lower_cxx_exception_release_frame(
+                context, context->active_exception_frame) ||
+            !lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
+                          NULL, 0u, NULL, 0u)) {
+            return false;
+        }
+        context->terminated = true;
+        return true;
+    }
+
+    if (lower_abi_is_aggregate(return_type)) {
+        RccIrLowerValue source = object;
+        if (!source.valid || source.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return false;
+        }
+        switch (context->aggregate_return_kind) {
+            case LOWER_ABI_RETURN_REGISTER_AGGREGATE:
+                result = lower_load_aggregate_chunk(
+                    context, source, return_type, 0u);
+                break;
+            case LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE: {
+                const Type* scalar_type = return_type->size <= 4
+                    ? type_float : type_double;
+                result = lower_load_address(
+                    context, source, (Type*)scalar_type);
+                break;
+            }
+            case LOWER_ABI_RETURN_REGISTER_PAIR:
+                result = lower_load_aggregate_chunk(
+                    context, source, return_type, 0u);
+                high = lower_load_aggregate_chunk(
+                    context, source, return_type, 8u);
+                return_count = 2u;
+                break;
+            case LOWER_ABI_RETURN_REGISTER_COMPLEX_FLOAT_PAIR: {
+                RccIrLowerValue imaginary_address =
+                    lower_byte_offset_address(context, source, 4u);
+                RccIrInstruction* real_bits;
+                RccIrInstruction* imaginary_bits;
+                result = lower_load_address(context, source, type_float);
+                high = lower_load_address(
+                    context, imaginary_address, type_float);
+                if (!result.valid || !high.valid) return false;
+                real_bits = lower_append(
+                    context, RCC_IR_BITCAST, rcc_ir_type_integer(32u),
+                    &result.value, 1u, NULL, 0u);
+                imaginary_bits = lower_append(
+                    context, RCC_IR_BITCAST, rcc_ir_type_integer(32u),
+                    &high.value, 1u, NULL, 0u);
+                if (!real_bits || !imaginary_bits) return false;
+                result = lower_value(
+                    real_bits->result, rcc_ir_type_integer(32u), true);
+                high = lower_value(
+                    imaginary_bits->result, rcc_ir_type_integer(32u), true);
+                return_count = 2u;
+                break;
+            }
+            case LOWER_ABI_RETURN_REGISTER_SSE_PAIR: {
+                RccIrValue bitcast_operand;
+                RccIrInstruction* low_bitcast;
+                RccIrInstruction* high_bitcast;
+                result = lower_load_aggregate_chunk(
+                    context, source, return_type, 0u);
+                high = lower_load_aggregate_chunk(
+                    context, source, return_type, 8u);
+                if (!result.valid || !high.valid) return false;
+                bitcast_operand = result.value;
+                low_bitcast = lower_append(
+                    context, RCC_IR_BITCAST, rcc_ir_type_float(64u),
+                    &bitcast_operand, 1u, NULL, 0u);
+                bitcast_operand = high.value;
+                high_bitcast = lower_append(
+                    context, RCC_IR_BITCAST, rcc_ir_type_float(64u),
+                    &bitcast_operand, 1u, NULL, 0u);
+                if (!low_bitcast || !high_bitcast) return false;
+                result = lower_value(
+                    low_bitcast->result, rcc_ir_type_float(64u), true);
+                high = lower_value(
+                    high_bitcast->result, rcc_ir_type_float(64u), true);
+                return_count = 2u;
+                break;
+            }
+            case LOWER_ABI_RETURN_REGISTER_MIXED_PAIR: {
+                int sse_eightbyte;
+                if (!lower_abi_mixed_sse_aggregate_supported(
+                        return_type, &sse_eightbyte)) {
+                    context->unsupported = true;
+                    return false;
+                }
+                result = lower_load_aggregate_chunk(
+                    context, source, return_type, 0u);
+                high = lower_load_aggregate_chunk(
+                    context, source, return_type, 8u);
+                if (!result.valid || !high.valid) return false;
+                {
+                    RccIrValue bitcast_operand = sse_eightbyte == 0
+                        ? result.value : high.value;
+                    RccIrInstruction* bitcast = lower_append(
+                        context, RCC_IR_BITCAST, rcc_ir_type_float(64u),
+                        &bitcast_operand, 1u, NULL, 0u);
+                    RccIrLowerValue sse_value;
+                    if (!bitcast) return false;
+                    sse_value = lower_value(
+                        bitcast->result, rcc_ir_type_float(64u), true);
+                    if (sse_eightbyte == 0) result = sse_value;
+                    else high = sse_value;
+                }
+                return_count = 2u;
+                break;
+            }
+            case LOWER_ABI_RETURN_SRET:
+                if (!lower_copy_abi_aggregate_storage(
+                        context, context->aggregate_return_address,
+                        source.value, return_type)) {
+                    return false;
+                }
+                result = lower_value(
+                    context->aggregate_return_address,
+                    rcc_ir_type_pointer(0u), true);
+                break;
+            default:
+                context->unsupported = true;
+                return false;
+        }
+    } else {
+        if (g_opts.target_arch != ARCH_X64 &&
+            lower_i686_wide_scalar_type(return_type)) {
+            context->unsupported = true;
+            return false;
+        }
+        result = lower_cast(context, object, return_type);
+    }
+
+    if (!result.valid || (return_count == 2u && !high.valid) ||
+        !lower_emit_scope_cleanups_until(context, NULL) ||
+        !lower_cxx_exception_release_frame(
+            context, context->active_exception_frame)) {
+        return false;
+    }
+    return_values[0] = result.value;
+    return_values[1] = high.value;
+    return_instruction = lower_append(
+        context, RCC_IR_RETURN, rcc_ir_type_void(), return_values,
+        return_count, NULL, 0u);
+    if (!return_instruction) return false;
+    if (context->aggregate_return_kind == LOWER_ABI_RETURN_REGISTER_PAIR) {
+        rcc_ir_set_immediate(return_instruction, (uint64_t)return_type->size);
+    } else if (context->aggregate_return_kind ==
+               LOWER_ABI_RETURN_REGISTER_COMPLEX_FLOAT_PAIR) {
+        rcc_ir_set_immediate(return_instruction, 8u);
+    } else if (context->aggregate_return_kind ==
+               LOWER_ABI_RETURN_REGISTER_MIXED_PAIR) {
+        rcc_ir_set_immediate(
+            return_instruction,
+            lower_abi_mixed_return_metadata(return_type));
+    } else if (context->aggregate_return_kind ==
+               LOWER_ABI_RETURN_REGISTER_SSE_PAIR) {
+        rcc_ir_set_immediate(
+            return_instruction, lower_abi_sse_pair_return_metadata(
+                                    return_type));
+    } else if (context->aggregate_return_kind == LOWER_ABI_RETURN_SRET &&
+               g_opts.target_arch != ARCH_X64) {
+        rcc_ir_set_immediate(return_instruction, 4u);
+    }
+    context->terminated = true;
+    return true;
+}
+
 static bool lower_coroutine_emit_deallocation(
     RccIrLowerContext* context, const CxxCoroutineLoweringPlan* plan) {
     const ExprList* argument;
@@ -36774,7 +36984,8 @@ static void lower_coroutine_release_context(
 
 static bool lower_coroutine_emit_initial_suspend(
     RccIrLowerContext* context, const Decl* declaration,
-    const char* resume_name, char* error, size_t error_size) {
+    const char* resume_name, RccIrLowerValue return_object,
+    char* error, size_t error_size) {
     const CxxCoroutineAwaitPlan* await_plan = declaration
         ? declaration->func_coroutine_initial_suspend_plan : NULL;
     RccIrBlock* resume_block;
@@ -36813,8 +37024,7 @@ static bool lower_coroutine_emit_initial_suspend(
     (void)lower_cxx_runtime_call(
         context, resume_name, rcc_ir_type_void(), &frame, 1u);
     if (context->unsupported ||
-        !lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
-                      NULL, 0u, NULL, 0u)) {
+        !lower_coroutine_emit_return_object(context, return_object)) {
         context->unsupported = true;
         return false;
     }
@@ -36829,8 +37039,7 @@ static bool lower_coroutine_emit_initial_suspend(
     }
     (void)lower_expression(context, await_plan->await_suspend_call);
     if (context->unsupported ||
-        !lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
-                      NULL, 0u, NULL, 0u)) {
+        !lower_coroutine_emit_return_object(context, return_object)) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
                      "initial_suspend await_suspend lowering failed");
@@ -36866,6 +37075,8 @@ static void lower_coroutine_initialize_generated_context(
 static bool lower_coroutine_emit_destroy_function(
     RccIrModule* module, RccIrFunction* function,
     const Decl* declaration, char* error, size_t error_size) {
+    const Decl* promise = declaration
+        ? declaration->func_coroutine_promise_object : NULL;
     RccIrLowerContext context;
     RccIrBlock* entry = rcc_ir_block_add(function, "entry");
     bool success = false;
@@ -36873,6 +37084,9 @@ static bool lower_coroutine_emit_destroy_function(
     lower_coroutine_initialize_generated_context(
         &context, module, function, declaration, entry);
     if (!lower_coroutine_bind_frame_fields(&context, declaration) ||
+        (promise && promise->var_cleanups &&
+         !lower_emit_temporary_cleanup_plan_list(
+             &context, promise->var_cleanups, false)) ||
         !lower_coroutine_emit_deallocation(
             &context, declaration->func_coroutine_lowering_plan) ||
         !lower_append(&context, RCC_IR_RETURN, rcc_ir_type_void(),
@@ -37041,6 +37255,7 @@ static bool lower_coroutine_lower_minimal(
     RccIrFunction* resume_function = NULL;
     RccIrFunction* destroy_function = NULL;
     RccIrLowerValue allocated_frame;
+    RccIrLowerValue return_object = lower_invalid_value();
     bool success = false;
     const char* unsupported_reason = NULL;
     const char* failure_stage = "coroutine function setup";
@@ -37074,6 +37289,60 @@ static bool lower_coroutine_lower_minimal(
         source_context->unsupported = true;
         goto done;
     }
+    if (plan->has_allocation_failure_return) {
+        RccIrBlock* allocation_failure = rcc_ir_block_add(
+            source_function, "coroutine.allocation.failure");
+        RccIrBlock* allocation_success = rcc_ir_block_add(
+            source_function, "coroutine.allocation.success");
+        RccIrType pointer_integer_type = rcc_ir_type_integer(
+            (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+        RccIrLowerValue zero = lower_integer_constant(
+            source_context, pointer_integer_type, true, 0u);
+        RccIrInstruction* null_pointer = zero.valid
+            ? lower_append(
+                  source_context, RCC_IR_INT_TO_PTR,
+                  rcc_ir_type_pointer(0u), &zero.value, 1u, NULL, 0u)
+            : NULL;
+        RccIrValue comparison_operands[2];
+        RccIrInstruction* is_null;
+        if (!allocation_failure || !allocation_success || !null_pointer) {
+            source_context->unsupported = true;
+            goto done;
+        }
+        comparison_operands[0] = allocated_frame.value;
+        comparison_operands[1] = null_pointer->result;
+        is_null = lower_append(
+            source_context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            comparison_operands, 2u, NULL, 0u);
+        if (!is_null) {
+            source_context->unsupported = true;
+            goto done;
+        }
+        rcc_ir_set_predicate(is_null, RCC_IR_ICMP_EQ);
+        if (!lower_conditional_branch(
+                source_context,
+                lower_value(is_null->result,
+                            rcc_ir_type_integer(1u), true),
+                allocation_failure->id, allocation_success->id)) {
+            source_context->unsupported = true;
+            goto done;
+        }
+        source_context->current = allocation_failure;
+        source_context->terminated = false;
+        failure_stage = "allocation-failure return object";
+        return_object = lower_expression(
+            source_context, plan->allocation_failure_return_call);
+        if (source_context->unsupported ||
+            (declaration->type->ret_type->kind != TYPE_VOID &&
+             !return_object.valid) ||
+            !lower_coroutine_emit_return_object(
+                source_context, return_object)) {
+            source_context->unsupported = true;
+            goto done;
+        }
+        source_context->current = allocation_success;
+        source_context->terminated = false;
+    }
     source_context->coroutine_frame = allocated_frame.value;
     source_context->coroutine_resume = true;
     failure_stage = "frame header and field binding";
@@ -37102,12 +37371,18 @@ static bool lower_coroutine_lower_minimal(
         promise->var_cleanup = saved_cleanup;
     }
     failure_stage = "get_return_object";
-    (void)lower_expression(
+    return_object = lower_expression(
         source_context, declaration->func_coroutine_get_return_object_call);
+    if (source_context->unsupported ||
+        (declaration->type->ret_type->kind != TYPE_VOID &&
+         !return_object.valid)) {
+        source_context->unsupported = true;
+        goto done;
+    }
     failure_stage = "initial suspend";
     if (source_context->unsupported ||
         !lower_coroutine_emit_initial_suspend(
-            source_context, declaration, resume_name,
+            source_context, declaration, resume_name, return_object,
             error, error_size)) {
         source_context->unsupported = true;
         goto done;
