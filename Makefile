@@ -4367,6 +4367,10 @@ test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_destroy,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_resume,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_destroy,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,_ZNK28rcc_coroutine_manual_awaiter12await_resumeEv,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,_ZNK28rcc_coroutine_manual_awaiter12await_resumeEv,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,rcc_coroutine_suspended_await_result_count,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,rcc_coroutine_suspended_await_result_count,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	@echo "C++20 suspended coroutine await tests completed"
 
 .PHONY: test-cxx20-coroutine-parameters

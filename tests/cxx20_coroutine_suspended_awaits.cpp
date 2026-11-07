@@ -9,6 +9,7 @@ template<class Promise> struct coroutine_handle : coroutine_handle<void> {};
 }
 
 int rcc_coroutine_suspended_await_count;
+int rcc_coroutine_suspended_await_result_count;
 
 struct rcc_coroutine_ready_awaiter {
     bool await_ready() const noexcept { return true; }
@@ -23,7 +24,10 @@ struct rcc_coroutine_manual_awaiter {
     void await_suspend(std::coroutine_handle<Promise>) const noexcept {
         ++rcc_coroutine_suspended_await_count;
     }
-    void await_resume() const noexcept {}
+    int await_resume() const noexcept {
+        ++rcc_coroutine_suspended_await_result_count;
+        return rcc_coroutine_suspended_await_result_count;
+    }
 };
 
 struct rcc_coroutine_suspended_promise {

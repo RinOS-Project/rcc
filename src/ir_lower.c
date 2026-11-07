@@ -36298,10 +36298,12 @@ static bool lower_coroutine_body_supported(
     if (statement->kind == STMT_EXPR && statement->expr &&
         statement->expr->kind == EXPR_CXX_CO_AWAIT &&
         statement->expr->type &&
-        statement->expr->type->kind == TYPE_VOID &&
         statement->expr->cxx_coroutine_await_plan &&
         !statement->expr->cxx_coroutine_await_plan->is_initial_suspend &&
-        !statement->expr->cxx_coroutine_await_plan->is_final_suspend) {
+        !statement->expr->cxx_coroutine_await_plan->is_final_suspend &&
+        (statement->expr->type->kind == TYPE_VOID ||
+         lower_coroutine_scalar_frame_value_supported(
+             statement->expr->type))) {
         ++*body_await_count;
         return true;
     }
@@ -36326,7 +36328,8 @@ static bool lower_coroutine_minimal_body_supported(
         if (reason_out) {
             *reason_out =
                 "coroutine body supports only scalar local declarations, "
-                "void co_await expression statements, and void co_return";
+                "void or discarded-scalar co_await expression statements, "
+                "and void co_return";
         }
         return false;
     }
@@ -36410,9 +36413,11 @@ static bool lower_coroutine_minimal_function_supported(
                    await_plan->is_final_suspend ||
                    !await_plan->await_resume_call ||
                    !await_plan->await_resume_call->type ||
-                   await_plan->await_resume_call->type->kind != TYPE_VOID) {
+                   (await_plan->await_resume_call->type->kind != TYPE_VOID &&
+                    !lower_coroutine_scalar_frame_value_supported(
+                        await_plan->await_resume_call->type))) {
             if (reason_out) {
-                *reason_out = "body awaits must have void await_resume results";
+                *reason_out = "body await_resume results must be void or discarded scalar values";
             }
             return false;
         } else {
