@@ -19541,6 +19541,22 @@ CxxClass* rcc_parser_cxx_resolve_coroutine_traits(
     return resolved ? traits_class : NULL;
 }
 
+Type* rcc_parser_cxx_resolve_coroutine_handle(
+    Type* promise_type, SourceLoc loc) {
+    CxxTemplate* handle_template;
+    CxxClass* handle_class;
+    Type** arguments;
+
+    if (!promise_type || promise_type->cxx_dependent) return NULL;
+    handle_template = find_template("::std::coroutine_handle", TMPL_CLASS);
+    if (!handle_template) return NULL;
+    arguments = ast_arena_alloc(sizeof(*arguments));
+    arguments[0] = promise_type;
+    handle_class = rcc_cxx_instantiate_class_template(
+        handle_template, arguments, NULL, NULL, 1, loc);
+    return handle_class ? handle_class->type : NULL;
+}
+
 static CxxTemplate* find_class_template(const char* qualified_name) {
     CxxTemplate* result = find_template(qualified_name, TMPL_CLASS);
     if (result) return result;

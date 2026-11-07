@@ -828,6 +828,12 @@ struct Expr {
      * operands have the same category and the same cv-qualified type. */
     bool cxx_conditional_lvalue;
     bool cxx_conditional_xvalue;
+    /* Coroutine semantic rewrites are idempotent across sema revisits. */
+    bool cxx_coroutine_from_yield;
+    bool cxx_coroutine_yield_value_expanded;
+    bool cxx_coroutine_await_transform_checked;
+    bool cxx_coroutine_operator_co_await_checked;
+    bool cxx_coroutine_awaiter_protocol_checked;
     /* A defaulted assignment expanded to generated operations. */
     bool cxx_synthesized_defaulted_assignment;
     /* A large defaulted array assignment of plain scalars is lowered as a
@@ -1612,6 +1618,9 @@ struct Decl {
         /* DECL_VAR */
         struct {
             Expr* var_init;
+            /* GNU/C++ init_priority for namespace-scope dynamic
+             * initialization. Zero selects the default priority. */
+            uint16_t var_init_priority;
             /* Source constant retained for DWARF if optimization removes an
              * immutable scalar object's storage and initializer. */
             int64_t var_debug_const_value;

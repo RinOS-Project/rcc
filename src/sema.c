@@ -70,11 +70,14 @@ extern bool rcc_parser_cxx_normalize_constructor_body(
 extern Type* rcc_parser_cxx_expression_type(Expr*) __attribute__((weak));
 extern CxxClass* rcc_parser_cxx_resolve_coroutine_traits(
     Decl*, Type**, bool*, bool*) __attribute__((weak));
+extern Type* rcc_parser_cxx_resolve_coroutine_handle(
+    Type*, SourceLoc) __attribute__((weak));
 #elif defined(RCC_BOOTSTRAP)
 extern bool cxx_class_resolve_nested_type_path(
     CxxClass*, const char*, CxxClass*, Type**, bool*, bool*);
 extern CxxClass* rcc_parser_cxx_resolve_coroutine_traits(
     Decl*, Type**, bool*, bool*);
+extern Type* rcc_parser_cxx_resolve_coroutine_handle(Type*, SourceLoc);
 #endif
 
 static bool sema_cxx_class_is_abstract(const CxxClass* cls) {
@@ -729,6 +732,10 @@ static Expr* sema_cxx_coroutine_promise_call(
     SourceLoc loc);
 static Expr* sema_cxx_coroutine_apply_operator_co_await(
     Expr* operand, SourceLoc loc);
+static Expr* sema_cxx_coroutine_awaiter_call(
+    Expr* awaiter, const char* method_name, ExprList* arguments,
+    SourceLoc loc);
+static bool sema_cxx_is_coroutine_handle_type(Type* type);
 static bool sema_cxx_coroutine_class_has_member_name(
     Type* aggregate, const char* name);
 static Type* sema_expr_impl(Expr* expr);
@@ -2621,6 +2628,9 @@ static bool is_lvalue(Expr* e) {
             }
             return e->type && e->type->is_reference &&
                    !e->type->is_rvalue_reference;
+        case EXPR_CXX_CO_AWAIT:
+            return e->type && e->type->is_reference &&
+                   !e->type->is_rvalue_reference;
         default:
             return false;
     }
@@ -2649,7 +2659,8 @@ static bool is_xvalue(Expr* expression) {
     return expression->type && expression->type->is_reference &&
            expression->type->is_rvalue_reference &&
            (expression->kind == EXPR_CAST ||
-            expression->kind == EXPR_CALL);
+            expression->kind == EXPR_CALL ||
+            expression->kind == EXPR_CXX_CO_AWAIT);
 }
 
 /* Find a prvalue object materialized by a direct rvalue-reference cast.
@@ -31918,8 +31929,14 @@ static Type* sema_expr_impl(Expr* expr) {
 
         case EXPR_CXX_CO_AWAIT:
         case EXPR_CXX_CO_YIELD: {
-            bool is_yield = expr->kind == EXPR_CXX_CO_YIELD;
-            bool yield_expanded = false;
+            bool is_yield = expr->kind == EXPR_CXX_CO_YIELD ||
+                            expr->cxx_coroutine_from_yield;
+            bool yield_expanded =
+                expr->cxx_coroutine_yield_value_expanded;
+            if (expr->kind == EXPR_CXX_CO_YIELD) {
+                expr->cxx_coroutine_from_yield = true;
+                is_yield = true;
+            }
             if (current_cxx_function_decl) {
                 current_cxx_function_decl->func_is_coroutine = true;
                 if (!current_func_auto_return_pending) {
@@ -31930,7 +31947,8 @@ static Type* sema_expr_impl(Expr* expr) {
                 rcc_error(expr->loc,
                           "coroutine expression is not within a function");
             }
-            if (is_yield && current_cxx_function_decl &&
+            if (is_yield && !yield_expanded &&
+                current_cxx_function_decl &&
                 current_cxx_function_decl->func_coroutine_promise_type) {
                 Expr* yield_call = sema_cxx_coroutine_promise_call(
                     current_cxx_function_decl, "yield_value",
@@ -31940,10 +31958,13 @@ static Type* sema_expr_impl(Expr* expr) {
                     expr->kind = EXPR_CXX_CO_AWAIT;
                     expr->unary_operand = yield_call;
                     yield_expanded = true;
+                    expr->cxx_coroutine_yield_value_expanded = true;
                 }
             }
             if (!yield_expanded) (void)sema_expr(expr->unary_operand);
-            if (!is_yield && current_cxx_function_decl &&
+            if (!is_yield &&
+                !expr->cxx_coroutine_await_transform_checked &&
+                current_cxx_function_decl &&
                 current_cxx_function_decl->func_coroutine_promise_type &&
                 sema_cxx_coroutine_class_has_member_name(
                     current_cxx_function_decl->func_coroutine_promise_type,
@@ -31955,12 +31976,87 @@ static Type* sema_expr_impl(Expr* expr) {
                     (void)sema_expr(transform_call);
                     expr->unary_operand = transform_call;
                 }
+                expr->cxx_coroutine_await_transform_checked = true;
+            } else if (!is_yield && current_cxx_function_decl &&
+                       current_cxx_function_decl
+                           ->func_coroutine_promise_type) {
+                expr->cxx_coroutine_await_transform_checked = true;
             }
-            if ((!is_yield || yield_expanded) && expr->unary_operand) {
+            if ((!is_yield || yield_expanded) && expr->unary_operand &&
+                !expr->cxx_coroutine_operator_co_await_checked) {
                 Expr* operator_call =
                     sema_cxx_coroutine_apply_operator_co_await(
                         expr->unary_operand, expr->loc);
                 if (operator_call) expr->unary_operand = operator_call;
+                expr->cxx_coroutine_operator_co_await_checked = true;
+            }
+            if (current_cxx_function_decl &&
+                current_cxx_function_decl->func_coroutine_promise_type &&
+                expr->unary_operand &&
+                !expr->cxx_coroutine_awaiter_protocol_checked) {
+                Type* handle_type = NULL;
+                Expr* await_ready_call;
+                Expr* await_suspend_call;
+                Expr* await_resume_call;
+
+#if defined(__GNUC__) || defined(__clang__)
+                if (rcc_parser_cxx_resolve_coroutine_handle) {
+                    handle_type = rcc_parser_cxx_resolve_coroutine_handle(
+                        current_cxx_function_decl
+                            ->func_coroutine_promise_type,
+                        expr->loc);
+                }
+#else
+                handle_type = rcc_parser_cxx_resolve_coroutine_handle(
+                    current_cxx_function_decl->func_coroutine_promise_type,
+                    expr->loc);
+#endif
+                if (!handle_type) {
+                    rcc_error(expr->loc,
+                              "std::coroutine_handle<promise_type> is unavailable");
+                }
+
+                await_ready_call = sema_cxx_coroutine_awaiter_call(
+                    expr->unary_operand, "await_ready", NULL, expr->loc);
+                (void)sema_contextual_bool_after_analysis(
+                    await_ready_call, await_ready_call->type);
+
+                if (handle_type) {
+                    Decl* handle_object = decl_var(
+                        "__rcc_coroutine_handle", handle_type, NULL,
+                        expr->loc);
+                    Expr* handle_argument = expr_ident(
+                        handle_object->name, expr->loc);
+                    handle_argument->ident_decl = handle_object;
+                    handle_argument->type = handle_type;
+                    await_suspend_call = sema_cxx_coroutine_awaiter_call(
+                        expr->unary_operand, "await_suspend",
+                        exprlist_new(handle_argument), expr->loc);
+                    Type* suspend_type = await_suspend_call->type;
+                    Type* suspend_value_type = suspend_type;
+                    bool suspend_returns_reference = suspend_type &&
+                        suspend_type->kind == TYPE_PTR &&
+                        suspend_type->is_reference;
+                    if (suspend_returns_reference) {
+                        suspend_value_type = suspend_type->base;
+                    }
+                    suspend_value_type = generic_selection_type(
+                        suspend_value_type);
+                    if (suspend_returns_reference || !suspend_value_type ||
+                        (suspend_value_type->kind != TYPE_VOID &&
+                         suspend_value_type->kind != TYPE_BOOL &&
+                         !sema_cxx_is_coroutine_handle_type(
+                             suspend_value_type))) {
+                        rcc_error(expr->loc,
+                                  "await_suspend must return void, bool, or std::coroutine_handle<Z>");
+                    }
+                }
+
+                await_resume_call = sema_cxx_coroutine_awaiter_call(
+                    expr->unary_operand, "await_resume", NULL, expr->loc);
+                expr->type = await_resume_call->type
+                    ? await_resume_call->type : type_int;
+                expr->cxx_coroutine_awaiter_protocol_checked = true;
             }
             if (!current_cxx_function_decl ||
                 !current_cxx_function_decl
@@ -31970,7 +32066,7 @@ static Type* sema_expr_impl(Expr* expr) {
                 rcc_error(expr->loc,
                           "coroutine expression requires coroutine lowering");
             }
-            expr->type = type_int;
+            if (!expr->type) expr->type = type_int;
             break;
         }
 
@@ -40900,6 +40996,43 @@ static Expr* sema_cxx_coroutine_apply_operator_co_await(
         return free_call;
     }
     return NULL;
+}
+
+static Expr* sema_cxx_coroutine_awaiter_call(
+    Expr* awaiter, const char* method_name, ExprList* arguments,
+    SourceLoc loc) {
+    Expr* member;
+    Expr* call;
+    if (!awaiter || !method_name) return NULL;
+    member = expr_member(awaiter, method_name, loc);
+    call = expr_call(member, arguments, loc);
+    (void)sema_expr(call);
+    return call;
+}
+
+static bool sema_cxx_is_coroutine_handle_type(Type* type) {
+    CxxTemplate* handle_template;
+    CxxNamespace* std_namespace;
+    Type* value_type;
+    if (!type || (type->kind == TYPE_PTR && type->is_reference)) {
+        return false;
+    }
+    value_type = generic_selection_type(type);
+    if (!value_type ||
+        (value_type->kind != TYPE_STRUCT &&
+         value_type->kind != TYPE_UNION) ||
+        !value_type->cxx_class) {
+        return false;
+    }
+    handle_template = value_type->cxx_class->template_identity_tmpl
+        ? value_type->cxx_class->template_identity_tmpl
+        : value_type->cxx_class->templ;
+    std_namespace = cxx_namespace_find(g_global_namespace, "std");
+    return handle_template && handle_template->kind == TMPL_CLASS &&
+        handle_template->name &&
+        strcmp(sema_cxx_decl_leaf_name(handle_template->name),
+               "coroutine_handle") == 0 &&
+        std_namespace && handle_template->ns == std_namespace;
 }
 
 static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
