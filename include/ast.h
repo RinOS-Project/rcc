@@ -13,6 +13,7 @@ typedef struct Type Type;
 typedef struct Expr Expr;
 typedef struct CxxCoroutineAwaitPlan CxxCoroutineAwaitPlan;
 typedef struct CxxCoroutineLoweringPlan CxxCoroutineLoweringPlan;
+typedef struct CxxCoroutineFrameField CxxCoroutineFrameField;
 typedef struct Stmt Stmt;
 typedef struct Decl Decl;
 typedef struct DeclList DeclList;
@@ -732,6 +733,26 @@ struct CxxCoroutineAwaitPlan {
     bool from_yield;
     bool is_initial_suspend;
     bool is_final_suspend;
+    CxxCoroutineAwaitPlan* next;
+};
+
+typedef enum {
+    CXX_COROUTINE_FRAME_PARAMETER,
+    CXX_COROUTINE_FRAME_THIS,
+    CXX_COROUTINE_FRAME_LOCAL,
+    CXX_COROUTINE_FRAME_PROMISE,
+    CXX_COROUTINE_FRAME_AWAITER,
+    CXX_COROUTINE_FRAME_HANDLE,
+} CxxCoroutineFrameFieldKind;
+
+struct CxxCoroutineFrameField {
+    Decl* declaration;
+    Type* type;
+    size_t offset;
+    size_t size;
+    size_t alignment;
+    CxxCoroutineFrameFieldKind kind;
+    CxxCoroutineFrameField* next;
 };
 
 /* Function-level operations needed before and after a coroutine frame's
@@ -743,8 +764,16 @@ struct CxxCoroutineLoweringPlan {
     Decl* deallocation_function;
     Expr* deallocation_call;
     Expr* allocation_failure_return_call;
+    CxxCoroutineAwaitPlan* await_plans;
+    CxxCoroutineFrameField* frame_fields;
+    size_t frame_field_count;
+    size_t frame_size;
+    size_t frame_alignment;
+    size_t promise_offset;
     bool has_allocation_failure_return;
     bool allocation_checked;
+    bool frame_layout_checked;
+    bool frame_layout_supported;
 };
 
 typedef enum {

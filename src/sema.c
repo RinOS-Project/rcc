@@ -5,6 +5,7 @@
 
 #include "rcc.h"
 #include "ast.h"
+#include <rin/cpp/coroutine_abi.h>
 #include "ast_cxx.h"
 #include "cxx_exception_type.h"
 #include "symtab.h"
@@ -41040,6 +41041,18 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
     await_plan->from_yield = from_yield;
     await_plan->is_initial_suspend = is_initial_suspend;
     await_plan->is_final_suspend = is_final_suspend;
+    if (!declaration->func_coroutine_lowering_plan) {
+        declaration->func_coroutine_lowering_plan = ast_arena_alloc(
+            sizeof(*declaration->func_coroutine_lowering_plan));
+        memset(declaration->func_coroutine_lowering_plan, 0,
+               sizeof(*declaration->func_coroutine_lowering_plan));
+    }
+    {
+        CxxCoroutineAwaitPlan** tail =
+            &declaration->func_coroutine_lowering_plan->await_plans;
+        while (*tail) tail = &(*tail)->next;
+        *tail = await_plan;
+    }
     await_plan->suspend_index = is_initial_suspend
         ? 0u : declaration->func_coroutine_next_suspend_index++;
 
@@ -41430,6 +41443,211 @@ static bool sema_resolve_cxx_coroutine_frame_operations(
     return allocation_function && deallocation_function;
 }
 
+static bool sema_cxx_coroutine_frame_add_field(
+    CxxCoroutineLoweringPlan* plan, Decl* declaration, Type* type,
+    CxxCoroutineFrameFieldKind kind) {
+    CxxCoroutineFrameField* field;
+    CxxCoroutineFrameField** tail;
+    if (!plan || !declaration || !type) return false;
+    for (field = plan->frame_fields; field; field = field->next) {
+        if (field->declaration == declaration) return true;
+    }
+    if (type->size < 0 || type->align <= 0 ||
+        (type->align & (type->align - 1)) != 0) {
+        return false;
+    }
+    field = ast_arena_alloc(sizeof(*field));
+    memset(field, 0, sizeof(*field));
+    field->declaration = declaration;
+    field->type = type;
+    field->size = (size_t)type->size;
+    field->alignment = (size_t)type->align;
+    field->kind = kind;
+    tail = &plan->frame_fields;
+    while (*tail) tail = &(*tail)->next;
+    *tail = field;
+    ++plan->frame_field_count;
+    return true;
+}
+
+static bool sema_cxx_coroutine_frame_collect_statement(
+    CxxCoroutineLoweringPlan* plan, const Stmt* statement) {
+    const StmtList* item;
+    if (!statement) return true;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (!sema_cxx_coroutine_frame_collect_statement(
+                        plan, item->stmt)) return false;
+            }
+            return true;
+        case STMT_DECL:
+            if (statement->decl && statement->decl->kind == DECL_VAR) {
+                Decl* variable = statement->decl;
+                if (variable->var_is_vla) return false;
+                if (!variable->var_is_global &&
+                    !variable->var_is_static_local &&
+                    !variable->var_is_thread_local &&
+                    !variable->var_is_block_extern &&
+                    !sema_cxx_coroutine_frame_add_field(
+                        plan, variable, variable->type,
+                        CXX_COROUTINE_FRAME_LOCAL)) return false;
+            }
+            return true;
+        case STMT_IF:
+            return sema_cxx_coroutine_frame_collect_statement(
+                       plan, statement->if_then) &&
+                   sema_cxx_coroutine_frame_collect_statement(
+                       plan, statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return sema_cxx_coroutine_frame_collect_statement(
+                plan, statement->while_body);
+        case STMT_FOR:
+            return sema_cxx_coroutine_frame_collect_statement(
+                       plan, statement->for_init) &&
+                   sema_cxx_coroutine_frame_collect_statement(
+                       plan, statement->for_body);
+        case STMT_SWITCH:
+            return sema_cxx_coroutine_frame_collect_statement(
+                plan, statement->switch_body);
+        case STMT_CASE:
+            return sema_cxx_coroutine_frame_collect_statement(
+                plan, statement->case_stmt);
+        case STMT_DEFAULT:
+            return sema_cxx_coroutine_frame_collect_statement(
+                plan, statement->default_stmt);
+        case STMT_LABEL:
+            return sema_cxx_coroutine_frame_collect_statement(
+                plan, statement->label_stmt);
+        case STMT_TRY:
+            if (!sema_cxx_coroutine_frame_collect_statement(
+                    plan, statement->try_body)) return false;
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (handler->parameter && handler->parameter->type &&
+                    !sema_cxx_coroutine_frame_add_field(
+                        plan, handler->parameter, handler->parameter->type,
+                        CXX_COROUTINE_FRAME_LOCAL)) return false;
+                if (!sema_cxx_coroutine_frame_collect_statement(
+                        plan, handler->body)) return false;
+            }
+            return true;
+        default:
+            return true;
+    }
+}
+
+static bool sema_cxx_coroutine_frame_align(size_t value, size_t alignment,
+                                           size_t* aligned_out) {
+    size_t mask;
+    if (!aligned_out || alignment == 0u ||
+        (alignment & (alignment - 1u)) != 0u) return false;
+    mask = alignment - 1u;
+    if (value > SIZE_MAX - mask) return false;
+    *aligned_out = (value + mask) & ~mask;
+    return true;
+}
+
+static bool sema_cxx_coroutine_set_allocation_size(
+    CxxCoroutineLoweringPlan* plan, size_t frame_size) {
+    Expr* size_argument;
+    if (!plan || !plan->allocation_call ||
+        !plan->allocation_call->call_args ||
+        !(size_argument = plan->allocation_call->call_args->expr) ||
+        size_argument->kind != EXPR_INT_LIT || frame_size > INT64_MAX) {
+        return false;
+    }
+    size_argument->int_val = (int64_t)frame_size;
+    return true;
+}
+
+static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
+    CxxCoroutineLoweringPlan* plan;
+    CxxCoroutineFrameField* field;
+    size_t cursor = RIN_CXX_CORO_FRAME_HEADER_SIZE;
+    size_t max_alignment = 8u;
+    if (!declaration || !declaration->func_is_coroutine) return true;
+    plan = declaration->func_coroutine_lowering_plan;
+    if (!plan) {
+        plan = ast_arena_alloc(sizeof(*plan));
+        memset(plan, 0, sizeof(*plan));
+        declaration->func_coroutine_lowering_plan = plan;
+    }
+    if (plan->frame_layout_checked) return plan->frame_layout_supported;
+    plan->frame_layout_checked = true;
+    plan->frame_layout_supported = false;
+    plan->frame_fields = NULL;
+    plan->frame_field_count = 0u;
+    if (declaration->func_this_param &&
+        !sema_cxx_coroutine_frame_add_field(
+            plan, declaration->func_this_param,
+            declaration->func_this_param->type,
+            CXX_COROUTINE_FRAME_THIS)) return false;
+    for (DeclList* parameter = declaration->func_params; parameter;
+         parameter = parameter->next) {
+        if (parameter->decl &&
+            !sema_cxx_coroutine_frame_add_field(
+                plan, parameter->decl, parameter->decl->type,
+                CXX_COROUTINE_FRAME_PARAMETER)) return false;
+    }
+    if (!sema_cxx_coroutine_frame_collect_statement(
+            plan, declaration->func_body)) return false;
+    for (CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+         await_plan; await_plan = await_plan->next) {
+        Type* awaiter_storage_type = await_plan->awaiter_type;
+        if (await_plan->awaiter_initializer_is_lvalue ||
+            await_plan->awaiter_initializer_is_xvalue ||
+            await_plan->awaiter_initializer_is_reference) {
+            awaiter_storage_type = await_plan->awaiter_storage
+                ? await_plan->awaiter_storage->type : NULL;
+        }
+        if (!sema_cxx_coroutine_frame_add_field(
+                plan, await_plan->awaiter_storage, awaiter_storage_type,
+                CXX_COROUTINE_FRAME_AWAITER) ||
+            !sema_cxx_coroutine_frame_add_field(
+                plan, await_plan->coroutine_handle_storage,
+                await_plan->coroutine_handle_type,
+                CXX_COROUTINE_FRAME_HANDLE)) return false;
+    }
+    if (!declaration->func_coroutine_promise_object ||
+        !sema_cxx_coroutine_frame_add_field(
+            plan, declaration->func_coroutine_promise_object,
+            declaration->func_coroutine_promise_type,
+            CXX_COROUTINE_FRAME_PROMISE)) return false;
+    for (field = plan->frame_fields; field; field = field->next) {
+        if (field->kind == CXX_COROUTINE_FRAME_PROMISE) continue;
+        if (field->alignment > max_alignment) max_alignment = field->alignment;
+        if (!sema_cxx_coroutine_frame_align(
+                cursor, field->alignment, &field->offset) ||
+            field->size > SIZE_MAX - field->offset) return false;
+        cursor = field->offset + field->size;
+    }
+    for (field = plan->frame_fields; field; field = field->next) {
+        if (field->kind != CXX_COROUTINE_FRAME_PROMISE) continue;
+        size_t promise_alignment = field->alignment;
+        if (promise_alignment < sizeof(void*)) {
+            promise_alignment = sizeof(void*);
+        }
+        if (promise_alignment > max_alignment) max_alignment = promise_alignment;
+        if (cursor > SIZE_MAX - sizeof(void*) ||
+            !sema_cxx_coroutine_frame_align(
+                cursor + sizeof(void*), promise_alignment,
+                &field->offset) ||
+            field->size > SIZE_MAX - field->offset) return false;
+        plan->promise_offset = field->offset;
+        cursor = field->offset + field->size;
+    }
+    if (!sema_cxx_coroutine_frame_align(cursor, max_alignment,
+                                         &plan->frame_size)) return false;
+    if (!sema_cxx_coroutine_set_allocation_size(plan, plan->frame_size)) {
+        return false;
+    }
+    plan->frame_alignment = max_alignment;
+    plan->frame_layout_supported = true;
+    return true;
+}
+
 static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
     Expr* call;
     SourceLoc loc;
@@ -41529,6 +41747,7 @@ static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
         }
     }
     (void)sema_resolve_cxx_coroutine_frame_operations(declaration);
+    (void)sema_cxx_coroutine_build_frame_layout(declaration);
 }
 
 static bool sema_cxx_is_coroutine_handle_type(Type* type) {
