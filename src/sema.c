@@ -727,6 +727,8 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration);
 static Expr* sema_cxx_coroutine_promise_call(
     Decl* declaration, const char* method_name, ExprList* arguments,
     SourceLoc loc);
+static Expr* sema_cxx_coroutine_apply_operator_co_await(
+    Expr* operand, SourceLoc loc);
 static bool sema_cxx_coroutine_class_has_member_name(
     Type* aggregate, const char* name);
 static Type* sema_expr_impl(Expr* expr);
@@ -26020,7 +26022,8 @@ static TypeMethod* sema_select_cxx_member_method(
     TypeMethod** member_template_candidates,
     int member_template_candidate_count,
     bool template_arguments_specified,
-    bool* ambiguous_lookup) {
+    bool* ambiguous_lookup, bool diagnose_failure,
+    bool* has_viable_candidate) {
     TypeMethod* method;
     TypeMethod** overload_methods;
     int overload_method_count = 0;
@@ -26035,6 +26038,7 @@ static TypeMethod* sema_select_cxx_member_method(
     int viable_count = 0;
 
     if (ambiguous_lookup) *ambiguous_lookup = false;
+    if (has_viable_candidate) *has_viable_candidate = false;
     if (!call || !aggregate || !name) return NULL;
     if (sema_cxx_member_lookup_ambiguous(aggregate, name)) {
         if (ambiguous_lookup) *ambiguous_lookup = true;
@@ -26042,8 +26046,10 @@ static TypeMethod* sema_select_cxx_member_method(
     }
     argument_count = sema_cxx_argument_count(call->call_args);
     if (argument_count < 0 || argument_count == INT_MAX) {
-        rcc_error(call->loc, "too many arguments for member overload '%s'",
-                  name);
+        if (diagnose_failure) {
+            rcc_error(call->loc,
+                      "too many arguments for member overload '%s'", name);
+        }
         return NULL;
     }
     for (method = sema_cxx_member_overload_list(aggregate);
@@ -26174,8 +26180,14 @@ static TypeMethod* sema_select_cxx_member_method(
         ++viable_count;
     }
 
+    if (has_viable_candidate) {
+        *has_viable_candidate = viable_count > 0;
+    }
     if (viable_count == 0) {
-        rcc_error(call->loc, "no matching member overload for '%s'", name);
+        if (diagnose_failure) {
+            rcc_error(call->loc, "no matching member overload for '%s'",
+                      name);
+        }
         return NULL;
     }
 
@@ -26252,7 +26264,9 @@ static TypeMethod* sema_select_cxx_member_method(
         }
     }
     if (best_count != 1) {
-        rcc_error(call->loc, "ambiguous member overload for '%s'", name);
+        if (diagnose_failure) {
+            rcc_error(call->loc, "ambiguous member overload for '%s'", name);
+        }
         return NULL;
     }
     if (best && best->function_decl &&
@@ -31905,6 +31919,7 @@ static Type* sema_expr_impl(Expr* expr) {
         case EXPR_CXX_CO_AWAIT:
         case EXPR_CXX_CO_YIELD: {
             bool is_yield = expr->kind == EXPR_CXX_CO_YIELD;
+            bool yield_expanded = false;
             if (current_cxx_function_decl) {
                 current_cxx_function_decl->func_is_coroutine = true;
                 if (!current_func_auto_return_pending) {
@@ -31924,13 +31939,10 @@ static Type* sema_expr_impl(Expr* expr) {
                     (void)sema_expr(yield_call);
                     expr->kind = EXPR_CXX_CO_AWAIT;
                     expr->unary_operand = yield_call;
-                    rcc_error(expr->loc,
-                              "coroutine expression requires coroutine lowering");
-                    expr->type = type_int;
-                    break;
+                    yield_expanded = true;
                 }
             }
-            (void)sema_expr(expr->unary_operand);
+            if (!yield_expanded) (void)sema_expr(expr->unary_operand);
             if (!is_yield && current_cxx_function_decl &&
                 current_cxx_function_decl->func_coroutine_promise_type &&
                 sema_cxx_coroutine_class_has_member_name(
@@ -31943,6 +31955,12 @@ static Type* sema_expr_impl(Expr* expr) {
                     (void)sema_expr(transform_call);
                     expr->unary_operand = transform_call;
                 }
+            }
+            if ((!is_yield || yield_expanded) && expr->unary_operand) {
+                Expr* operator_call =
+                    sema_cxx_coroutine_apply_operator_co_await(
+                        expr->unary_operand, expr->loc);
+                if (operator_call) expr->unary_operand = operator_call;
             }
             if (!current_cxx_function_decl ||
                 !current_cxx_function_decl
@@ -33578,7 +33596,7 @@ static Type* sema_expr_impl(Expr* expr) {
                               member_template_candidates,
                               member_template_candidate_count,
                               member->member_has_template_arguments,
-                              &ambiguous_lookup);
+                              &ambiguous_lookup, true, NULL);
                     }
                     if (ambiguous_lookup) {
                         rcc_error(expr->loc,
@@ -40727,6 +40745,161 @@ static bool sema_cxx_coroutine_class_has_member_name(
         }
     }
     return false;
+}
+
+static Expr* sema_cxx_coroutine_apply_operator_co_await(
+    Expr* operand, SourceLoc loc) {
+    Type* operand_type;
+    ExprList* arguments;
+    Symbol* functions;
+    Expr* member_call;
+    Expr* free_call;
+    TypeMethod* selected_member = NULL;
+    Decl* selected_free = NULL;
+    TypeMethod** member_template_candidates = NULL;
+    int member_template_candidate_count = 0;
+    bool member_template_constraint_unsupported = false;
+    bool member_lookup_ambiguous = false;
+    bool member_has_viable_candidate = false;
+    bool member_overload_ambiguous = false;
+    bool free_has_viable_candidate = false;
+
+    if (!operand || !operand->type) return NULL;
+    operand_type = generic_selection_type(
+        sema_cxx_object_type(operand->type));
+    if (!operand_type) return NULL;
+    if (operand_type->kind != TYPE_ENUM && !operand_type->cxx_class) {
+        return NULL;
+    }
+
+#if defined(__GNUC__) || defined(__clang__)
+    if ((operand_type->kind == TYPE_STRUCT ||
+         operand_type->kind == TYPE_UNION) &&
+        rcc_parser_cxx_materialize_member_function_templates) {
+        member_template_candidate_count =
+            rcc_parser_cxx_materialize_member_function_templates(
+                operand_type, "operator co_await", NULL, NULL, 0, false,
+                &member_template_candidates,
+                &member_template_constraint_unsupported);
+        if (member_template_candidate_count > 0) {
+            sema_register_materialized_member_templates(operand_type);
+        }
+    }
+#endif
+    if (member_template_constraint_unsupported) {
+        rcc_error(loc,
+                  "operator co_await member template constraint could not be evaluated");
+    }
+
+    member_call = expr_call(
+        expr_member(operand, "operator co_await", loc), NULL, loc);
+    if (operand_type->kind == TYPE_STRUCT ||
+        operand_type->kind == TYPE_UNION) {
+        selected_member = sema_select_cxx_member_method(
+            member_call, operand_type, "operator co_await",
+            member_template_candidates, member_template_candidate_count,
+            false, &member_lookup_ambiguous, false,
+            &member_has_viable_candidate);
+    }
+    member_overload_ambiguous = member_has_viable_candidate &&
+                                !selected_member &&
+                                !member_lookup_ambiguous;
+
+    arguments = exprlist_new(operand);
+    functions = sema_cxx_operator_function("operator co_await", arguments);
+    for (Decl* candidate = functions ? functions->decl : NULL;
+         candidate; candidate = candidate->func_overload_next) {
+        TypeParam* parameter = candidate->type &&
+                candidate->type->kind == TYPE_FUNC
+            ? candidate->type->params : NULL;
+        if (candidate->kind == DECL_FUNC && parameter && !parameter->next &&
+            !candidate->type->variadic &&
+            cxx_conversion_rank_detail(operand, parameter->type, NULL) >= 0) {
+            free_has_viable_candidate = true;
+            break;
+        }
+    }
+
+    if (free_has_viable_candidate) {
+        Expr* function = expr_ident("operator co_await", loc);
+        function->ident_decl = functions->decl;
+        function->type = functions->decl->type;
+        free_call = expr_call(function, arguments, loc);
+        selected_free = sema_select_cxx_overload_candidates(
+            free_call, functions->decl, NULL, false);
+    } else {
+        free_call = NULL;
+    }
+
+    if (free_has_viable_candidate && !selected_free) {
+        rcc_error(loc, "ambiguous non-member operator co_await");
+        return NULL;
+    }
+    if (member_overload_ambiguous) {
+        rcc_error(loc, "ambiguous member operator co_await");
+        return NULL;
+    }
+
+    if (selected_member && selected_free) {
+        TypeParam* parameter = selected_free->type
+            ? selected_free->type->params : NULL;
+        int member_rank = cxx_member_object_conversion_rank(
+            operand_type, selected_member);
+        int member_ref_rank = cxx_member_ref_qualifier_rank(
+            member_call, selected_member);
+        int free_rank = parameter
+            ? cxx_conversion_rank_detail(operand, parameter->type, NULL)
+            : -1;
+        bool member_is_template = selected_member->function_decl &&
+            selected_member->function_decl->func_is_template_instance;
+        bool free_is_template = selected_free->func_is_template_instance;
+
+        if (member_rank < 0 || member_ref_rank < 0 || free_rank < 0) {
+            rcc_error(loc,
+                      "operator co_await candidate has incomplete conversion metadata");
+            return NULL;
+        }
+        if (member_rank < free_rank ||
+            (member_rank == free_rank && member_ref_rank == 0 &&
+             free_is_template && !member_is_template)) {
+            selected_free = NULL;
+        } else if (free_rank < member_rank ||
+                   (member_rank == free_rank && member_ref_rank > 0) ||
+                   (member_rank == free_rank && member_ref_rank == 0 &&
+                    member_is_template && !free_is_template)) {
+            selected_member = NULL;
+        } else if (member_rank == free_rank && member_ref_rank == 0 &&
+                   member_is_template && free_is_template) {
+            bool constraints_comparable = false;
+            int constraint_relation = rcc_parser_cxx_member_constraint_relation(
+                selected_member->function_decl, selected_free,
+                &constraints_comparable);
+            if (constraints_comparable && constraint_relation > 0) {
+                selected_free = NULL;
+            } else if (constraints_comparable && constraint_relation < 0) {
+                selected_member = NULL;
+            } else {
+                rcc_error(loc, "ambiguous operator co_await overload");
+                return NULL;
+            }
+        } else {
+            rcc_error(loc, "ambiguous operator co_await overload");
+            return NULL;
+        }
+    }
+
+    if (selected_member) {
+        member_call->call_method = selected_member;
+        (void)sema_expr(member_call);
+        return member_call;
+    }
+    if (selected_free) {
+        free_call->call_func->ident_decl = selected_free;
+        free_call->call_func->type = selected_free->type;
+        (void)sema_expr(free_call);
+        return free_call;
+    }
+    return NULL;
 }
 
 static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
