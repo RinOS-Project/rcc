@@ -1955,6 +1955,54 @@ static bool ir_pass_cse_memory_location(
             }
             location->valid = true;
         }
+    } else if (definition->opcode == RCC_IR_PHI &&
+               definition->type.kind == RCC_IR_TYPE_POINTER &&
+               definition->operand_count != 0u) {
+        RccIrCseMemoryLocation merged;
+        bool have_merged = false;
+        bool offsets_match = true;
+        bool restrict_origins_match = true;
+        for (size_t incoming = 0u;
+             incoming < definition->operand_count; ++incoming) {
+            RccIrCseMemoryLocation source;
+            if (!ir_pass_cse_memory_location(
+                    context, definition->operands[incoming], depth + 1u,
+                    &source) || !source.valid) {
+                have_merged = false;
+                break;
+            }
+            if (!have_merged) {
+                merged = source;
+                have_merged = true;
+                continue;
+            }
+            if (merged.object != source.object) {
+                have_merged = false;
+                break;
+            }
+            if (!merged.byte_offset_known ||
+                !source.byte_offset_known ||
+                merged.byte_offset != source.byte_offset) {
+                offsets_match = false;
+            }
+            if (merged.restrict_origin != source.restrict_origin) {
+                restrict_origins_match = false;
+            }
+            merged.restrict_origin_is_restrict |=
+                source.restrict_origin_is_restrict;
+        }
+        if (have_merged) {
+            location->object = merged.object;
+            location->byte_offset_known = offsets_match;
+            location->byte_offset = offsets_match
+                ? merged.byte_offset : 0u;
+            if (restrict_origins_match) {
+                location->restrict_origin = merged.restrict_origin;
+                location->restrict_origin_is_restrict =
+                    merged.restrict_origin_is_restrict;
+            }
+            location->valid = true;
+        }
     }
 done:
     location->state = 2u;
