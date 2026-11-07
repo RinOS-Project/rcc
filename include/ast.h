@@ -12,6 +12,7 @@
 typedef struct Type Type;
 typedef struct Expr Expr;
 typedef struct CxxCoroutineAwaitPlan CxxCoroutineAwaitPlan;
+typedef struct CxxCoroutineLoweringPlan CxxCoroutineLoweringPlan;
 typedef struct Stmt Stmt;
 typedef struct Decl Decl;
 typedef struct DeclList DeclList;
@@ -731,6 +732,19 @@ struct CxxCoroutineAwaitPlan {
     bool from_yield;
     bool is_initial_suspend;
     bool is_final_suspend;
+};
+
+/* Function-level operations needed before and after a coroutine frame's
+ * lifetime.  The plan is resolved from the promise type and is consumed by
+ * coroutine lowering. */
+struct CxxCoroutineLoweringPlan {
+    Decl* allocation_function;
+    Expr* allocation_call;
+    Decl* deallocation_function;
+    Expr* deallocation_call;
+    Expr* allocation_failure_return_call;
+    bool has_allocation_failure_return;
+    bool allocation_checked;
 };
 
 typedef enum {
@@ -1721,6 +1735,7 @@ struct Decl {
             Type* func_coroutine_promise_type;
             /* Stable semantic object used by generated promise calls. */
             Decl* func_coroutine_promise_object;
+            CxxCoroutineLoweringPlan* func_coroutine_lowering_plan;
             /* Resolved once and converted to the coroutine return type. */
             Expr* func_coroutine_get_return_object_call;
             bool func_coroutine_get_return_object_checked;

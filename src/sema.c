@@ -23245,6 +23245,7 @@ static TypeMethod* sema_cxx_type_trait_assignment_method(
         declaration->func_coroutine_next_suspend_index = 1u;
         declaration->func_coroutine_promise_type = NULL;
         declaration->func_coroutine_promise_object = NULL;
+        declaration->func_coroutine_lowering_plan = NULL;
         declaration->func_coroutine_get_return_object_call = NULL;
         declaration->func_coroutine_get_return_object_checked = false;
         declaration->func_coroutine_initial_suspend_plan = NULL;
@@ -31954,6 +31955,10 @@ static Type* sema_expr_impl(Expr* expr) {
                 is_yield = true;
             }
             if (current_cxx_function_decl) {
+                if (!current_cxx_function_decl->func_is_coroutine) {
+                    current_cxx_function_decl
+                        ->func_coroutine_lowering_plan = NULL;
+                }
                 current_cxx_function_decl->func_is_coroutine = true;
                 if (current_cxx_exception_handler_function ==
                     current_cxx_function_decl) {
@@ -34908,6 +34913,10 @@ static void sema_stmt(Stmt* stmt) {
         case STMT_RETURN:
             if (stmt->cxx_is_co_return) {
                 if (current_cxx_function_decl) {
+                    if (!current_cxx_function_decl->func_is_coroutine) {
+                        current_cxx_function_decl
+                            ->func_coroutine_lowering_plan = NULL;
+                    }
                     current_cxx_function_decl->func_is_coroutine = true;
                 } else {
                     rcc_error(stmt->loc,
@@ -41170,6 +41179,247 @@ static void sema_initialize_cxx_coroutine_promise(Decl* declaration) {
     sema_cxx_synthesize_default_constructor_initializer(promise_object);
 }
 
+static Expr* sema_cxx_coroutine_size_argument(Type* size_type,
+                                               SourceLoc loc) {
+    Expr* size = expr_int(0, loc);
+    size->type = size_type;
+    return size;
+}
+
+static Expr* sema_cxx_coroutine_pointer_argument(SourceLoc loc) {
+    Expr* pointer = expr_int(0, loc);
+    pointer->type = type_ptr(type_void);
+    return pointer;
+}
+
+static ExprList* sema_cxx_coroutine_allocation_arguments(
+    Decl* declaration, Type* size_type, bool include_parameters) {
+    ExprList* arguments = NULL;
+    SourceLoc loc = declaration->loc;
+
+    exprlist_append(&arguments,
+                    sema_cxx_coroutine_size_argument(size_type, loc));
+    if (!include_parameters) return arguments;
+
+    if (declaration->func_this_param) {
+        Expr* this_pointer = expr_ident("this", loc);
+        Expr* this_object;
+        this_pointer->ident_decl = declaration->func_this_param;
+        this_pointer->type = declaration->func_this_param->type;
+        this_object = expr_unary(EXPR_DEREF, this_pointer, loc);
+        this_object->type = declaration->func_this_param->type
+            ? declaration->func_this_param->type->base : NULL;
+        exprlist_append(&arguments, this_object);
+    }
+    for (DeclList* parameter = declaration->func_params;
+         parameter; parameter = parameter->next) {
+        Decl* parameter_decl = parameter->decl;
+        Expr* argument;
+        if (!parameter_decl || !parameter_decl->type) continue;
+        argument = expr_ident(
+            parameter_decl->name ? parameter_decl->name
+                                 : "__rcc_coroutine_parameter",
+            parameter_decl->loc);
+        argument->ident_decl = parameter_decl;
+        argument->type = parameter_decl->type;
+        exprlist_append(&arguments, argument);
+    }
+    return arguments;
+}
+
+static Expr* sema_cxx_coroutine_operator_call(
+    const char* operator_name, ExprList* arguments, SourceLoc loc) {
+    Expr* designator = expr_ident(operator_name, loc);
+    return expr_call(designator, arguments, loc);
+}
+
+static bool sema_resolve_cxx_coroutine_frame_operations(
+    Decl* declaration) {
+    CxxCoroutineLoweringPlan* plan;
+    Type* size_type;
+    Type* promise_type;
+    Expr* allocation_call;
+    Expr* deallocation_call;
+    Decl* allocation_function = NULL;
+    Decl* deallocation_function = NULL;
+    bool has_class_allocation_candidates = false;
+    bool has_class_deallocation_candidates = false;
+    bool allocation_failure = false;
+    SourceLoc loc;
+
+    if (!declaration || !declaration->func_is_coroutine ||
+        !declaration->func_coroutine_promise_type ||
+        !declaration->func_coroutine_initial_suspend_plan) {
+        return false;
+    }
+    plan = declaration->func_coroutine_lowering_plan;
+    if (!plan) {
+        plan = ast_arena_alloc(sizeof(*plan));
+        memset(plan, 0, sizeof(*plan));
+        declaration->func_coroutine_lowering_plan = plan;
+    }
+    if (plan->allocation_checked) return true;
+    plan->allocation_checked = true;
+    loc = declaration->loc;
+    promise_type = declaration->func_coroutine_promise_type;
+    size_type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
+
+    allocation_failure = sema_cxx_coroutine_class_has_member_name(
+        promise_type, "get_return_object_on_allocation_failure");
+    plan->has_allocation_failure_return = allocation_failure;
+    if (allocation_failure) {
+        Expr* failure_call = sema_cxx_coroutine_promise_call(
+            declaration, "get_return_object_on_allocation_failure", NULL,
+            loc);
+        if (failure_call) {
+            Type* return_type = declaration->type &&
+                    declaration->type->kind == TYPE_FUNC
+                ? declaration->type->ret_type : NULL;
+            Decl* failure_method_decl;
+            Expr* converted_failure = ast_arena_alloc(
+                sizeof(*converted_failure));
+            (void)sema_expr(failure_call);
+            failure_method_decl = failure_call->cxx_selected_method
+                ? (failure_call->cxx_selected_method->function_decl
+                       ? failure_call->cxx_selected_method->function_decl
+                       : failure_call->cxx_selected_method->source_decl)
+                : NULL;
+            if (failure_method_decl &&
+                failure_method_decl->func_this_param) {
+                rcc_error(loc,
+                          "promise.get_return_object_on_allocation_failure must be static");
+            }
+            *converted_failure = *failure_call;
+            if (!return_type || !implicit_cast(converted_failure,
+                                               return_type)) {
+                rcc_error(loc,
+                          "promise.get_return_object_on_allocation_failure() result is not convertible to coroutine return type");
+            } else {
+                plan->allocation_failure_return_call = converted_failure;
+            }
+        } else {
+            rcc_error(loc,
+                      "promise declares get_return_object_on_allocation_failure but it cannot be called");
+        }
+    }
+
+    allocation_call = sema_cxx_coroutine_operator_call(
+        "operator new",
+        sema_cxx_coroutine_allocation_arguments(
+            declaration, size_type, true),
+        loc);
+    if (promise_type->cxx_class) {
+        allocation_function = sema_cxx_resolve_class_allocation_function(
+            allocation_call, promise_type->cxx_class, "operator new",
+            &has_class_allocation_candidates, false);
+    }
+    if (has_class_allocation_candidates && !allocation_function) {
+        if (allocation_call->call_args && allocation_call->call_args->next) {
+            allocation_call = sema_cxx_coroutine_operator_call(
+                "operator new",
+                sema_cxx_coroutine_allocation_arguments(
+                    declaration, size_type, false),
+                loc);
+        }
+        allocation_function = sema_cxx_resolve_class_allocation_function(
+            allocation_call, promise_type->cxx_class, "operator new",
+            &has_class_allocation_candidates, true);
+    } else if (!has_class_allocation_candidates) {
+        if (allocation_failure) {
+            Symbol* nothrow_symbol = sema_cxx_lookup_name(
+                "std::nothrow", loc);
+            Decl* nothrow_decl = nothrow_symbol &&
+                    nothrow_symbol->kind == SYM_VAR
+                ? nothrow_symbol->decl : NULL;
+            ExprList* nothrow_arguments = NULL;
+            Expr* nothrow_value;
+            if (!nothrow_decl || !nothrow_decl->type) {
+                rcc_error(loc,
+                          "std::nothrow is required for coroutine allocation failure handling");
+            } else {
+                nothrow_value = expr_ident(nothrow_decl->name, loc);
+                nothrow_value->ident_decl = nothrow_decl;
+                nothrow_value->type = nothrow_decl->type;
+                exprlist_append(&nothrow_arguments,
+                                sema_cxx_coroutine_size_argument(
+                                    size_type, loc));
+                exprlist_append(&nothrow_arguments, nothrow_value);
+                allocation_call = sema_cxx_coroutine_operator_call(
+                    "operator new", nothrow_arguments, loc);
+                allocation_function =
+                    sema_cxx_resolve_global_allocation_function(
+                        allocation_call, "operator new", "rin_malloc",
+                        size_type, false, true);
+            }
+        } else {
+            allocation_function = sema_cxx_resolve_global_allocation_function(
+                allocation_call, "operator new", "rin_malloc", size_type,
+                false, true);
+        }
+    }
+    if (allocation_function) {
+        if (allocation_function->func_is_deleted) {
+            rcc_error(loc,
+                      "coroutine frame allocation function '%s' is deleted",
+                      allocation_function->name
+                          ? allocation_function->name : "operator new");
+        }
+        if (allocation_failure && !allocation_function->func_is_noexcept &&
+            (!allocation_function->type ||
+             !allocation_function->type->function_is_noexcept)) {
+            rcc_error(loc,
+                      "coroutine allocation function must be noexcept when allocation failure handling is present");
+        }
+        (void)sema_expr(allocation_call);
+        plan->allocation_function = allocation_function;
+        plan->allocation_call = allocation_call;
+    }
+
+    deallocation_call = sema_cxx_coroutine_operator_call(
+        "operator delete",
+        exprlist_new(sema_cxx_coroutine_pointer_argument(loc)), loc);
+    exprlist_append(&deallocation_call->call_args,
+                    sema_cxx_coroutine_size_argument(size_type, loc));
+    if (promise_type->cxx_class) {
+        deallocation_function = sema_cxx_resolve_class_allocation_function(
+            deallocation_call, promise_type->cxx_class, "operator delete",
+            &has_class_deallocation_candidates, false);
+    }
+    if (has_class_deallocation_candidates && !deallocation_function) {
+        deallocation_call = sema_cxx_coroutine_operator_call(
+            "operator delete",
+            exprlist_new(sema_cxx_coroutine_pointer_argument(loc)), loc);
+        deallocation_function = sema_cxx_resolve_class_allocation_function(
+            deallocation_call, promise_type->cxx_class, "operator delete",
+            &has_class_deallocation_candidates, true);
+    } else if (!has_class_deallocation_candidates) {
+        deallocation_function = sema_cxx_resolve_global_allocation_function(
+            deallocation_call, "operator delete", "rin_free",
+            type_ptr(type_void), true, false);
+        if (!deallocation_function) {
+            deallocation_call = sema_cxx_coroutine_operator_call(
+                "operator delete",
+                exprlist_new(sema_cxx_coroutine_pointer_argument(loc)), loc);
+            deallocation_function =
+                sema_cxx_resolve_global_allocation_function(
+                    deallocation_call, "operator delete", "rin_free",
+                    type_ptr(type_void), true, true);
+        }
+    }
+    if (deallocation_function) {
+        if (deallocation_function->func_is_deleted) {
+            rcc_error(loc,
+                      "coroutine frame deallocation function '%s' is deleted",
+                      deallocation_function->name
+                          ? deallocation_function->name : "operator delete");
+        }
+        (void)sema_expr(deallocation_call);
+        plan->deallocation_function = deallocation_function;
+        plan->deallocation_call = deallocation_call;
+    }
+    return allocation_function && deallocation_function;
+}
+
 static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
     Expr* call;
     SourceLoc loc;
@@ -41268,6 +41518,7 @@ static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
             declaration->func_coroutine_unhandled_exception_call = call;
         }
     }
+    (void)sema_resolve_cxx_coroutine_frame_operations(declaration);
 }
 
 static bool sema_cxx_is_coroutine_handle_type(Type* type) {
