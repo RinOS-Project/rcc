@@ -41124,6 +41124,7 @@ static void sema_initialize_cxx_coroutine_promise(Decl* declaration) {
     ExprList* arguments = NULL;
     Expr* initializer;
     int argument_count;
+    int errors_before_constructor_selection;
     bool ambiguous = false;
     CxxConstructorInfo* constructor;
     if (!declaration || !declaration->func_coroutine_promise_type) return;
@@ -41163,12 +41164,20 @@ static void sema_initialize_cxx_coroutine_promise(Decl* declaration) {
     }
     argument_count = sema_cxx_argument_count(arguments);
     constructor = NULL;
+    errors_before_constructor_selection = g_error_count;
     if (argument_count > 0) {
         constructor = sema_cxx_select_type_trait_constructor_ex(
             promise_type, arguments, argument_count, true, true, true, true,
             &ambiguous);
     }
-    if (constructor && !ambiguous) {
+    if (ambiguous) {
+        if (g_error_count == errors_before_constructor_selection) {
+            rcc_error(declaration->loc,
+                      "coroutine promise constructor arguments are ambiguous");
+        }
+        return;
+    }
+    if (constructor) {
         initializer = expr_initializer_list(arguments, declaration->loc);
         initializer->compound_type = promise_type;
         initializer->compound_paren_init = true;
