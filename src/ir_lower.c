@@ -36741,7 +36741,7 @@ static bool lower_coroutine_expression_nothrow_around_await(
 
 static bool lower_coroutine_body_supported(
     const Stmt* statement, bool* found_return,
-    size_t* body_await_count) {
+    size_t* body_await_count, bool inside_catch_handler) {
     const Decl* local;
     if (!statement) return true;
     if (statement->kind == STMT_NULL) return true;
@@ -36797,15 +36797,18 @@ static bool lower_coroutine_body_supported(
             return false;
         }
         return lower_coroutine_body_supported(
-                   statement->if_then, found_return, body_await_count) &&
+                   statement->if_then, found_return, body_await_count,
+                   inside_catch_handler) &&
             lower_coroutine_body_supported(
-                statement->if_else, found_return, body_await_count);
+                statement->if_else, found_return, body_await_count,
+                inside_catch_handler);
     }
     if (statement->kind == STMT_BLOCK) {
         for (const StmtList* item = statement->block_stmts;
              item; item = item->next) {
             if (!lower_coroutine_body_supported(
-                    item->stmt, found_return, body_await_count)) return false;
+                    item->stmt, found_return, body_await_count,
+                    inside_catch_handler)) return false;
         }
         return true;
     }
@@ -36814,7 +36817,8 @@ static bool lower_coroutine_body_supported(
         bool found_return_before_try = *found_return;
         if (!statement->try_body || !statement->try_catches ||
             !lower_coroutine_body_supported(
-                statement->try_body, found_return, body_await_count) ||
+                statement->try_body, found_return, body_await_count,
+                inside_catch_handler) ||
             *body_await_count != await_count_before_try ||
             *found_return != found_return_before_try) {
             return false;
@@ -36823,7 +36827,7 @@ static bool lower_coroutine_body_supported(
              handler; handler = handler->next) {
             if (!handler->body ||
                 !lower_coroutine_body_supported(
-                    handler->body, found_return, body_await_count) ||
+                    handler->body, found_return, body_await_count, true) ||
                 *body_await_count != await_count_before_try ||
                 *found_return != found_return_before_try) {
                 return false;
@@ -36832,6 +36836,7 @@ static bool lower_coroutine_body_supported(
         return true;
     }
     if (statement->kind == STMT_THROW) {
+        if (!statement->throw_expr) return inside_catch_handler;
         Type* thrown_type = statement->throw_expr
             ? statement->throw_expr->type : NULL;
         size_t await_count_before_throw = *body_await_count;
@@ -36839,7 +36844,7 @@ static bool lower_coroutine_body_supported(
             (thrown_type->kind == TYPE_STRUCT ||
              thrown_type->kind == TYPE_UNION) &&
             lower_storage_type_supported_internal(thrown_type, 0u);
-        if (!statement->throw_expr || !thrown_type ||
+        if (!thrown_type ||
             (!lower_coroutine_scalar_frame_value_supported(thrown_type) &&
              !aggregate_payload) ||
             !lower_coroutine_count_expression_awaits(
@@ -36891,7 +36896,8 @@ static bool lower_coroutine_minimal_body_supported(
     *body_await_count = 0u;
     if (reason_out) *reason_out = "missing coroutine body";
     if (!lower_coroutine_body_supported(
-            statement, &found_return, body_await_count) || !found_return) {
+            statement, &found_return, body_await_count, false) ||
+        !found_return) {
         if (reason_out) {
             *reason_out =
                 "coroutine body supports scalar or cleanup-tracked local declarations, "
