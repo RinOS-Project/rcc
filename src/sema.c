@@ -41315,11 +41315,22 @@ static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
             } else if (statement->cxx_is_co_return &&
                        declaration->func_coroutine_promise_type) {
                 Expr* call;
+                Expr* operand = statement->return_val;
+                bool operand_is_braced =
+                    operand &&
+                    sema_cxx_is_untyped_braced_initializer(operand);
+                bool operand_is_void = false;
+                if (operand && !operand_is_braced) {
+                    (void)sema_expr(operand);
+                    operand_is_void = operand->type &&
+                                      operand->type->kind == TYPE_VOID;
+                }
                 call = sema_cxx_coroutine_promise_call(
                     declaration,
-                    statement->return_val ? "return_value" : "return_void",
-                    statement->return_val
-                        ? exprlist_new(statement->return_val) : NULL,
+                    operand && !operand_is_void
+                        ? "return_value" : "return_void",
+                    operand && !operand_is_void
+                        ? exprlist_new(operand) : NULL,
                     statement->loc);
                 if (call) {
                     (void)sema_expr(call);
@@ -41327,7 +41338,13 @@ static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
                         rcc_error(statement->loc,
                                   "coroutine promise return operation must return void");
                     }
-                    statement->return_val = call;
+                    if (operand_is_void) {
+                        statement->return_val = expr_binary(
+                            EXPR_COMMA, operand, call, statement->loc);
+                        (void)sema_expr(statement->return_val);
+                    } else {
+                        statement->return_val = call;
+                    }
                     statement->cxx_coroutine_return_semantics_processed =
                         true;
                 }
