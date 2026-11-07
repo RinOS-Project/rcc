@@ -36992,6 +36992,21 @@ static bool lower_coroutine_emit_frame_init(
     (void)lower_cxx_runtime_call(
         context, "rin_coro_frame_init", rcc_ir_type_integer(32u),
         operands, 5u);
+    if (context->unsupported) return false;
+    for (const CxxCoroutineFrameField* field = plan->frame_fields;
+         field; field = field->next) {
+        RccIrLowerValue active_address;
+        RccIrLowerValue inactive = lower_integer_constant(
+            context, rcc_ir_type_integer(8u), true, 0u);
+        if (field->cleanup_active_offset == 0u) continue;
+        active_address = lower_byte_offset_address(
+            context, frame, field->cleanup_active_offset);
+        if (!inactive.valid || !active_address.valid ||
+            !lower_store_address(context, active_address, inactive)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
     return !context->unsupported;
 }
 

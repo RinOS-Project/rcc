@@ -15236,4 +15236,13 @@ Continue in this order:
       suspend on i686 and x86-64 using syntax-only mode. Missing promise types
       still receive specific diagnostics. Coroutine frame state-machine,
       resume/destroy code generation, and runtime execution remain open.
-- [x] Add source coroutine frame lowering for non-void return objects, allocation-failure return branches, promise cleanup at destroy, `await_suspend` bool/handle transfer, and owned awaiter destruction after resume or early destroy. Track cleanup-active bytes for eligible local aggregates so normal scope exit clears them and early destroy runs only live destructors in reverse declaration order. Keep throwing construction/destruction and unsupported reference/union lifetimes fail-closed; no compiler or target acceptance was run for this source update.
+- [x] Add source coroutine frame lowering for non-void return objects,
+      allocation-failure return branches, promise cleanup at destroy,
+      `await_suspend` bool/handle transfer, and owned awaiter destruction after
+      resume or early destroy. Track cleanup-active bytes for eligible local
+      aggregates so normal scope exit clears them and early destroy runs only
+      live destructors in reverse declaration order. The eager, suspended-await,
+      return-object, awaiter-lifetime, local-lifetime, parameter, and
+      handle-transfer regression targets pass on i686/x86-64 at `-O0` and
+      `-O2`, with zero verified fallback. Runtime execution, throwing lifetime
+      operations, and unsupported reference/union lifetimes remain open.
