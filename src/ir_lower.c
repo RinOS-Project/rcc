@@ -10367,6 +10367,9 @@ static RccIrLowerValue lower_compound_assignment(
     RccIrLowerValue result;
     RccIrOpcode opcode;
     ExprKind binary_kind = lower_compound_binary_kind(expression->kind);
+    bool evaluate_rhs_first = context && context->coroutine_resume &&
+        expression &&
+        lower_coroutine_expression_contains_await(expression->binary_rhs);
     if (!expression->binary_lhs || !expression->binary_lhs->type) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -10529,7 +10532,12 @@ static RccIrLowerValue lower_compound_assignment(
             operation->result, atomic_type,
             expression->binary_lhs->type->is_unsigned);
     }
-    address = lower_lvalue_address(context, expression->binary_lhs);
+    if (evaluate_rhs_first) {
+        right = lower_expression(context, expression->binary_rhs);
+        address = lower_lvalue_address(context, expression->binary_lhs);
+    } else {
+        address = lower_lvalue_address(context, expression->binary_lhs);
+    }
     {
         const Expr* lhs = expression->binary_lhs;
         const TypeField* field = lhs &&
@@ -10539,7 +10547,9 @@ static RccIrLowerValue lower_compound_assignment(
             ? lower_load_bitfield_value(context, address, field)
             : lower_load_address(context, address, lhs->type);
     }
-    right = lower_expression(context, expression->binary_rhs);
+    if (!evaluate_rhs_first) {
+        right = lower_expression(context, expression->binary_rhs);
+    }
     if (!address.valid || !left.valid || !right.valid) {
         return lower_invalid_value();
     }
@@ -36442,6 +36452,70 @@ static bool lower_coroutine_scalar_frame_value_supported(
         lower_abi_native_scalar_type(type, &ir_type);
 }
 
+static bool lower_coroutine_compound_assignment_await_target_supported(
+    const Expr* expression) {
+    const Expr* target;
+    const Type* target_type;
+    const Type* rhs_type;
+    if (!expression || !expression->binary_lhs ||
+        !expression->binary_rhs ||
+        expression->binary_lhs->kind != EXPR_IDENT ||
+        !expression->binary_lhs->ident_decl ||
+        expression->binary_lhs->ident_decl->kind != DECL_VAR ||
+        expression->binary_lhs->ident_decl->var_is_global ||
+        expression->binary_lhs->ident_decl->var_is_static_local ||
+        expression->binary_lhs->ident_decl->var_is_thread_local ||
+        expression->binary_lhs->ident_decl->var_is_block_extern) {
+        return false;
+    }
+    target = expression->binary_lhs;
+    target_type = target->type;
+    rhs_type = expression->binary_rhs->type;
+    if (!target_type || !rhs_type || target_type->is_atomic ||
+        target_type->is_volatile || target_type->is_reference ||
+        !lower_coroutine_scalar_frame_value_supported(target_type) ||
+        !lower_coroutine_scalar_frame_value_supported(expression->type) ||
+        (g_opts.target_arch == ARCH_X86 &&
+         (lower_i686_wide_scalar_type(target_type) ||
+          lower_i686_wide_scalar_type(rhs_type)))) {
+        return false;
+    }
+    if (target_type->kind == TYPE_PTR) {
+        return (expression->kind == EXPR_ADD_ASSIGN ||
+                expression->kind == EXPR_SUB_ASSIGN) &&
+            target_type->base &&
+            (type_is_integer((Type*)rhs_type) ||
+             rhs_type->kind == TYPE_ENUM);
+    }
+    if ((type_is_integer((Type*)target_type) ||
+         target_type->kind == TYPE_ENUM) &&
+        !target_type->is_bit_precise) {
+        switch (expression->kind) {
+            case EXPR_ADD_ASSIGN:
+            case EXPR_SUB_ASSIGN:
+            case EXPR_MUL_ASSIGN:
+            case EXPR_DIV_ASSIGN:
+            case EXPR_MOD_ASSIGN:
+            case EXPR_AND_ASSIGN:
+            case EXPR_OR_ASSIGN:
+            case EXPR_XOR_ASSIGN:
+            case EXPR_LSHIFT_ASSIGN:
+            case EXPR_RSHIFT_ASSIGN:
+                return true;
+            default:
+                return false;
+        }
+    }
+    if (target_type->kind == TYPE_FLOAT ||
+        target_type->kind == TYPE_DOUBLE) {
+        return expression->kind == EXPR_ADD_ASSIGN ||
+            expression->kind == EXPR_SUB_ASSIGN ||
+            expression->kind == EXPR_MUL_ASSIGN ||
+            expression->kind == EXPR_DIV_ASSIGN;
+    }
+    return false;
+}
+
 static bool lower_coroutine_copy_scalar_parameters_to_frame(
     RccIrLowerContext* context, const Decl* declaration) {
     const CxxCoroutineLoweringPlan* plan = declaration
@@ -37115,16 +37189,6 @@ static bool lower_coroutine_count_expression_awaits(
         case EXPR_SPACESHIP:
         case EXPR_AND:
         case EXPR_OR:
-        case EXPR_ADD_ASSIGN:
-        case EXPR_SUB_ASSIGN:
-        case EXPR_MUL_ASSIGN:
-        case EXPR_DIV_ASSIGN:
-        case EXPR_MOD_ASSIGN:
-        case EXPR_AND_ASSIGN:
-        case EXPR_OR_ASSIGN:
-        case EXPR_XOR_ASSIGN:
-        case EXPR_LSHIFT_ASSIGN:
-        case EXPR_RSHIFT_ASSIGN:
         case EXPR_CXX_MEMBER_PTR_DOT:
         case EXPR_CXX_MEMBER_PTR_ARROW:
             return lower_coroutine_count_expression_awaits(
@@ -37136,6 +37200,35 @@ static bool lower_coroutine_count_expression_awaits(
                        expression->binary_lhs, body_await_count) &&
                 lower_coroutine_count_expression_awaits(
                     expression->binary_rhs, body_await_count);
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN: {
+            size_t await_count_before_assignment = *body_await_count;
+            size_t await_count_before_rhs;
+            if (!lower_coroutine_count_expression_awaits(
+                    expression->binary_lhs, body_await_count)) {
+                return false;
+            }
+            await_count_before_rhs = *body_await_count;
+            if (!lower_coroutine_count_expression_awaits(
+                    expression->binary_rhs, body_await_count)) {
+                return false;
+            }
+            if (*body_await_count != await_count_before_assignment &&
+                (await_count_before_rhs != await_count_before_assignment ||
+                 !lower_coroutine_compound_assignment_await_target_supported(
+                     expression))) {
+                return false;
+            }
+            return true;
+        }
         case EXPR_ASSIGN: {
             size_t await_count_before_assignment = *body_await_count;
             const Expr* target = expression->binary_lhs;
@@ -37366,16 +37459,6 @@ static bool lower_coroutine_expression_liveness_supported_impl(
                     expression->binary_rhs, contains_multiple_awaits);
         }
         case EXPR_SPACESHIP:
-        case EXPR_ADD_ASSIGN:
-        case EXPR_SUB_ASSIGN:
-        case EXPR_MUL_ASSIGN:
-        case EXPR_DIV_ASSIGN:
-        case EXPR_MOD_ASSIGN:
-        case EXPR_AND_ASSIGN:
-        case EXPR_OR_ASSIGN:
-        case EXPR_XOR_ASSIGN:
-        case EXPR_LSHIFT_ASSIGN:
-        case EXPR_RSHIFT_ASSIGN:
         case EXPR_CXX_MEMBER_PTR_DOT:
         case EXPR_CXX_MEMBER_PTR_ARROW:
         case EXPR_CXX_TYPEID:
@@ -37387,6 +37470,23 @@ static bool lower_coroutine_expression_liveness_supported_impl(
         case EXPR_VA_COPY:
         case EXPR_VA_ARG:
             return !lower_coroutine_expression_contains_await(expression);
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            if (!lower_coroutine_expression_contains_await(expression)) {
+                return true;
+            }
+            return lower_coroutine_compound_assignment_await_target_supported(
+                    expression) &&
+                lower_coroutine_expression_liveness_supported_impl(
+                    expression->binary_rhs, contains_multiple_awaits);
         case EXPR_ASSIGN:
             return lower_coroutine_expression_liveness_supported_impl(
                 expression->binary_rhs, contains_multiple_awaits);
@@ -37530,6 +37630,19 @@ static bool lower_coroutine_expression_nothrow_around_await(
                 lower_coroutine_expression_nothrow_around_await(
                     expression->binary_rhs);
         case EXPR_ASSIGN:
+            return lower_noexcept_expression(expression->binary_lhs) &&
+                lower_coroutine_expression_nothrow_around_await(
+                    expression->binary_rhs);
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
             return lower_noexcept_expression(expression->binary_lhs) &&
                 lower_coroutine_expression_nothrow_around_await(
                     expression->binary_rhs);

@@ -15310,11 +15310,17 @@ Continue in this order:
       and comparison, conditional and short-circuit expressions, plus i686
       wide-scalar addition, XOR/shift, and comparison across suspensions. Its
       i686/x86-64 `-O0`/`-O2` verified matrix emits 47 functions with zero
-      fallback. The generated x86-64 object executes against the production
-      RinCRT bootstrap and libcxx runtime in WSL, checking seven scalar/pointer
-      results, three 64-bit results, resume counts, and frame destruction.
-      Other expression families, value types, and i686 runtime execution remain
-      open.
+      fallback. The generated i686 and x86-64 objects execute against the
+      production RinCRT bootstrap and libcxx runtime in WSL, checking seven
+      scalar/pointer results, three 64-bit results, resume counts, and frame
+      destruction on both architectures. Other expression families and value
+      types remain open.
+- [ ] Coroutine compound assignments with suspending right operands now lower
+      for supported non-atomic local integer, enum, floating, and pointer
+      targets. The right operand resumes first, then the simple target is
+      reloaded before the update; complex/volatile/atomic targets and i686
+      wide compound updates remain unsupported. This source change has not yet
+      received compiler/build/runtime acceptance.
 - [x] Track destruction for body awaiter objects with per-object frame active
       bytes. Exception and destroy entry now destroy only fully constructed,
       still-live body awaiters in reverse await-plan order, clearing active
