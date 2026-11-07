@@ -36632,10 +36632,20 @@ static bool lower_coroutine_emit_final_suspend(
         !await_plan->await_suspend_call->type ||
         (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
          await_plan->await_suspend_call->type->kind != TYPE_BOOL &&
-         !await_plan->await_suspend_returns_handle) ||
+         !await_plan->await_suspend_returns_handle)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    /* An exception from final suspension must terminate.  Keep the runtime
+     * throw guard active across initialization, every await protocol call,
+     * awaiter destruction, and the final return, then release it on both
+     * non-throwing completion paths. */
+    (void)lower_cxx_runtime_call(
+        context, "rin_cpp_exception_terminate_scope_begin",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context->unsupported ||
         !lower_coroutine_initialize_awaiter(
             context, declaration, await_plan, NULL, 0u)) {
-        if (context) context->unsupported = true;
         return false;
     }
     ready = lower_truth_expression(
@@ -36662,6 +36672,9 @@ static bool lower_coroutine_emit_final_suspend(
     frame = context->coroutine_frame;
     (void)lower_cxx_runtime_call(
         context, "rin_coro_destroy", rcc_ir_type_void(), &frame, 1u);
+    (void)lower_cxx_runtime_call(
+        context, "rin_cpp_exception_terminate_scope_end",
+        rcc_ir_type_void(), NULL, 0u);
     if (context->unsupported ||
         !lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
                       NULL, 0u, NULL, 0u)) {
@@ -36701,6 +36714,10 @@ static bool lower_coroutine_emit_final_suspend(
         context->unsupported = true;
         return false;
     }
+    (void)lower_cxx_runtime_call(
+        context, "rin_cpp_exception_terminate_scope_end",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context->unsupported) return false;
     if (!lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
                       NULL, 0u, NULL, 0u)) {
         context->unsupported = true;
@@ -38189,6 +38206,7 @@ static bool lower_coroutine_emit_destroy_local_cleanups(
     if (cleanup_count == 0u) return true;
     if (cleanup_count > SIZE_MAX / sizeof(*cleanup_fields)) return false;
     cleanup_fields = rcc_alloc(cleanup_count * sizeof(*cleanup_fields));
+    if (!cleanup_fields) return false;
     for (const CxxCoroutineFrameField* field = plan->frame_fields;
          field; field = field->next) {
         if (field->kind == CXX_COROUTINE_FRAME_LOCAL &&
@@ -38270,7 +38288,13 @@ static bool lower_coroutine_emit_destroy_function(
     if (!entry) return false;
     lower_coroutine_initialize_generated_context(
         &context, module, function, declaration, entry);
-    if (!lower_coroutine_bind_frame_fields(&context, declaration) ||
+    if (!lower_coroutine_bind_frame_fields(&context, declaration)) {
+        goto done;
+    }
+    (void)lower_cxx_runtime_call(
+        &context, "rin_cpp_exception_terminate_scope_begin",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context.unsupported ||
         !lower_coroutine_emit_destroy_awaiter_dispatch(
             &context, declaration) ||
         !lower_coroutine_emit_destroy_local_cleanups(
@@ -38279,7 +38303,17 @@ static bool lower_coroutine_emit_destroy_function(
          !lower_emit_temporary_cleanup_plan_list(
              &context, promise->var_cleanups, false)) ||
         !lower_coroutine_emit_deallocation(
-            &context, declaration->func_coroutine_lowering_plan) ||
+            &context, declaration->func_coroutine_lowering_plan)) {
+        if (error && error_size != 0u && error[0] == '\0') {
+            snprintf(error, error_size,
+                     "coroutine destroy function lowering failed");
+        }
+        goto done;
+    }
+    (void)lower_cxx_runtime_call(
+        &context, "rin_cpp_exception_terminate_scope_end",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context.unsupported ||
         !lower_append(&context, RCC_IR_RETURN, rcc_ir_type_void(),
                       NULL, 0u, NULL, 0u)) {
         if (error && error_size != 0u && error[0] == '\0') {
@@ -38304,12 +38338,21 @@ static bool lower_coroutine_emit_resume_function(
     RccIrBlock* body = rcc_ir_block_add(function, "coroutine.body");
     RccIrBlock* exception_entry = rcc_ir_block_add(
         function, "coroutine.unhandled_exception");
+    RccIrBlock* unhandled_call_block = rcc_ir_block_add(
+        function, "coroutine.unhandled_exception.call");
+    RccIrBlock* unhandled_throw_block = rcc_ir_block_add(
+        function, "coroutine.unhandled_exception.throw");
     RccIrBlock* invalid_state = rcc_ir_block_add(
         function, "coroutine.invalid.state");
     RccIrInstruction* exception_storage;
+    RccIrInstruction* unhandled_exception_storage;
+    RccIrInstruction* original_cleanup_storage;
     RccIrLowerValue exception_frame;
+    RccIrLowerValue unhandled_exception_frame;
     RccIrLowerValue setjmp_result;
+    RccIrLowerValue unhandled_setjmp_result;
     RccIrLowerValue exception_condition;
+    RccIrLowerValue unhandled_condition;
     RccIrLowerValue state;
     RccIrLowerValue zero;
     RccIrValue operands[2];
@@ -38320,7 +38363,9 @@ static bool lower_coroutine_emit_resume_function(
         declaration->func_coroutine_initial_suspend_plan;
     bool success = false;
     if (!entry || !dispatch_entry || !body || !exception_entry ||
-        !invalid_state) return false;
+        !unhandled_call_block || !unhandled_throw_block || !invalid_state) {
+        return false;
+    }
     lower_coroutine_initialize_generated_context(
         &context, module, function, declaration, entry);
     if (!lower_coroutine_bind_frame_fields(&context, declaration)) {
@@ -38486,19 +38531,149 @@ static bool lower_coroutine_emit_resume_function(
         rcc_ir_type_void(), NULL, 0u);
     if (context.unsupported) goto done;
     {
+        RccIrValue operand = exception_frame.value;
+        RccIrLowerValue original_cleanup = lower_cxx_runtime_call(
+            &context, "rin_cpp_exception_frame_cleanup",
+            rcc_ir_type_pointer(0u), &operand, 1u);
+        RccIrLowerValue cleanup_storage_address;
+        if (!original_cleanup.valid) goto done;
+        original_cleanup_storage = lower_append(
+            &context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!original_cleanup_storage) goto done;
+        rcc_ir_set_immediate(
+            original_cleanup_storage,
+            (uint64_t)(g_opts.target_arch == ARCH_X64 ? 8u : 4u));
+        original_cleanup_storage->alignment = (uint32_t)(
+            g_opts.target_arch == ARCH_X64 ? 8u : 4u);
+        cleanup_storage_address = lower_value(
+            original_cleanup_storage->result,
+            rcc_ir_type_pointer(0u), true);
+        if (!cleanup_storage_address.valid ||
+            !lower_store_address(
+                &context, cleanup_storage_address, original_cleanup)) {
+            goto done;
+        }
+    }
+    unhandled_exception_storage = lower_append(
+        &context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!unhandled_exception_storage) goto done;
+    rcc_ir_set_immediate(
+        unhandled_exception_storage,
+        (uint64_t)(g_opts.target_arch == ARCH_X64 ? 96u : 40u));
+    unhandled_exception_storage->alignment = (uint32_t)(
+        g_opts.target_arch == ARCH_X64 ? 8u : 4u);
+    unhandled_exception_frame = lower_value(
+        unhandled_exception_storage->result, rcc_ir_type_pointer(0u), true);
+    if (!unhandled_exception_frame.valid) goto done;
+    {
+        RccIrValue operand = unhandled_exception_frame.value;
+        (void)lower_cxx_runtime_call(
+            &context, "rin_cpp_exception_install", rcc_ir_type_void(),
+            &operand, 1u);
+        unhandled_setjmp_result = lower_cxx_runtime_call(
+            &context, "setjmp", lower_cxx_exception_word_type(),
+            &operand, 1u);
+    }
+    unhandled_condition = lower_truth(&context, unhandled_setjmp_result);
+    if (context.unsupported || !unhandled_condition.valid) goto done;
+    targets[0] = unhandled_throw_block->id;
+    targets[1] = unhandled_call_block->id;
+    if (!lower_append(&context, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                      &unhandled_condition.value, 1u, targets, 2u)) {
+        goto done;
+    }
+    context.terminated = true;
+
+    context.current = unhandled_throw_block;
+    context.terminated = false;
+    context.active_exception_frame = RCC_IR_VALUE_NONE;
+    (void)lower_cxx_runtime_call(
+        &context, "rin_cpp_exception_terminate_scope_begin",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context.unsupported ||
+        !lower_coroutine_set_state(&context, UINT32_MAX) ||
+        !lower_coroutine_mark_done(&context)) {
+        goto done;
+    }
+    {
+        RccIrInstruction* cleanup_load = lower_append(
+            &context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+            &original_cleanup_storage->result, 1u, NULL, 0u);
+        RccIrValue operands[2];
+        if (!cleanup_load) goto done;
+        operands[0] = exception_frame.value;
+        operands[1] = cleanup_load->result;
+        (void)lower_cxx_runtime_call(
+            &context, "rin_cpp_exception_release_frame_with_cleanup",
+            rcc_ir_type_void(), operands, 2u);
+    }
+    (void)lower_cxx_runtime_call(
+        &context, "rin_cpp_exception_terminate_scope_end",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context.unsupported) goto done;
+    {
+        RccIrValue operand = unhandled_exception_frame.value;
+        (void)lower_cxx_runtime_call(
+            &context, "rin_cpp_exception_rethrow_frame",
+            rcc_ir_type_void(), &operand, 1u);
+    }
+    if (context.unsupported ||
+        !lower_append(&context, RCC_IR_UNREACHABLE,
+                      rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
+        goto done;
+    }
+    context.terminated = true;
+
+    context.current = unhandled_call_block;
+    context.terminated = false;
+    context.active_exception_frame = unhandled_exception_frame.value;
+    {
         RccIrLowerValue unhandled = lower_expression(
             &context, declaration->func_coroutine_unhandled_exception_call);
         if (!unhandled.valid || unhandled.type.kind != RCC_IR_TYPE_VOID ||
-            context.unsupported ||
-            !lower_cxx_exception_release_frame(
-                &context, exception_frame.value) ||
-            !lower_coroutine_emit_final_suspend(&context)) {
+            context.unsupported) {
             if (error && error_size != 0u && error[0] == '\0') {
                 snprintf(error, error_size,
                          "coroutine unhandled_exception lowering failed");
             }
             goto done;
         }
+    }
+    {
+        RccIrValue operand = unhandled_exception_frame.value;
+        (void)lower_cxx_runtime_call(
+            &context, "rin_cpp_exception_leave", rcc_ir_type_void(),
+            &operand, 1u);
+    }
+    context.active_exception_frame = RCC_IR_VALUE_NONE;
+    (void)lower_cxx_runtime_call(
+        &context, "rin_cpp_exception_terminate_scope_begin",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context.unsupported) goto done;
+    {
+        RccIrInstruction* cleanup_load = lower_append(
+            &context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+            &original_cleanup_storage->result, 1u, NULL, 0u);
+        RccIrValue operands[2];
+        if (!cleanup_load) goto done;
+        operands[0] = exception_frame.value;
+        operands[1] = cleanup_load->result;
+        (void)lower_cxx_runtime_call(
+            &context, "rin_cpp_exception_release_frame_with_cleanup",
+            rcc_ir_type_void(), operands, 2u);
+    }
+    (void)lower_cxx_runtime_call(
+        &context, "rin_cpp_exception_terminate_scope_end",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context.unsupported ||
+        !lower_coroutine_emit_final_suspend(&context)) {
+        if (error && error_size != 0u && error[0] == '\0') {
+            snprintf(error, error_size,
+                     "coroutine final suspend lowering failed");
+        }
+        goto done;
     }
     success = true;
 done:

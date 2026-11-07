@@ -15292,6 +15292,16 @@ Continue in this order:
       three-await + / - expression and passes the i686/x86-64 -O0/-O2 verified
       matrix with 15 functions and zero fallback. General pointer, wide-scalar,
       and other expression liveness still needs implementation and acceptance.
+- [x] Track destruction for body awaiter objects with per-object frame active
+      bytes. Exception and destroy entry now destroy only fully constructed,
+      still-live body awaiters in reverse await-plan order, clearing active
+      state before invoking each destructor. Throwing cleanup during exception
+      unwind, final-suspend protocol execution, or coroutine destruction
+      terminates. `unhandled_exception()` now has a nested exception frame: if
+      it throws, the coroutine is marked done with no awaiter active and the
+      same exception is rethrown to its caller/resumer. These source changes
+      still need compiler/runtime acceptance; general throwing destructor
+      shapes remain open.
 - [ ] Execute the coroutine exception paths against the RinOS runtime, checking
       `unhandled_exception()`, caught values, exception payload destruction,
       and live-local cleanup after resumption.
