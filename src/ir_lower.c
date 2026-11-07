@@ -35611,6 +35611,11 @@ static bool lower_coroutine_await_plans_valid(
         }
         if (!await_plan->awaiter_initializer ||
             !await_plan->awaiter_type || !await_plan->awaiter_storage ||
+            !await_plan->awaiter_storage->type ||
+            await_plan->awaiter_storage->type->kind != TYPE_PTR ||
+            !await_plan->awaiter_storage->type->is_reference ||
+            await_plan->awaiter_storage->type->base !=
+                await_plan->awaiter_type ||
             !await_plan->coroutine_handle_type ||
             !await_plan->coroutine_handle_storage ||
             !await_plan->await_ready_call ||
