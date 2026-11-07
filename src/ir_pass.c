@@ -2037,6 +2037,53 @@ static bool ir_pass_cse_memory_ranges_disjoint(
         context, load, store->operands[1], store_bytes);
 }
 
+static bool ir_pass_cse_allocated_effective_types_disjoint(
+    const RccIrCseContext* context, const RccIrInstruction* load,
+    const RccIrInstruction* store) {
+    RccIrCseMemoryLocation load_location;
+    RccIrCseMemoryLocation store_location;
+    const Type* load_type;
+    const Type* store_type;
+    uint64_t load_bytes;
+    uint64_t store_bytes;
+    uint64_t load_end;
+    uint64_t store_end;
+    if (!context || g_opts.cxx_mode || !load || !store ||
+        load->opcode != RCC_IR_LOAD || load->operand_count != 1u ||
+        load->volatile_access || store->opcode != RCC_IR_STORE ||
+        store->operand_count != 2u || store->volatile_access ||
+        !load->source_access_type || !store->source_access_type ||
+        !ir_pass_cse_memory_location(
+            context, load->operands[0], 0u, &load_location) ||
+        !ir_pass_cse_memory_location(
+            context, store->operands[1], 0u, &store_location) ||
+        !load_location.valid || !store_location.valid ||
+        load_location.object != store_location.object ||
+        !ir_pass_value_is_unique_object(context, load_location.object) ||
+        !load_location.byte_offset_known ||
+        !store_location.byte_offset_known) {
+        return false;
+    }
+    load_type = load->source_access_type;
+    store_type = store->source_access_type;
+    if (load_type->is_volatile || load_type->is_atomic ||
+        store_type->is_volatile || store_type->is_atomic ||
+        type_c_effective_alias_compatible(load_type, store_type)) {
+        return false;
+    }
+    load_bytes = ir_pass_cse_memory_access_bytes(context, load, true);
+    store_bytes = ir_pass_cse_memory_access_bytes(context, store, false);
+    if (load_bytes == 0u || store_bytes == 0u ||
+        load_bytes > UINT64_MAX - load_location.byte_offset ||
+        store_bytes > UINT64_MAX - store_location.byte_offset) {
+        return false;
+    }
+    load_end = load_location.byte_offset + load_bytes;
+    store_end = store_location.byte_offset + store_bytes;
+    return load_location.byte_offset < store_end &&
+        store_location.byte_offset < load_end;
+}
+
 static bool ir_pass_cse_memory_copy_disjoint_from_load(
     const RccIrCseContext* context, const RccIrInstruction* load,
     const RccIrInstruction* call) {
@@ -2142,6 +2189,10 @@ static bool ir_pass_store_is_disjoint_from_load(
     load_address = load->operands[0];
     store_address = store->operands[1];
     if (ir_pass_cse_memory_ranges_disjoint(context, load, store)) {
+        return true;
+    }
+    if (ir_pass_cse_allocated_effective_types_disjoint(
+            context, load, store)) {
         return true;
     }
     if (ir_pass_cse_restrict_roots_disjoint(context, load, store)) {
