@@ -35652,9 +35652,20 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
         plan->promise_offset < RIN_CXX_CORO_FRAME_HEADER_SIZE +
                                    target_pointer_size ||
         plan->promise_offset >= plan->frame_size ||
-        !plan->allocation_function || !plan->deallocation_function ||
+        !plan->allocation_checked || !plan->allocation_function ||
+        !plan->allocation_call ||
+        plan->allocation_call->kind != EXPR_CALL ||
+        !plan->deallocation_function ||
         !plan->deallocation_call ||
         plan->deallocation_call->kind != EXPR_CALL ||
+        (plan->has_allocation_failure_return !=
+         (plan->allocation_failure_return_call != NULL)) ||
+        (plan->allocation_failure_return_call &&
+         plan->allocation_failure_return_call->kind != EXPR_CALL &&
+         plan->allocation_failure_return_call->kind != EXPR_CAST) ||
+        !declaration->func_coroutine_get_return_object_checked ||
+        !declaration->func_coroutine_get_return_object_call ||
+        !declaration->func_coroutine_unhandled_exception_call ||
         !declaration->func_coroutine_initial_suspend_plan ||
         !declaration->func_coroutine_final_suspend_plan ||
         !lower_coroutine_await_plans_valid(plan)) {
@@ -35681,6 +35692,8 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
         ++field_count;
         if (!field->declaration || !field->type ||
             field->declaration->type != field->type ||
+            field->kind < CXX_COROUTINE_FRAME_PARAMETER ||
+            field->kind > CXX_COROUTINE_FRAME_HANDLE ||
             field->type->size < 0 ||
             field->size != (size_t)field->type->size ||
             field->alignment == 0u ||
@@ -35716,7 +35729,9 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
             }
         }
     }
-    if (!promise || plan->frame_field_count == 0u ||
+    if (!promise ||
+        promise->declaration != declaration->func_coroutine_promise_object ||
+        plan->frame_field_count == 0u ||
         field_count != plan->frame_field_count) return false;
     allocation_size = plan->allocation_call &&
             plan->allocation_call->call_args
