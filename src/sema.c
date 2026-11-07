@@ -41319,12 +41319,8 @@ static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
                 bool operand_is_braced =
                     operand &&
                     sema_cxx_is_untyped_braced_initializer(operand);
-                bool operand_is_void = false;
-                if (operand && !operand_is_braced) {
-                    (void)sema_expr(operand);
-                    operand_is_void = operand->type &&
-                                      operand->type->kind == TYPE_VOID;
-                }
+                bool operand_is_void = operand && !operand_is_braced &&
+                    operand->type && operand->type->kind == TYPE_VOID;
                 call = sema_cxx_coroutine_promise_call(
                     declaration,
                     operand && !operand_is_void
