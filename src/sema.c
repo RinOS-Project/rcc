@@ -41033,8 +41033,15 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
     await_plan->suspend_index = is_initial_suspend
         ? 0u : declaration->func_coroutine_next_suspend_index++;
 
+    /* [expr.await] names e as an lvalue referring to the result of o.  Keep
+     * the hidden declaration as the corresponding forwarding reference so an
+     * lvalue/xvalue awaiter is never spuriously copied, while a prvalue's
+     * materialized temporary can be lifetime-extended through the await. */
     awaiter_object = decl_var(
-        "__rcc_coroutine_awaiter", awaiter_type, NULL, loc);
+        "__rcc_coroutine_awaiter",
+        type_reference(awaiter_type,
+                       !await_plan->awaiter_initializer_is_lvalue),
+        NULL, loc);
     await_plan->awaiter_storage = awaiter_object;
     awaiter_expression = expr_ident(awaiter_object->name, loc);
     awaiter_expression->ident_decl = awaiter_object;
