@@ -1759,6 +1759,7 @@ typedef struct {
     size_t block_load_count;
     bool* direct_allocas;
     bool* direct_data_symbols;
+    bool* fresh_allocations;
     RccIrInstruction** alloca_definitions;
     RccIrInstruction** value_definitions;
     RccIrCseMemoryLocation* memory_locations;
@@ -1781,6 +1782,22 @@ static bool ir_pass_value_is_direct_alloca(
     const RccIrCseContext* context, RccIrValue value) {
     return context && context->direct_allocas &&
         value < context->replacement_count && context->direct_allocas[value];
+}
+
+static bool ir_pass_value_is_unique_object(
+    const RccIrCseContext* context, RccIrValue value) {
+    return ir_pass_value_is_direct_alloca(context, value) ||
+        (context && context->fresh_allocations &&
+         value < context->replacement_count &&
+         context->fresh_allocations[value]);
+}
+
+static bool ir_pass_cse_fresh_allocator(const char* callee) {
+    return callee &&
+        (strcmp(callee, "malloc") == 0 ||
+         strcmp(callee, "calloc") == 0 ||
+         strcmp(callee, "aligned_alloc") == 0 ||
+         strcmp(callee, "rin_malloc") == 0);
 }
 
 static bool ir_pass_value_is_direct_data_symbol(
@@ -1816,6 +1833,12 @@ static bool ir_pass_cse_memory_location(
     definition = context->value_definitions[value];
     if (!definition) goto done;
     if (definition->opcode == RCC_IR_ALLOCA) {
+        location->object = value;
+        location->byte_offset = 0u;
+        location->byte_offset_known = true;
+        location->valid = true;
+    } else if (definition->opcode == RCC_IR_CALL &&
+               context->fresh_allocations[value]) {
         location->object = value;
         location->byte_offset = 0u;
         location->byte_offset_known = true;
@@ -1947,8 +1970,8 @@ static bool ir_pass_cse_memory_ranges_disjoint(
         !ir_pass_cse_memory_location(
             context, store->operands[1], 0u, &store_location) ||
         !load_location.valid || !store_location.valid ||
-        !ir_pass_value_is_direct_alloca(context, load_location.object) ||
-        !ir_pass_value_is_direct_alloca(context, store_location.object)) {
+        !ir_pass_value_is_unique_object(context, load_location.object) ||
+        !ir_pass_value_is_unique_object(context, store_location.object)) {
         return false;
     }
     if (load_location.object != store_location.object) return true;
@@ -2054,7 +2077,7 @@ static void ir_pass_remove_dead_store(
         return;
     }
     address = store->operands[1];
-    if (!ir_pass_value_is_direct_alloca(context, address)) {
+    if (!ir_pass_value_is_unique_object(context, address)) {
         ir_pass_clear_pending_stores(context);
         return;
     }
@@ -2094,7 +2117,7 @@ static void ir_pass_record_store_value(
         context->has_stored_values[address] = true;
         return;
     }
-    if (!ir_pass_value_is_direct_alloca(context, address)) {
+    if (!ir_pass_value_is_unique_object(context, address)) {
         ir_pass_clear_block_store_facts(context);
         return;
     }
@@ -2155,7 +2178,10 @@ static void ir_pass_common_block(RccIrCseContext* context,
                 RccIrValue address = instruction->operands[0];
                 RccIrValue stored_value = RCC_IR_VALUE_NONE;
                 bool direct_address =
-                    ir_pass_value_is_direct_object(context, address);
+                    ir_pass_value_is_direct_object(context, address) ||
+                    (context->fresh_allocations &&
+                     address < context->replacement_count &&
+                     context->fresh_allocations[address]);
                 if (!direct_address) {
                     /* An indirect read may observe a local through an alias
                      * or a derived pointer, so keep pending writes visible. */
@@ -2321,6 +2347,8 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.direct_allocas));
     context.direct_data_symbols = rcc_alloc(
         function->value_count * sizeof(*context.direct_data_symbols));
+    context.fresh_allocations = rcc_alloc(
+        function->value_count * sizeof(*context.fresh_allocations));
     context.alloca_definitions = rcc_alloc(
         function->value_count * sizeof(*context.alloca_definitions));
     context.value_definitions = rcc_alloc(
@@ -2347,6 +2375,7 @@ static bool ir_pass_common_subexpressions(
     for (index = 0u; index < function->value_count; ++index) {
         context.direct_allocas[index] = false;
         context.direct_data_symbols[index] = false;
+        context.fresh_allocations[index] = false;
         context.alloca_definitions[index] = NULL;
         context.value_definitions[index] = NULL;
         context.stored_values[index] = RCC_IR_VALUE_NONE;
@@ -2363,6 +2392,11 @@ static bool ir_pass_common_subexpressions(
             if (instruction->result != RCC_IR_VALUE_NONE &&
                 instruction->result < function->value_count) {
                 context.value_definitions[instruction->result] = instruction;
+                if (instruction->opcode == RCC_IR_CALL &&
+                    instruction->type.kind == RCC_IR_TYPE_POINTER &&
+                    ir_pass_cse_fresh_allocator(instruction->callee)) {
+                    context.fresh_allocations[instruction->result] = true;
+                }
             }
             if (instruction->opcode == RCC_IR_ALLOCA &&
                 instruction->result != RCC_IR_VALUE_NONE) {
@@ -2392,6 +2426,7 @@ cleanup:
     rcc_free(context.block_loads);
     rcc_free(context.direct_allocas);
     rcc_free(context.direct_data_symbols);
+    rcc_free(context.fresh_allocations);
     rcc_free(context.alloca_definitions);
     rcc_free(context.value_definitions);
     rcc_free(context.memory_locations);
