@@ -40693,6 +40693,12 @@ static bool sema_validate_cxx_coroutine_eligibility(Decl* declaration) {
                   "a constexpr or consteval function cannot be a coroutine");
         valid = false;
     }
+    if (declaration->func_is_auto_return ||
+        declaration->func_is_decltype_auto_return) {
+        rcc_error(declaration->loc,
+                  "a coroutine cannot have a placeholder return type");
+        valid = false;
+    }
     if (declaration->func_is_cxx_constructor) {
         rcc_error(declaration->loc,
                   "a constructor cannot be a coroutine");
@@ -42074,7 +42080,8 @@ analyze_function_body:
                  * walk.  Deduce auto and decltype(auto) returns only after
                  * that walk, then validate the already-resolved return
                  * expressions against the exact deduced type. */
-                if (decl->func_is_auto_return) {
+                if (decl->func_is_auto_return &&
+                    !decl->func_is_coroutine) {
                     Type* deduced_return = NULL;
                     bool saw_return = false;
                     if (sema_deduce_auto_return_stmt(
