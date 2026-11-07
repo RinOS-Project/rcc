@@ -4313,16 +4313,22 @@ test-cxx20-unsupported-boundaries: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.ro tests/cxx20_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.log)
 	$(GREP) -F -q "C++20 coroutine keyword 'co_await' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.log
 	$(GREP) -F -q "C++20 coroutine keyword 'co_yield' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.log
-	$(GREP) -F -q "C++20 coroutine keyword 'co_return' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx20-unsupported-boundaries/x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x86.ro tests/cxx20_coroutines_coreturn_missing_traits.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x86.log)
+	$(GREP) -F -q "std::coroutine_traits<R, Args...>::promise_type is unavailable" $(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx20-unsupported-boundaries/x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/x64.ro tests/cxx20_modules_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/x64.log)
 	$(GREP) -F -q "module interface 'rcc_unsupported_dependency' was not found" $(TEST_OUT)/cxx20-unsupported-boundaries/x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.ro tests/cxx20_coroutines_invalid.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.log)
 	$(GREP) -F -q "C++20 coroutine keyword 'co_await' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.log
 	$(GREP) -F -q "C++20 coroutine keyword 'co_yield' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.log
-	$(GREP) -F -q "C++20 coroutine keyword 'co_return' is not supported by RCC++" $(TEST_OUT)/cxx20-unsupported-boundaries/coroutines-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx20-unsupported-boundaries/x64.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x64.ro tests/cxx20_coroutines_coreturn_missing_traits.cpp,$(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x64.log)
+	$(GREP) -F -q "std::coroutine_traits<R, Args...>::promise_type is unavailable" $(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx20-unsupported-boundaries/coreturn-x64.ro)
 	@echo "C++20 module and coroutine unsupported-boundary diagnostics completed"
 
 test-cxx-predefined-function-identifiers: $(RCC_TARGET) $(RCXX_TARGET)

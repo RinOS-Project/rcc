@@ -15209,3 +15209,14 @@ Continue in this order:
       and use in C mode. `test-global-initializers` passes on Windows.
       RinOS loader execution and broader optimized multi-piece lifetime/CFI
       coverage remain open.
+
+## RCC continuation (2026-11-07, C++20 `co_return` promise diagnostics)
+
+- [x] Remove the obsolete expectation that `co_return` is rejected by the
+      lexer/parser. Confirm it enters coroutine semantic analysis and reports
+      a missing `std::coroutine_traits<R, Args...>::promise_type` when no
+      promise is available, on i686 and x86-64; keep the separate unsupported
+      `co_await`/`co_yield` diagnostics and assert no object is emitted.
+      `test-cxx20-unsupported-boundaries` passes. Coroutine frame construction,
+      resume/destroy generation, and executable `co_await`/`co_yield` lowering
+      remain incomplete.
