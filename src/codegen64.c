@@ -15368,8 +15368,10 @@ static bool gen64_guarded_static_initializer(
     return true;
 }
 
-static void codegen_emit_global_init64(Module* mod) {
-    const char* name = "__rcc_global_init";
+static void codegen_emit_global_init64_group(
+    Module* mod, GlobalInitializer* initializers, uint16_t priority) {
+    char name_buffer[64];
+    const char* name;
     GlobalInitializer* initializer;
     Type* old_return_type;
     CleanupCodegen64* old_cleanups;
@@ -15378,9 +15380,15 @@ static void codegen_emit_global_init64(Module* mod) {
     VLAScopeCodegen64* old_continue_vla;
     uint32_t start;
     int stack_size;
-    if (!mod || !mod->global_initializers) return;
+    if (!mod || !initializers) return;
+    int name_length = snprintf(name_buffer, sizeof(name_buffer),
+        "__rcc_global_init_priority_%05u", (unsigned)priority);
+    if (name_length < 0 || (size_t)name_length >= sizeof(name_buffer)) {
+        rcc_fatal("global initializer priority symbol exceeds limits");
+    }
+    name = rcc_intern(name_buffer);
     stack_size = codegen_assign_global_initializer_storage(
-        mod->global_initializers, 8);
+        initializers, 8);
     if (stack_size > INT_MAX - 15) {
         rcc_error((SourceLoc){"<global-init>", 0, 0},
                   "global initializer frame exceeds compiler limits");
@@ -15403,7 +15411,7 @@ static void codegen_emit_global_init64(Module* mod) {
     active_vla_scopes64 = NULL;
     break_vla_marker64 = NULL;
     continue_vla_marker64 = NULL;
-    for (initializer = mod->global_initializers; initializer;
+    for (initializer = initializers; initializer;
          initializer = initializer->next) {
         CleanupCodegen64* full_expression_marker = active_cleanups64;
         if (!gen64_global_initializer(mod, initializer->declaration)) {
@@ -15424,6 +15432,48 @@ static void codegen_emit_global_init64(Module* mod) {
     emit64_ret(mod);
     module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
     codegen_add_init_array_entry(mod, name);
+}
+
+static void codegen_emit_global_init64_compat(
+    Module* mod, const GlobalInitializerGroup* groups, size_t group_count) {
+    const char* name = "__rcc_global_init";
+    uint32_t start;
+    if (!mod || !groups || group_count == 0u) return;
+    start = code_offset(mod);
+    add_func_def64(name, start);
+    emit64_push_reg(mod, RBP);
+    emit64_mov_reg_reg(mod, RBP, RSP);
+    for (size_t index = 0u; index < group_count; ++index) {
+        char group_name[64];
+        uint32_t call_offset;
+        int length = snprintf(group_name, sizeof(group_name),
+            "__rcc_global_init_priority_%05u",
+            (unsigned)groups[index].priority);
+        if (length < 0 || (size_t)length >= sizeof(group_name)) {
+            rcc_fatal("global initializer compatibility symbol exceeds limits");
+            return;
+        }
+        emit_byte(mod, 0xE8);
+        call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64(rcc_intern(group_name), call_offset);
+    }
+    emit64_mov_reg_imm32(mod, RAX, 0u);
+    emit64_leave(mod);
+    emit64_ret(mod);
+    module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
+}
+
+static void codegen_emit_global_init64(Module* mod) {
+    size_t group_count = 0u;
+    GlobalInitializerGroup* groups =
+        codegen_group_global_initializers(mod, &group_count);
+    for (size_t index = 0u; index < group_count; ++index) {
+        codegen_emit_global_init64_group(
+            mod, groups[index].initializers, groups[index].priority);
+    }
+    codegen_emit_global_init64_compat(mod, groups, group_count);
+    codegen_free_global_initializer_groups(groups, group_count);
 }
 
 static void codegen_emit_static_local_cleanups64(Module* mod) {

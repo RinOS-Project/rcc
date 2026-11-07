@@ -14,6 +14,7 @@
 #include <float.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* The C-only executable deliberately does not link the C++ frontend.  The
  * vtable pass is therefore an optional extension boundary, not a second
@@ -22059,6 +22060,101 @@ int codegen_assign_global_initializer_storage(
     return bytes;
 }
 
+typedef struct GlobalInitializerSortEntry {
+    Decl* declaration;
+    size_t source_order;
+    uint16_t priority;
+} GlobalInitializerSortEntry;
+
+static int codegen_compare_global_initializer_sort_entries(
+    const void* left_opaque, const void* right_opaque) {
+    const GlobalInitializerSortEntry* left =
+        (const GlobalInitializerSortEntry*)left_opaque;
+    const GlobalInitializerSortEntry* right =
+        (const GlobalInitializerSortEntry*)right_opaque;
+    if (left->priority < right->priority) return -1;
+    if (left->priority > right->priority) return 1;
+    if (left->source_order < right->source_order) return -1;
+    if (left->source_order > right->source_order) return 1;
+    return 0;
+}
+
+GlobalInitializerGroup* codegen_group_global_initializers(
+    Module* mod, size_t* group_count_out) {
+    size_t initializer_count = 0u;
+    size_t group_count = 0u;
+    size_t source_order = 0u;
+    GlobalInitializerSortEntry* entries;
+    GlobalInitializerGroup* groups;
+    GlobalInitializer*** tails;
+    if (group_count_out != NULL) *group_count_out = 0u;
+    if (mod == NULL || group_count_out == NULL) return NULL;
+    for (GlobalInitializer* item = mod->global_initializers; item;
+         item = item->next) {
+        ++initializer_count;
+    }
+    if (initializer_count == 0u) return NULL;
+    if (initializer_count > SIZE_MAX / sizeof(*entries)) {
+        rcc_fatal("global initializer count exceeds host limits");
+    }
+    entries = rcc_alloc(initializer_count * sizeof(*entries));
+    for (GlobalInitializer* item = mod->global_initializers; item;
+         item = item->next) {
+        entries[source_order].declaration = item->declaration;
+        entries[source_order].source_order = source_order;
+        entries[source_order].priority =
+            item->declaration != NULL &&
+                    item->declaration->var_init_priority != 0u
+                ? item->declaration->var_init_priority : UINT16_MAX;
+        ++source_order;
+    }
+    qsort(entries, initializer_count, sizeof(*entries),
+          codegen_compare_global_initializer_sort_entries);
+    for (size_t index = 0u; index < initializer_count; ++index) {
+        if (index == 0u || entries[index].priority !=
+                               entries[index - 1u].priority) {
+            ++group_count;
+        }
+    }
+    groups = rcc_alloc(group_count * sizeof(*groups));
+    tails = rcc_alloc(group_count * sizeof(*tails));
+    memset(groups, 0, group_count * sizeof(*groups));
+    memset(tails, 0, group_count * sizeof(*tails));
+    size_t group_index = 0u;
+    for (size_t index = 0u; index < initializer_count; ++index) {
+        GlobalInitializer* item;
+        if (index == 0u || entries[index].priority !=
+                               entries[index - 1u].priority) {
+            groups[group_index].priority = entries[index].priority;
+            tails[group_index] = &groups[group_index].initializers;
+            ++group_index;
+        }
+        item = rcc_alloc(sizeof(*item));
+        item->declaration = entries[index].declaration;
+        item->next = NULL;
+        *tails[group_index - 1u] = item;
+        tails[group_index - 1u] = &item->next;
+    }
+    rcc_free(tails);
+    rcc_free(entries);
+    *group_count_out = group_count;
+    return groups;
+}
+
+void codegen_free_global_initializer_groups(
+    GlobalInitializerGroup* groups, size_t group_count) {
+    if (groups == NULL) return;
+    for (size_t index = 0u; index < group_count; ++index) {
+        GlobalInitializer* item = groups[index].initializers;
+        while (item != NULL) {
+            GlobalInitializer* next = item->next;
+            rcc_free(item);
+            item = next;
+        }
+    }
+    rcc_free(groups);
+}
+
 static void gen_zero_local_storage(Module* mod, int32_t displacement,
                                    size_t storage) {
     size_t offset = 0u;
@@ -24751,8 +24847,10 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
     return true;
 }
 
-static void codegen_emit_global_init32(Module* mod) {
-    const char* name = "__rcc_global_init";
+static void codegen_emit_global_init32_group(
+    Module* mod, GlobalInitializer* initializers, uint16_t priority) {
+    char name_buffer[64];
+    const char* name;
     GlobalInitializer* initializer;
     Type* old_return_type;
     CleanupCodegen* old_cleanups;
@@ -24761,9 +24859,15 @@ static void codegen_emit_global_init32(Module* mod) {
     VLAScopeCodegen* old_continue_vla;
     uint32_t start;
     int stack_size;
-    if (!mod || !mod->global_initializers) return;
+    if (!mod || !initializers) return;
+    int name_length = snprintf(name_buffer, sizeof(name_buffer),
+        "__rcc_global_init_priority_%05u", (unsigned)priority);
+    if (name_length < 0 || (size_t)name_length >= sizeof(name_buffer)) {
+        rcc_fatal("global initializer priority symbol exceeds limits");
+    }
+    name = rcc_intern(name_buffer);
     stack_size = codegen_assign_global_initializer_storage(
-        mod->global_initializers, 4);
+        initializers, 4);
     if (stack_size > INT_MAX - 15) {
         rcc_error((SourceLoc){"<global-init>", 0, 0},
                   "global initializer frame exceeds compiler limits");
@@ -24786,7 +24890,7 @@ static void codegen_emit_global_init32(Module* mod) {
     active_vla_scopes = NULL;
     break_vla_marker = NULL;
     continue_vla_marker = NULL;
-    for (initializer = mod->global_initializers; initializer;
+    for (initializer = initializers; initializer;
          initializer = initializer->next) {
         CleanupCodegen* full_expression_marker = active_cleanups;
         if (!gen_global_initializer32(mod, initializer->declaration)) {
@@ -24808,6 +24912,45 @@ static void codegen_emit_global_init32(Module* mod) {
     emit_ret(mod);
     module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
     codegen_add_init_array_entry(mod, name);
+}
+
+static void codegen_emit_global_init32_compat(
+    Module* mod, const GlobalInitializerGroup* groups, size_t group_count) {
+    const char* name = "__rcc_global_init";
+    uint32_t start;
+    if (!mod || !groups || group_count == 0u) return;
+    start = code_offset(mod);
+    add_func_def(name, start);
+    emit_push_reg(mod, EBP);
+    emit_mov_reg_reg(mod, EBP, ESP);
+    emit_static_stack_frame32(mod, 8);
+    for (size_t index = 0u; index < group_count; ++index) {
+        char group_name[64];
+        int length = snprintf(group_name, sizeof(group_name),
+            "__rcc_global_init_priority_%05u",
+            (unsigned)groups[index].priority);
+        if (length < 0 || (size_t)length >= sizeof(group_name)) {
+            rcc_fatal("global initializer compatibility symbol exceeds limits");
+            return;
+        }
+        gen_cxx_exception_call32(mod, rcc_intern(group_name));
+    }
+    emit_mov_reg_imm(mod, EAX, 0u);
+    emit_leave(mod);
+    emit_ret(mod);
+    module_add_symbol(mod, name, start, true, MODULE_SYMBOL_CODE, false);
+}
+
+static void codegen_emit_global_init32(Module* mod) {
+    size_t group_count = 0u;
+    GlobalInitializerGroup* groups =
+        codegen_group_global_initializers(mod, &group_count);
+    for (size_t index = 0u; index < group_count; ++index) {
+        codegen_emit_global_init32_group(
+            mod, groups[index].initializers, groups[index].priority);
+    }
+    codegen_emit_global_init32_compat(mod, groups, group_count);
+    codegen_free_global_initializer_groups(groups, group_count);
 }
 
 static StaticLocalCleanup* codegen_find_static_local_cleanup(

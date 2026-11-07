@@ -188,6 +188,11 @@ typedef struct GlobalInitializer {
     struct GlobalInitializer* next;
 } GlobalInitializer;
 
+typedef struct GlobalInitializerGroup {
+    uint16_t priority;
+    GlobalInitializer* initializers;
+} GlobalInitializerGroup;
+
 /* A validated static-storage cleanup action emitted into the module's
  * finalizer callback.  The list is kept in reverse declaration order so
  * destruction follows C++ reverse construction order. */
@@ -426,6 +431,10 @@ bool codegen_cxx_constructor_argument_is_parameter_object(
     const ExprList* argument, const Type* parameter_type);
 int codegen_assign_global_initializer_storage(
     GlobalInitializer* initializers, int stack_alignment);
+GlobalInitializerGroup* codegen_group_global_initializers(
+    Module* mod, size_t* group_count);
+void codegen_free_global_initializer_groups(
+    GlobalInitializerGroup* groups, size_t group_count);
 ExprList* codegen_call_temporary_owners(void);
 bool codegen_runtime_global_paren_aggregate(const Type* type,
                                            const Expr* initializer);

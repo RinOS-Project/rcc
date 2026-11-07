@@ -22,6 +22,7 @@ typedef struct {
 } Parser;
 
 Parser parser;  /* Non-static for C++ parser access */
+static uint16_t pending_init_priority_attribute;
 static bool check(TokenType type);
 static bool check_next(TokenType type);
 static bool parser_parenthesized_pointer_is_function(void);
@@ -230,6 +231,7 @@ bool rcc_parser_last_cxx_declarator_was_pack(void) {
 
 void rcc_parser_set_cxx_mode(bool enabled) {
     parser_cxx_mode = enabled;
+    pending_init_priority_attribute = 0u;
 }
 
 void rcc_parser_set_module_reachable_record(bool is_private,
@@ -2026,6 +2028,28 @@ static bool take_weak_attribute(void) {
     return result;
 }
 
+static uint16_t take_init_priority_attribute(void) {
+    uint16_t result = pending_init_priority_attribute;
+    pending_init_priority_attribute = 0u;
+    return result;
+}
+
+static void parser_apply_init_priority_attribute(
+    Decl* declaration, uint16_t priority) {
+    Type* type;
+    if (priority == 0u) return;
+    type = declaration ? declaration->type : NULL;
+    if (!parser_cxx_mode || !declaration ||
+        declaration->kind != DECL_VAR || parser_function_scope_depth != 0 ||
+        !type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        type->cxx_class == NULL) {
+        rcc_error(declaration ? declaration->loc : peek()->loc,
+            "init_priority attribute requires a namespace-scope C++ class object");
+        return;
+    }
+    declaration->var_init_priority = priority;
+}
+
 static bool take_naked_attribute(void) {
     bool result = pending_naked_attribute;
     pending_naked_attribute = false;
@@ -3501,9 +3525,11 @@ static Expr* parse_cxx_user_literal_call(const char* suffix,
  * The 64-bit MMX spelling is retained as its scalar long-long ABI carrier;
  * 128-bit and larger vectors become first-class vector types. */
 static Type* parse_declarator_attributes(Type* type) {
+    uint16_t parsed_init_priority = 0u;
     while (match(TOK___ATTRIBUTE__)) {
         int vector_size = 0;
         int alignment = 0;
+        uint16_t init_priority = 0u;
         bool weak_attribute = false;
         bool weak_arguments = false;
         bool may_alias_attribute = false;
@@ -3522,6 +3548,7 @@ static Type* parse_declarator_attributes(Type* type) {
             Token* name;
             bool is_vector_size;
             bool is_aligned;
+            bool is_init_priority;
             bool is_weak;
             if (match(TOK_COMMA)) continue;
             if (!check(TOK_IDENT)) {
@@ -3534,6 +3561,9 @@ static Type* parse_declarator_attributes(Type* type) {
                 strcmp(name->value.str_val, "__vector_size__") == 0;
             is_aligned = strcmp(name->value.str_val, "aligned") == 0 ||
                          strcmp(name->value.str_val, "__aligned__") == 0;
+            is_init_priority =
+                strcmp(name->value.str_val, "init_priority") == 0 ||
+                strcmp(name->value.str_val, "__init_priority__") == 0;
             if (strcmp(name->value.str_val, "may_alias") == 0 ||
                 strcmp(name->value.str_val, "__may_alias__") == 0) {
                 may_alias_attribute = true;
@@ -3542,7 +3572,7 @@ static Type* parse_declarator_attributes(Type* type) {
                       strcmp(name->value.str_val, "__weak__") == 0;
             if (is_weak) weak_attribute = true;
             if (match(TOK_LPAREN)) {
-                if (is_vector_size || is_aligned) {
+                if (is_vector_size || is_aligned || is_init_priority) {
                     Expr* argument = check(TOK_RPAREN)
                         ? NULL : parse_assignment();
                     int64_t value = 0;
@@ -3551,15 +3581,30 @@ static Type* parse_declarator_attributes(Type* type) {
                         value <= 0 || value > INT_MAX ||
                         (is_aligned &&
                          (value > (int64_t)RCC_MAX_SUPPORTED_ALIGNMENT ||
-                          (value & (value - 1)) != 0))) {
+                          (value & (value - 1)) != 0)) ||
+                        (is_init_priority &&
+                         (value < 101 || value > 65535))) {
                         rcc_error(attribute_loc,
                             is_vector_size
                                 ? "vector_size attribute requires a positive integer constant"
-                                : "aligned attribute requires a positive power-of-two constant no greater than 16384");
+                                : is_aligned
+                                    ? "aligned attribute requires a positive power-of-two constant no greater than 16384"
+                                    : "init_priority attribute requires an integer constant from 101 through 65535");
                     } else if (is_vector_size) {
                         vector_size = (int)value;
-                    } else {
+                    } else if (is_aligned) {
                         alignment = (int)value;
+                    } else {
+                        if (!parser_cxx_mode) {
+                            rcc_error(attribute_loc,
+                                "init_priority attribute requires C++ mode");
+                        } else if (init_priority != 0u ||
+                            parsed_init_priority != 0u) {
+                            rcc_error(attribute_loc,
+                                "init_priority attribute may appear only once on a declaration");
+                        } else if (parser_cxx_mode) {
+                            init_priority = (uint16_t)value;
+                        }
                     }
                     expect(TOK_RPAREN, "')' after type attribute argument");
                 } else {
@@ -3571,12 +3616,23 @@ static Type* parse_declarator_attributes(Type* type) {
                         else advance();
                     }
                 }
+            } else if (is_init_priority) {
+                rcc_error(attribute_loc,
+                    "init_priority attribute requires an integer argument");
             } else if (is_aligned) {
                 alignment = 16;
             }
         }
         expect(TOK_RPAREN, ") after attribute list");
         expect(TOK_RPAREN, ") after __attribute__");
+        if (init_priority != 0u) {
+            if (parsed_init_priority != 0u) {
+                rcc_error(attribute_loc,
+                    "init_priority attribute may appear only once on a declaration");
+            } else {
+                parsed_init_priority = init_priority;
+            }
+        }
         if (weak_attribute) {
             if (weak_arguments) {
                 rcc_error(attribute_loc,
@@ -3612,6 +3668,14 @@ static Type* parse_declarator_attributes(Type* type) {
                                      may_alias_attribute;
                 type = aligned;
             }
+        }
+    }
+    if (parsed_init_priority != 0u) {
+        if (pending_init_priority_attribute != 0u) {
+            rcc_error(peek()->loc,
+                "init_priority attribute was not consumed by a declaration");
+        } else {
+            pending_init_priority_attribute = parsed_init_priority;
         }
     }
     return type;
@@ -8113,6 +8177,7 @@ Stmt* parse_declaration(void) {
     void* friend_access_mark = NULL;
     bool friend_access_context_active = false;
     int explicit_alignment = 0;
+    uint16_t declarator_init_priority = 0u;
 
     if (parser_cxx_mode && rcc_parser_cxx_collect_statement_attributes) {
         (void)rcc_parser_cxx_collect_statement_attributes();
@@ -8553,6 +8618,7 @@ Stmt* parse_declaration(void) {
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
     type = parse_declarator_attributes(type);
+    declarator_init_priority = take_init_priority_attribute();
     register_asm_name = parser_parse_declarator_asm_name(storage, type, loc);
     is_weak = is_weak || take_weak_attribute();
     type = apply_explicit_alignment(type, explicit_alignment, loc);
@@ -8621,6 +8687,10 @@ Stmt* parse_declaration(void) {
 
     if (is_typedef) {
         StmtList* declarations = NULL;
+        if (declarator_init_priority != 0u) {
+            rcc_error(loc,
+                "init_priority attribute cannot be applied to a typedef");
+        }
         bool typedef_is_maybe_unused = is_maybe_unused ||
             declarator_is_maybe_unused ||
             parser_current_type_is_maybe_unused(declaration_name);
@@ -8677,6 +8747,10 @@ Stmt* parse_declaration(void) {
                 base_type, &next_name, &next_parameters);
             (void)next_parameters;
             next_type = parse_declarator_attributes(next_type);
+            if (take_init_priority_attribute() != 0u) {
+                rcc_error(loc,
+                    "init_priority attribute cannot be applied to a typedef");
+            }
             next_type = apply_explicit_alignment(
                 next_type, explicit_alignment, loc);
             skip_attributes();
@@ -8727,6 +8801,10 @@ Stmt* parse_declaration(void) {
     /* Function declaration? */
     if (type->kind == TYPE_FUNC) {
         Stmt* body = NULL;
+        if (declarator_init_priority != 0u) {
+            rcc_error(loc,
+                "init_priority attribute requires a variable declaration");
+        }
         if (is_constinit) {
             rcc_error(loc, "constinit declaration must declare a variable");
         }
@@ -8831,6 +8909,7 @@ Stmt* parse_declaration(void) {
                 bool next_is_maybe_unused = is_maybe_unused;
                 bool next_is_nodiscard = is_nodiscard;
                 bool next_is_deprecated = is_deprecated;
+                uint16_t next_init_priority;
                 const char* next_nodiscard_message = nodiscard_message;
                 const char* next_deprecated_message = deprecated_message;
                 if (friend_signature_context &&
@@ -8851,6 +8930,7 @@ Stmt* parse_declaration(void) {
                 Type* next_type = parse_declarator(
                     base_type, &next_name, &next_parameters);
                 next_type = parse_declarator_attributes(next_type);
+                next_init_priority = take_init_priority_attribute();
                 skip_attributes();
                 parser_apply_pending_c_function_type_attributes(
                     next_type, loc);
@@ -8890,6 +8970,10 @@ Stmt* parse_declaration(void) {
                 }
                 if (next_type && next_type->kind == TYPE_FUNC) {
                     Decl* next_declaration;
+                    if (next_init_priority != 0u) {
+                        rcc_error(loc,
+                            "init_priority attribute requires a variable declaration");
+                    }
                     if (is_thread_local) {
                         rcc_error(loc,
                                   "thread-local storage is not valid on a function");
@@ -8936,6 +9020,8 @@ Stmt* parse_declaration(void) {
                     parser_apply_c_maybe_unused_attribute(
                         next_declaration, next_is_maybe_unused);
                     next_declaration->is_weak = next_is_weak;
+                    parser_apply_init_priority_attribute(
+                        next_declaration, next_init_priority);
                     stmtlist_append(&declarations,
                                     stmt_decl(next_declaration, loc));
                 }
@@ -9000,6 +9086,8 @@ Stmt* parse_declaration(void) {
         parser_apply_c_maybe_unused_attribute(
             declaration, is_maybe_unused || declarator_is_maybe_unused);
         declaration->is_weak = is_weak;
+        parser_apply_init_priority_attribute(
+            declaration, declarator_init_priority);
         stmtlist_append(&declarations, stmt_decl(declaration, loc));
 
         while (match(TOK_COMMA)) {
@@ -9010,6 +9098,7 @@ Stmt* parse_declaration(void) {
             bool next_is_maybe_unused = is_maybe_unused;
             bool next_is_nodiscard = is_nodiscard;
             bool next_is_deprecated = is_deprecated;
+            uint16_t next_init_priority;
             const char* next_nodiscard_message = nodiscard_message;
             const char* next_deprecated_message = deprecated_message;
             skip_attributes();
@@ -9024,6 +9113,7 @@ Stmt* parse_declaration(void) {
             Type* next_type = parse_declarator(
                 base_type, &next_name, &next_parameters);
             next_type = parse_declarator_attributes(next_type);
+            next_init_priority = take_init_priority_attribute();
             skip_attributes();
             parser_apply_pending_c_function_type_attributes(next_type, loc);
             next_is_noreturn =
@@ -9046,6 +9136,10 @@ Stmt* parse_declaration(void) {
             }
             if (next_type && next_type->kind == TYPE_FUNC) {
                 Decl* next_declaration;
+                if (next_init_priority != 0u) {
+                    rcc_error(loc,
+                        "init_priority attribute requires a variable declaration");
+                }
                 if (is_thread_local) {
                     rcc_error(loc,
                               "thread-local storage is not valid on a function");
@@ -9089,6 +9183,8 @@ Stmt* parse_declaration(void) {
             parser_apply_c_maybe_unused_attribute(
                 declaration, next_is_maybe_unused);
             declaration->is_weak = next_is_weak;
+            parser_apply_init_priority_attribute(
+                declaration, next_init_priority);
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
         }
         expect(TOK_SEMICOLON, ";");

@@ -10,6 +10,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Global linker options */
@@ -18,6 +19,7 @@ LinkerOpts g_linker_opts;
 static bool linker_section_selected(const ObjSection* section);
 static bool linker_section_emitted(const ObjSection* section);
 static ObjSection* object_section_at(const ObjectFile* object, int index);
+static bool linker_sort_global_initializer_array(Linker* ld);
 static uint64_t linker_comdat_hash(const char* key);
 static bool linker_comdat_contains(const Linker* ld, const char* key);
 static void linker_comdat_insert(Linker* ld, const char* key);
@@ -1084,6 +1086,160 @@ bool linker_merge_sections(Linker* ld) {
         printf("  %d linked sections\n", ld->section_count);
     }
 
+    return true;
+}
+
+typedef struct LinkerInitArrayRelocation {
+    PendingReloc* relocation;
+    uint64_t original_offset;
+    uint32_t priority;
+} LinkerInitArrayRelocation;
+
+static int linker_compare_init_array_by_offset(
+    const void* left_opaque, const void* right_opaque) {
+    const LinkerInitArrayRelocation* left =
+        (const LinkerInitArrayRelocation*)left_opaque;
+    const LinkerInitArrayRelocation* right =
+        (const LinkerInitArrayRelocation*)right_opaque;
+    if (left->original_offset < right->original_offset) return -1;
+    if (left->original_offset > right->original_offset) return 1;
+    return 0;
+}
+
+static int linker_compare_init_array_by_priority(
+    const void* left_opaque, const void* right_opaque) {
+    const LinkerInitArrayRelocation* left =
+        (const LinkerInitArrayRelocation*)left_opaque;
+    const LinkerInitArrayRelocation* right =
+        (const LinkerInitArrayRelocation*)right_opaque;
+    if (left->priority < right->priority) return -1;
+    if (left->priority > right->priority) return 1;
+    if (left->original_offset < right->original_offset) return -1;
+    if (left->original_offset > right->original_offset) return 1;
+    return 0;
+}
+
+static bool linker_init_symbol_priority(const char* symbol,
+                                        uint32_t* priority_out) {
+    static const char prefix[] = "__rcc_global_init_priority_";
+    const char* local_name = symbol;
+    uint32_t priority = 0u;
+    if (symbol == NULL || priority_out == NULL) return false;
+    for (const char* scan = symbol; scan[0] != '\0'; ++scan) {
+        if (scan[0] == ':' && scan[1] == ':') local_name = scan + 2;
+    }
+    if (strncmp(local_name, prefix, sizeof(prefix) - 1u) != 0) {
+        *priority_out = UINT16_MAX;
+        return true;
+    }
+    local_name += sizeof(prefix) - 1u;
+    for (uint32_t index = 0u; index < 5u; ++index) {
+        if (local_name[index] < '0' || local_name[index] > '9') return false;
+        priority = priority * 10u + (uint32_t)(local_name[index] - '0');
+    }
+    if (local_name[5] != '\0' || priority < 101u ||
+        priority > UINT16_MAX) {
+        return false;
+    }
+    *priority_out = priority;
+    return true;
+}
+
+static bool linker_sort_global_initializer_array(Linker* ld) {
+    LinkedSection* section = NULL;
+    size_t section_index = 0u;
+    size_t current_index = 0u;
+    size_t relocation_count = 0u;
+    uint32_t pointer_size = g_linker_opts.arch == ARCH_X64 ? 8u : 4u;
+    LinkerInitArrayRelocation* entries;
+    if (ld == NULL) return false;
+    for (LinkedSection* candidate = ld->sections; candidate;
+         candidate = candidate->next, ++current_index) {
+        if (candidate->type == SECT_INIT_ARRAY) {
+            section = candidate;
+            section_index = current_index;
+            break;
+        }
+    }
+    if (section == NULL || section->memory_size == 0u) return true;
+    if (section->size != section->memory_size ||
+        section->memory_size > SIZE_MAX) {
+        fprintf(stderr, "rld: malformed initializer array section\n");
+        return false;
+    }
+    for (PendingReloc* relocation = ld->relocs; relocation;
+         relocation = relocation->next) {
+        if ((size_t)relocation->section == section_index) ++relocation_count;
+    }
+    if (relocation_count == 0u ||
+        relocation_count > UINT64_MAX / pointer_size ||
+        relocation_count > SIZE_MAX / sizeof(*entries)) {
+        fprintf(stderr, "rld: initializer array has no pointer relocations\n");
+        return false;
+    }
+    for (uint64_t offset = 0u; offset < section->size; ++offset) {
+        if (section->data[offset] != 0u) {
+            fprintf(stderr,
+                    "rld: initializer array contains unauthenticated raw data\n");
+            return false;
+        }
+    }
+    entries = rcc_alloc(relocation_count * sizeof(*entries));
+    size_t entry_index = 0u;
+    for (PendingReloc* relocation = ld->relocs; relocation;
+         relocation = relocation->next) {
+        if ((size_t)relocation->section != section_index) continue;
+        if ((relocation->type != RELOC_ABS32 &&
+             relocation->type != RELOC_ABS64) ||
+            relocation->type != (pointer_size == 8u
+                                     ? RELOC_ABS64 : RELOC_ABS32) ||
+            relocation->offset % pointer_size != 0u ||
+            relocation->offset > section->size ||
+            pointer_size > section->size - relocation->offset ||
+            !linker_init_symbol_priority(relocation->symbol,
+                                         &entries[entry_index].priority)) {
+            fprintf(stderr,
+                    "rld: invalid initializer array relocation or priority\n");
+            rcc_free(entries);
+            return false;
+        }
+        entries[entry_index].relocation = relocation;
+        entries[entry_index].original_offset = relocation->offset;
+        ++entry_index;
+    }
+    qsort(entries, relocation_count, sizeof(*entries),
+          linker_compare_init_array_by_offset);
+    for (size_t index = 1u; index < relocation_count; ++index) {
+        if (entries[index - 1u].original_offset + pointer_size >
+            entries[index].original_offset) {
+            fprintf(stderr, "rld: overlapping initializer array entries\n");
+            rcc_free(entries);
+            return false;
+        }
+    }
+    if (section->size != (uint64_t)relocation_count * pointer_size) {
+        fprintf(stderr, "rld: initializer array contains unrelocated slots\n");
+        rcc_free(entries);
+        return false;
+    }
+    for (size_t index = 0u; index < relocation_count; ++index) {
+        if (entries[index].original_offset !=
+            (uint64_t)index * pointer_size) {
+            fprintf(stderr, "rld: initializer array contains a gap\n");
+            rcc_free(entries);
+            return false;
+        }
+    }
+    qsort(entries, relocation_count, sizeof(*entries),
+          linker_compare_init_array_by_priority);
+    memset(section->data, 0, (size_t)section->size);
+    for (size_t index = 0u; index < relocation_count; ++index) {
+        entries[index].relocation->offset =
+            (uint64_t)index * pointer_size;
+    }
+    section->size = (uint64_t)relocation_count * pointer_size;
+    section->memory_size = section->size;
+    rcc_free(entries);
     return true;
 }
 
@@ -2778,6 +2934,11 @@ bool rld_link(char** input_files, int count, const char* output) {
 
     /* Merge sections */
     if (!linker_merge_sections(ld)) {
+        linker_free(ld);
+        return false;
+    }
+
+    if (!linker_sort_global_initializer_array(ld)) {
         linker_free(ld);
         return false;
     }
