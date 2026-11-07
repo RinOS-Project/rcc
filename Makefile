@@ -1467,6 +1467,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx20-coroutine-suspended-awaits \
 	test-cxx20-coroutine-return-object \
 	test-cxx20-coroutine-return-value \
+	test-cxx20-coroutine-aggregate-return-value \
 	test-cxx20-coroutine-awaiter-lifetime \
 	test-cxx20-coroutine-local-lifetime \
 	test-cxx20-coroutine-parameters \
@@ -4595,7 +4596,9 @@ test-cxx20-coroutine-return-object: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,_ZN31rcc_coroutine_aggregate_promiseD1v,$(TEST_OUT)/cxx20-coroutine-aggregate-return-object/verified-x64.ro)
 	@echo "C++20 coroutine return-object tests completed"
 
-.PHONY: test-cxx20-coroutine-return-value
+.PHONY: test-cxx20-coroutine-return-value \
+	test-cxx20-coroutine-aggregate-return-value \
+	test-cxx20-coroutine-aggregate-return-value-runtime
 test-cxx20-coroutine-return-value: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-return-value)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-return-value,cxx20_coroutine_return_value.cpp,11)
@@ -4604,6 +4607,51 @@ test-cxx20-coroutine-return-value: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,_ZN34rcc_coroutine_return_value_promise12return_valueEi,$(TEST_OUT)/cxx20-coroutine-return-value/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,_ZN34rcc_coroutine_return_value_promise12return_valueEi,$(TEST_OUT)/cxx20-coroutine-return-value/verified-x64.ro)
 	@echo "C++20 coroutine return_value tests completed"
+
+test-cxx20-coroutine-aggregate-return-value: $(RCXX_TARGET) \
+	test-cxx20-coroutine-aggregate-return-value-runtime
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-aggregate-return-value,cxx20_coroutine_aggregate_return_value.cpp,13)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_aggregate_return_value_resume,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_aggregate_return_value_destroy,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,_ZN44rcc_coroutine_aggregate_return_value_promise12return_valueERK44rcc_coroutine_aggregate_return_value_payload,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x64.ro)
+	@echo "C++20 coroutine aggregate return_value tests completed"
+
+$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-backend-asm$(EXE_SUFFIX): \
+	tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $@ $^
+
+test-cxx20-coroutine-aggregate-return-value-runtime: $(RCXX_TARGET) \
+	$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-backend-asm$(EXE_SUFFIX)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.ro \
+		tests/cxx20_coroutine_aggregate_return_value.cpp \
+		>$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
+		$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.log,0)
+	$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-backend-asm$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.ro \
+		$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.ro \
+		tests/cxx20_coroutine_aggregate_return_value.cpp \
+		>$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
+		$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.log,0)
+	$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-backend-asm$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.ro \
+		$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.s
+ifeq ($(OS),Windows_NT)
+	$(WSL) -e bash -lc "cd '$(WSL_RINCOMPILER_ROOT)' && bash tests/run_cxx20_coroutine_aggregate_return_value_runtime.sh"
+else
+	bash tests/run_cxx20_coroutine_aggregate_return_value_runtime.sh
+endif
 
 .PHONY: test-cxx20-coroutine-awaiter-lifetime
 test-cxx20-coroutine-awaiter-lifetime: $(RCXX_TARGET)

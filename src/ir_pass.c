@@ -1800,6 +1800,7 @@ static bool ir_pass_cse_fresh_allocator(const char* callee) {
         (strcmp(callee, "malloc") == 0 ||
          strcmp(callee, "calloc") == 0 ||
          strcmp(callee, "aligned_alloc") == 0 ||
+         strcmp(callee, "realloc") == 0 ||
          strcmp(callee, "rin_malloc") == 0);
 }
 

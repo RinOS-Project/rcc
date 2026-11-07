@@ -1,0 +1,39 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+extern void* rcc_coroutine_aggregate_return_value_last_frame;
+extern int rcc_coroutine_aggregate_return_value_payload_low;
+extern int rcc_coroutine_aggregate_return_value_payload_high;
+extern int rcc_coroutine_aggregate_return_value_operation_count;
+extern int rcc_coroutine_aggregate_return_value_payload_destroy_count;
+extern int rcc_coroutine_aggregate_return_value_promise_destroy_count;
+extern int rcc_coroutine_aggregate_return_value_lifetime_order_error;
+
+extern int rcc_coroutine_aggregate_return_value(void);
+extern void rin_coro_resume(void* frame);
+extern void rin_coro_destroy(void* frame);
+
+int main(void)
+{
+    if (rcc_coroutine_aggregate_return_value() != 0 ||
+        !rcc_coroutine_aggregate_return_value_last_frame ||
+        rcc_coroutine_aggregate_return_value_operation_count != 0 ||
+        rcc_coroutine_aggregate_return_value_payload_destroy_count != 0) {
+        return 11;
+    }
+
+    rin_coro_resume(rcc_coroutine_aggregate_return_value_last_frame);
+    if (rcc_coroutine_aggregate_return_value_operation_count != 1 ||
+        rcc_coroutine_aggregate_return_value_payload_low != 37 ||
+        rcc_coroutine_aggregate_return_value_payload_high != 91 ||
+        rcc_coroutine_aggregate_return_value_payload_destroy_count != 1 ||
+        rcc_coroutine_aggregate_return_value_lifetime_order_error != 0) {
+        return 12;
+    }
+
+    rin_coro_destroy(rcc_coroutine_aggregate_return_value_last_frame);
+    rcc_coroutine_aggregate_return_value_last_frame = 0;
+    if (rcc_coroutine_aggregate_return_value_promise_destroy_count != 1) {
+        return 13;
+    }
+    return 0;
+}

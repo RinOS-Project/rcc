@@ -15249,8 +15249,15 @@ Continue in this order:
 - [x] Lower scalar co_return values through the promise return_value operation
       before final suspension. A dedicated fixture verifies the promise call
       and payload store across the i686/x86-64 -O0/-O2 matrix (11 functions per
-      build, zero verified fallback). Aggregate payload lifetimes and runtime
-      execution remain open.
+      build, zero verified fallback).
+- [x] Execute aggregate `co_return` payload lowering through
+      `promise.return_value(const Payload&)`. The generated coroutine receives
+      a nontrivial aggregate prvalue, records both fields, destroys the
+      temporary after the promise call, and destroys the promise when its
+      suspended frame is destroyed. `test-cxx20-coroutine-aggregate-return-value`
+      passes the i686/x86-64 `-O0`/`-O2` verified matrix with 13 emitted
+      functions and zero fallback, then runs the generated i686 and x86-64
+      objects against RinCRT/libcxx in WSL.
 - [x] Support a boolean `await_suspend` result from `final_suspend()`. A true
       result leaves the completed frame suspended for its owner to destroy; a
       false result continues through `await_resume`, awaiter cleanup, and frame
