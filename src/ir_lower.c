@@ -1187,28 +1187,6 @@ static RccIrInstruction* lower_append(
         instruction->source_statement = context->current_statement;
         instruction->source_inline_call_index_plus_one =
             context->active_debug_inline_call_plus_one;
-        bool trace_value = instruction->result == 38u;
-        for (size_t trace_index = 0u;
-             trace_index < operand_count; ++trace_index) {
-            if (operands[trace_index] == 38u) trace_value = true;
-        }
-        if (context->coroutine_resume && trace_value) {
-            fprintf(stderr,
-                    "TRACE coro fn=%s block=%s opcode=%d result=%u type=%d/%u imm=%llu operands=",
-                    context->function && context->function->name
-                        ? context->function->name : "?",
-                    context->current->name ? context->current->name : "?",
-                    (int)opcode, (unsigned)instruction->result,
-                    (int)instruction->type.kind,
-                    (unsigned)instruction->type.bit_width,
-                    (unsigned long long)instruction->immediate);
-            for (size_t trace_index = 0u;
-                 trace_index < operand_count; ++trace_index) {
-                fprintf(stderr, "%s%u", trace_index ? "," : "",
-                        (unsigned)operands[trace_index]);
-            }
-            fputc('\n', stderr);
-        }
     }
     return instruction;
 }
@@ -17193,17 +17171,14 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     RccIrLowerValue callee_value = lower_invalid_value();
     RccIrLowerValue member_pointer_receiver = lower_invalid_value();
     RccIrLowerValue receiver_temporary_address = lower_invalid_value();
-    RccIrLowerValue coroutine_object_spill_address = lower_invalid_value();
-    size_t coroutine_object_spill_operand_index = SIZE_MAX;
-    size_t coroutine_saved_spill_depth = 0u;
+    size_t coroutine_object_operand_index = SIZE_MAX;
     int return_kind = LOWER_ABI_RETURN_SCALAR;
     bool indirect = false;
     bool member_pointer_call = expression &&
         expression->call_member_pointer_application != NULL;
     bool use_aggregate_result_destination = false;
     bool receiver_temporary_address_valid = false;
-    bool coroutine_object_spill_active = false;
-    bool coroutine_spill_implicit_object = false;
+    bool coroutine_rebind_implicit_object = false;
     bool register_temporary_cleanups = expression &&
         (!expression->cxx_call_is_noexcept ||
          lower_call_has_throwing_argument_after_temporary(expression));
@@ -17688,48 +17663,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             lower_coroutine_count_expression_awaits(
                 value_argument->expr, &value_await_count) &&
             value_await_count == 1u) {
-            coroutine_spill_implicit_object = true;
+            coroutine_rebind_implicit_object = true;
         }
-    }
-    if (coroutine_spill_implicit_object) {
-        const CxxCoroutineLoweringPlan* coroutine_plan =
-            context->declaration
-                ? context->declaration->func_coroutine_lowering_plan : NULL;
-        RccIrLowerValue frame;
-        size_t spill_offset;
-        coroutine_saved_spill_depth =
-            context->coroutine_expression_spill_depth;
-        if (!coroutine_plan ||
-            context->coroutine_frame == RCC_IR_VALUE_NONE ||
-            coroutine_saved_spill_depth >=
-                coroutine_plan->expression_spill_count ||
-            coroutine_saved_spill_depth >
-                (SIZE_MAX - coroutine_plan->expression_spill_offset) /
-                    RIN_CXX_CORO_FRAME_ALIGNMENT) {
-            context->unsupported = true;
-            return lower_invalid_value();
-        }
-        spill_offset = coroutine_plan->expression_spill_offset +
-            coroutine_saved_spill_depth * RIN_CXX_CORO_FRAME_ALIGNMENT;
-        if (spill_offset > coroutine_plan->expression_spill_offset +
-                coroutine_plan->expression_spill_size ||
-            RIN_CXX_CORO_FRAME_ALIGNMENT >
-                coroutine_plan->expression_spill_offset +
-                    coroutine_plan->expression_spill_size - spill_offset) {
-            context->unsupported = true;
-            return lower_invalid_value();
-        }
-        frame = lower_value(
-            context->coroutine_frame, rcc_ir_type_pointer(0u), true);
-        coroutine_object_spill_address = lower_byte_offset_address(
-            context, frame, (uint64_t)spill_offset);
-        if (!coroutine_object_spill_address.valid) {
-            context->unsupported = true;
-            return lower_invalid_value();
-        }
-        context->coroutine_expression_spill_depth =
-            coroutine_saved_spill_depth + 1u;
-        coroutine_object_spill_active = true;
     }
     for (argument = expression->call_args; argument;
          argument = argument->next) {
@@ -18133,37 +18068,36 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             rcc_free(operands);
             return lower_invalid_value();
         }
-        if (coroutine_object_spill_active &&
+        if (coroutine_rebind_implicit_object &&
             argument == expression->call_args) {
             if (index != argument_operand_start + 1u || !value.valid ||
-                value.type.kind != RCC_IR_TYPE_POINTER ||
-                !lower_store_address(
-                    context, coroutine_object_spill_address, value)) {
+                value.type.kind != RCC_IR_TYPE_POINTER) {
                 context->unsupported = true;
                 rcc_free(operands);
                 return lower_invalid_value();
             }
-            coroutine_object_spill_operand_index = argument_operand_start;
+            coroutine_object_operand_index = argument_operand_start;
         }
     }
-    if (coroutine_object_spill_active) {
-        RccIrInstruction* reload;
-        if (coroutine_object_spill_operand_index >= index) {
+    if (coroutine_rebind_implicit_object) {
+        RccIrLowerValue object_value;
+        if (coroutine_object_operand_index >= index) {
             context->unsupported = true;
             rcc_free(operands);
             return lower_invalid_value();
         }
-        reload = lower_append(
-            context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
-            &coroutine_object_spill_address.value, 1u, NULL, 0u);
-        if (!reload) {
+        /* The implicit object argument is a side-effect-free address
+         * calculation. Recompute it after an awaited explicit argument so
+         * the continuation never uses a pre-suspension SSA address. */
+        object_value = lower_expression(
+            context, expression->call_args->expr);
+        if (!object_value.valid ||
+            object_value.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
             rcc_free(operands);
             return lower_invalid_value();
         }
-        operands[coroutine_object_spill_operand_index] = reload->result;
-        context->coroutine_expression_spill_depth =
-            coroutine_saved_spill_depth;
-        coroutine_object_spill_active = false;
+        operands[coroutine_object_operand_index] = object_value.value;
     }
     if (expression->call_is_virtual) {
         size_t object_index = return_kind == LOWER_ABI_RETURN_SRET ? 1u : 0u;
@@ -37996,8 +37930,6 @@ static bool lower_coroutine_body_supported(
     size_t* body_await_count, bool inside_catch_handler) {
     const Decl* local;
     if (!statement) return true;
-    fprintf(stderr, "DEBUG visit coroutine stmt kind=%d awaits=%zu\n",
-            (int)statement->kind, *body_await_count);
     if (statement->kind == STMT_NULL) return true;
     if (statement->kind == STMT_DECL) {
         size_t await_count_before_initializer = *body_await_count;
@@ -38034,8 +37966,6 @@ static bool lower_coroutine_body_supported(
                   local->var_init) ||
               !lower_coroutine_expression_nothrow_around_await(
                   local->var_init)))) {
-            fprintf(stderr, "DEBUG rejected coroutine decl %s\n",
-                    local && local->name ? local->name : "<unnamed>");
             return false;
         }
         return true;
@@ -38221,32 +38151,6 @@ static bool lower_coroutine_body_supported(
     }
     if (statement->kind == STMT_RETURN) {
         size_t await_count_before_return = *body_await_count;
-        size_t diagnostic_await_count = 0u;
-        bool diagnostic_count_ok = statement->return_val &&
-            lower_coroutine_count_expression_awaits(
-                statement->return_val, &diagnostic_await_count);
-        if (statement->cxx_is_co_return && statement->return_val &&
-            statement->return_val->kind == EXPR_CALL) {
-            const Expr* call_expr = statement->return_val;
-            size_t count = 0u;
-            bool count_ok = lower_coroutine_count_expression_awaits(
-                call_expr, &count);
-            fprintf(stderr,
-                    "DEBUG co_return count_ok=%d count=%zu liveness=%d nothrow=%d selected=%p virtual=%d noexcept=%d func_kind=%d marker=%d args=%p\n",
-                    count_ok, count,
-                    lower_coroutine_expression_liveness_supported(call_expr),
-                    lower_coroutine_expression_nothrow_around_await(call_expr),
-                    (void*)call_expr->cxx_selected_method,
-                    call_expr->cxx_selected_method
-                        ? call_expr->cxx_selected_method->is_virtual : 0,
-                    call_expr->cxx_call_is_noexcept,
-                    call_expr->call_func
-                        ? (int)call_expr->call_func->kind : -1,
-                    call_expr->call_args && call_expr->call_args->expr
-                        ? call_expr->call_args->expr
-                            ->cxx_implicit_object_address : 0,
-                    (void*)call_expr->call_args);
-        }
         if (!statement->cxx_is_co_return || !statement->return_val ||
             !statement->return_val->type ||
             statement->return_val->type->kind != TYPE_VOID ||
@@ -38257,29 +38161,11 @@ static bool lower_coroutine_body_supported(
                   statement->return_val) ||
               !lower_coroutine_expression_nothrow_around_await(
                   statement->return_val)))) {
-            fprintf(stderr,
-                    "DEBUG rejected return cxx=%d val=%p valtype=%d kind=%d before=%zu actual=%zu countok=%d count=%zu live=%d nothrow=%d\n",
-                    statement->cxx_is_co_return,
-                    (void*)statement->return_val,
-                    statement->return_val && statement->return_val->type
-                        ? (int)statement->return_val->type->kind : -1,
-                    statement->return_val
-                        ? (int)statement->return_val->kind : -1,
-                    await_count_before_return, *body_await_count,
-                    diagnostic_count_ok, diagnostic_await_count,
-                    statement->return_val
-                        ? lower_coroutine_expression_liveness_supported(
-                              statement->return_val) : 0,
-                    statement->return_val
-                        ? lower_coroutine_expression_nothrow_around_await(
-                              statement->return_val) : 0);
             return false;
         }
         *found_return = true;
         return true;
     }
-    fprintf(stderr, "DEBUG unsupported coroutine stmt kind=%d\n",
-            (int)statement->kind);
     return false;
 }
 
@@ -38293,10 +38179,6 @@ static bool lower_coroutine_minimal_body_supported(
     body_supported = lower_coroutine_body_supported(
         statement, &found_return, body_await_count, false);
     if (!body_supported || !found_return) {
-        fprintf(stderr,
-                "DEBUG body result supported=%d found_return=%d awaits=%zu kind=%d\n",
-                body_supported, found_return, *body_await_count,
-                statement ? (int)statement->kind : -1);
         if (reason_out) {
             *reason_out =
                 "coroutine body supports scalar or cleanup-tracked local declarations, "
@@ -39854,52 +39736,14 @@ static bool lower_coroutine_lower_minimal(
         source_context->unsupported = true;
         goto done;
     }
-    if (strstr(resume_function->name,
-               "rcc_coroutine_suspended_return_value") != NULL) {
-        for (RccIrBlock* trace_block = resume_function->first_block;
-             trace_block; trace_block = trace_block->next) {
-            for (RccIrInstruction* trace_instruction = trace_block->first;
-                 trace_instruction; trace_instruction =
-                     trace_instruction->next) {
-                bool trace_relevant = trace_instruction->result == 38u;
-                for (size_t trace_index = 0u;
-                     trace_index < trace_instruction->operand_count;
-                     ++trace_index) {
-                    if (trace_instruction->operands[trace_index] == 38u) {
-                        trace_relevant = true;
-                    }
-                }
-                if (trace_relevant ||
-                    (trace_block->name &&
-                     strcmp(trace_block->name,
-                            "coroutine.await.continue") == 0)) {
-                    fprintf(stderr,
-                            "TRACE preopt block=%s op=%d result=%u type=%d/%u operands=",
-                            trace_block->name ? trace_block->name : "?",
-                            (int)trace_instruction->opcode,
-                            (unsigned)trace_instruction->result,
-                            (int)trace_instruction->type.kind,
-                            (unsigned)trace_instruction->type.bit_width);
-                    for (size_t trace_index = 0u;
-                         trace_index < trace_instruction->operand_count;
-                         ++trace_index) {
-                        fprintf(stderr, "%s%u",
-                                trace_index ? "," : "",
-                                (unsigned)trace_instruction->operands[
-                                    trace_index]);
-                    }
-                    fputc('\n', stderr);
-                }
-            }
-        }
-    }
     failure_stage = "generated function optimization";
     {
         RccIrOptimizationStats stats;
-        if (!rcc_ir_optimize_function(
-                resume_function, g_opts.fenv_access
-                    ? 0u : (unsigned)g_opts.opt_level,
-                &stats, error, error_size) ||
+        bool resume_optimized = rcc_ir_optimize_function(
+            resume_function, g_opts.fenv_access
+                ? 0u : (unsigned)g_opts.opt_level,
+            &stats, error, error_size);
+        if (!resume_optimized ||
             !rcc_ir_optimize_function(
                 destroy_function, g_opts.fenv_access
                     ? 0u : (unsigned)g_opts.opt_level,

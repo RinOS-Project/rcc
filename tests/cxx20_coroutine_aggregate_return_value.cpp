@@ -20,6 +20,8 @@ int rcc_coroutine_aggregate_return_value_operation_count;
 int rcc_coroutine_aggregate_return_value_payload_destroy_count;
 int rcc_coroutine_aggregate_return_value_promise_destroy_count;
 int rcc_coroutine_aggregate_return_value_lifetime_order_error;
+int rcc_coroutine_suspended_return_value_payload;
+int rcc_coroutine_suspended_return_value_operation_count;
 void* rin_coro_handle_from_promise(void* promise);
 }
 
@@ -44,6 +46,17 @@ struct rcc_coroutine_aggregate_return_value_awaiter {
     void await_resume() const noexcept {}
 };
 
+struct rcc_coroutine_suspended_return_value_awaiter {
+    int value;
+
+    bool await_ready() const noexcept { return false; }
+
+    template<class Promise>
+    void await_suspend(std::coroutine_handle<Promise>) const noexcept {}
+
+    int await_resume() const noexcept { return value; }
+};
+
 struct rcc_coroutine_aggregate_return_value_promise {
     int get_return_object() noexcept {
         rcc_coroutine_aggregate_return_value_last_frame =
@@ -66,6 +79,11 @@ struct rcc_coroutine_aggregate_return_value_promise {
         ++rcc_coroutine_aggregate_return_value_operation_count;
     }
 
+    void return_value(int value) noexcept {
+        rcc_coroutine_suspended_return_value_payload = value;
+        ++rcc_coroutine_suspended_return_value_operation_count;
+    }
+
     void unhandled_exception() noexcept {}
 
     ~rcc_coroutine_aggregate_return_value_promise() noexcept {
@@ -82,4 +100,8 @@ struct coroutine_traits {
 
 extern "C" int rcc_coroutine_aggregate_return_value() {
     co_return rcc_coroutine_aggregate_return_value_payload{37, 91};
+}
+
+extern "C" int rcc_coroutine_suspended_return_value() {
+    co_return co_await rcc_coroutine_suspended_return_value_awaiter{113};
 }
