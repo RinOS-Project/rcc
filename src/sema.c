@@ -41455,7 +41455,9 @@ static bool sema_cxx_coroutine_frame_add_field(
     CxxCoroutineFrameField** tail;
     if (!plan || !declaration || !type) return false;
     for (field = plan->frame_fields; field; field = field->next) {
-        if (field->declaration == declaration) return true;
+        if (field->declaration == declaration) {
+            return field->type == type && field->kind == kind;
+        }
     }
     if (type->size < 0 || type->align <= 0 ||
         (type->align & (type->align - 1)) != 0) {
