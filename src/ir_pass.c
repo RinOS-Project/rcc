@@ -9,6 +9,14 @@
 #include <stdarg.h>
 
 typedef struct {
+    RccIrValue object;
+    uint64_t byte_offset;
+    unsigned char state;
+    bool valid;
+    bool byte_offset_known;
+} RccIrCseMemoryLocation;
+
+typedef struct {
     RccIrInstruction* allocation;
     RccIrInstruction* initial_store;
     RccIrValue address;
@@ -41,6 +49,25 @@ static bool ir_pass_error(char* error, size_t error_size,
         va_end(arguments);
     }
     return false;
+}
+
+static bool ir_pass_c_declared_scalar_object(const Type* type) {
+    if (!type || type->is_atomic || type->is_complex) return false;
+    switch (type->kind) {
+        case TYPE_BOOL:
+        case TYPE_CHAR:
+        case TYPE_SHORT:
+        case TYPE_INT:
+        case TYPE_LONG:
+        case TYPE_LLONG:
+        case TYPE_FLOAT:
+        case TYPE_DOUBLE:
+        case TYPE_PTR:
+        case TYPE_ENUM:
+            return true;
+        default:
+            return false;
+    }
 }
 
 static bool ir_pass_checked_square(size_t count, size_t item_size) {
@@ -1733,6 +1760,8 @@ typedef struct {
     bool* direct_allocas;
     bool* direct_data_symbols;
     RccIrInstruction** alloca_definitions;
+    RccIrInstruction** value_definitions;
+    RccIrCseMemoryLocation* memory_locations;
     RccIrValue* stored_values;
     RccIrInstruction** pending_stores;
     bool* has_stored_values;
@@ -1767,6 +1796,179 @@ static bool ir_pass_value_is_direct_object(
         ir_pass_value_is_direct_data_symbol(context, value);
 }
 
+static bool ir_pass_cse_memory_location(
+    const RccIrCseContext* context, RccIrValue value, size_t depth,
+    RccIrCseMemoryLocation* output) {
+    RccIrCseMemoryLocation* location;
+    RccIrInstruction* definition;
+    if (!context || !output || value >= context->replacement_count ||
+        !context->memory_locations || !context->value_definitions ||
+        depth >= context->replacement_count) {
+        return false;
+    }
+    location = &context->memory_locations[value];
+    if (location->state == 2u) {
+        *output = *location;
+        return location->valid;
+    }
+    if (location->state == 1u) return false;
+    location->state = 1u;
+    definition = context->value_definitions[value];
+    if (!definition) goto done;
+    if (definition->opcode == RCC_IR_ALLOCA) {
+        location->object = value;
+        location->byte_offset = 0u;
+        location->byte_offset_known = true;
+        location->valid = true;
+    } else if (definition->opcode == RCC_IR_GEP &&
+               definition->operand_count == 2u) {
+        RccIrCseMemoryLocation base;
+        RccIrValue index_value = definition->operands[1];
+        RccIrInstruction* index_definition =
+            index_value < context->replacement_count
+                ? context->value_definitions[index_value] : NULL;
+        if (ir_pass_cse_memory_location(
+                context, definition->operands[0], depth + 1u, &base) &&
+            base.valid) {
+            *location = base;
+            location->state = 1u;
+            if (!base.byte_offset_known || !index_definition ||
+                index_definition->opcode != RCC_IR_CONST_INT ||
+                index_value >= context->function->value_count ||
+                context->function->value_types[index_value].kind !=
+                    RCC_IR_TYPE_INTEGER ||
+                context->function->value_types[index_value].bit_width == 0u ||
+                context->function->value_types[index_value].bit_width > 64u ||
+                definition->immediate == 0u) {
+                location->byte_offset_known = false;
+            } else {
+                uint16_t width =
+                    context->function->value_types[index_value].bit_width;
+                uint64_t index = index_definition->immediate;
+                uint64_t sign_bit = UINT64_C(1) << (width - 1u);
+                if (width < 64u) {
+                    index &= (UINT64_C(1) << width) - UINT64_C(1);
+                }
+                if ((index & sign_bit) != 0u ||
+                    index > UINT64_MAX / definition->immediate) {
+                    location->byte_offset_known = false;
+                } else {
+                    uint64_t delta = index * definition->immediate;
+                    if (delta > UINT64_MAX - base.byte_offset) {
+                        location->byte_offset_known = false;
+                    } else {
+                        location->byte_offset = base.byte_offset + delta;
+                    }
+                }
+            }
+            location->valid = true;
+        }
+    } else if (definition->opcode == RCC_IR_BITCAST &&
+               definition->operand_count == 1u &&
+               definition->type.kind == RCC_IR_TYPE_POINTER &&
+               definition->operands[0] < context->function->value_count &&
+               context->function->value_types[
+                   definition->operands[0]].kind == RCC_IR_TYPE_POINTER) {
+        RccIrCseMemoryLocation source;
+        if (ir_pass_cse_memory_location(
+                context, definition->operands[0], depth + 1u, &source) &&
+            source.valid) {
+            *location = source;
+            location->state = 1u;
+        }
+    } else if (definition->opcode == RCC_IR_SELECT &&
+               definition->operand_count == 3u) {
+        RccIrCseMemoryLocation when_true;
+        RccIrCseMemoryLocation when_false;
+        if (ir_pass_cse_memory_location(
+                context, definition->operands[1], depth + 1u,
+                &when_true) &&
+            ir_pass_cse_memory_location(
+                context, definition->operands[2], depth + 1u,
+                &when_false) &&
+            when_true.valid && when_false.valid &&
+            when_true.object == when_false.object) {
+            location->object = when_true.object;
+            location->byte_offset_known =
+                when_true.byte_offset_known && when_false.byte_offset_known &&
+                when_true.byte_offset == when_false.byte_offset;
+            location->byte_offset = location->byte_offset_known
+                ? when_true.byte_offset : 0u;
+            location->valid = true;
+        }
+    }
+done:
+    location->state = 2u;
+    *output = *location;
+    return location->valid;
+}
+
+static uint64_t ir_pass_cse_memory_access_bytes(
+    const RccIrCseContext* context, const RccIrInstruction* instruction,
+    bool is_load) {
+    RccIrType type;
+    if (!context || !instruction) return 0u;
+    if (instruction->source_access_type &&
+        instruction->source_access_type->size > 0) {
+        return (uint64_t)instruction->source_access_type->size;
+    }
+    if (is_load) {
+        type = instruction->type;
+    } else if (instruction->opcode == RCC_IR_STORE &&
+               instruction->operand_count == 2u &&
+               instruction->operands[0] < context->function->value_count) {
+        type = context->function->value_types[instruction->operands[0]];
+    } else {
+        return 0u;
+    }
+    if ((type.kind == RCC_IR_TYPE_INTEGER ||
+         type.kind == RCC_IR_TYPE_FLOAT) && type.bit_width != 0u) {
+        return ((uint64_t)type.bit_width + 7u) / 8u;
+    }
+    if (type.kind == RCC_IR_TYPE_POINTER) {
+        return g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    }
+    return 0u;
+}
+
+static bool ir_pass_cse_memory_ranges_disjoint(
+    const RccIrCseContext* context, const RccIrInstruction* load,
+    const RccIrInstruction* store) {
+    RccIrCseMemoryLocation load_location;
+    RccIrCseMemoryLocation store_location;
+    uint64_t load_bytes;
+    uint64_t store_bytes;
+    uint64_t load_end;
+    uint64_t store_end;
+    if (!context || !load || !store || load->operand_count != 1u ||
+        store->operand_count != 2u ||
+        !ir_pass_cse_memory_location(
+            context, load->operands[0], 0u, &load_location) ||
+        !ir_pass_cse_memory_location(
+            context, store->operands[1], 0u, &store_location) ||
+        !load_location.valid || !store_location.valid ||
+        !ir_pass_value_is_direct_alloca(context, load_location.object) ||
+        !ir_pass_value_is_direct_alloca(context, store_location.object)) {
+        return false;
+    }
+    if (load_location.object != store_location.object) return true;
+    if (!load_location.byte_offset_known ||
+        !store_location.byte_offset_known) {
+        return false;
+    }
+    load_bytes = ir_pass_cse_memory_access_bytes(context, load, true);
+    store_bytes = ir_pass_cse_memory_access_bytes(context, store, false);
+    if (load_bytes == 0u || store_bytes == 0u ||
+        load_bytes > UINT64_MAX - load_location.byte_offset ||
+        store_bytes > UINT64_MAX - store_location.byte_offset) {
+        return false;
+    }
+    load_end = load_location.byte_offset + load_bytes;
+    store_end = store_location.byte_offset + store_bytes;
+    return load_end <= store_location.byte_offset ||
+        store_end <= load_location.byte_offset;
+}
+
 static bool ir_pass_c_declared_local_load_type(
     const RccIrCseContext* context, const RccIrInstruction* load) {
     RccIrValue address;
@@ -1786,7 +1988,9 @@ static bool ir_pass_c_declared_local_load_type(
     declaration = allocation
         ? (const Decl*)allocation->source_declaration : NULL;
     return declaration && declaration->kind == DECL_VAR &&
-        declaration->type && type_c_effective_alias_compatible(
+        ir_pass_c_declared_scalar_object(declaration->type) &&
+        !load->source_access_type->is_atomic &&
+        type_c_effective_alias_compatible(
             declaration->type, load->source_access_type);
 }
 
@@ -1801,6 +2005,9 @@ static bool ir_pass_store_is_disjoint_from_load(
     }
     load_address = load->operands[0];
     store_address = store->operands[1];
+    if (ir_pass_cse_memory_ranges_disjoint(context, load, store)) {
+        return true;
+    }
     if (load_address != store_address) {
         return ir_pass_value_is_direct_alloca(context, load_address) &&
             ir_pass_value_is_direct_alloca(context, store_address);
@@ -2116,6 +2323,10 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.direct_data_symbols));
     context.alloca_definitions = rcc_alloc(
         function->value_count * sizeof(*context.alloca_definitions));
+    context.value_definitions = rcc_alloc(
+        function->value_count * sizeof(*context.value_definitions));
+    context.memory_locations = rcc_alloc(
+        function->value_count * sizeof(*context.memory_locations));
     context.stored_values = rcc_alloc(
         function->value_count * sizeof(*context.stored_values));
     context.pending_stores = rcc_alloc(
@@ -2137,15 +2348,22 @@ static bool ir_pass_common_subexpressions(
         context.direct_allocas[index] = false;
         context.direct_data_symbols[index] = false;
         context.alloca_definitions[index] = NULL;
+        context.value_definitions[index] = NULL;
         context.stored_values[index] = RCC_IR_VALUE_NONE;
         context.pending_stores[index] = NULL;
         context.has_stored_values[index] = false;
         context.block_store_slots[index] = false;
         context.replacements[index] = RCC_IR_VALUE_NONE;
     }
+    memset(context.memory_locations, 0,
+           function->value_count * sizeof(*context.memory_locations));
     for (index = 0u; index < context.block_count; ++index) {
         RccIrInstruction* instruction = context.blocks[index]->first;
         while (instruction) {
+            if (instruction->result != RCC_IR_VALUE_NONE &&
+                instruction->result < function->value_count) {
+                context.value_definitions[instruction->result] = instruction;
+            }
             if (instruction->opcode == RCC_IR_ALLOCA &&
                 instruction->result != RCC_IR_VALUE_NONE) {
                 context.direct_allocas[instruction->result] = true;
@@ -2175,6 +2393,8 @@ cleanup:
     rcc_free(context.direct_allocas);
     rcc_free(context.direct_data_symbols);
     rcc_free(context.alloca_definitions);
+    rcc_free(context.value_definitions);
+    rcc_free(context.memory_locations);
     rcc_free(context.stored_values);
     rcc_free(context.pending_stores);
     rcc_free(context.has_stored_values);
@@ -2733,7 +2953,8 @@ static bool ir_pass_licm_initialized_local_load(
         const Decl* declaration =
             (const Decl*)allocation->source_declaration;
         if (!declaration || declaration->kind != DECL_VAR ||
-            !declaration->type ||
+            !ir_pass_c_declared_scalar_object(declaration->type) ||
+            source_load_type->is_atomic ||
             !type_c_effective_alias_compatible(
                 declaration->type, source_load_type)) {
             return false;
