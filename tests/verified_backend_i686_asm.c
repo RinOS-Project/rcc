@@ -107,6 +107,10 @@ static bool emit_relocation(FILE* output, const ObjReloc* relocation)
     if (!output || !relocation || !format_symbol_name(
             relocation->symbol_name, name, sizeof(name))) return false;
     switch (relocation->type) {
+        case RELOC_ABS64:
+            return fprintf(output, "\t.quad %s%+lld\n",
+                           name,
+                           (long long)relocation->addend) >= 0;
         case RELOC_REL32:
         case RELOC_PLT32: {
             int64_t addend;
@@ -122,10 +126,15 @@ static bool emit_relocation(FILE* output, const ObjReloc* relocation)
                            name,
                            (long long)relocation->addend) >= 0;
         default:
-            fprintf(stderr, "unsupported i686 test relocation %u\n",
+            fprintf(stderr, "unsupported native test relocation %u\n",
                     (unsigned)relocation->type);
             return false;
     }
+}
+
+static size_t relocation_width(const ObjReloc* relocation)
+{
+    return relocation && relocation->type == RELOC_ABS64 ? 8u : 4u;
 }
 
 static int section_index(const ObjectFile* object,
@@ -144,6 +153,8 @@ static bool collect_symbols(ObjectFile* object, ObjSection* section,
                             int section_number, SymbolList* list)
 {
     size_t count = 0u;
+    uint64_t section_extent = section && section->type == SECT_BSS
+        ? section->memory_size : section ? section->size : 0u;
     if (!object || !section || section_number < 0 || !list) return false;
     for (ObjSymbol* symbol = object->symbols; symbol;
          symbol = symbol->next) {
@@ -161,7 +172,7 @@ static bool collect_symbols(ObjectFile* object, ObjSection* section,
          symbol = symbol->next) {
         if (symbol->section != section_number ||
             symbol->binding == BIND_ABS) continue;
-        if (!symbol->name || symbol->value > section->size) return false;
+        if (!symbol->name || symbol->value > section_extent) return false;
         list->items[list->count++] = symbol;
     }
     if (list->count > 1u) {
@@ -182,8 +193,9 @@ static bool collect_relocations(ObjSection* text, RelocList* list)
     list->count = 0u;
     for (ObjReloc* relocation = text->relocs; relocation;
          relocation = relocation->next) {
-        if (text->size < 4u || relocation->offset > text->size ||
-            relocation->offset > text->size - 4u) return false;
+        size_t width = relocation_width(relocation);
+        if (text->size < width || relocation->offset > text->size ||
+            relocation->offset > text->size - width) return false;
         list->items[list->count++] = relocation;
     }
     if (list->count > 1u) {
@@ -199,11 +211,13 @@ static bool emit_section(FILE* output, ObjectFile* object,
     SymbolList symbols = {0};
     RelocList relocations = {0};
     uint64_t offset = 0u;
+    uint64_t section_extent = section && section->type == SECT_BSS
+        ? section->memory_size : section ? section->size : 0u;
     size_t symbol_index = 0u;
     size_t relocation_index = 0u;
     bool success = false;
 
-    if (!section || section->size == 0u || section_number < 0 ||
+    if (!section || section_extent == 0u || section_number < 0 ||
         !collect_symbols(object, section, section_number, &symbols) ||
         !collect_relocations(section, &relocations)) {
         goto done;
@@ -214,12 +228,14 @@ static bool emit_section(FILE* output, ObjectFile* object,
         if (fputs("\t.section .rodata\n", output) == EOF) goto done;
     } else if (section->type == SECT_DATA) {
         if (fputs("\t.data\n", output) == EOF) goto done;
+    } else if (section->type == SECT_BSS) {
+        if (section->relocs || fputs("\t.bss\n", output) == EOF) goto done;
     } else {
         goto done;
     }
     if (section->align > 1u &&
         fprintf(output, "\t.balign %u\n", section->align) < 0) goto done;
-    while (offset <= section->size) {
+    while (offset <= section_extent) {
         bool emitted_event = false;
         while (symbol_index < symbols.count &&
                symbols.items[symbol_index]->value == offset) {
@@ -230,17 +246,19 @@ static bool emit_section(FILE* output, ObjectFile* object,
         }
         while (relocation_index < relocations.count &&
                relocations.items[relocation_index]->offset == offset) {
+            size_t width = relocation_width(
+                relocations.items[relocation_index]);
             if (!emit_relocation(output,
                                  relocations.items[relocation_index++])) {
                 goto done;
             }
-            offset += 4u;
+            offset += width;
             emitted_event = true;
         }
-        if (offset == section->size) break;
+        if (offset == section_extent) break;
         if (emitted_event) continue;
 
-        uint64_t next = section->size;
+        uint64_t next = section_extent;
         if (symbol_index < symbols.count &&
             symbols.items[symbol_index]->value < next) {
             next = symbols.items[symbol_index]->value;
@@ -250,8 +268,12 @@ static bool emit_section(FILE* output, ObjectFile* object,
             next = relocations.items[relocation_index]->offset;
         }
         if (next <= offset || next - offset > SIZE_MAX ||
-            !emit_bytes(output, section->data + (size_t)offset,
-                        (size_t)(next - offset))) {
+            (section->type == SECT_BSS
+                 ? fprintf(output, "\t.zero %llu\n",
+                           (unsigned long long)(next - offset)) < 0
+                 : !section->data ||
+                       !emit_bytes(output, section->data + (size_t)offset,
+                                   (size_t)(next - offset)))) {
             goto done;
         }
         offset = next;
@@ -271,10 +293,12 @@ static bool emit_object(FILE* output, ObjectFile* object)
     ObjSection* text = objfile_get_section(object, ".text");
     ObjSection* rodata = objfile_get_section(object, ".rodata");
     ObjSection* data = objfile_get_section(object, ".data");
+    ObjSection* bss = objfile_get_section(object, ".bss");
     ObjSection* unwind = objfile_get_section(object, ".unwind");
     int text_index = section_index(object, text);
     int rodata_index = rodata ? section_index(object, rodata) : -1;
     int data_index = data ? section_index(object, data) : -1;
+    int bss_index = bss ? section_index(object, bss) : -1;
     size_t unwind_count = 0u;
 
     if (!text || text->size == 0u ||
@@ -288,7 +312,12 @@ static bool emit_object(FILE* output, ObjectFile* object)
          (data->type != SECT_DATA ||
           (data->flags & (SECT_FLAG_ALLOC | SECT_FLAG_WRITE)) !=
               (SECT_FLAG_ALLOC | SECT_FLAG_WRITE) ||
-          (data->flags & SECT_FLAG_EXEC) != 0u))) {
+          (data->flags & SECT_FLAG_EXEC) != 0u)) ||
+        (bss &&
+         (bss->type != SECT_BSS ||
+          (bss->flags & (SECT_FLAG_ALLOC | SECT_FLAG_WRITE)) !=
+              (SECT_FLAG_ALLOC | SECT_FLAG_WRITE) ||
+          (bss->flags & SECT_FLAG_EXEC) != 0u))) {
         return false;
     }
     if (unwind &&
@@ -304,6 +333,7 @@ static bool emit_object(FILE* output, ObjectFile* object)
             continue;
         }
         if (section != text && section != rodata && section != data &&
+            section != bss &&
             (section->size != 0u || section->relocs != NULL)) return false;
     }
     if (unwind_count > 1u) return false;
@@ -312,7 +342,10 @@ static bool emit_object(FILE* output, ObjectFile* object)
             output, object, rodata, rodata_index)) &&
         (!data || data->size == 0u || emit_section(
             output, object, data, data_index)) &&
-        ferror(output) == 0;
+        (!bss || bss->memory_size == 0u || emit_section(
+            output, object, bss, bss_index)) &&
+        fputs("\t.section .note.GNU-stack,\"\",@progbits\n", output) !=
+            EOF && ferror(output) == 0;
 }
 
 int main(int argc, char** argv)
@@ -321,12 +354,12 @@ int main(int argc, char** argv)
     FILE* output;
     bool success;
     if (argc != 3) {
-        fprintf(stderr, "usage: %s input.ro output.s\n", argv[0]);
+        fprintf(stderr, "usage: %s x86-input.ro output.s\n", argv[0]);
         return 2;
     }
     object = objfile_read(argv[1]);
-    if (!object || object->arch != ARCH_X86) {
-        fprintf(stderr, "input is not an i686 RinOS object: %s\n", argv[1]);
+    if (!object || (object->arch != ARCH_X86 && object->arch != ARCH_X64)) {
+        fprintf(stderr, "input is not an x86 RinOS object: %s\n", argv[1]);
         objfile_free(object);
         return 1;
     }
@@ -341,7 +374,7 @@ int main(int argc, char** argv)
     objfile_free(object);
     if (!success) {
         remove(argv[2]);
-        fprintf(stderr, "failed to emit bounded i686 test assembly\n");
+        fprintf(stderr, "failed to emit bounded x86 test assembly\n");
         return 1;
     }
     return 0;

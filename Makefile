@@ -537,6 +537,12 @@ BOOTSTRAP_RUNTIME_FUNCTIONS = __errno_location __rin_stderr _exit atexit atoi ge
                               rin_cpp_exception_throw_object_with_cleanup \
                               rin_cpp_exception_rethrow_frame \
                               rin_cpp_exception_release_frame \
+                              rin_cpp_exception_begin_unwind \
+                              rin_cpp_exception_end_unwind \
+                              rin_cpp_exception_terminate_scope_begin \
+                              rin_cpp_exception_terminate_scope_end \
+                              rin_cpp_exception_frame_cleanup \
+                              rin_cpp_exception_release_frame_with_cleanup \
                               rin_cpp_exception_register_cleanup \
                               rin_cpp_exception_unregister_cleanup \
                               rin_cpp_exception_unwind_cleanups
@@ -4375,8 +4381,15 @@ test-cxx20-coroutine-final-suspend-bool: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z32rcc_coroutine_final_suspend_boolv_destroy,$(TEST_OUT)/cxx20-coroutine-final-suspend-bool/verified-x64.ro)
 	@echo "C++20 coroutine final-suspend bool tests completed"
 
-.PHONY: test-cxx20-coroutine-exceptions
-test-cxx20-coroutine-exceptions: $(RCXX_TARGET)
+.PHONY: test-cxx20-coroutine-exceptions \
+	test-cxx20-coroutine-final-suspend-boundary \
+	test-cxx20-coroutine-exceptions-runtime \
+	test-cxx20-coroutine-expression-spills \
+	test-cxx20-coroutine-expression-spills-runtime
+test-cxx20-coroutine-exceptions: $(RCXX_TARGET) \
+	test-cxx20-coroutine-final-suspend-boundary \
+	test-cxx20-coroutine-exceptions-runtime \
+	test-cxx20-coroutine-expression-spills
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-exceptions)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-exceptions,cxx20_coroutine_exceptions.cpp,50)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_coroutine_body_throwv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
@@ -4399,6 +4412,85 @@ test-cxx20-coroutine-exceptions: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,rin_cpp_exception_register_current_coroutine_cleanup,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,_ZN31rcc_coroutine_exception_promise19unhandled_exceptionEv,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
 	@echo "C++20 coroutine exception handoff tests completed"
+
+$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/verified-backend-asm$(EXE_SUFFIX): \
+	tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-exceptions-runtime)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $@ $^
+
+test-cxx20-coroutine-exceptions-runtime: $(RCXX_TARGET) \
+	$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/verified-backend-asm$(EXE_SUFFIX)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-exceptions-runtime)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx20-coroutine-exceptions-runtime/verified-x64.ro \
+		tests/cxx20_coroutine_exceptions.cpp \
+		>$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 50 function(s) emitted' \
+		$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/verified-x64.log
+	$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/verified-backend-asm$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/verified-x64.ro \
+		$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/verified-x64.s
+ifeq ($(OS),Windows_NT)
+	$(WSL) -e bash -lc "cd '$(WSL_RINCOMPILER_ROOT)' && bash tests/run_cxx20_coroutine_exceptions_runtime.sh"
+else
+	bash tests/run_cxx20_coroutine_exceptions_runtime.sh
+endif
+
+test-cxx20-coroutine-final-suspend-boundary: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-exceptions-runtime)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -fsyntax-only tests/cxx20_coroutine_throwing_final_suspend.cpp, \
+		$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/final-suspend-x86.log)
+	$(GREP) -F -q 'co_await promise.final_suspend() must be non-throwing' \
+		$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/final-suspend-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -fsyntax-only tests/cxx20_coroutine_throwing_final_suspend.cpp, \
+		$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/final-suspend-x64.log)
+	$(GREP) -F -q 'co_await promise.final_suspend() must be non-throwing' \
+		$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/final-suspend-x64.log
+	@echo "C++20 coroutine final-suspend constraints verified"
+
+$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-backend-asm$(EXE_SUFFIX): \
+	tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $@ $^
+
+test-cxx20-coroutine-expression-spills-runtime: $(RCXX_TARGET) \
+	$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-backend-asm$(EXE_SUFFIX)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x64.ro \
+		tests/cxx20_coroutine_expression_spills.cpp \
+		>$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 47 function(s) emitted' \
+		$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x64.log,0)
+	$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-backend-asm$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x64.ro \
+		$(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-x64.s
+ifeq ($(OS),Windows_NT)
+	$(WSL) -e bash -lc "cd '$(WSL_RINCOMPILER_ROOT)' && bash tests/run_cxx20_coroutine_expression_spills_runtime.sh"
+else
+	bash tests/run_cxx20_coroutine_expression_spills_runtime.sh
+endif
+
+test-cxx20-coroutine-expression-spills: $(RCXX_TARGET) \
+	test-cxx20-coroutine-expression-spills-runtime
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-expression-spills)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-expression-spills,cxx20_coroutine_expression_spills.cpp,47)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_pointer_add_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_pointer_difference_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_indexed_lvalue_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_bitwise_shift_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_compare_awaited_values_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_conditional_await_values_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_short_circuit_await_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_wide_addition_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_wide_bitwise_shift_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_wide_comparison_resume,$(TEST_OUT)/cxx20-coroutine-expression-spills/verified-x64.ro)
+	@echo "C++20 coroutine expression spill tests completed"
 
 .PHONY: test-cxx20-coroutine-suspended-awaits
 test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)

@@ -8,12 +8,17 @@ template<> struct coroutine_handle<void> {
 template<class Promise> struct coroutine_handle : coroutine_handle<void> {};
 }
 
+extern "C" void* rin_coro_handle_from_promise(void* promise);
+
+extern "C" {
 int rcc_coroutine_exception_unhandled_count;
 int rcc_coroutine_exception_caught_value;
 int rcc_coroutine_exception_local_destroy_count;
 int rcc_coroutine_exception_payload_destroy_count;
 int rcc_coroutine_exception_protocol_stage;
 int rcc_coroutine_exception_awaiter_destroy_count;
+void* rcc_coroutine_exception_last_frame;
+}
 
 struct rcc_coroutine_exception_ready_awaiter {
     bool await_ready() const noexcept { return true; }
@@ -47,7 +52,10 @@ struct rcc_coroutine_exception_throwing_protocol_awaiter {
 };
 
 struct rcc_coroutine_exception_promise {
-    void get_return_object() noexcept {}
+    void get_return_object() noexcept {
+        rcc_coroutine_exception_last_frame =
+            rin_coro_handle_from_promise(this);
+    }
     rcc_coroutine_exception_ready_awaiter initial_suspend() noexcept {
         return {};
     }
