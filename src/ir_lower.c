@@ -35979,6 +35979,26 @@ static bool lower_coroutine_await_plans_valid(
     return true;
 }
 
+static bool lower_coroutine_frame_active_offset_field_supported(
+    const CxxCoroutineLoweringPlan* plan,
+    const CxxCoroutineFrameField* field) {
+    if (!plan || !field || !field->declaration) return false;
+    if (field->kind == CXX_COROUTINE_FRAME_LOCAL) {
+        return field->declaration->var_cleanups != NULL;
+    }
+    if (field->kind != CXX_COROUTINE_FRAME_AWAITER_OBJECT) return false;
+    for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+         await_plan; await_plan = await_plan->next) {
+        if (!await_plan->is_initial_suspend &&
+            !await_plan->is_final_suspend &&
+            await_plan->awaiter_object_storage == field->declaration &&
+            await_plan->awaiter_type == field->type) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
     const CxxCoroutineLoweringPlan* plan = declaration
         ? declaration->func_coroutine_lowering_plan : NULL;
@@ -36061,8 +36081,8 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
             field->offset > plan->frame_size ||
             field->size > plan->frame_size - field->offset ||
             (field->cleanup_active_offset != 0u &&
-             (field->kind != CXX_COROUTINE_FRAME_LOCAL ||
-              !field->declaration->var_cleanups ||
+             (!lower_coroutine_frame_active_offset_field_supported(
+                  plan, field) ||
               field->cleanup_active_offset <
                   RIN_CXX_CORO_FRAME_HEADER_SIZE ||
               field->cleanup_active_offset >= promise_backpointer_start ||
@@ -36279,6 +36299,37 @@ static bool lower_coroutine_bind_frame_fields(
     return true;
 }
 
+static bool lower_coroutine_set_awaiter_cleanup_active(
+    RccIrLowerContext* context, const CxxCoroutineLoweringPlan* plan,
+    const CxxCoroutineAwaitPlan* await_plan, bool active) {
+    const CxxCoroutineFrameField* field;
+    RccIrLowerValue frame;
+    RccIrLowerValue active_address;
+    RccIrLowerValue active_value;
+    if (!context || !plan || !await_plan) return false;
+    if (!await_plan->awaiter_object_storage) return true;
+    field = lower_coroutine_frame_find_field(
+        plan, await_plan->awaiter_object_storage,
+        CXX_COROUTINE_FRAME_AWAITER_OBJECT);
+    if (!field) {
+        context->unsupported = true;
+        return false;
+    }
+    if (field->cleanup_active_offset == 0u) return true;
+    frame = lower_value(context->coroutine_frame,
+                        rcc_ir_type_pointer(0u), true);
+    active_address = lower_byte_offset_address(
+        context, frame, field->cleanup_active_offset);
+    active_value = lower_integer_constant(
+        context, rcc_ir_type_integer(8u), true, active ? 1u : 0u);
+    if (!frame.valid || !active_address.valid || !active_value.valid ||
+        !lower_store_address(context, active_address, active_value)) {
+        context->unsupported = true;
+        return false;
+    }
+    return true;
+}
+
 static bool lower_coroutine_initialize_awaiter(
     RccIrLowerContext* context, const Decl* declaration,
     const CxxCoroutineAwaitPlan* await_plan,
@@ -36436,6 +36487,10 @@ static bool lower_coroutine_initialize_awaiter(
         }
         return false;
     }
+    if (!lower_coroutine_set_awaiter_cleanup_active(
+            context, plan, await_plan, true)) {
+        return false;
+    }
     return true;
 }
 
@@ -36492,6 +36547,13 @@ static bool lower_coroutine_emit_awaiter_cleanup(
         !(object_local = lower_find_local(
               context, await_plan->awaiter_object_storage))) {
         if (context) context->unsupported = true;
+        return false;
+    }
+    if (!lower_coroutine_set_awaiter_cleanup_active(
+            context,
+            context->declaration
+                ? context->declaration->func_coroutine_lowering_plan : NULL,
+            await_plan, false)) {
         return false;
     }
     object = lower_value(
@@ -36674,6 +36736,10 @@ static RccIrLowerValue lower_coroutine_await_expression(
      * throwing constructor unwinds its completed subobjects without treating
      * the not-yet-live complete awaiter as constructed. */
     if (!lower_coroutine_set_state(context, UINT32_MAX) ||
+        !lower_coroutine_set_awaiter_cleanup_active(
+            context,
+            context->declaration->func_coroutine_lowering_plan,
+            await_plan, false) ||
         !lower_coroutine_initialize_awaiter(
             context, context->declaration, await_plan, NULL, 0u)) {
         context->unsupported = true;
@@ -37384,8 +37450,12 @@ static bool lower_coroutine_minimal_function_supported(
                  await_plan->awaiter_type) &&
              (!await_plan->awaiter_type ||
               !await_plan->awaiter_type->cxx_class ||
-              !lower_cxx_destructor_subobjects_supported(
-                  await_plan->awaiter_type->cxx_class, 0u)))) {
+              !(body_await_plan
+                    ? lower_cxx_destructor_subobjects_supported_impl(
+                          await_plan->awaiter_type->cxx_class, 0u,
+                          true, true)
+                    : lower_cxx_destructor_subobjects_supported(
+                          await_plan->awaiter_type->cxx_class, 0u))))) {
             if (reason_out) {
                 *reason_out = "await protocol requires unsupported awaiter materialization";
             }
@@ -37896,6 +37966,110 @@ static void lower_coroutine_initialize_generated_context(
     context->coroutine_resume = true;
 }
 
+static bool lower_coroutine_emit_active_awaiter_cleanups(
+    RccIrLowerContext* context, const Decl* declaration) {
+    const CxxCoroutineLoweringPlan* plan = declaration
+        ? declaration->func_coroutine_lowering_plan : NULL;
+    const CxxCoroutineAwaitPlan** cleanup_plans;
+    RccIrLowerValue frame;
+    size_t cleanup_count = 0u;
+    size_t index = 0u;
+    if (!context || !plan) return false;
+    for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+         await_plan; await_plan = await_plan->next) {
+        const CxxCoroutineFrameField* field;
+        if (await_plan->is_initial_suspend || await_plan->is_final_suspend ||
+            !await_plan->awaiter_object_storage ||
+            !lower_cxx_type_has_destructor_cleanup(await_plan->awaiter_type)) {
+            continue;
+        }
+        field = lower_coroutine_frame_find_field(
+            plan, await_plan->awaiter_object_storage,
+            CXX_COROUTINE_FRAME_AWAITER_OBJECT);
+        if (!field || field->cleanup_active_offset == 0u) {
+            context->unsupported = true;
+            return false;
+        }
+        ++cleanup_count;
+    }
+    if (cleanup_count == 0u) return true;
+    if (cleanup_count > SIZE_MAX / sizeof(*cleanup_plans)) return false;
+    cleanup_plans = rcc_alloc(cleanup_count * sizeof(*cleanup_plans));
+    if (!cleanup_plans) return false;
+    for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+         await_plan; await_plan = await_plan->next) {
+        if (!await_plan->is_initial_suspend &&
+            !await_plan->is_final_suspend &&
+            await_plan->awaiter_object_storage &&
+            lower_cxx_type_has_destructor_cleanup(await_plan->awaiter_type)) {
+            cleanup_plans[index++] = await_plan;
+        }
+    }
+    frame = lower_value(
+        context->coroutine_frame, rcc_ir_type_pointer(0u), true);
+    if (!frame.valid) {
+        rcc_free(cleanup_plans);
+        return false;
+    }
+    while (index > 0u) {
+        const CxxCoroutineAwaitPlan* await_plan =
+            cleanup_plans[--index];
+        const CxxCoroutineFrameField* field =
+            lower_coroutine_frame_find_field(
+                plan, await_plan->awaiter_object_storage,
+                CXX_COROUTINE_FRAME_AWAITER_OBJECT);
+        RccIrLowerValue active_address = lower_byte_offset_address(
+            context, frame, field->cleanup_active_offset);
+        RccIrInstruction* active_load = active_address.valid
+            ? lower_append(context, RCC_IR_LOAD,
+                           rcc_ir_type_integer(8u),
+                           &active_address.value, 1u, NULL, 0u)
+            : NULL;
+        RccIrLowerValue zero = lower_integer_constant(
+            context, rcc_ir_type_integer(8u), true, 0u);
+        RccIrValue compare_operands[2];
+        RccIrInstruction* is_active;
+        RccIrBlock* cleanup_block = rcc_ir_block_add(
+            context->function, "coroutine.awaiter.active.cleanup");
+        RccIrBlock* next_block = rcc_ir_block_add(
+            context->function, "coroutine.awaiter.active.next");
+        if (!active_address.valid || !active_load || !zero.valid ||
+            !cleanup_block || !next_block) {
+            rcc_free(cleanup_plans);
+            return false;
+        }
+        compare_operands[0] = active_load->result;
+        compare_operands[1] = zero.value;
+        is_active = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            compare_operands, 2u, NULL, 0u);
+        if (!is_active) {
+            rcc_free(cleanup_plans);
+            return false;
+        }
+        rcc_ir_set_predicate(is_active, RCC_IR_ICMP_NE);
+        if (!lower_conditional_branch(
+                context,
+                lower_value(is_active->result,
+                            rcc_ir_type_integer(1u), true),
+                cleanup_block->id, next_block->id)) {
+            rcc_free(cleanup_plans);
+            return false;
+        }
+        context->current = cleanup_block;
+        context->terminated = false;
+        if (!lower_coroutine_emit_awaiter_cleanup(context, await_plan) ||
+            !lower_branch(context, next_block->id)) {
+            rcc_free(cleanup_plans);
+            return false;
+        }
+        context->current = next_block;
+        context->terminated = false;
+    }
+    rcc_free(cleanup_plans);
+    return true;
+}
+
 static bool lower_coroutine_emit_destroy_awaiter_dispatch(
     RccIrLowerContext* context, const Decl* declaration) {
     const CxxCoroutineLoweringPlan* plan = declaration
@@ -37907,6 +38081,10 @@ static bool lower_coroutine_emit_destroy_awaiter_dispatch(
     RccIrBlock* cleanup_done;
     bool has_cleanup = false;
     if (!context || !plan) return false;
+    if (!lower_coroutine_emit_active_awaiter_cleanups(
+            context, declaration)) {
+        return false;
+    }
     for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
          await_plan; await_plan = await_plan->next) {
         if (await_plan->awaiter_object_storage &&
@@ -37931,13 +38109,23 @@ static bool lower_coroutine_emit_destroy_awaiter_dispatch(
     dispatch = context->current;
     for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
          await_plan; await_plan = await_plan->next) {
+        const CxxCoroutineFrameField* body_awaiter_field =
+            !await_plan->is_initial_suspend &&
+                    !await_plan->is_final_suspend &&
+                    await_plan->awaiter_object_storage
+                ? lower_coroutine_frame_find_field(
+                      plan, await_plan->awaiter_object_storage,
+                      CXX_COROUTINE_FRAME_AWAITER_OBJECT)
+                : NULL;
         RccIrBlock* cleanup_block;
         RccIrBlock* next_dispatch;
         RccIrLowerValue suspend_index;
         RccIrValue compare_operands[2];
         RccIrInstruction* state_match;
         if (!await_plan->awaiter_object_storage ||
-            !lower_cxx_type_has_destructor_cleanup(await_plan->awaiter_type)) {
+            !lower_cxx_type_has_destructor_cleanup(await_plan->awaiter_type) ||
+            (body_awaiter_field &&
+             body_awaiter_field->cleanup_active_offset != 0u)) {
             continue;
         }
         cleanup_block = rcc_ir_block_add(
@@ -38127,7 +38315,6 @@ static bool lower_coroutine_emit_resume_function(
     RccIrValue operands[2];
     RccIrInstruction* state_match;
     RccIrBlockId targets[2];
-    RccIrLowerCoroutineContinuation* continuation_tail = NULL;
     RccIrLowerCoroutineContinuation* continuation;
     const CxxCoroutineAwaitPlan* initial =
         declaration->func_coroutine_initial_suspend_plan;
@@ -38192,12 +38379,8 @@ static bool lower_coroutine_emit_resume_function(
             rcc_free(new_continuation);
             goto done;
         }
-        if (continuation_tail) {
-            continuation_tail->next = new_continuation;
-        } else {
-            context.coroutine_continuations = new_continuation;
-        }
-        continuation_tail = new_continuation;
+        new_continuation->next = context.coroutine_continuations;
+        context.coroutine_continuations = new_continuation;
     }
     {
         RccIrLowerValue frame = lower_value(
@@ -38288,12 +38471,20 @@ static bool lower_coroutine_emit_resume_function(
      * remaining active byte belongs to an object preserved across a previous
      * suspension and is destroyed here before promise::unhandled_exception. */
     context.active_exception_frame = RCC_IR_VALUE_NONE;
+    (void)lower_cxx_runtime_call(
+        &context, "rin_cpp_exception_begin_unwind",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context.unsupported) goto done;
     if (!lower_coroutine_emit_destroy_awaiter_dispatch(
             &context, declaration) ||
         !lower_coroutine_emit_destroy_local_cleanups(
             &context, declaration)) {
         goto done;
     }
+    (void)lower_cxx_runtime_call(
+        &context, "rin_cpp_exception_end_unwind",
+        rcc_ir_type_void(), NULL, 0u);
+    if (context.unsupported) goto done;
     {
         RccIrLowerValue unhandled = lower_expression(
             &context, declaration->func_coroutine_unhandled_exception_call);

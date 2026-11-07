@@ -13,6 +13,7 @@ int rcc_coroutine_exception_caught_value;
 int rcc_coroutine_exception_local_destroy_count;
 int rcc_coroutine_exception_payload_destroy_count;
 int rcc_coroutine_exception_protocol_stage;
+int rcc_coroutine_exception_awaiter_destroy_count;
 
 struct rcc_coroutine_exception_ready_awaiter {
     bool await_ready() const noexcept { return true; }
@@ -29,6 +30,9 @@ struct rcc_coroutine_exception_suspending_awaiter {
 };
 
 struct rcc_coroutine_exception_throwing_protocol_awaiter {
+    ~rcc_coroutine_exception_throwing_protocol_awaiter() noexcept {
+        ++rcc_coroutine_exception_awaiter_destroy_count;
+    }
     bool await_ready() const {
         if (rcc_coroutine_exception_protocol_stage == 1) throw 61;
         return rcc_coroutine_exception_protocol_stage != 2;
@@ -76,8 +80,30 @@ struct rcc_coroutine_exception_payload {
     }
 };
 
+struct rcc_coroutine_exception_throwing_initializer_awaiter {
+    bool await_ready() const noexcept { return false; }
+    template<class Promise>
+    void await_suspend(std::coroutine_handle<Promise>) const noexcept {}
+    void await_resume() const noexcept {}
+};
+
+struct rcc_coroutine_exception_throwing_constructor_awaiter {
+    rcc_coroutine_exception_throwing_constructor_awaiter() {
+        throw 79;
+    }
+    bool await_ready() const noexcept { return false; }
+    template<class Promise>
+    void await_suspend(std::coroutine_handle<Promise>) const noexcept {}
+    void await_resume() const noexcept {}
+};
+
 int rcc_coroutine_throwing_initializer() {
     throw 17;
+}
+
+rcc_coroutine_exception_throwing_initializer_awaiter
+rcc_coroutine_exception_make_awaiter() {
+    throw 71;
 }
 
 void rcc_coroutine_body_throw() {
@@ -120,5 +146,15 @@ void rcc_coroutine_throw_class_after_suspend() {
 
 void rcc_coroutine_protocol_throw() {
     co_await rcc_coroutine_exception_throwing_protocol_awaiter{};
+    co_return;
+}
+
+void rcc_coroutine_throwing_awaiter_initializer() {
+    co_await rcc_coroutine_exception_make_awaiter();
+    co_return;
+}
+
+void rcc_coroutine_throwing_awaiter_constructor() {
+    co_await rcc_coroutine_exception_throwing_constructor_awaiter{};
     co_return;
 }

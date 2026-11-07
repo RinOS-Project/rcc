@@ -1459,6 +1459,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx20-coroutine-exceptions \
 	test-cxx20-coroutine-suspended-awaits \
 	test-cxx20-coroutine-return-object \
+	test-cxx20-coroutine-return-value \
 	test-cxx20-coroutine-awaiter-lifetime \
 	test-cxx20-coroutine-local-lifetime \
 	test-cxx20-coroutine-parameters \
@@ -4377,7 +4378,7 @@ test-cxx20-coroutine-final-suspend-bool: $(RCXX_TARGET)
 .PHONY: test-cxx20-coroutine-exceptions
 test-cxx20-coroutine-exceptions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-exceptions)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-exceptions,cxx20_coroutine_exceptions.cpp,35)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-exceptions,cxx20_coroutine_exceptions.cpp,50)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_coroutine_body_throwv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_coroutine_body_throwv_destroy,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z31rcc_coroutine_initializer_throwv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
@@ -4385,6 +4386,12 @@ test-cxx20-coroutine-exceptions: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z33rcc_coroutine_throw_after_suspendv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z39rcc_coroutine_throw_class_after_suspendv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z28rcc_coroutine_protocol_throwv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z42rcc_coroutine_throwing_awaiter_initializerv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z42rcc_coroutine_throwing_awaiter_constructorv_resume,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,_Z36rcc_coroutine_exception_make_awaiterv,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN52rcc_coroutine_exception_throwing_constructor_awaiterC1v,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,rcc_coroutine_exception_awaiter_destroy_count,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,_ZN49rcc_coroutine_exception_throwing_protocol_awaiterD1v,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,rin_cpp_exception_throw,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,rin_cpp_exception_throw_object_with_cleanup,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,rin_cpp_exception_install,$(TEST_OUT)/cxx20-coroutine-exceptions/verified-x64.ro)
@@ -4405,6 +4412,8 @@ test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,_ZNK28rcc_coroutine_manual_awaiter12await_resumeEv,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,rcc_coroutine_suspended_await_result_count,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,rcc_coroutine_suspended_await_result_count,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,rcc_coroutine_multi_await_sum,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,rcc_coroutine_multi_await_sum,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,_Z28rcc_coroutine_await_identityi,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,_Z28rcc_coroutine_await_identityi,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	@echo "C++20 suspended coroutine await tests completed"
@@ -4432,6 +4441,16 @@ test-cxx20-coroutine-return-object: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,_ZN31rcc_coroutine_aggregate_promiseD1v,$(TEST_OUT)/cxx20-coroutine-aggregate-return-object/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,_ZN31rcc_coroutine_aggregate_promiseD1v,$(TEST_OUT)/cxx20-coroutine-aggregate-return-object/verified-x64.ro)
 	@echo "C++20 coroutine return-object tests completed"
+
+.PHONY: test-cxx20-coroutine-return-value
+test-cxx20-coroutine-return-value: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-return-value)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-return-value,cxx20_coroutine_return_value.cpp,11)
+	$(call CHECK_BINARY_STRING,rcc_coroutine_return_value_payload,$(TEST_OUT)/cxx20-coroutine-return-value/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,rcc_coroutine_return_value_payload,$(TEST_OUT)/cxx20-coroutine-return-value/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,_ZN34rcc_coroutine_return_value_promise12return_valueEi,$(TEST_OUT)/cxx20-coroutine-return-value/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN34rcc_coroutine_return_value_promise12return_valueEi,$(TEST_OUT)/cxx20-coroutine-return-value/verified-x64.ro)
+	@echo "C++20 coroutine return_value tests completed"
 
 .PHONY: test-cxx20-coroutine-awaiter-lifetime
 test-cxx20-coroutine-awaiter-lifetime: $(RCXX_TARGET)

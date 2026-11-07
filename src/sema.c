@@ -41651,6 +41651,29 @@ static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
             field->cleanup_active_offset = cursor;
             if (cursor == SIZE_MAX) return false;
             ++cursor;
+        } else if (field->kind == CXX_COROUTINE_FRAME_AWAITER_OBJECT &&
+                   field->type &&
+                   (field->type->cxx_nontrivial ||
+                    (field->type->cxx_class &&
+                     field->type->cxx_class->destructor_method) ||
+                    field->type->cleanup_function ||
+                    field->type->cleanup_field)) {
+            bool body_awaiter = false;
+            for (CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+                 await_plan; await_plan = await_plan->next) {
+                if (await_plan->awaiter_object_storage ==
+                        field->declaration &&
+                    !await_plan->is_initial_suspend &&
+                    !await_plan->is_final_suspend) {
+                    body_awaiter = true;
+                    break;
+                }
+            }
+            if (body_awaiter) {
+                field->cleanup_active_offset = cursor;
+                if (cursor == SIZE_MAX) return false;
+                ++cursor;
+            }
         }
     }
     for (field = plan->frame_fields; field; field = field->next) {

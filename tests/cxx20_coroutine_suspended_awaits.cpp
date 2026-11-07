@@ -10,6 +10,7 @@ template<class Promise> struct coroutine_handle : coroutine_handle<void> {};
 
 int rcc_coroutine_suspended_await_count;
 int rcc_coroutine_suspended_await_result_count;
+int rcc_coroutine_multi_await_sum;
 
 struct rcc_coroutine_ready_awaiter {
     bool await_ready() const noexcept { return true; }
@@ -61,5 +62,10 @@ void rcc_coroutine_two_suspensions() {
     } else {
         int resumed_condition_false = 2;
     }
+    int nested_multi_await_result =
+        (co_await rcc_coroutine_manual_awaiter{}) +
+        ((co_await rcc_coroutine_manual_awaiter{}) -
+         (co_await rcc_coroutine_manual_awaiter{}));
+    rcc_coroutine_multi_await_sum = nested_multi_await_result;
     co_return;
 }

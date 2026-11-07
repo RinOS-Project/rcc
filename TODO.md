@@ -15246,6 +15246,11 @@ Continue in this order:
       handle-transfer regression targets pass on i686/x86-64 at `-O0` and
       `-O2`, with zero verified fallback. Runtime execution, throwing lifetime
       operations, and unsupported reference/union lifetimes remain open.
+- [x] Lower scalar co_return values through the promise return_value operation
+      before final suspension. A dedicated fixture verifies the promise call
+      and payload store across the i686/x86-64 -O0/-O2 matrix (11 functions per
+      build, zero verified fallback). Aggregate payload lifetimes and runtime
+      execution remain open.
 - [x] Support a boolean `await_suspend` result from `final_suspend()`. A true
       result leaves the completed frame suspended for its owner to destroy; a
       false result continues through `await_resume`, awaiter cleanup, and frame
@@ -15274,16 +15279,19 @@ Continue in this order:
       initialization, catch/rethrow, class throw after suspension, a live local
       destroyed after suspension, and exceptions from `await_ready`,
       `await_suspend`, and `await_resume`. Its i686/x86-64 `-O0`/`-O2` verified
-      matrix emits 35 functions with zero fallback.
-      Cleanup-safe direct-call and aggregate-constructor awaiter initializers may
-      now throw into the resume exception frame. Frame state remains inactive
-      until construction succeeds, so only completed subobjects unwind. A
-      multi-await full-expression still requires non-throwing initializers while
-      earlier awaiters remain live.
+      matrix emits 50 functions with zero fallback. The fixture covers throws
+      from direct-call and aggregate-constructor awaiter initializers, plus a
+      nontrivial body awaiter destructor on a throwing protocol edge. Frame
+      state stays inactive until awaiter construction succeeds, and active
+      cleanup flags prevent destroying the same awaiter twice. A multi-await
+      full-expression still requires non-throwing initializers while earlier
+      awaiters remain live.
       Source lowering now reserves one aligned frame spill slot per body await
       and uses those slots to preserve scalar arithmetic operands across nested
-      or multiple awaits. General pointer, wide-scalar, and other expression
-      liveness still needs implementation and acceptance.
+      or multiple awaits. The suspended-await fixture covers a nested
+      three-await + / - expression and passes the i686/x86-64 -O0/-O2 verified
+      matrix with 15 functions and zero fallback. General pointer, wide-scalar,
+      and other expression liveness still needs implementation and acceptance.
 - [ ] Execute the coroutine exception paths against the RinOS runtime, checking
       `unhandled_exception()`, caught values, exception payload destruction,
       and live-local cleanup after resumption.
@@ -15292,4 +15300,4 @@ Continue in this order:
       reference/union lifetimes, suspend-spanning `try/catch`/`co_return`, and
       remaining awaiter initializer forms and throwing awaiter destruction,
       general pointer/wide expression liveness, and end-to-end nested or
-      multiple-await acceptance.
+      multiple-await acceptance for other expression and value types.
