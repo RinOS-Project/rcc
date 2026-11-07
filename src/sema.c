@@ -41157,8 +41157,11 @@ static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
             !sema_noexcept_expr(plan->await_ready_condition) ||
             !sema_noexcept_expr(plan->await_suspend_call) ||
             !sema_noexcept_expr(plan->await_resume_call) ||
-            !sema_cxx_type_trait_destructor_is_nothrow(
-                plan->awaiter_type, 0u))) {
+            (!(plan->awaiter_initializer_is_lvalue ||
+               plan->awaiter_initializer_is_xvalue ||
+               plan->awaiter_initializer_is_reference) &&
+             !sema_cxx_type_trait_destructor_is_nothrow(
+                 plan->awaiter_type, 0u)))) {
             rcc_error(loc,
                       "co_await promise.final_suspend() must be non-throwing");
         }
