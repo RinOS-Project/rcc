@@ -722,6 +722,7 @@ struct CxxCoroutineAwaitPlan {
     Expr* await_suspend_call;
     Expr* await_resume_call;
     Decl* awaiter_storage;
+    Decl* awaiter_object_storage;
     Decl* coroutine_handle_storage;
     Type* awaiter_type;
     Type* coroutine_handle_type;
@@ -742,6 +743,7 @@ typedef enum {
     CXX_COROUTINE_FRAME_LOCAL,
     CXX_COROUTINE_FRAME_PROMISE,
     CXX_COROUTINE_FRAME_AWAITER,
+    CXX_COROUTINE_FRAME_AWAITER_OBJECT,
     CXX_COROUTINE_FRAME_HANDLE,
 } CxxCoroutineFrameFieldKind;
 

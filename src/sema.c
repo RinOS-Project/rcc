@@ -41067,6 +41067,12 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
                        !await_plan->awaiter_initializer_is_lvalue),
         NULL, loc);
     await_plan->awaiter_storage = awaiter_object;
+    if (!await_plan->awaiter_initializer_is_lvalue &&
+        !await_plan->awaiter_initializer_is_xvalue &&
+        !await_plan->awaiter_initializer_is_reference) {
+        await_plan->awaiter_object_storage = decl_var(
+            "__rcc_coroutine_awaiter_object", awaiter_type, NULL, loc);
+    }
     awaiter_expression = expr_ident(awaiter_object->name, loc);
     awaiter_expression->ident_decl = awaiter_object;
     awaiter_expression->type = awaiter_type;
@@ -41082,11 +41088,7 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
 #endif
     if (!handle_type) {
         rcc_error(loc,
-                  "std::coroutine_handle<promise_type> is unavailable (promise kind=%d dependent=%d complete=%d)",
-                  (int)declaration->func_coroutine_promise_type->kind,
-                  declaration->func_coroutine_promise_type->cxx_dependent,
-                  type_is_complete(
-                      declaration->func_coroutine_promise_type));
+                  "std::coroutine_handle<promise_type> is unavailable");
     } else {
         await_plan->coroutine_handle_type = handle_type;
     }
@@ -41607,16 +41609,16 @@ static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
             plan, declaration->func_body)) return false;
     for (CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
          await_plan; await_plan = await_plan->next) {
-        Type* awaiter_storage_type = await_plan->awaiter_type;
-        if (await_plan->awaiter_initializer_is_lvalue ||
-            await_plan->awaiter_initializer_is_xvalue ||
-            await_plan->awaiter_initializer_is_reference) {
-            awaiter_storage_type = await_plan->awaiter_storage
-                ? await_plan->awaiter_storage->type : NULL;
-        }
         if (!sema_cxx_coroutine_frame_add_field(
-                plan, await_plan->awaiter_storage, awaiter_storage_type,
+                plan, await_plan->awaiter_storage,
+                await_plan->awaiter_storage
+                    ? await_plan->awaiter_storage->type : NULL,
                 CXX_COROUTINE_FRAME_AWAITER) ||
+            (await_plan->awaiter_object_storage &&
+             !sema_cxx_coroutine_frame_add_field(
+                 plan, await_plan->awaiter_object_storage,
+                 await_plan->awaiter_type,
+                 CXX_COROUTINE_FRAME_AWAITER_OBJECT)) ||
             !sema_cxx_coroutine_frame_add_field(
                 plan, await_plan->coroutine_handle_storage,
                 await_plan->coroutine_handle_type,
