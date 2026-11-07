@@ -23247,6 +23247,7 @@ static TypeMethod* sema_cxx_type_trait_assignment_method(
         declaration->func_coroutine_get_return_object_checked = false;
         declaration->func_coroutine_initial_suspend_plan = NULL;
         declaration->func_coroutine_final_suspend_plan = NULL;
+        declaration->func_coroutine_final_suspend_nothrow_checked = false;
         declaration->func_coroutine_unhandled_exception_call = NULL;
         declaration->func_coroutine_promise_lookup_attempted = false;
         declaration->name = rcc_intern("__rcc_type_trait_operator_assign");
@@ -41128,6 +41129,27 @@ static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
             declaration->func_coroutine_final_suspend_plan =
                 sema_cxx_coroutine_resolve_awaiter_plan(
                     declaration, call, true, false, false, true, loc);
+        }
+    }
+    if (!declaration->func_coroutine_final_suspend_nothrow_checked &&
+        declaration->func_coroutine_final_suspend_plan) {
+        CxxCoroutineAwaitPlan* plan =
+            declaration->func_coroutine_final_suspend_plan;
+        declaration->func_coroutine_final_suspend_nothrow_checked = true;
+        if (plan->coroutine_handle_type && plan->await_ready_call &&
+            plan->await_ready_condition && plan->await_suspend_call &&
+            plan->await_resume_call &&
+            plan->await_ready_call->cxx_selected_method &&
+            plan->await_suspend_call->cxx_selected_method &&
+            plan->await_resume_call->cxx_selected_method &&
+            (!sema_noexcept_expr(plan->awaiter_initializer) ||
+            !sema_noexcept_expr(plan->await_ready_condition) ||
+            !sema_noexcept_expr(plan->await_suspend_call) ||
+            !sema_noexcept_expr(plan->await_resume_call) ||
+            !sema_cxx_type_trait_destructor_is_nothrow(
+                plan->awaiter_type, 0u))) {
+            rcc_error(loc,
+                      "co_await promise.final_suspend() must be non-throwing");
         }
     }
     if (!declaration->func_coroutine_unhandled_exception_call) {

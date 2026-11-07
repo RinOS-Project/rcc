@@ -2288,6 +2288,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_coroutine_get_return_object_checked = false;
     d->func_coroutine_initial_suspend_plan = NULL;
     d->func_coroutine_final_suspend_plan = NULL;
+    d->func_coroutine_final_suspend_nothrow_checked = false;
     d->func_coroutine_unhandled_exception_call = NULL;
     d->func_coroutine_promise_lookup_attempted = false;
     d->func_is_template_instance = false;

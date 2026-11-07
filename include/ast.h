@@ -1725,6 +1725,7 @@ struct Decl {
             bool func_coroutine_get_return_object_checked;
             CxxCoroutineAwaitPlan* func_coroutine_initial_suspend_plan;
             CxxCoroutineAwaitPlan* func_coroutine_final_suspend_plan;
+            bool func_coroutine_final_suspend_nothrow_checked;
             Expr* func_coroutine_unhandled_exception_call;
             /* Avoid repeating a failed, non-dependent traits lookup at each
              * coroutine expression; dependent lookups remain retryable. */
