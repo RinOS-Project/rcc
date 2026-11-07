@@ -36297,6 +36297,22 @@ static bool lower_coroutine_body_supported(
         }
         return true;
     }
+    if (statement->kind == STMT_IF) {
+        const CxxCoroutineAwaitPlan* await_plan = statement->if_cond &&
+            statement->if_cond->kind == EXPR_CXX_CO_AWAIT
+            ? statement->if_cond->cxx_coroutine_await_plan : NULL;
+        if (!await_plan || await_plan->is_initial_suspend ||
+            await_plan->is_final_suspend || !statement->if_cond->type ||
+            !lower_coroutine_scalar_frame_value_supported(
+                statement->if_cond->type)) {
+            return false;
+        }
+        ++*body_await_count;
+        return lower_coroutine_body_supported(
+                   statement->if_then, found_return, body_await_count) &&
+            lower_coroutine_body_supported(
+                statement->if_else, found_return, body_await_count);
+    }
     if (statement->kind == STMT_BLOCK) {
         for (const StmtList* item = statement->block_stmts;
              item; item = item->next) {

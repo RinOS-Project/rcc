@@ -49,5 +49,10 @@ void rcc_coroutine_two_suspensions() {
     int resumed_result = co_await rcc_coroutine_manual_awaiter{};
     co_await rcc_coroutine_manual_awaiter{};
     int retained_result = resumed_result;
+    if (co_await rcc_coroutine_manual_awaiter{}) {
+        int resumed_condition_true = 1;
+    } else {
+        int resumed_condition_false = 2;
+    }
     co_return;
 }
