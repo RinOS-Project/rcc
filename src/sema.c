@@ -108,6 +108,7 @@ static unsigned cxx_exception_frame_counter = 0u;
 static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
 static Decl* current_cxx_function_decl = NULL;
+static Decl* current_cxx_exception_handler_function = NULL;
 static bool current_cxx_immediate_invocation_context = false;
 static bool current_cxx_static_variable_initializer = false;
 static bool current_cxx_global_variable_initializer = false;
@@ -31954,6 +31955,11 @@ static Type* sema_expr_impl(Expr* expr) {
             }
             if (current_cxx_function_decl) {
                 current_cxx_function_decl->func_is_coroutine = true;
+                if (current_cxx_exception_handler_function ==
+                    current_cxx_function_decl) {
+                    rcc_error(expr->loc,
+                              "await-expression cannot appear in a C++ exception handler");
+                }
                 if (!current_func_auto_return_pending) {
                     sema_resolve_cxx_coroutine_promise_type(
                         current_cxx_function_decl);
@@ -35124,7 +35130,15 @@ static void sema_stmt(Stmt* stmt) {
                     sema_cxx_collect_exception_tags(
                         sema_cxx_global_namespace(), match_type, handler, 0u);
                 }
-                sema_stmt(handler->body);
+                {
+                    Decl* previous_handler_function =
+                        current_cxx_exception_handler_function;
+                    current_cxx_exception_handler_function =
+                        current_cxx_function_decl;
+                    sema_stmt(handler->body);
+                    current_cxx_exception_handler_function =
+                        previous_handler_function;
+                }
                 /* The catch parameter is represented as the first declaration
                  * in handler->body and sema_stmt() has already attached its
                  * automatic object cleanups.  Only synthesize catch-object
