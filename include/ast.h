@@ -1415,8 +1415,8 @@ struct Stmt {
      * prvalue operand needs temporary storage to form that pointer, even
      * though C++ does not extend the temporary beyond the return full-expression. */
     bool return_reference_result;
-    /* `co_return` is distinct from `return` until coroutine lowering selects
-     * the promise return_value/return_void operation. */
+    /* Keep `co_return` distinct after sema binds return_value/return_void so
+     * coroutine lowering emits final suspension instead of a normal return. */
     bool cxx_is_co_return;
     int return_reference_temporary_offset;
     bool c23_is_maybe_unused;

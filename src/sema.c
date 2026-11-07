@@ -34785,8 +34785,6 @@ static void sema_stmt(Stmt* stmt) {
                               "co_return is not within a function");
                 }
                 if (stmt->return_val) sema_expr(stmt->return_val);
-                rcc_error(stmt->loc,
-                          "co_return requires coroutine lowering");
                 break;
             }
             stmt->return_reference_result =
@@ -40149,6 +40147,7 @@ static bool sema_validate_auto_return_stmt(Stmt* statement) {
     if (!statement) return true;
     switch (statement->kind) {
         case STMT_RETURN:
+            if (statement->cxx_is_co_return) return true;
             if (statement->return_val && current_func_ret &&
                 current_func_ret != type_void &&
                 !implicit_cast(statement->return_val, current_func_ret)) {
@@ -40218,6 +40217,7 @@ static bool sema_deduce_auto_return_stmt(Stmt* statement, Type** deduced,
     if (!statement || !deduced || !saw_return) return true;
     switch (statement->kind) {
         case STMT_RETURN: {
+            if (statement->cxx_is_co_return) return true;
             Type* result_type = NULL;
             if (statement->return_val) {
                 result_type = decltype_auto
@@ -40639,6 +40639,96 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
         return;
     }
     declaration->func_coroutine_promise_type = promise_type;
+}
+
+static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
+                                                Stmt* statement) {
+    if (!declaration || !statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts;
+                 item; item = item->next) {
+                sema_lower_cxx_coroutine_co_returns(declaration, item->stmt);
+            }
+            break;
+        case STMT_IF:
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->if_then);
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->while_body);
+            break;
+        case STMT_FOR:
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->for_init);
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->for_body);
+            break;
+        case STMT_SWITCH:
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->switch_body);
+            break;
+        case STMT_CASE:
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->label_stmt);
+            break;
+        case STMT_TRY:
+            sema_lower_cxx_coroutine_co_returns(
+                declaration, statement->try_body);
+            for (CxxCatch* handler = statement->try_catches;
+                 handler; handler = handler->next) {
+                sema_lower_cxx_coroutine_co_returns(
+                    declaration, handler->body);
+            }
+            break;
+        case STMT_RETURN:
+            if (statement->cxx_is_co_return &&
+                declaration->func_coroutine_promise_type) {
+                Decl* promise_object = decl_var(
+                    "__rcc_coroutine_promise",
+                    declaration->func_coroutine_promise_type, NULL,
+                    statement->loc);
+                Expr* object = expr_ident(promise_object->name,
+                                          statement->loc);
+                Expr* member;
+                Expr* call;
+
+                object->ident_decl = promise_object;
+                member = expr_member(
+                    object,
+                    statement->return_val ? "return_value" : "return_void",
+                    statement->loc);
+                call = expr_call(
+                    member,
+                    statement->return_val
+                        ? exprlist_new(statement->return_val) : NULL,
+                    statement->loc);
+                (void)sema_expr(call);
+                statement->return_val = call;
+            }
+            break;
+        case STMT_EXPR:
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+        case STMT_DECL:
+        case STMT_NULL:
+        case STMT_ASM:
+        case STMT_THROW:
+            break;
+    }
 }
 
 static void sema_validate_global_allocation_operator(Decl* declaration) {
@@ -41394,6 +41484,8 @@ analyze_function_body:
                     }
                 }
                 sema_resolve_cxx_coroutine_promise_type(decl);
+                sema_lower_cxx_coroutine_co_returns(
+                    decl, decl->func_body);
 
                 /* Check for undefined labels */
                 for (Symbol* label = g_symtab->labels; label; label = label->next) {
