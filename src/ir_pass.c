@@ -1773,6 +1773,9 @@ typedef struct {
     bool* block_store_slots;
     RccIrValue* block_stores;
     RccIrInstruction** block_store_instructions;
+    const Type** block_store_access_types;
+    uint64_t* block_store_byte_counts;
+    bool* block_store_is_copy;
     size_t block_store_count;
     bool restrict_aliasing_valid;
     bool has_union_memory_access;
@@ -2145,6 +2148,39 @@ static bool ir_pass_cse_store_load_types_compatible(
     return load_bytes != 0u && load_bytes == store_bytes;
 }
 
+static bool ir_pass_cse_store_fact_load_compatible(
+    const RccIrCseContext* context, const RccIrInstruction* load,
+    RccIrValue address) {
+    const Type* load_type;
+    const Type* stored_type;
+    uint64_t load_bytes;
+    if (!context || !load || address >= context->replacement_count ||
+        !context->block_store_instructions[address]) {
+        return false;
+    }
+    if (!context->block_store_is_copy[address]) {
+        return ir_pass_cse_store_load_types_compatible(
+            context, load,
+            context->block_store_instructions[address]);
+    }
+    if (g_opts.cxx_mode || context->has_union_memory_access ||
+        load->opcode != RCC_IR_LOAD || load->volatile_access ||
+        load->union_member_access || !load->source_access_type ||
+        load->source_access_type->is_volatile ||
+        load->source_access_type->is_atomic) {
+        return false;
+    }
+    load_type = load->source_access_type;
+    stored_type = context->block_store_access_types[address];
+    if (!stored_type || stored_type->is_volatile || stored_type->is_atomic ||
+        !type_c_effective_alias_compatible(load_type, stored_type)) {
+        return false;
+    }
+    load_bytes = ir_pass_cse_memory_access_bytes(context, load, true);
+    return load_bytes != 0u &&
+        load_bytes == context->block_store_byte_counts[address];
+}
+
 static bool ir_pass_cse_memory_write_range_disjoint(
     const RccIrCseContext* context, const RccIrInstruction* load,
     RccIrValue write_address, uint64_t write_bytes) {
@@ -2241,14 +2277,15 @@ static bool ir_pass_cse_allocated_effective_types_disjoint(
         store_location.byte_offset < load_end;
 }
 
-static bool ir_pass_cse_memory_copy_disjoint_from_load(
-    const RccIrCseContext* context, const RccIrInstruction* load,
-    const RccIrInstruction* call) {
+static bool ir_pass_cse_memory_copy_length(
+    const RccIrCseContext* context, const RccIrInstruction* call,
+    uint64_t* length_out) {
     RccIrValue size_value;
     RccIrInstruction* size_definition;
     uint16_t size_width;
     uint64_t size;
-    if (!context || !load || !call || call->opcode != RCC_IR_CALL ||
+    if (!context || !call || !length_out ||
+        call->opcode != RCC_IR_CALL ||
         !call->callee || call->operand_count != 3u ||
         (strcmp(call->callee, "memcpy") != 0 &&
          strcmp(call->callee, "memmove") != 0)) {
@@ -2270,9 +2307,17 @@ static bool ir_pass_cse_memory_copy_disjoint_from_load(
     if (size_width < 64u) {
         size &= (UINT64_C(1) << size_width) - UINT64_C(1);
     }
-    return size == 0u ||
-        ir_pass_cse_memory_write_range_disjoint(
-            context, load, call->operands[0], size);
+    *length_out = size;
+    return true;
+}
+
+static bool ir_pass_cse_memory_copy_disjoint_from_load(
+    const RccIrCseContext* context, const RccIrInstruction* load,
+    const RccIrInstruction* call) {
+    uint64_t size;
+    return ir_pass_cse_memory_copy_length(context, call, &size) &&
+        (size == 0u || ir_pass_cse_memory_write_range_disjoint(
+            context, load, call->operands[0], size));
 }
 
 static bool ir_pass_cse_restrict_roots_disjoint(
@@ -2376,6 +2421,9 @@ static void ir_pass_clear_block_store_facts(RccIrCseContext* context) {
         context->pending_stores[address] = NULL;
         context->block_store_slots[address] = false;
         context->block_store_instructions[address] = NULL;
+        context->block_store_access_types[address] = NULL;
+        context->block_store_byte_counts[address] = 0u;
+        context->block_store_is_copy[address] = false;
     }
     context->block_store_count = 0u;
 }
@@ -2436,6 +2484,11 @@ static void ir_pass_record_store_value(
         context->block_store_slots[address] = true;
         context->block_store_instructions[address] =
             (RccIrInstruction*)store;
+        context->block_store_access_types[address] =
+            store->source_access_type;
+        context->block_store_byte_counts[address] =
+            ir_pass_cse_memory_access_bytes(context, store, false);
+        context->block_store_is_copy[address] = false;
         if (store->volatile_access) {
             context->has_stored_values[address] = false;
             return;
@@ -2475,6 +2528,10 @@ static void ir_pass_record_store_value(
     context->block_stores[context->block_store_count++] = address;
     context->block_store_instructions[address] =
         (RccIrInstruction*)store;
+    context->block_store_access_types[address] = store->source_access_type;
+    context->block_store_byte_counts[address] =
+        ir_pass_cse_memory_access_bytes(context, store, false);
+    context->block_store_is_copy[address] = false;
     if (store->volatile_access) {
         context->has_stored_values[address] = false;
         return;
@@ -2511,6 +2568,8 @@ static bool ir_pass_cse_typed_store_value_for_load(
         RccIrInstruction* store =
             context->block_store_instructions[store_address];
         RccIrCseMemoryLocation store_location;
+        RccIrValue stored_value;
+        bool is_copy = context->block_store_is_copy[store_address];
         uint64_t store_bytes;
         uint64_t load_end;
         uint64_t store_end;
@@ -2518,8 +2577,10 @@ static bool ir_pass_cse_typed_store_value_for_load(
                 context, store_address)) {
             continue;
         }
-        if (!store || store->opcode != RCC_IR_STORE ||
-            store->operand_count != 2u ||
+        if (!store ||
+            (!is_copy && (store->opcode != RCC_IR_STORE ||
+                          store->operand_count != 2u)) ||
+            (is_copy && store->opcode != RCC_IR_CALL) ||
             !ir_pass_cse_memory_location(
                 context, store_address, 0u, &store_location) ||
             !store_location.valid ||
@@ -2532,8 +2593,9 @@ static bool ir_pass_cse_typed_store_value_for_load(
             !store_location.byte_offset_known) {
             return false;
         }
-        store_bytes = ir_pass_cse_memory_access_bytes(
-            context, store, false);
+        store_bytes = is_copy
+            ? context->block_store_byte_counts[store_address]
+            : ir_pass_cse_memory_access_bytes(context, store, false);
         if (store_bytes == 0u ||
             store_bytes > UINT64_MAX - store_location.byte_offset) {
             return false;
@@ -2544,21 +2606,155 @@ static bool ir_pass_cse_typed_store_value_for_load(
             store_end <= load_location.byte_offset) {
             continue;
         }
+        stored_value = context->stored_values[store_address];
         if (load_location.byte_offset != store_location.byte_offset ||
             load_bytes != store_bytes || store->volatile_access ||
-            store->union_member_access ||
-            !ir_pass_cse_store_load_types_compatible(
-                context, load, store) ||
-            store->operands[0] >= context->function->value_count ||
+            (!is_copy && store->union_member_access) ||
+            (is_copy
+                 ? !ir_pass_cse_store_fact_load_compatible(
+                       context, load, store_address)
+                 : !ir_pass_cse_store_load_types_compatible(
+                       context, load, store)) ||
+            stored_value >= context->function->value_count ||
             !rcc_ir_type_equal(
-                context->function->value_types[store->operands[0]],
+                context->function->value_types[stored_value],
                 load->type)) {
             return false;
         }
-        *value_out = store->operands[0];
+        *value_out = stored_value;
         return true;
     }
     return false;
+}
+
+static bool ir_pass_cse_copy_source_value(
+    const RccIrCseContext* context, const RccIrInstruction* call,
+    uint64_t copy_bytes, RccIrValue* value_out,
+    const Type** access_type_out) {
+    RccIrCseMemoryLocation source_location;
+    uint64_t source_end;
+    if (!context || !call || !value_out || !access_type_out ||
+        g_opts.cxx_mode || context->has_union_memory_access ||
+        copy_bytes == 0u || call->opcode != RCC_IR_CALL ||
+        call->operand_count != 3u ||
+        !ir_pass_cse_memory_location(
+            context, call->operands[1], 0u, &source_location) ||
+        !source_location.valid ||
+        !ir_pass_value_is_unique_object(context, source_location.object) ||
+        !source_location.byte_offset_known ||
+        copy_bytes > UINT64_MAX - source_location.byte_offset) {
+        return false;
+    }
+    source_end = source_location.byte_offset + copy_bytes;
+    for (size_t slot = context->block_store_count; slot != 0u; --slot) {
+        RccIrValue store_address = context->block_stores[slot - 1u];
+        RccIrInstruction* write =
+            context->block_store_instructions[store_address];
+        RccIrCseMemoryLocation write_location;
+        uint64_t write_bytes;
+        uint64_t write_end;
+        RccIrValue value;
+        const Type* access_type;
+        bool is_copy = context->block_store_is_copy[store_address];
+        if (ir_pass_value_is_direct_data_symbol(context, store_address)) {
+            continue;
+        }
+        if (!write ||
+            (!is_copy && (write->opcode != RCC_IR_STORE ||
+                          write->operand_count != 2u)) ||
+            (is_copy && write->opcode != RCC_IR_CALL) ||
+            write->volatile_access ||
+            (!is_copy && write->union_member_access) ||
+            !ir_pass_cse_memory_location(
+                context, store_address, 0u, &write_location) ||
+            !write_location.valid ||
+            !ir_pass_value_is_unique_object(
+                context, write_location.object)) {
+            return false;
+        }
+        if (write_location.object != source_location.object) continue;
+        write_bytes = context->block_store_byte_counts[store_address];
+        if (write_bytes == 0u ||
+            write_bytes > UINT64_MAX - write_location.byte_offset) {
+            return false;
+        }
+        write_end = write_location.byte_offset + write_bytes;
+        if (write_end <= source_location.byte_offset ||
+            source_end <= write_location.byte_offset) {
+            continue;
+        }
+        value = context->stored_values[store_address];
+        access_type = context->block_store_access_types[store_address];
+        if (write_location.byte_offset != source_location.byte_offset ||
+            write_bytes != copy_bytes || !access_type ||
+            access_type->is_volatile || access_type->is_atomic ||
+            !context->has_stored_values[store_address] ||
+            value >= context->function->value_count) {
+            return false;
+        }
+        *value_out = value;
+        *access_type_out = access_type;
+        return true;
+    }
+    for (size_t index = context->block_load_count; index != 0u; --index) {
+        RccIrInstruction* load = context->block_loads[index - 1u];
+        RccIrCseMemoryLocation load_location;
+        if (!load || load->opcode != RCC_IR_LOAD ||
+            load->volatile_access || load->union_member_access ||
+            !load->source_access_type ||
+            load->source_access_type->is_volatile ||
+            load->source_access_type->is_atomic ||
+            ir_pass_cse_memory_access_bytes(context, load, true) !=
+                copy_bytes ||
+            !ir_pass_cse_memory_location(
+                context, load->operands[0], 0u, &load_location) ||
+            !load_location.valid ||
+            !ir_pass_value_is_unique_object(context, load_location.object)) {
+            continue;
+        }
+        if (load_location.object == source_location.object &&
+            load_location.byte_offset_known &&
+            load_location.byte_offset == source_location.byte_offset &&
+            load->result < context->function->value_count) {
+            *value_out = load->result;
+            *access_type_out = load->source_access_type;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void ir_pass_cse_record_memory_copy_value(
+    RccIrCseContext* context, const RccIrInstruction* call,
+    uint64_t copy_bytes, RccIrValue value, const Type* access_type) {
+    RccIrCseMemoryLocation destination_location;
+    RccIrValue destination;
+    if (!context || !call || call->operand_count != 3u ||
+        copy_bytes == 0u || value >= context->function->value_count ||
+        !access_type ||
+        !ir_pass_cse_memory_location(
+            context, call->operands[0], 0u, &destination_location) ||
+        !destination_location.valid ||
+        !ir_pass_value_is_unique_object(
+            context, destination_location.object) ||
+        !destination_location.byte_offset_known ||
+        copy_bytes > UINT64_MAX - destination_location.byte_offset) {
+        return;
+    }
+    destination = call->operands[0];
+    if (destination >= context->replacement_count ||
+        context->block_store_count >= context->replacement_count) {
+        return;
+    }
+    context->block_stores[context->block_store_count++] = destination;
+    context->block_store_slots[destination] = true;
+    context->block_store_instructions[destination] =
+        (RccIrInstruction*)call;
+    context->block_store_access_types[destination] = access_type;
+    context->block_store_byte_counts[destination] = copy_bytes;
+    context->block_store_is_copy[destination] = true;
+    context->stored_values[destination] = value;
+    context->has_stored_values[destination] = true;
 }
 
 static void ir_pass_common_block(RccIrCseContext* context,
@@ -2619,12 +2815,9 @@ static void ir_pass_common_block(RccIrCseContext* context,
                     context->has_stored_values[address]) {
                     RccIrValue candidate_value =
                         context->stored_values[address];
-                    RccIrInstruction* previous_store =
-                        context->block_store_instructions[address];
                     if (candidate_value < context->replacement_count &&
-                        previous_store &&
-                        ir_pass_cse_store_load_types_compatible(
-                            context, instruction, previous_store) &&
+                        ir_pass_cse_store_fact_load_compatible(
+                            context, instruction, address) &&
                         rcc_ir_type_equal(
                             context->function->value_types[candidate_value],
                             instruction->type)) {
@@ -2710,6 +2903,15 @@ static void ir_pass_common_block(RccIrCseContext* context,
         } else if (instruction->opcode == RCC_IR_CALL) {
             size_t retained = 0u;
             size_t load_index;
+            uint64_t copy_bytes = 0u;
+            RccIrValue copied_value = RCC_IR_VALUE_NONE;
+            const Type* copied_access_type = NULL;
+            bool has_typed_copy_value =
+                ir_pass_cse_memory_copy_length(
+                    context, instruction, &copy_bytes) &&
+                ir_pass_cse_copy_source_value(
+                    context, instruction, copy_bytes, &copied_value,
+                    &copied_access_type);
             /* Standard memcpy/memmove write only the known destination byte
              * range.  Preserve loads proven outside that range; unknown calls
              * still invalidate every load. */
@@ -2727,6 +2929,11 @@ static void ir_pass_common_block(RccIrCseContext* context,
              * store facts and later restrict-root separation are cleared. */
             context->restrict_aliasing_valid = false;
             ir_pass_clear_block_store_facts(context);
+            if (has_typed_copy_value) {
+                ir_pass_cse_record_memory_copy_value(
+                    context, instruction, copy_bytes, copied_value,
+                    copied_access_type);
+            }
         }
         if (!ir_pass_cse_candidate(instruction)) {
             instruction = next;
@@ -2823,6 +3030,12 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.block_stores));
     context.block_store_instructions = rcc_alloc(
         function->value_count * sizeof(*context.block_store_instructions));
+    context.block_store_access_types = rcc_alloc(
+        function->value_count * sizeof(*context.block_store_access_types));
+    context.block_store_byte_counts = rcc_alloc(
+        function->value_count * sizeof(*context.block_store_byte_counts));
+    context.block_store_is_copy = rcc_alloc(
+        function->value_count * sizeof(*context.block_store_is_copy));
     context.function = function;
     context.restrict_aliasing_valid = true;
     context.has_union_memory_access = function->has_union_access;
@@ -2845,6 +3058,9 @@ static bool ir_pass_common_subexpressions(
         context.has_stored_values[index] = false;
         context.block_store_slots[index] = false;
         context.block_store_instructions[index] = NULL;
+        context.block_store_access_types[index] = NULL;
+        context.block_store_byte_counts[index] = 0u;
+        context.block_store_is_copy[index] = false;
         context.replacements[index] = RCC_IR_VALUE_NONE;
     }
     memset(context.memory_locations, 0,
@@ -2912,6 +3128,9 @@ cleanup:
     rcc_free(context.block_store_slots);
     rcc_free(context.block_stores);
     rcc_free(context.block_store_instructions);
+    rcc_free(context.block_store_access_types);
+    rcc_free(context.block_store_byte_counts);
+    rcc_free(context.block_store_is_copy);
     rcc_free(context.replacements);
     rcc_free(blocks);
     rcc_free(predecessors);
