@@ -36270,6 +36270,35 @@ static RccIrLowerValue lower_coroutine_await_expression(
     return result;
 }
 
+static bool lower_coroutine_count_expression_awaits(
+    const Expr* expression, size_t* body_await_count) {
+    const CxxCoroutineAwaitPlan* await_plan;
+    if (!expression || !body_await_count) return true;
+    if (expression->kind == EXPR_CXX_CO_AWAIT) {
+        await_plan = expression->cxx_coroutine_await_plan;
+        if (!await_plan || await_plan->is_initial_suspend ||
+            await_plan->is_final_suspend) {
+            return false;
+        }
+        ++*body_await_count;
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+            return lower_coroutine_count_expression_awaits(
+                       expression->binary_lhs, body_await_count) &&
+                lower_coroutine_count_expression_awaits(
+                    expression->binary_rhs, body_await_count);
+        case EXPR_CAST:
+            return lower_coroutine_count_expression_awaits(
+                expression->cast_expr, body_await_count);
+        default:
+            return true;
+    }
+}
+
 static bool lower_coroutine_body_supported(
     const Stmt* statement, bool* found_return,
     size_t* body_await_count) {
@@ -36288,26 +36317,22 @@ static bool lower_coroutine_body_supported(
             !lower_coroutine_scalar_frame_value_supported(local->type)) {
             return false;
         }
-        if (local->var_init &&
-            local->var_init->kind == EXPR_CXX_CO_AWAIT &&
-            local->var_init->cxx_coroutine_await_plan &&
-            !local->var_init->cxx_coroutine_await_plan->is_initial_suspend &&
-            !local->var_init->cxx_coroutine_await_plan->is_final_suspend) {
-            ++*body_await_count;
+        if (!lower_coroutine_count_expression_awaits(
+                local->var_init, body_await_count)) {
+            return false;
         }
         return true;
     }
     if (statement->kind == STMT_IF) {
-        const CxxCoroutineAwaitPlan* await_plan = statement->if_cond &&
-            statement->if_cond->kind == EXPR_CXX_CO_AWAIT
-            ? statement->if_cond->cxx_coroutine_await_plan : NULL;
-        if (!await_plan || await_plan->is_initial_suspend ||
-            await_plan->is_final_suspend || !statement->if_cond->type ||
+        size_t await_count_before_condition = *body_await_count;
+        if (!statement->if_cond || !statement->if_cond->type ||
             !lower_coroutine_scalar_frame_value_supported(
-                statement->if_cond->type)) {
+                statement->if_cond->type) ||
+            !lower_coroutine_count_expression_awaits(
+                statement->if_cond, body_await_count) ||
+            *body_await_count == await_count_before_condition) {
             return false;
         }
-        ++*body_await_count;
         return lower_coroutine_body_supported(
                    statement->if_then, found_return, body_await_count) &&
             lower_coroutine_body_supported(
@@ -36322,16 +36347,17 @@ static bool lower_coroutine_body_supported(
         return true;
     }
     if (statement->kind == STMT_EXPR && statement->expr &&
-        statement->expr->kind == EXPR_CXX_CO_AWAIT &&
         statement->expr->type &&
-        statement->expr->cxx_coroutine_await_plan &&
-        !statement->expr->cxx_coroutine_await_plan->is_initial_suspend &&
-        !statement->expr->cxx_coroutine_await_plan->is_final_suspend &&
         (statement->expr->type->kind == TYPE_VOID ||
          lower_coroutine_scalar_frame_value_supported(
              statement->expr->type))) {
-        ++*body_await_count;
-        return true;
+        size_t await_count_before_expression = *body_await_count;
+        if (lower_coroutine_count_expression_awaits(
+                statement->expr, body_await_count) &&
+            *body_await_count > await_count_before_expression) {
+            return true;
+        }
+        *body_await_count = await_count_before_expression;
     }
     if (statement->kind != STMT_RETURN ||
         !statement->cxx_is_co_return || !statement->return_val ||

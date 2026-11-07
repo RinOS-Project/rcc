@@ -46,10 +46,11 @@ struct coroutine_traits {
 }
 
 void rcc_coroutine_two_suspensions() {
-    int resumed_result = co_await rcc_coroutine_manual_awaiter{};
+    int resumed_result =
+        ((short)(co_await rcc_coroutine_manual_awaiter{}) + 7) * 2;
     co_await rcc_coroutine_manual_awaiter{};
     int retained_result = resumed_result;
-    if (co_await rcc_coroutine_manual_awaiter{}) {
+    if ((co_await rcc_coroutine_manual_awaiter{}) - 1) {
         int resumed_condition_true = 1;
     } else {
         int resumed_condition_false = 2;
