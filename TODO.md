@@ -15290,8 +15290,19 @@ Continue in this order:
       and uses those slots to preserve scalar arithmetic operands across nested
       or multiple awaits. The suspended-await fixture covers a nested
       three-await + / - expression and passes the i686/x86-64 -O0/-O2 verified
-      matrix with 15 functions and zero fallback. General pointer, wide-scalar,
-      and other expression liveness still needs implementation and acceptance.
+      matrix with 15 functions and zero fallback. Source progress now preserves
+      pointer operands and pointer differences across multiple awaits, and
+      carries frame spills through scalar arithmetic, bitwise/shift operations,
+      and comparisons. Complex arithmetic evaluates a suspending right operand
+      before its non-suspending left operand. Conditional and short-circuit
+      expressions now lower their existing control-flow graphs across
+      suspension, and indexed lvalues use the coroutine-aware pointer/index
+      lowering path. Await discovery now includes assignment targets, compound
+      assignments, member-pointer and other expression containers so
+      unsupported forms fail closed instead of bypassing coroutine accounting.
+      These new source paths have not received compiler/runtime acceptance;
+      i686 wide-scalar and remaining expression liveness still need
+      implementation and acceptance.
 - [x] Track destruction for body awaiter objects with per-object frame active
       bytes. Exception and destroy entry now destroy only fully constructed,
       still-live body awaiters in reverse await-plan order, clearing active

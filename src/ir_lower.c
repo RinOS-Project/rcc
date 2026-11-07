@@ -269,6 +269,15 @@ static bool lower_coroutine_count_expression_awaits(
     const Expr* expression, size_t* body_await_count);
 static bool lower_coroutine_expression_contains_await(
     const Expr* expression);
+static bool lower_coroutine_binary_operands(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerValue* left, RccIrLowerValue* right);
+static RccIrLowerValue lower_byte_offset_address(
+    RccIrLowerContext* context, RccIrLowerValue base,
+    uint64_t byte_offset);
+static bool lower_store_address(RccIrLowerContext* context,
+                                RccIrLowerValue address,
+                                RccIrLowerValue value);
 static bool lower_coroutine_emit_final_suspend(
     RccIrLowerContext* context);
 static bool lower_typeof_runtime_evaluations(
@@ -2593,6 +2602,13 @@ static RccIrLowerValue lower_pointer_gep(
     RccIrLowerValue pointer;
     RccIrLowerValue index;
     RccIrLowerWideValue wide_index;
+    const CxxCoroutineLoweringPlan* coroutine_plan = context &&
+            context->declaration
+        ? context->declaration->func_coroutine_lowering_plan : NULL;
+    bool spill_pointer = context && context->coroutine_resume &&
+        lower_coroutine_expression_contains_await(pointer_expression) &&
+        lower_coroutine_expression_contains_await(index_expression);
+    size_t spill_offset = 0u;
     bool evaluate_index_first = context && context->coroutine_resume &&
         !lower_coroutine_expression_contains_await(pointer_expression) &&
         lower_coroutine_expression_contains_await(index_expression);
@@ -2600,7 +2616,46 @@ static RccIrLowerValue lower_pointer_gep(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    if (!evaluate_index_first) {
+    if (spill_pointer) {
+        RccIrLowerValue frame;
+        RccIrLowerValue spill_address;
+        if (!coroutine_plan ||
+            context->coroutine_frame == RCC_IR_VALUE_NONE ||
+            context->coroutine_expression_spill_depth >=
+                coroutine_plan->expression_spill_count ||
+            context->coroutine_expression_spill_depth >
+                (SIZE_MAX - coroutine_plan->expression_spill_offset) /
+                    RIN_CXX_CORO_FRAME_ALIGNMENT) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        spill_offset = coroutine_plan->expression_spill_offset +
+            context->coroutine_expression_spill_depth *
+                RIN_CXX_CORO_FRAME_ALIGNMENT;
+        if (spill_offset > coroutine_plan->expression_spill_offset +
+                coroutine_plan->expression_spill_size ||
+            RIN_CXX_CORO_FRAME_ALIGNMENT >
+                coroutine_plan->expression_spill_offset +
+                    coroutine_plan->expression_spill_size - spill_offset) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        pointer = lower_expression(context, pointer_expression);
+        if (!pointer.valid || pointer.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        frame = lower_value(context->coroutine_frame,
+                            rcc_ir_type_pointer(0u), true);
+        spill_address = lower_byte_offset_address(
+            context, frame, (uint64_t)spill_offset);
+        if (!spill_address.valid ||
+            !lower_store_address(context, spill_address, pointer)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        ++context->coroutine_expression_spill_depth;
+    } else if (!evaluate_index_first) {
         pointer = lower_expression(context, pointer_expression);
         if (!pointer.valid) return lower_invalid_value();
     }
@@ -2611,6 +2666,9 @@ static RccIrLowerValue lower_pointer_gep(
          lower_i686_wide_atomic_scalar_type(index_expression->type))) {
         if (!lower_wide_scalar_expression(
                 context, index_expression, &wide_index)) {
+            if (spill_pointer) {
+                --context->coroutine_expression_spill_depth;
+            }
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -2622,9 +2680,30 @@ static RccIrLowerValue lower_pointer_gep(
     }
     if (evaluate_index_first) {
         pointer = lower_expression(context, pointer_expression);
-        if (!pointer.valid) return lower_invalid_value();
     }
-    if (!index.valid) return lower_invalid_value();
+    if (spill_pointer) {
+        RccIrLowerValue frame;
+        RccIrLowerValue spill_address;
+        RccIrInstruction* pointer_load;
+        --context->coroutine_expression_spill_depth;
+        if (!index.valid) return lower_invalid_value();
+        frame = lower_value(context->coroutine_frame,
+                            rcc_ir_type_pointer(0u), true);
+        spill_address = lower_byte_offset_address(
+            context, frame, (uint64_t)spill_offset);
+        pointer_load = spill_address.valid
+            ? lower_append(context, RCC_IR_LOAD,
+                           rcc_ir_type_pointer(0u),
+                           &spill_address.value, 1u, NULL, 0u)
+            : NULL;
+        if (!pointer_load) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        pointer = lower_value(
+            pointer_load->result, rcc_ir_type_pointer(0u), true);
+    }
+    if (!index.valid || !pointer.valid) return lower_invalid_value();
     return lower_pointer_offset(context, pointer, index,
                                 pointer_expression->type,
                                 subtract_index,
@@ -2688,8 +2767,10 @@ static RccIrLowerValue lower_pointer_difference(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    left = lower_expression(context, expression->binary_lhs);
-    right = lower_expression(context, expression->binary_rhs);
+    if (!lower_coroutine_binary_operands(
+            context, expression, &left, &right)) {
+        return lower_invalid_value();
+    }
     left = lower_cast(context, left, expression->type);
     right = lower_cast(context, right, expression->type);
     if (!left.valid || !right.valid) return lower_invalid_value();
@@ -8783,10 +8864,8 @@ static bool lower_coroutine_binary_operands(
                 plan->expression_spill_count ||
             !lower_coroutine_binary_spill_type_supported(
                 expression->binary_lhs->type) ||
-            expression->type->kind == TYPE_PTR ||
-            (expression->type->kind != TYPE_FLOAT &&
-             expression->type->kind != TYPE_DOUBLE &&
-             !type_is_integer(expression->type)) ||
+            !lower_coroutine_binary_spill_type_supported(
+                expression->type) ||
             context->coroutine_expression_spill_depth >
                 (SIZE_MAX - plan->expression_spill_offset) /
                     RIN_CXX_CORO_FRAME_ALIGNMENT) {
@@ -9220,11 +9299,31 @@ static RccIrLowerValue lower_complex_binary(
     RccIrValue operands[2];
     RccIrInstruction* operation;
     RccIrOpcode opcode;
-    if (!context || !expression || !component_type ||
-        !lower_complex_components(context, expression->binary_lhs,
-                                  component_type, &ar, &ai) ||
-        !lower_complex_components(context, expression->binary_rhs,
-                                  component_type, &br, &bi)) {
+    bool evaluate_right_first = context && context->coroutine_resume &&
+        expression &&
+        !lower_coroutine_expression_contains_await(
+            expression->binary_lhs) &&
+        lower_coroutine_expression_contains_await(
+            expression->binary_rhs);
+    bool operands_valid = false;
+    if (context && expression && component_type) {
+        if (evaluate_right_first) {
+            operands_valid = lower_complex_components(
+                    context, expression->binary_rhs, component_type,
+                    &br, &bi) &&
+                lower_complex_components(
+                    context, expression->binary_lhs, component_type,
+                    &ar, &ai);
+        } else {
+            operands_valid = lower_complex_components(
+                    context, expression->binary_lhs, component_type,
+                    &ar, &ai) &&
+                lower_complex_components(
+                    context, expression->binary_rhs, component_type,
+                    &br, &bi);
+        }
+    }
+    if (!operands_valid) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
@@ -9618,8 +9717,10 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
             context->unsupported = true;
             return lower_invalid_value();
         }
-        left = lower_expression(context, expression->binary_lhs);
-        right = lower_expression(context, expression->binary_rhs);
+        if (!lower_coroutine_binary_operands(
+                context, expression, &left, &right)) {
+            return lower_invalid_value();
+        }
         if (!left.valid || !right.valid) return lower_invalid_value();
         left = lower_cast(context, left, comparison_type);
         right = lower_cast(context, right, comparison_type);
@@ -9657,8 +9758,10 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
         }
         return lower_cast(context, wide_result, expression->type);
     }
-    left = lower_expression(context, expression->binary_lhs);
-    right = lower_expression(context, expression->binary_rhs);
+    if (!lower_coroutine_binary_operands(
+            context, expression, &left, &right)) {
+        return lower_invalid_value();
+    }
     if (!comparison_type || !left.valid || !right.valid) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -36856,6 +36959,39 @@ static bool lower_coroutine_count_expression_awaits(
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return lower_coroutine_count_expression_awaits(
+                       expression->binary_lhs, body_await_count) &&
+                lower_coroutine_count_expression_awaits(
+                    expression->binary_rhs, body_await_count);
+        case EXPR_COMMA:
             return lower_coroutine_count_expression_awaits(
                        expression->binary_lhs, body_await_count) &&
                 lower_coroutine_count_expression_awaits(
@@ -36863,6 +36999,11 @@ static bool lower_coroutine_count_expression_awaits(
         case EXPR_ASSIGN: {
             size_t await_count_before_assignment = *body_await_count;
             const Expr* target = expression->binary_lhs;
+            if (!lower_coroutine_count_expression_awaits(
+                    target, body_await_count) ||
+                *body_await_count != await_count_before_assignment) {
+                return false;
+            }
             if (!lower_coroutine_count_expression_awaits(
                     expression->binary_rhs, body_await_count)) {
                 return false;
@@ -36884,6 +37025,77 @@ static bool lower_coroutine_count_expression_awaits(
         case EXPR_CAST:
             return lower_coroutine_count_expression_awaits(
                 expression->cast_expr, body_await_count);
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return lower_coroutine_count_expression_awaits(
+                expression->unary_operand, body_await_count);
+        case EXPR_COND:
+            return lower_coroutine_count_expression_awaits(
+                       expression->cond_test, body_await_count) &&
+                lower_coroutine_count_expression_awaits(
+                    expression->cond_then, body_await_count) &&
+                lower_coroutine_count_expression_awaits(
+                    expression->cond_else, body_await_count);
+        case EXPR_INDEX:
+            return lower_coroutine_count_expression_awaits(
+                       expression->index_base, body_await_count) &&
+                lower_coroutine_count_expression_awaits(
+                    expression->index_expr, body_await_count);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return lower_coroutine_count_expression_awaits(
+                expression->member_base, body_await_count);
+        case EXPR_CXX_TYPEID:
+            return expression->cxx_typeid_is_type ||
+                lower_coroutine_count_expression_awaits(
+                    expression->cxx_typeid_operand, body_await_count);
+        case EXPR_COMPOUND:
+            for (const ExprList* initializer = expression->compound_init;
+                 initializer; initializer = initializer->next) {
+                if (!lower_coroutine_count_expression_awaits(
+                        initializer->expr, body_await_count)) {
+                    return false;
+                }
+            }
+            for (const ExprList* initializer =
+                     expression->compound_cxx_virtual_base_initializers;
+                 initializer; initializer = initializer->next) {
+                if (!lower_coroutine_count_expression_awaits(
+                        initializer->expr, body_await_count)) {
+                    return false;
+                }
+            }
+            return true;
+        case EXPR_GENERIC:
+            if (!lower_coroutine_count_expression_awaits(
+                    expression->generic_control, body_await_count)) {
+                return false;
+            }
+            for (const GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                if (!lower_coroutine_count_expression_awaits(
+                        association->expr, body_await_count)) {
+                    return false;
+                }
+            }
+            return true;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            return lower_coroutine_count_expression_awaits(
+                       expression->va_list_operand, body_await_count) &&
+                lower_coroutine_count_expression_awaits(
+                    expression->va_second_operand, body_await_count);
         case EXPR_CALL: {
             size_t await_count_before_call = *body_await_count;
             size_t argument_count = 0u;
@@ -36928,43 +37140,187 @@ static bool lower_coroutine_expression_liveness_supported_impl(
         }
         case EXPR_ADD:
         case EXPR_SUB:
-        case EXPR_MUL: {
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE: {
             bool left_has_await =
                 lower_coroutine_expression_contains_await(
                     expression->binary_lhs);
             bool right_has_await =
                 lower_coroutine_expression_contains_await(
                     expression->binary_rhs);
-            if (left_has_await && right_has_await &&
-                (!expression->type ||
-                 expression->type->kind == TYPE_PTR ||
-                 (expression->binary_lhs &&
-                  expression->binary_lhs->type &&
-                  (expression->binary_lhs->type->kind == TYPE_PTR ||
-                   expression->binary_lhs->type->kind == TYPE_ARRAY)) ||
-                 (expression->binary_rhs &&
-                  expression->binary_rhs->type &&
-                  (expression->binary_rhs->type->kind == TYPE_PTR ||
-                   expression->binary_rhs->type->kind == TYPE_ARRAY)) ||
-                 (expression->type->kind != TYPE_FLOAT &&
-                  expression->type->kind != TYPE_DOUBLE &&
-                  !type_is_integer(expression->type)) ||
-                 !lower_coroutine_binary_spill_type_supported(
-                     expression->binary_lhs
-                         ? expression->binary_lhs->type : NULL))) {
-                return false;
+            if (left_has_await && right_has_await) {
+                const Type* result_type = expression->type;
+                const Type* left_type = expression->binary_lhs
+                    ? expression->binary_lhs->type : NULL;
+                const Type* right_type = expression->binary_rhs
+                    ? expression->binary_rhs->type : NULL;
+                bool left_pointer_like = left_type &&
+                    (left_type->kind == TYPE_PTR ||
+                     left_type->kind == TYPE_ARRAY);
+                bool right_pointer_like = right_type &&
+                    (right_type->kind == TYPE_PTR ||
+                     right_type->kind == TYPE_ARRAY);
+                bool pointer_result = result_type &&
+                    result_type->kind == TYPE_PTR &&
+                    (expression->kind == EXPR_ADD ||
+                     expression->kind == EXPR_SUB);
+                bool pointer_difference = expression->kind == EXPR_SUB &&
+                    type_is_integer((Type*)result_type) &&
+                    left_type && right_type &&
+                    left_type->kind == TYPE_PTR &&
+                    right_type->kind == TYPE_PTR;
+                bool scalar_operation = result_type &&
+                    result_type->kind != TYPE_PTR &&
+                    (result_type->kind == TYPE_FLOAT ||
+                     result_type->kind == TYPE_DOUBLE ||
+                     type_is_integer((Type*)result_type));
+                bool pointer_add_operands = pointer_result &&
+                    ((left_pointer_like &&
+                      type_is_integer((Type*)right_type)) ||
+                     (expression->kind == EXPR_ADD && right_pointer_like &&
+                      type_is_integer((Type*)left_type)));
+                bool operands_supported = pointer_add_operands
+                    ? (type_is_integer((Type*)left_type) ||
+                       left_pointer_like) &&
+                          (type_is_integer((Type*)right_type) ||
+                           right_pointer_like)
+                    : lower_coroutine_binary_spill_type_supported(left_type) &&
+                          lower_coroutine_binary_spill_type_supported(
+                              right_type);
+                if ((!pointer_add_operands && !pointer_difference &&
+                     !scalar_operation) || !operands_supported ||
+                    !lower_coroutine_binary_spill_type_supported(
+                        result_type) ||
+                    (g_opts.target_arch != ARCH_X64 &&
+                     (lower_i686_wide_scalar_type(left_type) ||
+                      lower_i686_wide_scalar_type(right_type) ||
+                      lower_i686_wide_scalar_type(result_type)))) {
+                    return false;
+                }
             }
             return lower_coroutine_expression_liveness_supported_impl(
                        expression->binary_lhs, contains_multiple_awaits) &&
                 lower_coroutine_expression_liveness_supported_impl(
                     expression->binary_rhs, contains_multiple_awaits);
         }
+        case EXPR_SPACESHIP:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+        case EXPR_CXX_TYPEID:
+        case EXPR_COMPOUND:
+        case EXPR_GENERIC:
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            return !lower_coroutine_expression_contains_await(expression);
         case EXPR_ASSIGN:
             return lower_coroutine_expression_liveness_supported_impl(
                 expression->binary_rhs, contains_multiple_awaits);
         case EXPR_CAST:
             return lower_coroutine_expression_liveness_supported_impl(
                 expression->cast_expr, contains_multiple_awaits);
+        case EXPR_COMMA:
+            return lower_coroutine_expression_liveness_supported_impl(
+                       expression->binary_lhs, contains_multiple_awaits) &&
+                lower_coroutine_expression_liveness_supported_impl(
+                    expression->binary_rhs, contains_multiple_awaits);
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return lower_coroutine_expression_liveness_supported_impl(
+                expression->unary_operand, contains_multiple_awaits);
+        case EXPR_INDEX: {
+            const Expr* pointer_expression = expression->index_base;
+            const Expr* index_expression = expression->index_expr;
+            const Type* pointer_type = pointer_expression
+                ? pointer_expression->type : NULL;
+            const Type* index_type = index_expression
+                ? index_expression->type : NULL;
+            if (!lower_coroutine_expression_contains_await(expression)) {
+                return true;
+            }
+            if (pointer_type && pointer_type->kind != TYPE_PTR &&
+                index_type && index_type->kind == TYPE_PTR) {
+                pointer_expression = expression->index_expr;
+                index_expression = expression->index_base;
+                pointer_type = pointer_expression
+                    ? pointer_expression->type : NULL;
+                index_type = index_expression
+                    ? index_expression->type : NULL;
+            }
+            if (!pointer_type || !index_type ||
+                (pointer_type->kind != TYPE_PTR &&
+                 pointer_type->kind != TYPE_ARRAY) ||
+                !type_is_integer((Type*)index_type) ||
+                (g_opts.target_arch != ARCH_X64 &&
+                 lower_i686_wide_scalar_type((Type*)index_type) &&
+                 lower_coroutine_expression_contains_await(
+                     index_expression))) {
+                return false;
+            }
+            return lower_coroutine_expression_liveness_supported_impl(
+                       pointer_expression, contains_multiple_awaits) &&
+                lower_coroutine_expression_liveness_supported_impl(
+                    index_expression, contains_multiple_awaits);
+        }
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return lower_coroutine_expression_liveness_supported_impl(
+                expression->member_base, contains_multiple_awaits);
+        case EXPR_COND:
+            if (lower_coroutine_expression_contains_await(expression) &&
+                (!expression->type ||
+                 !lower_coroutine_binary_spill_type_supported(
+                     expression->type))) {
+                return false;
+            }
+            return lower_coroutine_expression_liveness_supported_impl(
+                       expression->cond_test, contains_multiple_awaits) &&
+                lower_coroutine_expression_liveness_supported_impl(
+                    expression->cond_then, contains_multiple_awaits) &&
+                lower_coroutine_expression_liveness_supported_impl(
+                    expression->cond_else, contains_multiple_awaits);
+        case EXPR_AND:
+        case EXPR_OR:
+            if (lower_coroutine_expression_contains_await(expression) &&
+                (!expression->type ||
+                 !type_is_integer(expression->type))) {
+                return false;
+            }
+            return lower_coroutine_expression_liveness_supported_impl(
+                       expression->binary_lhs, contains_multiple_awaits) &&
+                lower_coroutine_expression_liveness_supported_impl(
+                    expression->binary_rhs, contains_multiple_awaits);
         case EXPR_CALL:
             if (!lower_coroutine_expression_liveness_supported_impl(
                     expression->call_func, contains_multiple_awaits)) {
@@ -37000,6 +37356,24 @@ static bool lower_coroutine_expression_nothrow_around_await(
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            return lower_coroutine_expression_nothrow_around_await(
+                       expression->binary_lhs) &&
+                lower_coroutine_expression_nothrow_around_await(
+                    expression->binary_rhs);
+        case EXPR_COMMA:
             return lower_coroutine_expression_nothrow_around_await(
                        expression->binary_lhs) &&
                 lower_coroutine_expression_nothrow_around_await(
@@ -37008,9 +37382,43 @@ static bool lower_coroutine_expression_nothrow_around_await(
             return lower_noexcept_expression(expression->binary_lhs) &&
                 lower_coroutine_expression_nothrow_around_await(
                     expression->binary_rhs);
+        case EXPR_COND:
+            return lower_coroutine_expression_nothrow_around_await(
+                       expression->cond_test) &&
+                lower_coroutine_expression_nothrow_around_await(
+                    expression->cond_then) &&
+                lower_coroutine_expression_nothrow_around_await(
+                    expression->cond_else);
+        case EXPR_AND:
+        case EXPR_OR:
+            return lower_coroutine_expression_nothrow_around_await(
+                       expression->binary_lhs) &&
+                lower_coroutine_expression_nothrow_around_await(
+                    expression->binary_rhs);
+        case EXPR_INDEX:
+            return lower_coroutine_expression_nothrow_around_await(
+                       expression->index_base) &&
+                lower_coroutine_expression_nothrow_around_await(
+                    expression->index_expr);
         case EXPR_CAST:
             return lower_coroutine_expression_nothrow_around_await(
                 expression->cast_expr);
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return lower_coroutine_expression_nothrow_around_await(
+                expression->unary_operand);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return lower_coroutine_expression_nothrow_around_await(
+                expression->member_base);
         case EXPR_CALL:
             if (!expression->cxx_call_is_noexcept ||
                 !lower_noexcept_expression(expression->call_func)) {
