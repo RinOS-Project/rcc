@@ -264,7 +264,8 @@ static const Type* lower_cxx_member_object_type(const Expr* expression);
 static RccIrLowerValue lower_expression_impl(
     RccIrLowerContext* context, const Expr* expression);
 static RccIrLowerValue lower_coroutine_await_expression(
-    RccIrLowerContext* context, const Expr* expression);
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* wide_result);
 static bool lower_coroutine_count_expression_awaits(
     const Expr* expression, size_t* body_await_count);
 static bool lower_coroutine_expression_contains_await(
@@ -272,6 +273,7 @@ static bool lower_coroutine_expression_contains_await(
 static bool lower_coroutine_binary_operands(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerValue* left, RccIrLowerValue* right);
+static bool lower_coroutine_binary_spill_type_supported(const Type* type);
 static RccIrLowerValue lower_byte_offset_address(
     RccIrLowerContext* context, RccIrLowerValue base,
     uint64_t byte_offset);
@@ -301,6 +303,9 @@ static ExprKind lower_compound_binary_kind(ExprKind kind);
 static bool lower_wide_scalar_expression(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result);
+static bool lower_coroutine_wide_binary_operands(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* left, RccIrLowerWideValue* right);
 static RccIrLowerValue lower_wide_scalar_truth(
     RccIrLowerContext* context, RccIrLowerWideValue value);
 static bool lower_wide_scalar_conditional_expression(
@@ -8178,6 +8183,13 @@ static bool lower_wide_scalar_expression_impl(
         lower_i686_wide_scalar_type(expression->type)) {
         return lower_i686_va_arg_wide(context, expression, result);
     }
+    if (expression->kind == EXPR_CXX_CO_AWAIT &&
+        context->coroutine_resume &&
+        lower_i686_wide_scalar_type(expression->type)) {
+        (void)lower_coroutine_await_expression(
+            context, expression, result);
+        return !context->unsupported && result->valid;
+    }
     if (lower_wide_scalar_constant(context, expression, result)) return true;
     if (expression->kind == EXPR_CALL && expression->call_method &&
         lower_i686_wide_scalar_type(expression->type) &&
@@ -8276,6 +8288,9 @@ static bool lower_wide_scalar_expression_impl(
          lower_i686_wide_atomic_scalar_type(
              expression->binary_lhs->type))) {
         RccIrLowerWideValue value;
+        bool evaluate_rhs_first = context->coroutine_resume &&
+            lower_coroutine_expression_contains_await(
+                expression->binary_rhs);
         if (lower_i686_wide_scalar_type(expression->binary_lhs->type) &&
             expression->binary_lhs->kind == EXPR_IDENT &&
             expression->binary_lhs->ident_decl) {
@@ -8293,9 +8308,22 @@ static bool lower_wide_scalar_expression_impl(
                 return true;
             }
         }
-        address = lower_lvalue_address(context, expression->binary_lhs);
-        if (!lower_wide_scalar_expression(
-                context, expression->binary_rhs, &value) ||
+        if (evaluate_rhs_first) {
+            if (!lower_wide_scalar_expression(
+                    context, expression->binary_rhs, &value)) {
+                return false;
+            }
+            address = lower_lvalue_address(
+                context, expression->binary_lhs);
+        } else {
+            address = lower_lvalue_address(
+                context, expression->binary_lhs);
+            if (!lower_wide_scalar_expression(
+                    context, expression->binary_rhs, &value)) {
+                return false;
+            }
+        }
+        if (!address.valid ||
             (lower_i686_wide_atomic_scalar_type(
                  expression->binary_lhs->type)
                  ? !lower_i686_wide_atomic_scalar_store(
@@ -8621,19 +8649,15 @@ static bool lower_wide_scalar_expression_impl(
     }
     if (expression->kind == EXPR_MUL &&
         lower_i686_wide_scalar_expression_type(expression) &&
-        lower_wide_scalar_expression(
-            context, expression->binary_lhs, &left) &&
-        lower_wide_scalar_expression(
-            context, expression->binary_rhs, &right)) {
+        lower_coroutine_wide_binary_operands(
+            context, expression, &left, &right)) {
         return lower_wide_scalar_multiply(
             context, left, right, expression->type->is_unsigned, result);
     }
     if ((expression->kind == EXPR_DIV || expression->kind == EXPR_MOD) &&
         lower_i686_wide_scalar_expression_type(expression) &&
-        lower_wide_scalar_expression(
-            context, expression->binary_lhs, &left) &&
-        lower_wide_scalar_expression(
-            context, expression->binary_rhs, &right)) {
+        lower_coroutine_wide_binary_operands(
+            context, expression, &left, &right)) {
         return lower_wide_scalar_divmod(
             context, expression->kind, left, right,
             expression->type->is_unsigned, result);
@@ -8642,10 +8666,8 @@ static bool lower_wide_scalar_expression_impl(
          expression->kind == EXPR_BITAND || expression->kind == EXPR_BITOR ||
          expression->kind == EXPR_BITXOR) &&
         lower_i686_wide_scalar_expression_type(expression) &&
-        lower_wide_scalar_expression(
-            context, expression->binary_lhs, &left) &&
-        lower_wide_scalar_expression(
-            context, expression->binary_rhs, &right)) {
+        lower_coroutine_wide_binary_operands(
+            context, expression, &left, &right)) {
         return lower_wide_scalar_binary(
             context, expression->kind, left, right,
             expression->type->is_unsigned, result);
@@ -8653,10 +8675,8 @@ static bool lower_wide_scalar_expression_impl(
     if ((expression->kind == EXPR_LSHIFT ||
          expression->kind == EXPR_RSHIFT) &&
         lower_i686_wide_scalar_expression_type(expression) &&
-        lower_wide_scalar_expression(
-            context, expression->binary_lhs, &left) &&
-        lower_wide_scalar_expression(
-            context, expression->binary_rhs, &right)) {
+        lower_coroutine_wide_binary_operands(
+            context, expression, &left, &right)) {
         return lower_wide_scalar_shift(
             context, expression->kind, left, right.low,
             expression->type->is_unsigned, result);
@@ -8799,6 +8819,96 @@ cleanup:
     return success;
 }
 
+static bool lower_coroutine_wide_binary_operands(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* left, RccIrLowerWideValue* right) {
+    bool left_has_await;
+    bool right_has_await;
+    if (!context || !expression || !left || !right ||
+        !expression->binary_lhs || !expression->binary_rhs) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    left_has_await = context->coroutine_resume &&
+        lower_coroutine_expression_contains_await(expression->binary_lhs);
+    right_has_await = context->coroutine_resume &&
+        lower_coroutine_expression_contains_await(expression->binary_rhs);
+    if (left_has_await && right_has_await) {
+        const CxxCoroutineLoweringPlan* plan = context->declaration
+            ? context->declaration->func_coroutine_lowering_plan : NULL;
+        RccIrLowerValue frame;
+        RccIrLowerValue spill_address;
+        size_t spill_base;
+        size_t spill_end;
+        size_t spill_offset;
+        if (!plan || context->coroutine_frame == RCC_IR_VALUE_NONE ||
+            context->coroutine_expression_spill_depth >=
+                plan->expression_spill_count ||
+            !lower_coroutine_binary_spill_type_supported(
+                expression->binary_lhs->type) ||
+            plan->expression_spill_size >
+                SIZE_MAX - plan->expression_spill_offset ||
+            context->coroutine_expression_spill_depth >
+                (SIZE_MAX - plan->expression_spill_offset) /
+                    RIN_CXX_CORO_FRAME_ALIGNMENT) {
+            context->unsupported = true;
+            return false;
+        }
+        spill_base = plan->expression_spill_offset;
+        spill_end = spill_base + plan->expression_spill_size;
+        spill_offset = spill_base +
+            context->coroutine_expression_spill_depth *
+                RIN_CXX_CORO_FRAME_ALIGNMENT;
+        if (spill_offset > spill_end ||
+            RIN_CXX_CORO_FRAME_ALIGNMENT > spill_end - spill_offset) {
+            context->unsupported = true;
+            return false;
+        }
+        if (!lower_wide_scalar_expression(
+                context, expression->binary_lhs, left)) {
+            return false;
+        }
+        frame = lower_value(context->coroutine_frame,
+                            rcc_ir_type_pointer(0u), true);
+        spill_address = lower_byte_offset_address(
+            context, frame, (uint64_t)spill_offset);
+        if (!spill_address.valid ||
+            !lower_wide_scalar_store(context, spill_address, *left)) {
+            context->unsupported = true;
+            return false;
+        }
+        ++context->coroutine_expression_spill_depth;
+        if (!lower_wide_scalar_expression(
+                context, expression->binary_rhs, right)) {
+            --context->coroutine_expression_spill_depth;
+            return false;
+        }
+        --context->coroutine_expression_spill_depth;
+        frame = lower_value(context->coroutine_frame,
+                            rcc_ir_type_pointer(0u), true);
+        spill_address = lower_byte_offset_address(
+            context, frame, (uint64_t)spill_offset);
+        if (!spill_address.valid ||
+            !lower_wide_scalar_load(
+                context, spill_address,
+                expression->binary_lhs->type->is_unsigned, left)) {
+            context->unsupported = true;
+            return false;
+        }
+        return left->valid && right->valid;
+    }
+    if (!left_has_await && right_has_await) {
+        return lower_wide_scalar_expression(
+                   context, expression->binary_rhs, right) &&
+            lower_wide_scalar_expression(
+                context, expression->binary_lhs, left);
+    }
+    return lower_wide_scalar_expression(
+               context, expression->binary_lhs, left) &&
+        lower_wide_scalar_expression(
+            context, expression->binary_rhs, right);
+}
+
 static RccIrOpcode lower_binary_opcode(ExprKind kind, bool is_unsigned) {
     switch (kind) {
         case EXPR_ADD: return RCC_IR_ADD;
@@ -8828,6 +8938,7 @@ static RccIrOpcode lower_float_binary_opcode(ExprKind kind) {
 static bool lower_coroutine_binary_spill_type_supported(const Type* type) {
     if (!type || type->size <= 0 ||
         type->size > (int)RIN_CXX_CORO_FRAME_ALIGNMENT ||
+        type_is_cxx_member_function_pointer(type) ||
         type->is_reference || type->is_volatile || type->is_atomic) {
         return false;
     }
@@ -9576,8 +9687,10 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            left_pointer = lower_expression(context, expression->binary_lhs);
-            right_pointer = lower_expression(context, expression->binary_rhs);
+            if (!lower_coroutine_binary_operands(
+                    context, expression, &left_pointer, &right_pointer)) {
+                return lower_invalid_value();
+            }
             if (!left_pointer.valid || !right_pointer.valid ||
                 left_pointer.type.kind != RCC_IR_TYPE_POINTER ||
                 right_pointer.type.kind != RCC_IR_TYPE_POINTER) {
@@ -9639,8 +9752,10 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
         }
     }
     if (typeinfo_equality) {
-        left = lower_expression(context, expression->binary_lhs);
-        right = lower_expression(context, expression->binary_rhs);
+        if (!lower_coroutine_binary_operands(
+                context, expression, &left, &right)) {
+            return lower_invalid_value();
+        }
         if (!left.valid || !right.valid ||
             left.type.kind != RCC_IR_TYPE_POINTER ||
             right.type.kind != RCC_IR_TYPE_POINTER) {
@@ -9669,14 +9784,29 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
             context->unsupported = true;
             return lower_invalid_value();
         }
-        if (!lower_complex_components(
-                context, expression->binary_lhs,
-                comparison_type->complex_component_type,
-                &left_real, &left_imaginary) ||
-            !lower_complex_components(
-                context, expression->binary_rhs,
-                comparison_type->complex_component_type,
-                &right_real, &right_imaginary)) {
+        bool evaluate_right_first = context->coroutine_resume &&
+            !lower_coroutine_expression_contains_await(
+                expression->binary_lhs) &&
+            lower_coroutine_expression_contains_await(
+                expression->binary_rhs);
+        bool components_valid = evaluate_right_first
+            ? lower_complex_components(
+                  context, expression->binary_rhs,
+                  comparison_type->complex_component_type,
+                  &right_real, &right_imaginary) &&
+                  lower_complex_components(
+                      context, expression->binary_lhs,
+                      comparison_type->complex_component_type,
+                      &left_real, &left_imaginary)
+            : lower_complex_components(
+                  context, expression->binary_lhs,
+                  comparison_type->complex_component_type,
+                  &left_real, &left_imaginary) &&
+                  lower_complex_components(
+                      context, expression->binary_rhs,
+                      comparison_type->complex_component_type,
+                      &right_real, &right_imaginary);
+        if (!components_valid) {
             return lower_invalid_value();
         }
         operands[0] = left_real.value;
@@ -9745,10 +9875,8 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
         RccIrLowerWideValue wide_left;
         RccIrLowerWideValue wide_right;
         RccIrLowerValue wide_result;
-        if (!lower_wide_scalar_expression(
-                context, expression->binary_lhs, &wide_left) ||
-            !lower_wide_scalar_expression(
-                context, expression->binary_rhs, &wide_right) ||
+        if (!lower_coroutine_wide_binary_operands(
+                context, expression, &wide_left, &wide_right) ||
             !lower_wide_scalar_compare(
                 context, expression->kind, wide_left, wide_right,
                 comparison_type->is_unsigned, &wide_result) ||
@@ -20131,7 +20259,7 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             if (context->coroutine_resume &&
                 expression->kind == EXPR_CXX_CO_AWAIT) {
                 return lower_coroutine_await_expression(
-                    context, expression);
+                    context, expression, NULL);
             }
             rcc_error(expression->loc,
                       "coroutine expression reached IR lowering before coroutine transformation");
@@ -36831,7 +36959,8 @@ static bool lower_coroutine_emit_final_suspend(
 }
 
 static RccIrLowerValue lower_coroutine_await_expression(
-    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* wide_result) {
     const CxxCoroutineAwaitPlan* await_plan = expression
         ? expression->cxx_coroutine_await_plan : NULL;
     RccIrLowerCoroutineContinuation* continuation;
@@ -36929,7 +37058,17 @@ static RccIrLowerValue lower_coroutine_await_expression(
     context->terminated = true;
     context->current = continuation->block;
     context->terminated = false;
-    result = lower_expression(context, await_plan->await_resume_call);
+    if (wide_result) {
+        if (!lower_i686_wide_scalar_type(expression->type) ||
+            !lower_wide_scalar_expression(
+                context, await_plan->await_resume_call, wide_result)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        result = lower_invalid_value();
+    } else {
+        result = lower_expression(context, await_plan->await_resume_call);
+    }
     if (context->unsupported ||
         !lower_coroutine_set_state(context, UINT32_MAX)) {
         context->unsupported = true;
@@ -36953,7 +37092,8 @@ static bool lower_coroutine_count_expression_awaits(
             return false;
         }
         ++*body_await_count;
-        return true;
+        return lower_coroutine_count_expression_awaits(
+            expression->unary_operand, body_await_count);
     }
     switch (expression->kind) {
         case EXPR_ADD:
@@ -37136,7 +37276,9 @@ static bool lower_coroutine_expression_liveness_supported_impl(
             return await_plan &&
                 (!contains_multiple_awaits ||
                  lower_noexcept_expression(
-                     await_plan->awaiter_initializer));
+                     await_plan->awaiter_initializer)) &&
+                lower_coroutine_expression_liveness_supported_impl(
+                    expression->unary_operand, contains_multiple_awaits);
         }
         case EXPR_ADD:
         case EXPR_SUB:
@@ -37202,11 +37344,7 @@ static bool lower_coroutine_expression_liveness_supported_impl(
                 if ((!pointer_add_operands && !pointer_difference &&
                      !scalar_operation) || !operands_supported ||
                     !lower_coroutine_binary_spill_type_supported(
-                        result_type) ||
-                    (g_opts.target_arch != ARCH_X64 &&
-                     (lower_i686_wide_scalar_type(left_type) ||
-                      lower_i686_wide_scalar_type(right_type) ||
-                      lower_i686_wide_scalar_type(result_type)))) {
+                        result_type)) {
                     return false;
                 }
             }
