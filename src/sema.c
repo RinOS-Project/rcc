@@ -727,6 +727,8 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration);
 static Expr* sema_cxx_coroutine_promise_call(
     Decl* declaration, const char* method_name, ExprList* arguments,
     SourceLoc loc);
+static bool sema_cxx_coroutine_class_has_member_name(
+    Type* aggregate, const char* name);
 static Type* sema_expr_impl(Expr* expr);
 static Type* sema_resolve_typeof_type(Type* type);
 static bool sema_cxx_is_untyped_braced_initializer(const Expr* expression);
@@ -31928,7 +31930,20 @@ static Type* sema_expr_impl(Expr* expr) {
                     break;
                 }
             }
-            sema_expr(expr->unary_operand);
+            (void)sema_expr(expr->unary_operand);
+            if (!is_yield && current_cxx_function_decl &&
+                current_cxx_function_decl->func_coroutine_promise_type &&
+                sema_cxx_coroutine_class_has_member_name(
+                    current_cxx_function_decl->func_coroutine_promise_type,
+                    "await_transform")) {
+                Expr* transform_call = sema_cxx_coroutine_promise_call(
+                    current_cxx_function_decl, "await_transform",
+                    exprlist_new(expr->unary_operand), expr->loc);
+                if (transform_call) {
+                    (void)sema_expr(transform_call);
+                    expr->unary_operand = transform_call;
+                }
+            }
             if (!current_cxx_function_decl ||
                 !current_cxx_function_decl
                      ->func_coroutine_promise_lookup_attempted ||
@@ -40695,6 +40710,23 @@ static Expr* sema_cxx_coroutine_promise_call(
     object->ident_decl = promise_object;
     member = expr_member(object, method_name, loc);
     return expr_call(member, arguments, loc);
+}
+
+static bool sema_cxx_coroutine_class_has_member_name(
+    Type* aggregate, const char* name) {
+    if (!aggregate || !aggregate->cxx_class || !name) return false;
+    if (sema_cxx_member_lookup_ambiguous(aggregate, name)) return true;
+    for (TypeField* field = aggregate->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) return true;
+    }
+    for (TypeMethod* method = sema_cxx_member_overload_list(aggregate);
+         method; method = method->next) {
+        if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
+            method->name && strcmp(method->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
