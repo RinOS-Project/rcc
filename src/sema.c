@@ -40536,6 +40536,53 @@ static void sema_validate_cxx_operator_co_await(Decl* declaration) {
     }
 }
 
+static bool sema_validate_cxx_coroutine_eligibility(Decl* declaration) {
+    const char* leaf_name;
+    CxxNamespace* global_namespace;
+    bool valid = true;
+
+    if (!declaration || declaration->kind != DECL_FUNC ||
+        !declaration->type || declaration->type->kind != TYPE_FUNC) {
+        return false;
+    }
+    if (!rcc_parser_is_cxx_mode() ||
+        !rcc_parser_cxx_standard_at_least(20)) {
+        rcc_error(declaration->loc,
+                  "coroutine syntax requires C++20 mode");
+        return false;
+    }
+    if (declaration->func_is_constexpr || declaration->func_is_consteval) {
+        rcc_error(declaration->loc,
+                  "a constexpr or consteval function cannot be a coroutine");
+        valid = false;
+    }
+    if (declaration->func_is_cxx_constructor) {
+        rcc_error(declaration->loc,
+                  "a constructor cannot be a coroutine");
+        valid = false;
+    }
+    if (declaration->func_is_cxx_destructor) {
+        rcc_error(declaration->loc,
+                  "a destructor cannot be a coroutine");
+        valid = false;
+    }
+    if (declaration->func_has_explicit_variadic_ellipsis) {
+        rcc_error(declaration->loc,
+                  "a coroutine cannot have a C-style variadic parameter");
+        valid = false;
+    }
+    leaf_name = sema_cxx_decl_leaf_name(declaration->name);
+    global_namespace = sema_cxx_global_namespace();
+    if (!declaration->func_method_owner && leaf_name &&
+        strcmp(leaf_name, "main") == 0 && global_namespace &&
+        declaration->func_cxx_namespace_scope == global_namespace) {
+        rcc_error(declaration->loc,
+                  "the global main function cannot be a coroutine");
+        valid = false;
+    }
+    return valid;
+}
+
 static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
     Type* return_type;
     Type* promise_type = NULL;
@@ -40547,6 +40594,7 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
         !declaration->type || declaration->type->kind != TYPE_FUNC) {
         return;
     }
+    if (!sema_validate_cxx_coroutine_eligibility(declaration)) return;
     return_type = declaration->type->ret_type;
     if (!return_type || return_type->cxx_dependent) return;
     if (declaration->func_method_owner &&
@@ -40560,12 +40608,6 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
             parameter->decl->type->cxx_dependent) {
             return;
         }
-    }
-    if (!rcc_parser_is_cxx_mode() ||
-        !rcc_parser_cxx_standard_at_least(20)) {
-        rcc_error(declaration->loc,
-                  "coroutine syntax requires C++20 mode");
-        return;
     }
 #if defined(__GNUC__) || defined(__clang__)
     if (rcc_parser_cxx_resolve_coroutine_traits) {
