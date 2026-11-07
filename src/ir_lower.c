@@ -8819,6 +8819,14 @@ static bool lower_coroutine_binary_operands(
         *right = lower_expression(context, expression->binary_rhs);
         --context->coroutine_expression_spill_depth;
         if (!right->valid) return false;
+        frame = lower_value(context->coroutine_frame,
+                            rcc_ir_type_pointer(0u), true);
+        spill_address = lower_byte_offset_address(
+            context, frame, (uint64_t)spill_offset);
+        if (!spill_address.valid) {
+            context->unsupported = true;
+            return false;
+        }
         *left = lower_load_address(
             context, spill_address, expression->binary_lhs->type);
         return left->valid;
@@ -36657,10 +36665,18 @@ static RccIrLowerValue lower_coroutine_await_expression(
         !await_plan->await_suspend_call->type ||
         (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
          await_plan->await_suspend_call->type->kind != TYPE_BOOL &&
-         !await_plan->await_suspend_returns_handle) ||
+         !await_plan->await_suspend_returns_handle)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    /* The prior awaiter's lifetime ends before this awaiter is initialized.
+     * Keep the frame state inactive until initialization completes so a
+     * throwing constructor unwinds its completed subobjects without treating
+     * the not-yet-live complete awaiter as constructed. */
+    if (!lower_coroutine_set_state(context, UINT32_MAX) ||
         !lower_coroutine_initialize_awaiter(
             context, context->declaration, await_plan, NULL, 0u)) {
-        if (context) context->unsupported = true;
+        context->unsupported = true;
         return lower_invalid_value();
     }
     for (continuation = context->coroutine_continuations;
@@ -36815,12 +36831,18 @@ static bool lower_coroutine_count_expression_awaits(
     }
 }
 
-static bool lower_coroutine_expression_liveness_supported(
-    const Expr* expression) {
+static bool lower_coroutine_expression_liveness_supported_impl(
+    const Expr* expression, bool contains_multiple_awaits) {
     if (!expression) return true;
     switch (expression->kind) {
-        case EXPR_CXX_CO_AWAIT:
-            return true;
+        case EXPR_CXX_CO_AWAIT: {
+            const CxxCoroutineAwaitPlan* await_plan =
+                expression->cxx_coroutine_await_plan;
+            return await_plan &&
+                (!contains_multiple_awaits ||
+                 lower_noexcept_expression(
+                     await_plan->awaiter_initializer));
+        }
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL: {
@@ -36849,26 +36871,26 @@ static bool lower_coroutine_expression_liveness_supported(
                          ? expression->binary_lhs->type : NULL))) {
                 return false;
             }
-            return lower_coroutine_expression_liveness_supported(
-                       expression->binary_lhs) &&
-                lower_coroutine_expression_liveness_supported(
-                    expression->binary_rhs);
+            return lower_coroutine_expression_liveness_supported_impl(
+                       expression->binary_lhs, contains_multiple_awaits) &&
+                lower_coroutine_expression_liveness_supported_impl(
+                    expression->binary_rhs, contains_multiple_awaits);
         }
         case EXPR_ASSIGN:
-            return lower_coroutine_expression_liveness_supported(
-                expression->binary_rhs);
+            return lower_coroutine_expression_liveness_supported_impl(
+                expression->binary_rhs, contains_multiple_awaits);
         case EXPR_CAST:
-            return lower_coroutine_expression_liveness_supported(
-                expression->cast_expr);
+            return lower_coroutine_expression_liveness_supported_impl(
+                expression->cast_expr, contains_multiple_awaits);
         case EXPR_CALL:
-            if (!lower_coroutine_expression_liveness_supported(
-                    expression->call_func)) {
+            if (!lower_coroutine_expression_liveness_supported_impl(
+                    expression->call_func, contains_multiple_awaits)) {
                 return false;
             }
             for (const ExprList* argument = expression->call_args;
                  argument; argument = argument->next) {
-                if (!lower_coroutine_expression_liveness_supported(
-                        argument->expr)) {
+                if (!lower_coroutine_expression_liveness_supported_impl(
+                        argument->expr, contains_multiple_awaits)) {
                     return false;
                 }
             }
@@ -36876,6 +36898,15 @@ static bool lower_coroutine_expression_liveness_supported(
         default:
             return true;
     }
+}
+
+static bool lower_coroutine_expression_liveness_supported(
+    const Expr* expression) {
+    size_t await_count = 0u;
+    return lower_coroutine_count_expression_awaits(
+               expression, &await_count) &&
+        lower_coroutine_expression_liveness_supported_impl(
+            expression, await_count > 1u);
 }
 
 static bool lower_coroutine_expression_nothrow_around_await(
@@ -37134,7 +37165,7 @@ static bool lower_coroutine_body_supported(
              (lower_coroutine_expression_liveness_supported(
                   statement->expr) &&
               lower_coroutine_expression_nothrow_around_await(
-                  statement->expr))) {
+                  statement->expr)))) {
             return true;
         }
         *body_await_count = await_count_before_expression;
@@ -37180,14 +37211,12 @@ static bool lower_coroutine_minimal_body_supported(
     return true;
 }
 
-static bool lower_coroutine_awaiter_initializer_nothrow(
+static bool lower_coroutine_awaiter_initializer_supported(
     const CxxCoroutineAwaitPlan* await_plan) {
     const Expr* initializer = await_plan
         ? await_plan->awaiter_initializer : NULL;
     return lower_noexcept_expression(initializer) ||
-        (initializer &&
-         lower_cleanup_initializer_supported(initializer) &&
-         !lower_cleanup_initializer_may_throw(initializer));
+        lower_cleanup_initializer_supported(initializer);
 }
 
 static bool lower_coroutine_awaiter_materialization_supported(
@@ -37212,8 +37241,7 @@ static bool lower_coroutine_awaiter_materialization_supported(
     return prvalue_aggregate &&
         (initializer->kind == EXPR_COMPOUND ||
          initializer->kind == EXPR_CALL) &&
-        lower_cleanup_initializer_supported(initializer) &&
-        !lower_cleanup_initializer_may_throw(initializer);
+        lower_cleanup_initializer_supported(initializer);
 }
 
 static bool lower_coroutine_minimal_function_supported(
@@ -37343,7 +37371,7 @@ static bool lower_coroutine_minimal_function_supported(
              (await_plan->await_suspend_call->type->kind != TYPE_STRUCT ||
               await_plan->await_suspend_call->type->size !=
                   (g_opts.target_arch == ARCH_X64 ? 8 : 4))) ||
-            !lower_coroutine_awaiter_initializer_nothrow(await_plan) ||
+            !lower_coroutine_awaiter_initializer_supported(await_plan) ||
             (!body_await_plan &&
              (!lower_noexcept_expression(
                   await_plan->await_ready_condition) ||

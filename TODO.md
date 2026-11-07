@@ -15275,6 +15275,11 @@ Continue in this order:
       destroyed after suspension, and exceptions from `await_ready`,
       `await_suspend`, and `await_resume`. Its i686/x86-64 `-O0`/`-O2` verified
       matrix emits 35 functions with zero fallback.
+      Cleanup-safe direct-call and aggregate-constructor awaiter initializers may
+      now throw into the resume exception frame. Frame state remains inactive
+      until construction succeeds, so only completed subobjects unwind. A
+      multi-await full-expression still requires non-throwing initializers while
+      earlier awaiters remain live.
       Source lowering now reserves one aligned frame spill slot per body await
       and uses those slots to preserve scalar arithmetic operands across nested
       or multiple awaits. General pointer, wide-scalar, and other expression
@@ -15282,8 +15287,9 @@ Continue in this order:
 - [ ] Execute the coroutine exception paths against the RinOS runtime, checking
       `unhandled_exception()`, caught values, exception payload destruction,
       and live-local cleanup after resumption.
-- [ ] Extend the verified subset to throwing awaiter initialization/destruction,
-      throwing final-suspend operations and destructors during unwind,
+- [ ] Extend the verified subset to throwing final-suspend operations and
+      destructors during unwind,
       reference/union lifetimes, suspend-spanning `try/catch`/`co_return`, and
-      general pointer/wide expression liveness and end-to-end nested or
+      remaining awaiter initializer forms and throwing awaiter destruction,
+      general pointer/wide expression liveness, and end-to-end nested or
       multiple-await acceptance.
