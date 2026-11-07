@@ -15236,3 +15236,4 @@ Continue in this order:
       suspend on i686 and x86-64 using syntax-only mode. Missing promise types
       still receive specific diagnostics. Coroutine frame state-machine,
       resume/destroy code generation, and runtime execution remain open.
+- [x] Add source coroutine frame lowering for non-void return objects, allocation-failure return branches, promise cleanup at destroy, `await_suspend` bool/handle transfer, and owned awaiter destruction after resume or early destroy. Keep unsupported local-object lifetime/exception paths fail-closed; no compiler or target acceptance was run for this source update.

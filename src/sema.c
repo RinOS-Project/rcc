@@ -41018,7 +41018,8 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
         return NULL;
     }
     if (!is_initial_suspend &&
-        declaration->func_coroutine_next_suspend_index == 0u) {
+        (declaration->func_coroutine_next_suspend_index == 0u ||
+         declaration->func_coroutine_next_suspend_index == UINT32_MAX)) {
         rcc_error(loc,
                   "coroutine has too many suspension points for the state index ABI");
         return NULL;
@@ -41699,6 +41700,10 @@ static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
         call = sema_cxx_coroutine_promise_call(
             declaration, "get_return_object", NULL, loc);
         sema_initialize_cxx_coroutine_promise(declaration);
+        if (declaration->func_coroutine_promise_object) {
+            sema_prepare_variable_destructor_cleanup(
+                declaration->func_coroutine_promise_object);
+        }
         if (call) {
             (void)sema_expr(call);
             if (call->cxx_selected_method && call->type && return_type) {

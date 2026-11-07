@@ -168,6 +168,7 @@ typedef struct RccIrLowerCoroutineContinuation {
     const CxxCoroutineAwaitPlan* plan;
     RccIrBlock* block;
     RccIrBlock* dispatch;
+    bool awaiter_cleanup_pending;
     struct RccIrLowerCoroutineContinuation* next;
 } RccIrLowerCoroutineContinuation;
 
@@ -235,6 +236,9 @@ typedef struct {
     bool terminated;
     bool unsupported;
 } RccIrLowerContext;
+
+static bool lower_coroutine_emit_pending_awaiter_cleanups(
+    RccIrLowerContext* context);
 
 static bool lower_statement(RccIrLowerContext* context,
                             const Stmt* statement);
@@ -21969,7 +21973,10 @@ static bool lower_if(RccIrLowerContext* context, const Stmt* statement) {
     RccIrLowerWideState* else_states = NULL;
     bool then_falls;
     bool else_falls;
-    if (!condition.valid) return false;
+    if (!condition.valid ||
+        !lower_coroutine_emit_pending_awaiter_cleanups(context)) {
+        return false;
+    }
     entry_block = context->current;
     baseline = lower_capture_wide_states(context);
     then_block = rcc_ir_block_add(context->function, "if.then");
@@ -34994,11 +35001,13 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             } else {
                 (void)lower_expression(context, statement->expr);
             }
-            return !context->unsupported;
+            return !context->unsupported &&
+                lower_coroutine_emit_pending_awaiter_cleanups(context);
         case STMT_BLOCK:
             return lower_block(context, statement);
         case STMT_DECL:
-            return lower_declaration(context, statement->decl);
+            return lower_declaration(context, statement->decl) &&
+                lower_coroutine_emit_pending_awaiter_cleanups(context);
         case STMT_RETURN:
             if (statement->cxx_is_co_return) {
                 if (!context->coroutine_resume ||
@@ -35011,7 +35020,9 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                 if (statement->return_val) {
                     (void)lower_expression(
                         context, statement->return_val);
-                    if (context->unsupported) {
+                    if (context->unsupported ||
+                        !lower_coroutine_emit_pending_awaiter_cleanups(
+                            context)) {
                         return false;
                     }
                 }
@@ -36149,6 +36160,47 @@ static bool lower_coroutine_set_state(
                         operands, 2u, NULL, 0u) != NULL;
 }
 
+static bool lower_coroutine_emit_awaiter_cleanup(
+    RccIrLowerContext* context, const CxxCoroutineAwaitPlan* await_plan) {
+    const Type* type = await_plan ? await_plan->awaiter_type : NULL;
+    RccIrLowerLocal* object_local;
+    RccIrLowerValue object;
+    if (!await_plan || !await_plan->awaiter_object_storage ||
+        !lower_cxx_type_has_destructor_cleanup(type)) {
+        return true;
+    }
+    if (!context || !type || !type->cxx_class ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        !(object_local = lower_find_local(
+              context, await_plan->awaiter_object_storage))) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    object = lower_value(
+        object_local->address, rcc_ir_type_pointer(0u), true);
+    if (!lower_cxx_emit_complete_destructor(context, type, object, 0u)) {
+        context->unsupported = true;
+        return false;
+    }
+    return true;
+}
+
+static bool lower_coroutine_emit_pending_awaiter_cleanups(
+    RccIrLowerContext* context) {
+    if (!context) return false;
+    for (RccIrLowerCoroutineContinuation* continuation =
+             context->coroutine_continuations;
+         continuation; continuation = continuation->next) {
+        if (!continuation->awaiter_cleanup_pending) continue;
+        if (!lower_coroutine_emit_awaiter_cleanup(
+                context, continuation->plan)) {
+            return false;
+        }
+        continuation->awaiter_cleanup_pending = false;
+    }
+    return true;
+}
+
 static bool lower_coroutine_mark_done(RccIrLowerContext* context) {
     RccIrValue frame;
     if (!context ||
@@ -36219,7 +36271,10 @@ static bool lower_coroutine_emit_final_suspend(
     context->current = ready_block;
     context->terminated = false;
     (void)lower_expression(context, await_plan->await_resume_call);
-    if (context->unsupported || !lower_coroutine_mark_done(context)) {
+    if (context->unsupported ||
+        !lower_coroutine_emit_awaiter_cleanup(context, await_plan) ||
+        !lower_coroutine_set_state(context, UINT32_MAX) ||
+        !lower_coroutine_mark_done(context)) {
         return false;
     }
     frame = context->coroutine_frame;
@@ -36336,6 +36391,15 @@ static RccIrLowerValue lower_coroutine_await_expression(
     context->current = continuation->block;
     context->terminated = false;
     result = lower_expression(context, await_plan->await_resume_call);
+    if (context->unsupported ||
+        !lower_coroutine_set_state(context, UINT32_MAX)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (await_plan->awaiter_object_storage &&
+        lower_cxx_type_has_destructor_cleanup(await_plan->awaiter_type)) {
+        continuation->awaiter_cleanup_pending = true;
+    }
     return result;
 }
 
@@ -36648,10 +36712,21 @@ static bool lower_coroutine_minimal_function_supported(
             !lower_noexcept_expression(await_plan->await_ready_condition) ||
             !lower_noexcept_expression(await_plan->await_suspend_call) ||
             !lower_noexcept_expression(await_plan->await_resume_call) ||
-            lower_cxx_type_has_destructor_cleanup(
-                await_plan->awaiter_type)) {
+            (await_plan->awaiter_object_storage &&
+             (!await_plan->awaiter_type ||
+              ((await_plan->awaiter_type->kind == TYPE_STRUCT ||
+                await_plan->awaiter_type->kind == TYPE_UNION) &&
+               !rcc_sema_cxx_trivially_copyable(
+                   (Type*)await_plan->awaiter_type)))) ||
+            (await_plan->awaiter_object_storage &&
+             lower_cxx_type_has_destructor_cleanup(
+                 await_plan->awaiter_type) &&
+             (!await_plan->awaiter_type ||
+              !await_plan->awaiter_type->cxx_class ||
+              !lower_cxx_destructor_subobjects_supported(
+                  await_plan->awaiter_type->cxx_class, 0u)))) {
             if (reason_out) {
-                *reason_out = "await protocol needs body suspension, throwing operations, or awaiter destruction";
+                *reason_out = "await protocol requires unsupported throwing operations or awaiter materialization";
             }
             return false;
         }
@@ -36667,6 +36742,7 @@ static bool lower_coroutine_minimal_function_supported(
         if ((field->kind == CXX_COROUTINE_FRAME_LOCAL &&
              !lower_coroutine_scalar_frame_value_supported(field->type)) ||
             (field->kind != CXX_COROUTINE_FRAME_PROMISE &&
+             field->kind != CXX_COROUTINE_FRAME_AWAITER_OBJECT &&
              lower_cxx_type_has_destructor_cleanup(field->type))) {
             if (reason_out) *reason_out = "frame local lifetime handling is not lowered yet";
             return false;
@@ -37131,6 +37207,92 @@ static void lower_coroutine_initialize_generated_context(
     context->coroutine_resume = true;
 }
 
+static bool lower_coroutine_emit_destroy_awaiter_dispatch(
+    RccIrLowerContext* context, const Decl* declaration) {
+    const CxxCoroutineLoweringPlan* plan = declaration
+        ? declaration->func_coroutine_lowering_plan : NULL;
+    RccIrLowerValue frame;
+    RccIrLowerValue state_address;
+    RccIrInstruction* state_load;
+    RccIrBlock* dispatch;
+    RccIrBlock* cleanup_done;
+    bool has_cleanup = false;
+    if (!context || !plan) return false;
+    for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+         await_plan; await_plan = await_plan->next) {
+        if (await_plan->awaiter_object_storage &&
+            lower_cxx_type_has_destructor_cleanup(await_plan->awaiter_type)) {
+            has_cleanup = true;
+            break;
+        }
+    }
+    if (!has_cleanup) return true;
+    frame = lower_value(context->coroutine_frame,
+                        rcc_ir_type_pointer(0u), true);
+    state_address = lower_byte_offset_address(
+        context, frame, offsetof(RinCxxCoroutineFrameHeader, state));
+    state_load = state_address.valid
+        ? lower_append(context, RCC_IR_LOAD,
+                       rcc_ir_type_integer(32u),
+                       &state_address.value, 1u, NULL, 0u)
+        : NULL;
+    cleanup_done = rcc_ir_block_add(
+        context->function, "coroutine.destroy.awaiter.done");
+    if (!frame.valid || !state_load || !cleanup_done) return false;
+    dispatch = context->current;
+    for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+         await_plan; await_plan = await_plan->next) {
+        RccIrBlock* cleanup_block;
+        RccIrBlock* next_dispatch;
+        RccIrLowerValue suspend_index;
+        RccIrValue compare_operands[2];
+        RccIrInstruction* state_match;
+        if (!await_plan->awaiter_object_storage ||
+            !lower_cxx_type_has_destructor_cleanup(await_plan->awaiter_type)) {
+            continue;
+        }
+        cleanup_block = rcc_ir_block_add(
+            context->function, "coroutine.destroy.awaiter");
+        next_dispatch = rcc_ir_block_add(
+            context->function, "coroutine.destroy.next");
+        suspend_index = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true,
+            await_plan->suspend_index);
+        if (!cleanup_block || !next_dispatch || !suspend_index.valid) {
+            return false;
+        }
+        context->current = dispatch;
+        context->terminated = false;
+        compare_operands[0] = state_load->result;
+        compare_operands[1] = suspend_index.value;
+        state_match = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            compare_operands, 2u, NULL, 0u);
+        if (!state_match) return false;
+        rcc_ir_set_predicate(state_match, RCC_IR_ICMP_EQ);
+        if (!lower_conditional_branch(
+                context,
+                lower_value(state_match->result,
+                            rcc_ir_type_integer(1u), true),
+                cleanup_block->id, next_dispatch->id)) {
+            return false;
+        }
+        context->current = cleanup_block;
+        context->terminated = false;
+        if (!lower_coroutine_emit_awaiter_cleanup(context, await_plan) ||
+            !lower_branch(context, cleanup_done->id)) {
+            return false;
+        }
+        dispatch = next_dispatch;
+    }
+    context->current = dispatch;
+    context->terminated = false;
+    if (!lower_branch(context, cleanup_done->id)) return false;
+    context->current = cleanup_done;
+    context->terminated = false;
+    return true;
+}
+
 static bool lower_coroutine_emit_destroy_function(
     RccIrModule* module, RccIrFunction* function,
     const Decl* declaration, char* error, size_t error_size) {
@@ -37143,6 +37305,8 @@ static bool lower_coroutine_emit_destroy_function(
     lower_coroutine_initialize_generated_context(
         &context, module, function, declaration, entry);
     if (!lower_coroutine_bind_frame_fields(&context, declaration) ||
+        !lower_coroutine_emit_destroy_awaiter_dispatch(
+            &context, declaration) ||
         (promise && promise->var_cleanups &&
          !lower_emit_temporary_cleanup_plan_list(
              &context, promise->var_cleanups, false)) ||
@@ -37284,6 +37448,8 @@ static bool lower_coroutine_emit_resume_function(
     context.terminated = false;
     (void)lower_expression(&context, initial->await_resume_call);
     if (context.unsupported ||
+        !lower_coroutine_set_state(&context, UINT32_MAX) ||
+        !lower_coroutine_emit_awaiter_cleanup(&context, initial) ||
         !lower_statement(&context, declaration->func_body) ||
         !context.terminated) {
         if (error && error_size != 0u && error[0] == '\0') {
