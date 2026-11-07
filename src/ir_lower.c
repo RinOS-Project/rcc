@@ -36278,14 +36278,24 @@ static bool lower_coroutine_body_supported(
     if (statement->kind == STMT_NULL) return true;
     if (statement->kind == STMT_DECL) {
         local = statement->decl;
-        return local && local->kind == DECL_VAR &&
-            !local->var_is_global && !local->var_is_static_local &&
-            !local->var_is_thread_local && !local->var_is_block_extern &&
-            !local->var_is_vla && !local->var_cleanup &&
-            !local->var_cleanups && !local->var_dynamic_initializer &&
-            !local->var_reference_temporary_guard &&
-            !local->var_reference_temporary_owner &&
-            lower_coroutine_scalar_frame_value_supported(local->type);
+        if (!local || local->kind != DECL_VAR ||
+            local->var_is_global || local->var_is_static_local ||
+            local->var_is_thread_local || local->var_is_block_extern ||
+            local->var_is_vla || local->var_cleanup || local->var_cleanups ||
+            local->var_dynamic_initializer ||
+            local->var_reference_temporary_guard ||
+            local->var_reference_temporary_owner ||
+            !lower_coroutine_scalar_frame_value_supported(local->type)) {
+            return false;
+        }
+        if (local->var_init &&
+            local->var_init->kind == EXPR_CXX_CO_AWAIT &&
+            local->var_init->cxx_coroutine_await_plan &&
+            !local->var_init->cxx_coroutine_await_plan->is_initial_suspend &&
+            !local->var_init->cxx_coroutine_await_plan->is_final_suspend) {
+            ++*body_await_count;
+        }
+        return true;
     }
     if (statement->kind == STMT_BLOCK) {
         for (const StmtList* item = statement->block_stmts;

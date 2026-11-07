@@ -46,7 +46,8 @@ struct coroutine_traits {
 }
 
 void rcc_coroutine_two_suspensions() {
+    int resumed_result = co_await rcc_coroutine_manual_awaiter{};
     co_await rcc_coroutine_manual_awaiter{};
-    co_await rcc_coroutine_manual_awaiter{};
+    int retained_result = resumed_result;
     co_return;
 }
