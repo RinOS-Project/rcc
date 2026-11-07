@@ -35594,10 +35594,15 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
         return false;
     }
     promise_backpointer_start = plan->promise_offset - target_pointer_size;
+    if (promise_backpointer_start % target_pointer_size != 0u) {
+        return false;
+    }
     for (field = plan->frame_fields; field; field = field->next) {
         const CxxCoroutineFrameField* other;
         size_t field_end;
         if (!field->declaration || !field->type ||
+            field->type->size < 0 ||
+            field->size != (size_t)field->type->size ||
             field->alignment == 0u ||
             (field->alignment & (field->alignment - 1u)) != 0u ||
             field->alignment > plan->frame_alignment ||
