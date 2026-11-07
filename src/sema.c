@@ -41459,7 +41459,8 @@ static bool sema_cxx_coroutine_frame_add_field(
             return field->type == type && field->kind == kind;
         }
     }
-    if (type->size < 0 || type->align <= 0 ||
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC ||
+        type->size <= 0 || type->align <= 0 ||
         (type->align & (type->align - 1)) != 0) {
         return false;
     }
