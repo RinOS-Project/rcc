@@ -35,6 +35,19 @@ _Thread_local volatile _Atomic unsigned long long
     debug_inline_nonconstant_unsigned_long_long_volatile_tls_atomic_load_divisor =
         0x8000000000000001ULL;
 
+volatile unsigned long long
+    debug_inline_nonconstant_unsigned_long_long_volatile_load_dividend =
+        0xfedcba9876543217ULL;
+volatile unsigned long long
+    debug_inline_nonconstant_unsigned_long_long_volatile_load_divisor =
+        0x8000000000000001ULL;
+_Thread_local volatile unsigned long long
+    debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_dividend =
+        0xfedcba9876543217ULL;
+_Thread_local volatile unsigned long long
+    debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_divisor =
+        0x8000000000000001ULL;
+
 unsigned long long
 debug_inline_nonconstant_unsigned_long_long_atomic_load_xor_divide_entry(void)
 {
@@ -169,6 +182,74 @@ debug_inline_nonconstant_unsigned_long_long_volatile_atomic_local_load_xor_remai
         (volatile_atomic_local_load_xor_remainder_dividend ^
          0x100000001ULL) %
         volatile_atomic_local_load_xor_remainder_divisor);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_load_xor_divide_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_nonconstant_unsigned_long_long_volatile_load_dividend ^
+         0x100000001ULL) /
+        debug_inline_nonconstant_unsigned_long_long_volatile_load_divisor);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_load_xor_remainder_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_nonconstant_unsigned_long_long_volatile_load_dividend ^
+         0x100000001ULL) %
+        debug_inline_nonconstant_unsigned_long_long_volatile_load_divisor);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_xor_divide_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_dividend ^
+         0x100000001ULL) /
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_divisor);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_xor_remainder_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_dividend ^
+         0x100000001ULL) %
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_divisor);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_local_load_xor_divide_entry(
+    unsigned long long computed_dividend,
+    unsigned long long computed_divisor)
+{
+    volatile unsigned long long volatile_local_load_xor_divide_dividend =
+        computed_dividend;
+    volatile unsigned long long volatile_local_load_xor_divide_divisor =
+        computed_divisor;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (volatile_local_load_xor_divide_dividend ^ 0x100000001ULL) /
+        volatile_local_load_xor_divide_divisor);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_local_load_xor_remainder_entry(
+    unsigned long long computed_dividend,
+    unsigned long long computed_divisor)
+{
+    volatile unsigned long long volatile_local_load_xor_remainder_dividend =
+        computed_dividend;
+    volatile unsigned long long volatile_local_load_xor_remainder_divisor =
+        computed_divisor;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (volatile_local_load_xor_remainder_dividend ^ 0x100000001ULL) %
+        volatile_local_load_xor_remainder_divisor);
 }
 
 static inline long long

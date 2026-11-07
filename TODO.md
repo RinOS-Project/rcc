@@ -12987,10 +12987,10 @@ remains a separate open item.
         eight unsigned dividend patterns against seven nonzero divisor
         patterns for both operations in legacy and verified C++20 i686
         objects. `test-debug-info-inline-expression` and the full
-        `test-debug-info` gate pass. Direct global/TLS/static reference aliases,
-        unsigned plain-volatile leaves, and unsigned atomic stores/RMW remain
-        open; unsigned atomic-load operands are covered by the following
-        continuation.
+        `test-debug-info` gate pass. Direct global/TLS/static reference aliases
+        and unsigned atomic stores/RMW remain open; unsigned atomic-load
+        operands and plain-volatile global/TLS/automatic-local leaves are
+        covered by the following continuations.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
@@ -15127,3 +15127,14 @@ Continue in this order:
       `test-debug-info-inline-expression` and the full `test-debug-info` gate
       pass. Direct reference aliases, atomic stores/RMW, and broader optimized
       multi-piece lifetime/CFI coverage remain open.
+
+## RCC continuation (2026-11-07, unsigned volatile i686 divmod DWARF)
+
+- [x] Verify computed unsigned i686 64-bit `/` and `%` inline-argument DWARF
+      expressions over volatile global, TLS, and automatic-local dividend and
+      divisor loads. Cover the XOR dividend and variable divisor across the
+      11-by-9 matrix in legacy and verified objects at `-O1` and `-O2`; require
+      the expected `ABS32U`/`TLSOFF32S` relocations and zero verified-backend
+      fallback. Both `test-debug-info-inline-expression` and the full
+      `test-debug-info` gate pass. Direct reference aliases, atomic stores/RMW,
+      and broader optimized multi-piece lifetime/CFI coverage remain open.

@@ -3287,6 +3287,10 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_atomic_divisor,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_tls_atomic_dividend@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,4)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_tls_atomic_divisor@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_load_dividend,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_load_divisor,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_dividend@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_divisor@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,2)
 	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o1.s,54)
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -S \
 		-o $(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s \
@@ -3299,19 +3303,23 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_atomic_divisor,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_tls_atomic_dividend@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,4)
 	$(call CHECK_COUNT,.long debug_inline_nonconstant_signed_long_long_tls_atomic_divisor@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_load_dividend,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_load_divisor,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_dividend@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
+	$(call CHECK_COUNT,.long debug_inline_nonconstant_unsigned_long_long_volatile_tls_load_divisor@NTPOFF,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,2)
 	$(call CHECK_COUNT,0xf0$(comma) 0x0f$(comma) 0xc7$(comma) 0x0e,$(TEST_OUT)/debug-info-inline-expression/atomic-store-x86-o2.s,54)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -g -O1 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.ro \
 		tests/debug_info_atomic_store.c \
 		>$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.log
-	$(GREP) -F -q 'Verified backend: 44 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 50 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-g.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -g -O2 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.ro \
 		tests/debug_info_atomic_store.c \
 		>$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.log
-	$(GREP) -F -q 'Verified backend: 44 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 50 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-atomic-store-x86-inline-o2-g.log,0)
 	$(RCC_TARGET) --target i686-unknown-rinos -g -O1 -c \
