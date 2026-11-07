@@ -35571,6 +35571,64 @@ static bool lower_parameters(RccIrLowerContext* context,
     return index == context->function->parameter_count;
 }
 
+static const CxxCoroutineFrameField* lower_coroutine_frame_find_field(
+    const CxxCoroutineLoweringPlan* plan, const Decl* declaration,
+    CxxCoroutineFrameFieldKind kind) {
+    const CxxCoroutineFrameField* field;
+    if (!plan || !declaration) return NULL;
+    for (field = plan->frame_fields; field; field = field->next) {
+        if (field->declaration == declaration) {
+            return field->kind == kind ? field : NULL;
+        }
+    }
+    return NULL;
+}
+
+static bool lower_coroutine_await_plans_valid(
+    const CxxCoroutineLoweringPlan* plan) {
+    const CxxCoroutineAwaitPlan* await_plan;
+    if (!plan) return false;
+    for (await_plan = plan->await_plans; await_plan;
+         await_plan = await_plan->next) {
+        const CxxCoroutineAwaitPlan* other;
+        bool needs_awaiter_object =
+            !await_plan->awaiter_initializer_is_lvalue &&
+            !await_plan->awaiter_initializer_is_xvalue &&
+            !await_plan->awaiter_initializer_is_reference;
+        if (!await_plan->awaiter_initializer ||
+            !await_plan->awaiter_type || !await_plan->awaiter_storage ||
+            !await_plan->coroutine_handle_type ||
+            !await_plan->coroutine_handle_storage ||
+            !await_plan->await_ready_call ||
+            await_plan->await_ready_call->kind != EXPR_CALL ||
+            !await_plan->await_ready_condition ||
+            !await_plan->await_suspend_call ||
+            await_plan->await_suspend_call->kind != EXPR_CALL ||
+            !await_plan->await_resume_call ||
+            await_plan->await_resume_call->kind != EXPR_CALL ||
+            needs_awaiter_object !=
+                (await_plan->awaiter_object_storage != NULL) ||
+            !lower_coroutine_frame_find_field(
+                plan, await_plan->awaiter_storage,
+                CXX_COROUTINE_FRAME_AWAITER) ||
+            !lower_coroutine_frame_find_field(
+                plan, await_plan->coroutine_handle_storage,
+                CXX_COROUTINE_FRAME_HANDLE) ||
+            (await_plan->awaiter_object_storage &&
+             !lower_coroutine_frame_find_field(
+                 plan, await_plan->awaiter_object_storage,
+                 CXX_COROUTINE_FRAME_AWAITER_OBJECT))) {
+            return false;
+        }
+        for (other = await_plan->next; other; other = other->next) {
+            if (other->suspend_index == await_plan->suspend_index) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
     const CxxCoroutineLoweringPlan* plan = declaration
         ? declaration->func_coroutine_lowering_plan : NULL;
@@ -35579,6 +35637,9 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
     size_t target_pointer_size =
         g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     size_t promise_backpointer_start;
+    size_t field_count = 0u;
+    bool has_initial_suspend = false;
+    bool has_final_suspend = false;
     uint64_t target_size_limit = g_opts.target_arch == ARCH_X64
         ? UINT64_MAX : UINT32_MAX;
     const Expr* allocation_size;
@@ -35590,9 +35651,26 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
         (plan->frame_size & (plan->frame_alignment - 1u)) != 0u ||
         plan->promise_offset < RIN_CXX_CORO_FRAME_HEADER_SIZE +
                                    target_pointer_size ||
-        plan->promise_offset >= plan->frame_size) {
+        plan->promise_offset >= plan->frame_size ||
+        !plan->allocation_function || !plan->deallocation_function ||
+        !plan->deallocation_call ||
+        plan->deallocation_call->kind != EXPR_CALL ||
+        !declaration->func_coroutine_initial_suspend_plan ||
+        !declaration->func_coroutine_final_suspend_plan ||
+        !lower_coroutine_await_plans_valid(plan)) {
         return false;
     }
+    for (const CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+         await_plan; await_plan = await_plan->next) {
+        if (await_plan == declaration->func_coroutine_initial_suspend_plan) {
+            has_initial_suspend = await_plan->is_initial_suspend &&
+                await_plan->suspend_index == 0u;
+        }
+        if (await_plan == declaration->func_coroutine_final_suspend_plan) {
+            has_final_suspend = await_plan->is_final_suspend;
+        }
+    }
+    if (!has_initial_suspend || !has_final_suspend) return false;
     promise_backpointer_start = plan->promise_offset - target_pointer_size;
     if (promise_backpointer_start % target_pointer_size != 0u) {
         return false;
@@ -35600,7 +35678,9 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
     for (field = plan->frame_fields; field; field = field->next) {
         const CxxCoroutineFrameField* other;
         size_t field_end;
+        ++field_count;
         if (!field->declaration || !field->type ||
+            field->declaration->type != field->type ||
             field->type->size < 0 ||
             field->size != (size_t)field->type->size ||
             field->alignment == 0u ||
@@ -35636,7 +35716,8 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
             }
         }
     }
-    if (!promise || plan->frame_field_count == 0u) return false;
+    if (!promise || plan->frame_field_count == 0u ||
+        field_count != plan->frame_field_count) return false;
     allocation_size = plan->allocation_call &&
             plan->allocation_call->call_args
         ? plan->allocation_call->call_args->expr : NULL;
@@ -35674,8 +35755,6 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         return RCC_IR_LOWER_UNSUPPORTED;
     }
     if (declaration->func_is_coroutine) {
-        const CxxCoroutineLoweringPlan* coroutine_plan =
-            declaration->func_coroutine_lowering_plan;
         if (error && error_size != 0u) {
             if (!lower_coroutine_frame_layout_valid(declaration)) {
                 snprintf(error, error_size,
