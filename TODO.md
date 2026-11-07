@@ -12987,8 +12987,9 @@ remains a separate open item.
         eight unsigned dividend patterns against seven nonzero divisor
         patterns for both operations in legacy and verified C++20 i686
         objects. `test-debug-info-inline-expression` and the full
-        `test-debug-info` gate pass. Direct global/TLS/static reference aliases
-        and unsigned atomic stores/RMW remain open; unsigned atomic-load
+        `test-debug-info` gate pass. Unsigned global/static reference aliases
+        are covered by the 2026-11-07 continuations; unsigned TLS aliases and
+        atomic stores/RMW remain open. Unsigned atomic-load
         operands and plain-volatile global/TLS/automatic-local leaves are
         covered by the following continuations.
 
@@ -15126,7 +15127,7 @@ Continue in this order:
       at `-O1` and `-O2`. Verified output has zero fallback. Both
       `test-debug-info-inline-expression` and the full `test-debug-info` gate
       pass. Unsigned global reference-alias divmod is covered by the following
-      continuation; unsigned TLS/static reference aliases, atomic stores/RMW,
+      continuation; unsigned TLS reference aliases, atomic stores/RMW,
       and broader optimized multi-piece lifetime/CFI coverage remain open.
 
 ## RCC continuation (2026-11-07, unsigned global-reference alias i686 divmod DWARF)
@@ -15139,7 +15140,7 @@ Continue in this order:
       the 11-by-9 unsigned boundary matrix on legacy and verified C++20 objects
       for i686 and x86-64; verified backend emits six functions with zero
       fallback. The focused `test-debug-info-inline-expression` and full
-      `test-debug-info` gates pass. Unsigned TLS/static reference aliases,
+      `test-debug-info` gates pass. Unsigned TLS reference aliases,
       atomic stores/RMW, and broader optimized multi-piece lifetime/CFI remain
       open.
 
@@ -15152,5 +15153,18 @@ Continue in this order:
       the expected `ABS32U`/`TLSOFF32S` relocations and zero verified-backend
       fallback. Both `test-debug-info-inline-expression` and the full
       `test-debug-info` gate pass. Unsigned global reference-alias divmod is
-      covered above; unsigned TLS/static reference aliases, atomic stores/RMW,
+      covered above; unsigned TLS reference aliases, atomic stores/RMW,
       and broader optimized multi-piece lifetime/CFI coverage remain open.
+
+## RCC continuation (2026-11-07, unsigned static-reference alias i686 divmod DWARF)
+
+- [x] Verify unsigned i686 64-bit `/` and `%` inline-argument DWARF through a
+      static-duration, internal-linkage `const unsigned long long&` alias to
+      an external global target and a variable global divisor. Check the
+      file-qualified local alias symbol's storage relocation and DWARF pointer
+      dereference, then evaluate both expressions over the 11-by-9 boundary
+      matrix in legacy and verified C++20 objects for i686 and x86-64. Verified
+      backend emits eight functions with zero fallback. Both
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+      Unsigned TLS reference aliases, atomic stores/RMW, and broader optimized
+      multi-piece lifetime/CFI coverage remain open.

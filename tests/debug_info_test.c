@@ -3815,10 +3815,35 @@ static void verify_reference_variable_frame_dereference(
     assert(found_variable);
 }
 
+static bool debug_symbol_name_matches(const char* symbol_name,
+                                      const char* expected_name) {
+    const char* local_name = NULL;
+    if (!symbol_name || !expected_name) return false;
+    if (strcmp(symbol_name, expected_name) == 0) return true;
+    for (const char* cursor = symbol_name;
+         (cursor = strstr(cursor, "::")) != NULL;
+         cursor += 2) {
+        local_name = cursor + 2;
+    }
+    return local_name && strcmp(local_name, expected_name) == 0;
+}
+
+static ObjSymbol* find_debug_reference_symbol(ObjectFile* object,
+                                              const char* expected_name) {
+    ObjSymbol* symbol = objfile_find_symbol(object, expected_name);
+    if (symbol) return symbol;
+    for (symbol = object ? object->symbols : NULL; symbol;
+         symbol = symbol->next) {
+        if (!debug_symbol_name_matches(symbol->name, expected_name)) continue;
+        return symbol;
+    }
+    return NULL;
+}
+
 static void verify_global_reference_storage_target(
     ObjectFile* object, uint16_t architecture, const char* alias_name,
     const char* target_name) {
-    ObjSymbol* alias = objfile_find_symbol(object, alias_name);
+    ObjSymbol* alias = find_debug_reference_symbol(object, alias_name);
     size_t matching_relocations = 0u;
     int section_index = 0;
 
@@ -3833,7 +3858,8 @@ static void verify_global_reference_storage_target(
             assert(relocation->type == (architecture == ARCH_X64
                        ? RELOC_ABS64 : RELOC_ABS32U) &&
                    relocation->symbol_name &&
-                   strcmp(relocation->symbol_name, target_name) == 0 &&
+                   debug_symbol_name_matches(
+                       relocation->symbol_name, target_name) &&
                    relocation->addend == 0);
             ++matching_relocations;
         }
@@ -3873,8 +3899,8 @@ static void verify_global_reference_variable_dereference(
             if (relocation->offset == expression_offset + 1u &&
                 relocation->type == (architecture == ARCH_X64
                     ? RELOC_ABS64 : RELOC_ABS32U) &&
-                relocation->symbol_name &&
-                strcmp(relocation->symbol_name, variable_name) == 0) {
+                debug_symbol_name_matches(
+                    relocation->symbol_name, variable_name)) {
                 assert(!found_relocation);
                 found_relocation = true;
             }
@@ -15005,6 +15031,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_unsigned_reference_alias_global_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 124 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_unsigned_reference_alias_static_divide_entry";
+    } else if (expected_constant == INT64_MIN + 125 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_unsigned_reference_alias_static_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -15612,7 +15646,7 @@ static void verify_inline_integer_expression_parameter(
          (expected_constant >= INT64_MIN + 116 &&
           expected_constant <= INT64_MIN + 121) ||
          (expected_constant >= INT64_MIN + 122 &&
-          expected_constant <= INT64_MIN + 123)) &&
+          expected_constant <= INT64_MIN + 125)) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
         bool is_tls = expected_constant == INT64_MIN + 106 ||
             expected_constant == INT64_MIN + 107 ||
@@ -15625,7 +15659,7 @@ static void verify_inline_integer_expression_parameter(
             (expected_constant >= INT64_MIN + 116 &&
              expected_constant <= INT64_MIN + 119) ||
             (expected_constant >= INT64_MIN + 122 &&
-             expected_constant <= INT64_MIN + 123);
+             expected_constant <= INT64_MIN + 125);
         if (atomic_load_case && expected_constant >= INT64_MIN + 112) {
             global_operands = false;
         }
@@ -21321,6 +21355,13 @@ int main(int argc, char** argv)
             verify_global_reference_variable_dereference(
                 info, strings, architectures[index],
                 "debug_inline_unsigned_reference_global_alias");
+            verify_global_reference_storage_target(
+                object, architectures[index],
+                "debug_inline_unsigned_reference_static_alias",
+                "debug_inline_unsigned_reference_static_alias_target");
+            verify_global_reference_variable_dereference(
+                info, strings, architectures[index],
+                "debug_inline_unsigned_reference_static_alias");
             objfile_free(object);
             verify_inline_reference_parameter_alias(
                 paths[index], architectures[index],
@@ -21343,6 +21384,20 @@ int main(int argc, char** argv)
                     "debug_inline_unsigned_reference_alias_target", true,
                     0x1du, 8u, INT64_MIN + 123,
                     "debug_inline_unsigned_reference_alias_divisor", false);
+                verify_inline_integer_expression_parameter(
+                    paths[index], ARCH_X86,
+                    "debug_nonconstant_unsigned_long_long_parameter_inline",
+                    "debug_inline_unsigned_reference_static_alias_target",
+                    true, 0x1bu, 8u, INT64_MIN + 124,
+                    "debug_inline_unsigned_reference_static_alias_divisor",
+                    false);
+                verify_inline_integer_expression_parameter(
+                    paths[index], ARCH_X86,
+                    "debug_nonconstant_unsigned_long_long_parameter_inline",
+                    "debug_inline_unsigned_reference_static_alias_target",
+                    true, 0x1du, 8u, INT64_MIN + 125,
+                    "debug_inline_unsigned_reference_static_alias_divisor",
+                    false);
             }
         }
         return 0;
