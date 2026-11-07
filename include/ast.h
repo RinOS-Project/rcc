@@ -1448,6 +1448,7 @@ struct Stmt {
     /* Keep `co_return` distinct after sema binds return_value/return_void so
      * coroutine lowering emits final suspension instead of a normal return. */
     bool cxx_is_co_return;
+    bool cxx_coroutine_return_semantics_processed;
     int return_reference_temporary_offset;
     bool c23_is_maybe_unused;
     bool c23_is_fallthrough;
@@ -1713,6 +1714,7 @@ struct Decl {
             bool func_is_defined;
             /* Set when C++20 coroutine syntax occurs in this function. */
             bool func_is_coroutine;
+            bool func_coroutine_fallthrough_return_added;
             /* Resolved from the coroutine return type's promise_type. */
             Type* func_coroutine_promise_type;
             /* Stable semantic object used by generated promise calls. */

@@ -736,6 +736,7 @@ static Expr* sema_cxx_coroutine_awaiter_call(
     Expr* awaiter, const char* method_name, ExprList* arguments,
     SourceLoc loc);
 static bool sema_cxx_is_coroutine_handle_type(Type* type);
+static void sema_append_cxx_coroutine_fallthrough_return(Decl* declaration);
 static bool sema_cxx_coroutine_class_has_member_name(
     Type* aggregate, const char* name);
 static Type* sema_expr_impl(Expr* expr);
@@ -41074,6 +41075,27 @@ static bool sema_cxx_is_coroutine_handle_type(Type* type) {
         std_namespace && handle_template->ns == std_namespace;
 }
 
+static void sema_append_cxx_coroutine_fallthrough_return(
+    Decl* declaration) {
+    Stmt* body;
+    Stmt* fallthrough_return;
+    if (!declaration || !declaration->func_is_coroutine ||
+        declaration->func_coroutine_fallthrough_return_added ||
+        !declaration->func_coroutine_promise_type ||
+        !(body = declaration->func_body)) {
+        return;
+    }
+    if (body->kind != STMT_BLOCK) {
+        rcc_error(declaration->loc,
+                  "coroutine function body is not a compound statement");
+        return;
+    }
+    fallthrough_return = stmt_return(NULL, body->loc);
+    fallthrough_return->cxx_is_co_return = true;
+    stmtlist_append(&body->block_stmts, fallthrough_return);
+    declaration->func_coroutine_fallthrough_return_added = true;
+}
+
 static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
                                                 Stmt* statement) {
     if (!declaration || !statement) return;
@@ -41127,8 +41149,14 @@ static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
             }
             break;
         case STMT_RETURN:
-            if (statement->cxx_is_co_return &&
-                declaration->func_coroutine_promise_type) {
+            if (statement->cxx_coroutine_return_semantics_processed) break;
+            if (declaration->func_is_coroutine &&
+                !statement->cxx_is_co_return) {
+                rcc_error(statement->loc,
+                          "ordinary return statement is not permitted in a coroutine");
+                statement->cxx_coroutine_return_semantics_processed = true;
+            } else if (statement->cxx_is_co_return &&
+                       declaration->func_coroutine_promise_type) {
                 Expr* call;
                 call = sema_cxx_coroutine_promise_call(
                     declaration,
@@ -41139,7 +41167,11 @@ static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
                 if (call) {
                     (void)sema_expr(call);
                     statement->return_val = call;
+                    statement->cxx_coroutine_return_semantics_processed =
+                        true;
                 }
+            } else if (!declaration->func_is_coroutine) {
+                statement->cxx_coroutine_return_semantics_processed = true;
             }
             break;
         case STMT_EXPR:
@@ -41907,6 +41939,7 @@ analyze_function_body:
                     }
                 }
                 sema_resolve_cxx_coroutine_promise_type(decl);
+                sema_append_cxx_coroutine_fallthrough_return(decl);
                 sema_lower_cxx_coroutine_co_returns(
                     decl, decl->func_body);
 
