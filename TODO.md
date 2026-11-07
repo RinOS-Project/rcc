@@ -15125,8 +15125,23 @@ Continue in this order:
       each expression over the boundary matrix in legacy and verified objects
       at `-O1` and `-O2`. Verified output has zero fallback. Both
       `test-debug-info-inline-expression` and the full `test-debug-info` gate
-      pass. Direct reference aliases, atomic stores/RMW, and broader optimized
-      multi-piece lifetime/CFI coverage remain open.
+      pass. Unsigned global reference-alias divmod is covered by the following
+      continuation; unsigned TLS/static reference aliases, atomic stores/RMW,
+      and broader optimized multi-piece lifetime/CFI coverage remain open.
+
+## RCC continuation (2026-11-07, unsigned global-reference alias i686 divmod DWARF)
+
+- [x] Verify unsigned i686 64-bit `/` and `%` inline-argument DWARF through a
+      `const unsigned long long&` global alias and a variable global divisor.
+      Check that alias storage relocates to the declared target, the alias DIE
+      uses the pointer-backed dereference form, and computed expressions refer
+      to the resolved target and divisor with exact `ABS32U` relocations. Run
+      the 11-by-9 unsigned boundary matrix on legacy and verified C++20 objects
+      for i686 and x86-64; verified backend emits six functions with zero
+      fallback. The focused `test-debug-info-inline-expression` and full
+      `test-debug-info` gates pass. Unsigned TLS/static reference aliases,
+      atomic stores/RMW, and broader optimized multi-piece lifetime/CFI remain
+      open.
 
 ## RCC continuation (2026-11-07, unsigned volatile i686 divmod DWARF)
 
@@ -15136,5 +15151,6 @@ Continue in this order:
       11-by-9 matrix in legacy and verified objects at `-O1` and `-O2`; require
       the expected `ABS32U`/`TLSOFF32S` relocations and zero verified-backend
       fallback. Both `test-debug-info-inline-expression` and the full
-      `test-debug-info` gate pass. Direct reference aliases, atomic stores/RMW,
+      `test-debug-info` gate pass. Unsigned global reference-alias divmod is
+      covered above; unsigned TLS/static reference aliases, atomic stores/RMW,
       and broader optimized multi-piece lifetime/CFI coverage remain open.

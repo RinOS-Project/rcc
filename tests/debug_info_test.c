@@ -3815,6 +3815,32 @@ static void verify_reference_variable_frame_dereference(
     assert(found_variable);
 }
 
+static void verify_global_reference_storage_target(
+    ObjectFile* object, uint16_t architecture, const char* alias_name,
+    const char* target_name) {
+    ObjSymbol* alias = objfile_find_symbol(object, alias_name);
+    size_t matching_relocations = 0u;
+    int section_index = 0;
+
+    assert(object && object->arch == architecture && alias &&
+           alias->section >= 0 && target_name);
+    for (ObjSection* section = object->sections; section;
+         section = section->next, ++section_index) {
+        if (section_index != alias->section) continue;
+        for (const ObjReloc* relocation = section->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset != alias->value) continue;
+            assert(relocation->type == (architecture == ARCH_X64
+                       ? RELOC_ABS64 : RELOC_ABS32U) &&
+                   relocation->symbol_name &&
+                   strcmp(relocation->symbol_name, target_name) == 0 &&
+                   relocation->addend == 0);
+            ++matching_relocations;
+        }
+    }
+    assert(matching_relocations == 1u);
+}
+
 static void verify_global_reference_variable_dereference(
     const ObjSection* info, const ObjSection* strings,
     uint16_t architecture, const char* variable_name) {
@@ -14971,6 +14997,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_unsigned_long_long_volatile_local_load_xor_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 122 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_unsigned_reference_alias_global_divide_entry";
+    } else if (expected_constant == INT64_MIN + 123 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_unsigned_reference_alias_global_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -15576,7 +15610,9 @@ static void verify_inline_integer_expression_parameter(
         ((expected_constant >= INT64_MIN + 104 &&
           expected_constant <= INT64_MIN + 115) ||
          (expected_constant >= INT64_MIN + 116 &&
-          expected_constant <= INT64_MIN + 121)) &&
+          expected_constant <= INT64_MIN + 121) ||
+         (expected_constant >= INT64_MIN + 122 &&
+          expected_constant <= INT64_MIN + 123)) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
         bool is_tls = expected_constant == INT64_MIN + 106 ||
             expected_constant == INT64_MIN + 107 ||
@@ -15587,7 +15623,9 @@ static void verify_inline_integer_expression_parameter(
         bool atomic_load_case = expected_constant <= INT64_MIN + 115;
         bool global_operands = expected_constant <= INT64_MIN + 111 ||
             (expected_constant >= INT64_MIN + 116 &&
-             expected_constant <= INT64_MIN + 119);
+             expected_constant <= INT64_MIN + 119) ||
+            (expected_constant >= INT64_MIN + 122 &&
+             expected_constant <= INT64_MIN + 123);
         if (atomic_load_case && expected_constant >= INT64_MIN + 112) {
             global_operands = false;
         }
@@ -21269,6 +21307,21 @@ int main(int argc, char** argv)
         };
         for (size_t index = 0u;
              index < sizeof(paths) / sizeof(paths[0]); ++index) {
+            ObjectFile* object = objfile_read(paths[index]);
+            ObjSection* info;
+            ObjSection* strings;
+            assert(object && object->arch == architectures[index]);
+            info = objfile_get_section(object, ".debug_info");
+            strings = objfile_get_section(object, ".debug_str");
+            assert(info && strings);
+            verify_global_reference_storage_target(
+                object, architectures[index],
+                "debug_inline_unsigned_reference_global_alias",
+                "debug_inline_unsigned_reference_alias_target");
+            verify_global_reference_variable_dereference(
+                info, strings, architectures[index],
+                "debug_inline_unsigned_reference_global_alias");
+            objfile_free(object);
             verify_inline_reference_parameter_alias(
                 paths[index], architectures[index],
                 "debug_inline_volatile_reference_global_alias_entry",
@@ -21277,6 +21330,20 @@ int main(int argc, char** argv)
                 paths[index], architectures[index],
                 "debug_inline_volatile_reference_local_alias_entry",
                 "debug_inline_volatile_reference_local_alias", false);
+            if (architectures[index] == ARCH_X86) {
+                verify_inline_integer_expression_parameter(
+                    paths[index], ARCH_X86,
+                    "debug_nonconstant_unsigned_long_long_parameter_inline",
+                    "debug_inline_unsigned_reference_alias_target", true,
+                    0x1bu, 8u, INT64_MIN + 122,
+                    "debug_inline_unsigned_reference_alias_divisor", false);
+                verify_inline_integer_expression_parameter(
+                    paths[index], ARCH_X86,
+                    "debug_nonconstant_unsigned_long_long_parameter_inline",
+                    "debug_inline_unsigned_reference_alias_target", true,
+                    0x1du, 8u, INT64_MIN + 123,
+                    "debug_inline_unsigned_reference_alias_divisor", false);
+            }
         }
         return 0;
     }

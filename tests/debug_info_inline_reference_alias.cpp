@@ -4,6 +4,13 @@ static inline long long debug_inline_volatile_reference_read(
     return value;
 }
 
+static inline unsigned long long
+debug_nonconstant_unsigned_long_long_parameter_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
 extern "C" {
 volatile long long debug_inline_volatile_reference_alias_target =
     -81985529216486889LL;
@@ -22,5 +29,27 @@ long long debug_inline_volatile_reference_local_alias_entry()
         debug_inline_volatile_reference_global_alias;
     return debug_inline_volatile_reference_read(
         debug_inline_volatile_reference_local_alias);
+}
+
+unsigned long long
+debug_inline_unsigned_reference_alias_target = 0xfedcba9876543217ULL;
+unsigned long long debug_inline_unsigned_reference_alias_divisor =
+    0x8000000000000001ULL;
+const unsigned long long& debug_inline_unsigned_reference_global_alias =
+    debug_inline_unsigned_reference_alias_target;
+
+unsigned long long debug_inline_unsigned_reference_alias_global_divide_entry()
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_unsigned_reference_global_alias ^ 0x100000001ULL) /
+        debug_inline_unsigned_reference_alias_divisor);
+}
+
+unsigned long long
+debug_inline_unsigned_reference_alias_global_remainder_entry()
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        (debug_inline_unsigned_reference_global_alias ^ 0x100000001ULL) %
+        debug_inline_unsigned_reference_alias_divisor);
 }
 }
