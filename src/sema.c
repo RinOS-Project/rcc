@@ -23240,6 +23240,7 @@ static TypeMethod* sema_cxx_type_trait_assignment_method(
         declaration = ast_arena_alloc(sizeof(*declaration));
         declaration->kind = DECL_FUNC;
         declaration->func_is_coroutine = false;
+        declaration->func_coroutine_next_suspend_index = 1u;
         declaration->func_coroutine_promise_type = NULL;
         declaration->func_coroutine_promise_object = NULL;
         declaration->func_coroutine_get_return_object_call = NULL;
@@ -40764,6 +40765,7 @@ static void sema_resolve_cxx_coroutine_promise_type(Decl* declaration) {
         return;
     }
     declaration->func_coroutine_promise_type = promise_type;
+    declaration->func_coroutine_next_suspend_index = 1u;
 }
 
 static Expr* sema_cxx_coroutine_promise_call(
@@ -41006,6 +41008,8 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
     await_plan->from_yield = from_yield;
     await_plan->is_initial_suspend = is_initial_suspend;
     await_plan->is_final_suspend = is_final_suspend;
+    await_plan->suspend_index = is_initial_suspend
+        ? 0u : declaration->func_coroutine_next_suspend_index++;
 
     awaiter_object = decl_var(
         "__rcc_coroutine_awaiter", awaiter_type, NULL, loc);
