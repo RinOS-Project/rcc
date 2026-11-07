@@ -35591,10 +35591,24 @@ static bool lower_coroutine_await_plans_valid(
     for (await_plan = plan->await_plans; await_plan;
          await_plan = await_plan->next) {
         const CxxCoroutineAwaitPlan* other;
+        const CxxCoroutineFrameField* awaiter_field;
+        const CxxCoroutineFrameField* object_field = NULL;
+        const CxxCoroutineFrameField* handle_field;
         bool needs_awaiter_object =
             !await_plan->awaiter_initializer_is_lvalue &&
             !await_plan->awaiter_initializer_is_xvalue &&
             !await_plan->awaiter_initializer_is_reference;
+        awaiter_field = lower_coroutine_frame_find_field(
+            plan, await_plan->awaiter_storage,
+            CXX_COROUTINE_FRAME_AWAITER);
+        handle_field = lower_coroutine_frame_find_field(
+            plan, await_plan->coroutine_handle_storage,
+            CXX_COROUTINE_FRAME_HANDLE);
+        if (await_plan->awaiter_object_storage) {
+            object_field = lower_coroutine_frame_find_field(
+                plan, await_plan->awaiter_object_storage,
+                CXX_COROUTINE_FRAME_AWAITER_OBJECT);
+        }
         if (!await_plan->awaiter_initializer ||
             !await_plan->awaiter_type || !await_plan->awaiter_storage ||
             !await_plan->coroutine_handle_type ||
@@ -35608,16 +35622,10 @@ static bool lower_coroutine_await_plans_valid(
             await_plan->await_resume_call->kind != EXPR_CALL ||
             needs_awaiter_object !=
                 (await_plan->awaiter_object_storage != NULL) ||
-            !lower_coroutine_frame_find_field(
-                plan, await_plan->awaiter_storage,
-                CXX_COROUTINE_FRAME_AWAITER) ||
-            !lower_coroutine_frame_find_field(
-                plan, await_plan->coroutine_handle_storage,
-                CXX_COROUTINE_FRAME_HANDLE) ||
-            (await_plan->awaiter_object_storage &&
-             !lower_coroutine_frame_find_field(
-                 plan, await_plan->awaiter_object_storage,
-                 CXX_COROUTINE_FRAME_AWAITER_OBJECT))) {
+            !awaiter_field || !handle_field ||
+            handle_field->type != await_plan->coroutine_handle_type ||
+            (needs_awaiter_object &&
+             (!object_field || object_field->type != await_plan->awaiter_type))) {
             return false;
         }
         for (other = await_plan->next; other; other = other->next) {
