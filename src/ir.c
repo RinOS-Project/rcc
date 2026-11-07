@@ -341,6 +341,7 @@ RccIrFunction* rcc_ir_function_add(RccIrModule* module, const char* name,
     function->name = rcc_strdup(name);
     function->return_type = return_type;
     function->parameter_count = parameter_count;
+    function->has_union_access = false;
     function->module = module;
     if (parameter_count != 0u) {
         if (parameter_count > SIZE_MAX / sizeof(*function->parameter_types) ||

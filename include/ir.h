@@ -244,6 +244,9 @@ struct RccIrFunction {
     /* Borrowed source declarations for direct pointer parameters, used by
      * C restrict association analysis while the AST is alive. */
     const void** parameter_source_declarations;
+    /* A union member address/access exists in this function.  Heap strict-
+     * alias disambiguation stays conservative for the whole function. */
+    bool has_union_access;
     size_t parameter_count;
     /* Whole SysV aggregate parameters assigned to the incoming stack area. */
     RccSysvMemoryArgument* sysv_memory_parameters;

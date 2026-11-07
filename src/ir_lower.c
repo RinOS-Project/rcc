@@ -1193,9 +1193,15 @@ static RccIrInstruction* lower_append(
             if (operands[trace_index] == 38u) trace_value = true;
         }
         if (context->coroutine_resume && trace_value) {
-            fprintf(stderr, "TRACE coro block=%s opcode=%d result=%u operands=",
+            fprintf(stderr,
+                    "TRACE coro fn=%s block=%s opcode=%d result=%u type=%d/%u imm=%llu operands=",
+                    context->function && context->function->name
+                        ? context->function->name : "?",
                     context->current->name ? context->current->name : "?",
-                    (int)opcode, (unsigned)instruction->result);
+                    (int)opcode, (unsigned)instruction->result,
+                    (int)instruction->type.kind,
+                    (unsigned)instruction->type.bit_width,
+                    (unsigned long long)instruction->immediate);
             for (size_t trace_index = 0u;
                  trace_index < operand_count; ++trace_index) {
                 fprintf(stderr, "%s%u", trace_index ? "," : "",
@@ -4381,6 +4387,9 @@ static RccIrLowerValue lower_lvalue_address_impl(
             field->type->size > aggregate_type->size - field->offset) {
             context->unsupported = true;
             return lower_invalid_value();
+        }
+        if (aggregate_type->kind == TYPE_UNION) {
+            context->function->has_union_access = true;
         }
         if (expression->cxx_virtual_base_member_access) {
             const CxxClass* source_class =
@@ -25115,6 +25124,9 @@ static bool lower_union_type_supported(const Type* type) {
 static bool lower_copy_union_storage(
     RccIrLowerContext* context, RccIrValue destination,
     RccIrValue source, const Type* type) {
+    if (context && context->function) {
+        context->function->has_union_access = true;
+    }
     if (!lower_union_type_supported(type)) {
         context->unsupported = true;
         return false;
@@ -32819,6 +32831,9 @@ static bool lower_initialize_struct_storage(
 static bool lower_zero_union_storage(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type) {
+    if (context && context->function) {
+        context->function->has_union_access = true;
+    }
     if (!lower_union_type_supported(type)) {
         context->unsupported = true;
         return false;
@@ -32844,6 +32859,9 @@ static bool lower_union_initializer(
     const TypeField* field;
     RccIrLowerValue base_value;
     RccIrLowerValue address;
+    if (context && context->function) {
+        context->function->has_union_access = true;
+    }
     if (!lower_union_type_supported(type) || !initializer ||
         initializer->kind != EXPR_COMPOUND ||
         (!initializer->compound_cxx_default_member_init_only &&
@@ -36289,10 +36307,11 @@ static bool lower_parameters(RccIrLowerContext* context,
         } else if (!indirect_class) {
             operands[0] = context->function->parameters[index];
             operands[1] = allocation->result;
-            if (!lower_append(context, RCC_IR_STORE, rcc_ir_type_void(),
-                              operands, 2u, NULL, 0u)) {
-                return false;
-            }
+            RccIrInstruction* store = lower_append(
+                context, RCC_IR_STORE, rcc_ir_type_void(),
+                operands, 2u, NULL, 0u);
+            if (!store) return false;
+            store->source_access_type = item->type;
             ++index;
         }
         if (item->var_cleanups &&
