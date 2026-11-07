@@ -209,6 +209,7 @@ typedef struct {
     RccIrLowerConditionalFieldReceiverCleanup*
         conditional_field_receiver_cleanups;
     RccIrValue active_exception_frame;
+    RccIrValue coroutine_exception_frame;
     RccIrValue wide_phi_zero;
     size_t cxx_array_cleanup_thunk_count;
     /* While a local C++ object is being initialized, successfully completed
@@ -1146,6 +1147,20 @@ static RccIrInstruction* lower_append(
     const RccIrBlockId* targets, size_t target_count) {
     RccIrInstruction* instruction;
     if (!context || !context->current || context->terminated) return NULL;
+    if (opcode == RCC_IR_RETURN && context->coroutine_resume &&
+        context->coroutine_exception_frame != RCC_IR_VALUE_NONE) {
+        RccIrInstruction* discard = rcc_ir_append(
+            context->current, RCC_IR_CALL, rcc_ir_type_void(),
+            &context->coroutine_exception_frame, 1u, NULL, 0u);
+        if (!discard) {
+            context->unsupported = true;
+            return NULL;
+        }
+        rcc_ir_set_callee(discard, "rin_cpp_exception_discard");
+        discard->source_statement = context->current_statement;
+        discard->source_inline_call_index_plus_one =
+            context->active_debug_inline_call_plus_one;
+    }
     instruction = rcc_ir_append(context->current, opcode, type, operands,
                                 operand_count, targets, target_count);
     if (!instruction) {
@@ -12818,6 +12833,28 @@ static RccIrLowerValue lower_allocate_temporary_owner_storage(
                        rcc_ir_type_pointer(0u), true);
 }
 
+static bool lower_coroutine_cleanup_plan_contains_action(
+    const CxxCleanupPlan* plan, const CxxCleanupPlan* target,
+    unsigned depth) {
+    if (!plan || !target || depth >= 32u) return false;
+    for (; plan; plan = plan->next) {
+        if (plan == target) return true;
+        if (plan->kind == CXX_CLEANUP_CONDITIONAL &&
+            (lower_coroutine_cleanup_plan_contains_action(
+                 plan->body, target, depth + 1u) ||
+             lower_coroutine_cleanup_plan_contains_action(
+                 plan->alternate_body, target, depth + 1u))) {
+            return true;
+        }
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP &&
+            lower_coroutine_cleanup_plan_contains_action(
+                plan->body, target, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool lower_change_current_exception_cleanup(
     RccIrLowerContext* context, const CxxCleanupPlan* action,
     bool register_cleanup) {
@@ -12828,7 +12865,9 @@ static bool lower_change_current_exception_cleanup(
         ? cleanup->call_args : NULL;
     RccIrLowerValue callback;
     RccIrLowerValue object;
-    RccIrValue operands[2];
+    RccIrValue operands[3];
+    size_t operand_count = 2u;
+    const CxxCoroutineFrameField* coroutine_field = NULL;
     if (!context || !cleanup_argument || cleanup_argument->next ||
         !callback_expression) {
         if (context) context->unsupported = true;
@@ -12843,12 +12882,43 @@ static bool lower_change_current_exception_cleanup(
     }
     operands[0] = callback.value;
     operands[1] = object.value;
+    if (register_cleanup && context->coroutine_resume &&
+        context->declaration && context->declaration->func_is_coroutine) {
+        const CxxCoroutineLoweringPlan* plan =
+            context->declaration->func_coroutine_lowering_plan;
+        for (const CxxCoroutineFrameField* field =
+                 plan ? plan->frame_fields : NULL;
+             field; field = field->next) {
+            if (field->kind == CXX_COROUTINE_FRAME_LOCAL &&
+                field->cleanup_active_offset != 0u &&
+                field->declaration &&
+                lower_coroutine_cleanup_plan_contains_action(
+                    field->declaration->var_cleanups, action, 0u)) {
+                coroutine_field = field;
+                break;
+            }
+        }
+        if (coroutine_field) {
+            RccIrLowerValue frame = lower_value(
+                context->coroutine_frame, rcc_ir_type_pointer(0u), true);
+            RccIrLowerValue active = lower_byte_offset_address(
+                context, frame, coroutine_field->cleanup_active_offset);
+            if (!frame.valid || !active.valid) {
+                context->unsupported = true;
+                return false;
+            }
+            operands[2] = active.value;
+            operand_count = 3u;
+        }
+    }
     (void)lower_cxx_runtime_call(
         context,
         register_cleanup
-            ? "rin_cpp_exception_register_current_cleanup"
+            ? (coroutine_field
+                   ? "rin_cpp_exception_register_current_coroutine_cleanup"
+                   : "rin_cpp_exception_register_current_cleanup")
             : "rin_cpp_exception_unregister_current_cleanup",
-        rcc_ir_type_void(), operands, 2u);
+        rcc_ir_type_void(), operands, operand_count);
     return !context->unsupported;
 }
 
@@ -13327,11 +13397,11 @@ static bool lower_emit_scope_cleanups_until(
     if (!context) return false;
     for (cleanup = context->scope_cleanups;
          cleanup && cleanup != marker; cleanup = cleanup->previous_scope) {
-        if (!lower_emit_temporary_cleanup_plan_list(
+        if (!lower_coroutine_set_cleanup_active(
+                context, cleanup->plan, false) ||
+            !lower_emit_temporary_cleanup_plan_list(
                 context, cleanup->plan,
-                cleanup->exception_registered) ||
-            !lower_coroutine_set_cleanup_active(
-                context, cleanup->plan, false)) {
+                cleanup->exception_registered)) {
             return false;
         }
     }
@@ -36344,6 +36414,7 @@ static bool lower_coroutine_emit_final_suspend(
         ? declaration->func_coroutine_final_suspend_plan : NULL;
     RccIrBlock* ready_block;
     RccIrBlock* suspend_block;
+    RccIrBlock* suspended_block = NULL;
     RccIrLowerValue ready;
     RccIrLowerValue suspend_result;
     RccIrValue frame;
@@ -36351,6 +36422,7 @@ static bool lower_coroutine_emit_final_suspend(
         !await_plan->await_suspend_call ||
         !await_plan->await_suspend_call->type ||
         (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
+         await_plan->await_suspend_call->type->kind != TYPE_BOOL &&
          !await_plan->await_suspend_returns_handle) ||
         !lower_coroutine_initialize_awaiter(
             context, declaration, await_plan, NULL, 0u)) {
@@ -36396,10 +36468,31 @@ static bool lower_coroutine_emit_final_suspend(
     }
     suspend_result = lower_expression(
         context, await_plan->await_suspend_call);
-    if (context->unsupported || !suspend_result.valid ||
-        (await_plan->await_suspend_returns_handle &&
-         !lower_coroutine_resume_transfer_handle(context, suspend_result)) ||
-        !lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
+    if (context->unsupported || !suspend_result.valid) {
+        context->unsupported = true;
+        return false;
+    }
+    if (await_plan->await_suspend_call->type->kind == TYPE_BOOL) {
+        RccIrLowerValue should_suspend = lower_truth(
+            context, suspend_result);
+        suspended_block = rcc_ir_block_add(
+            context->function, "coroutine.final.suspended");
+        if (!should_suspend.valid || !suspended_block ||
+            !lower_conditional_branch(
+                context, should_suspend, suspended_block->id,
+                ready_block->id)) {
+            context->unsupported = true;
+            return false;
+        }
+        context->current = suspended_block;
+        context->terminated = false;
+    } else if (await_plan->await_suspend_returns_handle &&
+               !lower_coroutine_resume_transfer_handle(
+                   context, suspend_result)) {
+        context->unsupported = true;
+        return false;
+    }
+    if (!lower_append(context, RCC_IR_RETURN, rcc_ir_type_void(),
                       NULL, 0u, NULL, 0u)) {
         context->unsupported = true;
         return false;
@@ -36613,13 +36706,11 @@ static bool lower_coroutine_body_supported(
                  false))) {
             return false;
         }
-        if (local->var_init &&
-            !lower_noexcept_expression(local->var_init)) {
-            return false;
-        }
         if (!lower_coroutine_count_expression_awaits(
                 local->var_init, body_await_count) ||
-            *body_await_count - await_count_before_initializer > 1u) {
+            *body_await_count - await_count_before_initializer > 1u ||
+            (*body_await_count - await_count_before_initializer != 0u &&
+             !lower_noexcept_expression(local->var_init))) {
             return false;
         }
         return true;
@@ -36629,10 +36720,11 @@ static bool lower_coroutine_body_supported(
         if (!statement->if_cond || !statement->if_cond->type ||
             !lower_coroutine_scalar_frame_value_supported(
                 statement->if_cond->type) ||
-            !lower_noexcept_expression(statement->if_cond) ||
             !lower_coroutine_count_expression_awaits(
                 statement->if_cond, body_await_count) ||
-            *body_await_count - await_count_before_condition != 1u) {
+            *body_await_count - await_count_before_condition > 1u ||
+            (*body_await_count - await_count_before_condition != 0u &&
+             !lower_noexcept_expression(statement->if_cond))) {
             return false;
         }
         return lower_coroutine_body_supported(
@@ -36654,10 +36746,11 @@ static bool lower_coroutine_body_supported(
          lower_coroutine_scalar_frame_value_supported(
              statement->expr->type))) {
         size_t await_count_before_expression = *body_await_count;
-        if (lower_noexcept_expression(statement->expr) &&
-            lower_coroutine_count_expression_awaits(
+        if (lower_coroutine_count_expression_awaits(
                 statement->expr, body_await_count) &&
-            *body_await_count - await_count_before_expression == 1u) {
+            *body_await_count - await_count_before_expression <= 1u &&
+            (*body_await_count - await_count_before_expression == 0u ||
+             lower_noexcept_expression(statement->expr))) {
             return true;
         }
         *body_await_count = await_count_before_expression;
@@ -36667,10 +36760,11 @@ static bool lower_coroutine_body_supported(
         if (!statement->cxx_is_co_return || !statement->return_val ||
             !statement->return_val->type ||
             statement->return_val->type->kind != TYPE_VOID ||
-            !lower_noexcept_expression(statement->return_val) ||
             !lower_coroutine_count_expression_awaits(
                 statement->return_val, body_await_count) ||
-            *body_await_count - await_count_before_return > 1u) {
+            *body_await_count - await_count_before_return > 1u ||
+            (*body_await_count - await_count_before_return != 0u &&
+             !lower_noexcept_expression(statement->return_val))) {
             return false;
         }
         *found_return = true;
@@ -36853,6 +36947,8 @@ static bool lower_coroutine_minimal_function_supported(
             !await_plan->await_suspend_call->type ||
             (await_plan->await_suspend_call->type->kind != TYPE_VOID &&
              !(((body_await_plan || await_plan->is_initial_suspend) &&
+                await_plan->await_suspend_call->type->kind == TYPE_BOOL) ||
+               (await_plan->is_final_suspend &&
                 await_plan->await_suspend_call->type->kind == TYPE_BOOL) ||
                (await_plan->await_suspend_returns_handle &&
                 await_plan->await_suspend_call->type->kind == TYPE_STRUCT))) ||
@@ -37374,6 +37470,7 @@ static void lower_coroutine_initialize_generated_context(
     context->aggregate_return_kind = LOWER_ABI_RETURN_SCALAR;
     context->aggregate_return_address = RCC_IR_VALUE_NONE;
     context->active_exception_frame = RCC_IR_VALUE_NONE;
+    context->coroutine_exception_frame = RCC_IR_VALUE_NONE;
     context->wide_phi_zero = RCC_IR_VALUE_NONE;
     context->current = entry;
     context->break_target = RCC_IR_BLOCK_NONE;
@@ -37597,9 +37694,17 @@ static bool lower_coroutine_emit_resume_function(
     const Decl* declaration, char* error, size_t error_size) {
     RccIrLowerContext context;
     RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* dispatch_entry = rcc_ir_block_add(
+        function, "coroutine.dispatch");
     RccIrBlock* body = rcc_ir_block_add(function, "coroutine.body");
+    RccIrBlock* exception_entry = rcc_ir_block_add(
+        function, "coroutine.unhandled_exception");
     RccIrBlock* invalid_state = rcc_ir_block_add(
         function, "coroutine.invalid.state");
+    RccIrInstruction* exception_storage;
+    RccIrLowerValue exception_frame;
+    RccIrLowerValue setjmp_result;
+    RccIrLowerValue exception_condition;
     RccIrLowerValue state;
     RccIrLowerValue zero;
     RccIrValue operands[2];
@@ -37610,12 +37715,47 @@ static bool lower_coroutine_emit_resume_function(
     const CxxCoroutineAwaitPlan* initial =
         declaration->func_coroutine_initial_suspend_plan;
     bool success = false;
-    if (!entry || !body || !invalid_state) return false;
+    if (!entry || !dispatch_entry || !body || !exception_entry ||
+        !invalid_state) return false;
     lower_coroutine_initialize_generated_context(
         &context, module, function, declaration, entry);
     if (!lower_coroutine_bind_frame_fields(&context, declaration)) {
         goto done;
     }
+    exception_storage = lower_append(
+        &context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!exception_storage) goto done;
+    rcc_ir_set_immediate(
+        exception_storage,
+        (uint64_t)(g_opts.target_arch == ARCH_X64 ? 96u : 40u));
+    exception_storage->alignment = (uint32_t)(
+        g_opts.target_arch == ARCH_X64 ? 8u : 4u);
+    exception_frame = lower_value(
+        exception_storage->result, rcc_ir_type_pointer(0u), true);
+    if (!exception_frame.valid) goto done;
+    context.coroutine_exception_frame = exception_frame.value;
+    context.active_exception_frame = exception_frame.value;
+    {
+        RccIrValue operand = exception_frame.value;
+        (void)lower_cxx_runtime_call(
+            &context, "rin_cpp_exception_install", rcc_ir_type_void(),
+            &operand, 1u);
+        setjmp_result = lower_cxx_runtime_call(
+            &context, "setjmp", lower_cxx_exception_word_type(),
+            &operand, 1u);
+    }
+    exception_condition = lower_truth(&context, setjmp_result);
+    if (context.unsupported || !exception_condition.valid) goto done;
+    targets[0] = exception_entry->id;
+    targets[1] = dispatch_entry->id;
+    if (!lower_append(&context, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                      &exception_condition.value, 1u, targets, 2u)) {
+        goto done;
+    }
+    context.terminated = true;
+    context.current = dispatch_entry;
+    context.terminated = false;
     for (const CxxCoroutineAwaitPlan* await_plan =
              declaration->func_coroutine_lowering_plan->await_plans;
          await_plan; await_plan = await_plan->next) {
@@ -37723,6 +37863,32 @@ static bool lower_coroutine_emit_resume_function(
                      "coroutine body lowering failed");
         }
         goto done;
+    }
+    context.current = exception_entry;
+    context.terminated = false;
+    /* The runtime unwinder already executed every cleanup registered during
+     * this resume invocation and cleared its coroutine active byte.  Any
+     * remaining active byte belongs to an object preserved across a previous
+     * suspension and is destroyed here before promise::unhandled_exception. */
+    context.active_exception_frame = RCC_IR_VALUE_NONE;
+    if (!lower_coroutine_emit_destroy_local_cleanups(
+            &context, declaration)) {
+        goto done;
+    }
+    {
+        RccIrLowerValue unhandled = lower_expression(
+            &context, declaration->func_coroutine_unhandled_exception_call);
+        if (!unhandled.valid || unhandled.type.kind != RCC_IR_TYPE_VOID ||
+            context.unsupported ||
+            !lower_cxx_exception_release_frame(
+                &context, exception_frame.value) ||
+            !lower_coroutine_emit_final_suspend(&context)) {
+            if (error && error_size != 0u && error[0] == '\0') {
+                snprintf(error, error_size,
+                         "coroutine unhandled_exception lowering failed");
+            }
+            goto done;
+        }
     }
     success = true;
 done:
@@ -38006,6 +38172,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         aggregate_return_kind == LOWER_ABI_RETURN_SRET
             ? function->parameters[0] : RCC_IR_VALUE_NONE;
     context.active_exception_frame = RCC_IR_VALUE_NONE;
+    context.coroutine_exception_frame = RCC_IR_VALUE_NONE;
     context.wide_phi_zero = RCC_IR_VALUE_NONE;
     context.current = entry;
     context.break_target = RCC_IR_BLOCK_NONE;

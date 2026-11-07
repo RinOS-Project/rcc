@@ -15246,3 +15246,16 @@ Continue in this order:
       handle-transfer regression targets pass on i686/x86-64 at `-O0` and
       `-O2`, with zero verified fallback. Runtime execution, throwing lifetime
       operations, and unsupported reference/union lifetimes remain open.
+- [ ] Route exceptions from coroutine body expressions and local initializers
+      through a resume-entry exception frame to the promise's
+      `unhandled_exception()`. Preserve locals across normal suspension by
+      discarding per-resume cleanup records; clear active bytes as current
+      invocation cleanup runs and destroy still-live locals from earlier
+      suspensions before the promise handler. Body expressions without
+      `co_await` may throw; await protocol operations remain non-throwing.
+      Final `await_suspend(bool)` now distinguishes suspension from immediate
+      completion. Compiler/build/runtime acceptance has not been run, so this
+      item remains open along with throwing await operations, throwing
+      destructors during unwind, reference/union lifetimes, explicit nested
+      exception constructs, and general nested/multiple-await expression
+      liveness.
