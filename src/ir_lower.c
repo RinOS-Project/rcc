@@ -36527,7 +36527,8 @@ static bool lower_coroutine_assignment_await_target_supported(
         return false;
     }
     if (target_type->kind == TYPE_PTR) {
-        return (expression->kind == EXPR_ADD_ASSIGN ||
+        return (expression->kind == EXPR_ASSIGN ||
+                expression->kind == EXPR_ADD_ASSIGN ||
                 expression->kind == EXPR_SUB_ASSIGN) &&
             target_type->base &&
             (type_is_integer((Type*)rhs_type) ||
@@ -36537,6 +36538,7 @@ static bool lower_coroutine_assignment_await_target_supported(
          target_type->kind == TYPE_ENUM) &&
         !target_type->is_bit_precise) {
         switch (expression->kind) {
+            case EXPR_ASSIGN:
             case EXPR_ADD_ASSIGN:
             case EXPR_SUB_ASSIGN:
             case EXPR_MUL_ASSIGN:
@@ -36554,7 +36556,8 @@ static bool lower_coroutine_assignment_await_target_supported(
     }
     if (target_type->kind == TYPE_FLOAT ||
         target_type->kind == TYPE_DOUBLE) {
-        return expression->kind == EXPR_ADD_ASSIGN ||
+        return expression->kind == EXPR_ASSIGN ||
+            expression->kind == EXPR_ADD_ASSIGN ||
             expression->kind == EXPR_SUB_ASSIGN ||
             expression->kind == EXPR_MUL_ASSIGN ||
             expression->kind == EXPR_DIV_ASSIGN;

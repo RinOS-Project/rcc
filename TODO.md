@@ -15315,13 +15315,24 @@ Continue in this order:
       scalar/pointer results, three 64-bit results, resume counts, and frame
       destruction on both architectures. Other expression families and value
       types remain open.
-- [ ] Assignments and compound assignments with suspending right operands now
+- [x] Assignments and compound assignments with suspending right operands now
       lower for supported non-atomic scalar targets, including indexed/member/
       dereference lvalues and i686 wide integer compound operations. The right
       operand resumes first, then the target address is evaluated and compound
       targets are reloaded before update. Complex/volatile/atomic targets
-      remain unsupported. This source change has not yet received
-      compiler/build/runtime acceptance.
+      remain unsupported. Before an await splits the resume CFG, cached i686
+      wide-scalar locals are flushed to their frame slots and invalidated, so
+      a later continuation reloads values that dominate the resumed path.
+      `test-cxx20-coroutine-compound-assignments` verifies all integer
+      compound operators, floating and pointer updates, indexed/member/
+      dereference targets, and i686 64-bit add/XOR/shift. The four-way
+      i686/x86-64 `-O0`/`-O2` verified matrix emits 71 functions with zero
+      fallback. Generated i686 and x86-64 objects run against RinCRT/libcxx
+      in WSL, checking each result and frame destruction on both architectures.
+      Plain scalar `=` now shares the target validation; the existing
+      `test-cxx20-coroutine-suspended-awaits` matrix verifies assignment of a
+      value computed after suspension and nested awaits, with 15 functions and
+      zero fallback on both architectures at `-O0` and `-O2`.
 - [x] Track destruction for body awaiter objects with per-object frame active
       bytes. Exception and destroy entry now destroy only fully constructed,
       still-live body awaiters in reverse await-plan order, clearing active

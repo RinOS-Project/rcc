@@ -1463,6 +1463,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx20-coroutine-eager \
 	test-cxx20-coroutine-final-suspend-bool \
 	test-cxx20-coroutine-exceptions \
+	test-cxx20-coroutine-compound-assignments \
 	test-cxx20-coroutine-suspended-awaits \
 	test-cxx20-coroutine-return-object \
 	test-cxx20-coroutine-return-value \
@@ -4384,6 +4385,8 @@ test-cxx20-coroutine-final-suspend-bool: $(RCXX_TARGET)
 .PHONY: test-cxx20-coroutine-exceptions \
 	test-cxx20-coroutine-final-suspend-boundary \
 	test-cxx20-coroutine-exceptions-runtime \
+	test-cxx20-coroutine-compound-assignments \
+	test-cxx20-coroutine-compound-assignments-runtime \
 	test-cxx20-coroutine-expression-spills \
 	test-cxx20-coroutine-expression-spills-runtime
 test-cxx20-coroutine-exceptions: $(RCXX_TARGET) \
@@ -4450,6 +4453,53 @@ test-cxx20-coroutine-final-suspend-boundary: $(RCXX_TARGET)
 	$(GREP) -F -q 'co_await promise.final_suspend() must be non-throwing' \
 		$(TEST_OUT)/cxx20-coroutine-exceptions-runtime/final-suspend-x64.log
 	@echo "C++20 coroutine final-suspend constraints verified"
+
+$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-backend-asm$(EXE_SUFFIX): \
+	tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $@ $^
+
+test-cxx20-coroutine-compound-assignments-runtime: $(RCXX_TARGET) \
+	$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-backend-asm$(EXE_SUFFIX)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x86.ro \
+		tests/cxx20_coroutine_compound_assignments.cpp \
+		>$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 71 function(s) emitted' \
+		$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x86.log,0)
+	$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-backend-asm$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x86.ro \
+		$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x64.ro \
+		tests/cxx20_coroutine_compound_assignments.cpp \
+		>$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 71 function(s) emitted' \
+		$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x64.log,0)
+	$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-backend-asm$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x64.ro \
+		$(TEST_OUT)/cxx20-coroutine-compound-assignments-runtime/verified-x64.s
+ifeq ($(OS),Windows_NT)
+	$(WSL) -e bash -lc "cd '$(WSL_RINCOMPILER_ROOT)' && bash tests/run_cxx20_coroutine_compound_assignments_runtime.sh"
+else
+	bash tests/run_cxx20_coroutine_compound_assignments_runtime.sh
+endif
+
+test-cxx20-coroutine-compound-assignments: $(RCXX_TARGET) \
+	test-cxx20-coroutine-compound-assignments-runtime
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-compound-assignments)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-compound-assignments,cxx20_coroutine_compound_assignments.cpp,71)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_compound_add_resume,$(TEST_OUT)/cxx20-coroutine-compound-assignments/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_compound_wide_left_shift_resume,$(TEST_OUT)/cxx20-coroutine-compound-assignments/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_compound_indexed_add_resume,$(TEST_OUT)/cxx20-coroutine-compound-assignments/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_compound_member_xor_resume,$(TEST_OUT)/cxx20-coroutine-compound-assignments/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_compound_dereference_add_resume,$(TEST_OUT)/cxx20-coroutine-compound-assignments/verified-x86.ro)
+	@echo "C++20 coroutine compound-assignment tests completed"
 
 $(TEST_OUT)/cxx20-coroutine-expression-spills-runtime/verified-backend-asm$(EXE_SUFFIX): \
 	tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
