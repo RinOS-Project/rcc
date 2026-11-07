@@ -35703,9 +35703,11 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
             field->kind < CXX_COROUTINE_FRAME_PARAMETER ||
             field->kind > CXX_COROUTINE_FRAME_HANDLE ||
             field->type->size < 0 ||
+            field->type->align <= 0 ||
             field->size != (size_t)field->type->size ||
             field->alignment == 0u ||
             (field->alignment & (field->alignment - 1u)) != 0u ||
+            field->alignment != (size_t)field->type->align ||
             field->alignment > plan->frame_alignment ||
             field->offset < RIN_CXX_CORO_FRAME_HEADER_SIZE ||
             field->offset % field->alignment != 0u ||
