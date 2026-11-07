@@ -15168,3 +15168,17 @@ Continue in this order:
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
       Unsigned TLS reference aliases, atomic stores/RMW, and broader optimized
       multi-piece lifetime/CFI coverage remain open.
+
+## RCC continuation (2026-11-07, unsigned automatic reference aliases to TLS)
+
+- [x] Verify computed unsigned i686 64-bit `/` and `%` inline-argument DWARF
+      through automatic `const unsigned long long&` aliases bound to
+      thread-local targets, with a thread-local divisor. Check each local
+      alias's pointer-backed frame location, require `TLSOFF32S` relocations
+      to the exact TLS target/divisor in both i686 and x86-64 objects, and
+      evaluate the 11-by-9 unsigned boundary matrix in legacy and verified
+      i686 objects. The verified backend emits ten functions with zero
+      fallback. Both `test-debug-info-inline-expression` and full
+      `test-debug-info` pass. Namespace/block-scope `thread_local` reference
+      object initialization, atomic stores/RMW, and broader optimized
+      multi-piece lifetime/CFI coverage remain open.

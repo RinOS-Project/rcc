@@ -3910,6 +3910,46 @@ static void verify_global_reference_variable_dereference(
     assert(found_variable);
 }
 
+static void verify_tls_reference_alias_local_storage(
+    ObjectFile* object, uint16_t architecture, const char* alias_name,
+    const char* target_name, const char* divisor_name) {
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* locations;
+    ObjSection* text;
+    bool has_location = false;
+    bool is_location_list = false;
+    int64_t frame_offset = 0;
+    size_t target_relocations = 0u;
+    size_t divisor_relocations = 0u;
+
+    assert(object && (architecture == ARCH_X86 || architecture == ARCH_X64) &&
+           alias_name && target_name && divisor_name);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    locations = objfile_get_section(object, ".debug_loc");
+    text = objfile_get_section(object, ".text");
+    assert(info && strings && locations && text);
+    assert(find_variable_location(
+        info, strings, locations, alias_name, architecture,
+        &has_location, &is_location_list, &frame_offset));
+    assert(has_location);
+    verify_reference_variable_frame_dereference(
+        info, strings, locations, alias_name, architecture, frame_offset);
+    for (const ObjReloc* relocation = text->relocs;
+         relocation; relocation = relocation->next) {
+        if (!relocation->symbol_name) continue;
+        if (strcmp(relocation->symbol_name, target_name) == 0) {
+            assert(relocation->type == RELOC_TLSOFF32S);
+            ++target_relocations;
+        } else if (strcmp(relocation->symbol_name, divisor_name) == 0) {
+            assert(relocation->type == RELOC_TLSOFF32S);
+            ++divisor_relocations;
+        }
+    }
+    assert(target_relocations != 0u && divisor_relocations != 0u);
+}
+
 static void verify_inline_reference_parameter_alias(
     const char* path, uint16_t architecture, const char* call_site_name,
     const char* source_name, bool global_source) {
@@ -15039,6 +15079,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_unsigned_reference_alias_static_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 126 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_unsigned_reference_alias_tls_divide_entry";
+    } else if (expected_constant == INT64_MIN + 127 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_unsigned_reference_alias_tls_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -15646,20 +15694,22 @@ static void verify_inline_integer_expression_parameter(
          (expected_constant >= INT64_MIN + 116 &&
           expected_constant <= INT64_MIN + 121) ||
          (expected_constant >= INT64_MIN + 122 &&
-          expected_constant <= INT64_MIN + 125)) &&
+          expected_constant <= INT64_MIN + 127)) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
         bool is_tls = expected_constant == INT64_MIN + 106 ||
             expected_constant == INT64_MIN + 107 ||
             expected_constant == INT64_MIN + 110 ||
             expected_constant == INT64_MIN + 111 ||
             expected_constant == INT64_MIN + 118 ||
-            expected_constant == INT64_MIN + 119;
+            expected_constant == INT64_MIN + 119 ||
+            expected_constant == INT64_MIN + 126 ||
+            expected_constant == INT64_MIN + 127;
         bool atomic_load_case = expected_constant <= INT64_MIN + 115;
         bool global_operands = expected_constant <= INT64_MIN + 111 ||
             (expected_constant >= INT64_MIN + 116 &&
              expected_constant <= INT64_MIN + 119) ||
             (expected_constant >= INT64_MIN + 122 &&
-             expected_constant <= INT64_MIN + 125);
+             expected_constant <= INT64_MIN + 127);
         if (atomic_load_case && expected_constant >= INT64_MIN + 112) {
             global_operands = false;
         }
@@ -21362,6 +21412,16 @@ int main(int argc, char** argv)
             verify_global_reference_variable_dereference(
                 info, strings, architectures[index],
                 "debug_inline_unsigned_reference_static_alias");
+            verify_tls_reference_alias_local_storage(
+                object, architectures[index],
+                "debug_inline_unsigned_reference_tls_divide_alias",
+                "debug_inline_unsigned_reference_tls_alias_target",
+                "debug_inline_unsigned_reference_tls_divisor");
+            verify_tls_reference_alias_local_storage(
+                object, architectures[index],
+                "debug_inline_unsigned_reference_tls_remainder_alias",
+                "debug_inline_unsigned_reference_tls_alias_target",
+                "debug_inline_unsigned_reference_tls_divisor");
             objfile_free(object);
             verify_inline_reference_parameter_alias(
                 paths[index], architectures[index],
@@ -21398,6 +21458,18 @@ int main(int argc, char** argv)
                     true, 0x1du, 8u, INT64_MIN + 125,
                     "debug_inline_unsigned_reference_static_alias_divisor",
                     false);
+                verify_inline_integer_expression_parameter(
+                    paths[index], ARCH_X86,
+                    "debug_nonconstant_unsigned_long_long_parameter_inline",
+                    "debug_inline_unsigned_reference_tls_alias_target", true,
+                    0x1bu, 8u, INT64_MIN + 126,
+                    "debug_inline_unsigned_reference_tls_divisor", true);
+                verify_inline_integer_expression_parameter(
+                    paths[index], ARCH_X86,
+                    "debug_nonconstant_unsigned_long_long_parameter_inline",
+                    "debug_inline_unsigned_reference_tls_alias_target", true,
+                    0x1du, 8u, INT64_MIN + 127,
+                    "debug_inline_unsigned_reference_tls_divisor", true);
             }
         }
         return 0;

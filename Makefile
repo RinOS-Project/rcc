@@ -3395,7 +3395,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.ro \
 		tests/debug_info_inline_reference_alias.cpp \
 		>$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x86.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
@@ -3403,7 +3403,7 @@ test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.ro \
 		tests/debug_info_inline_reference_alias.cpp \
 		>$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info-inline-expression/verified-cxx-reference-alias-x64.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
