@@ -10,10 +10,12 @@
 
 typedef struct {
     RccIrValue object;
+    const Decl* restrict_origin;
     uint64_t byte_offset;
     unsigned char state;
     bool valid;
     bool byte_offset_known;
+    bool restrict_origin_is_restrict;
 } RccIrCseMemoryLocation;
 
 typedef struct {
@@ -1769,6 +1771,7 @@ typedef struct {
     bool* block_store_slots;
     RccIrValue* block_stores;
     size_t block_store_count;
+    bool restrict_aliasing_valid;
     RccIrFunction* function;
     RccIrValue* replacements;
     size_t replacement_count;
@@ -1831,7 +1834,33 @@ static bool ir_pass_cse_memory_location(
     if (location->state == 1u) return false;
     location->state = 1u;
     definition = context->value_definitions[value];
-    if (!definition) goto done;
+    if (!definition) {
+        const Decl* parameter_declaration = NULL;
+        if (!g_opts.cxx_mode &&
+            context->function->parameter_source_declarations) {
+            for (size_t parameter = 0u;
+                 parameter < context->function->parameter_count;
+                 ++parameter) {
+                if (context->function->parameters[parameter] == value) {
+                    parameter_declaration = (const Decl*)
+                        context->function->parameter_source_declarations[
+                            parameter];
+                    break;
+                }
+            }
+        }
+        if (parameter_declaration && parameter_declaration->type &&
+            parameter_declaration->type->kind == TYPE_PTR) {
+            location->object = value;
+            location->byte_offset = 0u;
+            location->byte_offset_known = true;
+            location->restrict_origin = parameter_declaration;
+            location->restrict_origin_is_restrict =
+                parameter_declaration->type->is_restrict;
+            location->valid = true;
+        }
+        goto done;
+    }
     if (definition->opcode == RCC_IR_ALLOCA) {
         location->object = value;
         location->byte_offset = 0u;
@@ -1917,6 +1946,12 @@ static bool ir_pass_cse_memory_location(
                 when_true.byte_offset == when_false.byte_offset;
             location->byte_offset = location->byte_offset_known
                 ? when_true.byte_offset : 0u;
+            if (when_true.restrict_origin == when_false.restrict_origin) {
+                location->restrict_origin = when_true.restrict_origin;
+                location->restrict_origin_is_restrict =
+                    when_true.restrict_origin_is_restrict ||
+                    when_false.restrict_origin_is_restrict;
+            }
             location->valid = true;
         }
     }
@@ -1992,6 +2027,40 @@ static bool ir_pass_cse_memory_ranges_disjoint(
         store_end <= load_location.byte_offset;
 }
 
+static bool ir_pass_cse_restrict_roots_disjoint(
+    const RccIrCseContext* context, const RccIrInstruction* load,
+    const RccIrInstruction* store) {
+    RccIrCseMemoryLocation load_location;
+    RccIrCseMemoryLocation store_location;
+    const Type* load_type;
+    const Type* store_type;
+    if (!context || !context->restrict_aliasing_valid || g_opts.cxx_mode ||
+        !load || !store || load->volatile_access ||
+        load->operand_count != 1u ||
+        store->opcode != RCC_IR_STORE || store->volatile_access ||
+        store->operand_count != 2u ||
+        !ir_pass_cse_memory_location(
+            context, load->operands[0], 0u, &load_location) ||
+        !ir_pass_cse_memory_location(
+            context, store->operands[1], 0u, &store_location) ||
+        !load_location.valid || !store_location.valid ||
+        !load_location.restrict_origin ||
+        !store_location.restrict_origin ||
+        load_location.restrict_origin == store_location.restrict_origin ||
+        (!load_location.restrict_origin_is_restrict &&
+         !store_location.restrict_origin_is_restrict)) {
+        return false;
+    }
+    load_type = load->source_access_type;
+    store_type = store->source_access_type;
+    if ((load_type && (load_type->is_volatile || load_type->is_atomic)) ||
+        (store_type &&
+         (store_type->is_volatile || store_type->is_atomic))) {
+        return false;
+    }
+    return true;
+}
+
 static bool ir_pass_c_declared_local_load_type(
     const RccIrCseContext* context, const RccIrInstruction* load) {
     RccIrValue address;
@@ -2029,6 +2098,9 @@ static bool ir_pass_store_is_disjoint_from_load(
     load_address = load->operands[0];
     store_address = store->operands[1];
     if (ir_pass_cse_memory_ranges_disjoint(context, load, store)) {
+        return true;
+    }
+    if (ir_pass_cse_restrict_roots_disjoint(context, load, store)) {
         return true;
     }
     if (load_address != store_address) {
@@ -2272,7 +2344,10 @@ static void ir_pass_common_block(RccIrCseContext* context,
             ir_pass_record_store_value(context, instruction);
         } else if (instruction->opcode == RCC_IR_CALL) {
             /* Without a call memory-effect summary, any call may mutate every
-             * address and invalidates all available loads. */
+             * address and invalidates all available loads.  It can also
+             * change a pointer parameter, so later restrict-root separation
+             * is disabled for this function walk. */
+            context->restrict_aliasing_valid = false;
             context->block_load_count = 0u;
             ir_pass_clear_block_store_facts(context);
         }
@@ -2366,6 +2441,7 @@ static bool ir_pass_common_subexpressions(
     context.block_stores = rcc_alloc(
         function->value_count * sizeof(*context.block_stores));
     context.function = function;
+    context.restrict_aliasing_valid = true;
     context.replacements = rcc_alloc(
         function->value_count * sizeof(*context.replacements));
     context.replacement_count = function->value_count;

@@ -150,6 +150,7 @@ void rcc_ir_module_destroy(RccIrModule* module) {
         rcc_free(function->name);
         rcc_free(function->parameter_types);
         rcc_free(function->parameters);
+        rcc_free(function->parameter_source_declarations);
         rcc_free(function->sysv_memory_parameters);
         rcc_free(function->value_types);
         rcc_free(function);
@@ -343,18 +344,24 @@ RccIrFunction* rcc_ir_function_add(RccIrModule* module, const char* name,
     function->module = module;
     if (parameter_count != 0u) {
         if (parameter_count > SIZE_MAX / sizeof(*function->parameter_types) ||
-            parameter_count > SIZE_MAX / sizeof(*function->parameters)) {
+            parameter_count > SIZE_MAX / sizeof(*function->parameters) ||
+            parameter_count > SIZE_MAX /
+                sizeof(*function->parameter_source_declarations)) {
             rcc_fatal("IR parameter table is too large");
         }
         function->parameter_types = rcc_alloc(
             parameter_count * sizeof(*function->parameter_types));
         function->parameters = rcc_alloc(
             parameter_count * sizeof(*function->parameters));
+        function->parameter_source_declarations = rcc_alloc(
+            parameter_count *
+            sizeof(*function->parameter_source_declarations));
         memcpy(function->parameter_types, parameter_types,
                parameter_count * sizeof(*function->parameter_types));
         ir_reserve_values(function, parameter_count);
         for (size_t index = 0u; index < parameter_count; ++index) {
             function->parameters[index] = (RccIrValue)index;
+            function->parameter_source_declarations[index] = NULL;
             function->value_types[index] = parameter_types[index];
         }
         function->value_count = parameter_count;

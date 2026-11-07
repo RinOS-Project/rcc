@@ -238,6 +238,9 @@ struct RccIrFunction {
     RccIrType return_type;
     RccIrType* parameter_types;
     RccIrValue* parameters;
+    /* Borrowed source declarations for direct pointer parameters, used by
+     * C restrict association analysis while the AST is alive. */
+    const void** parameter_source_declarations;
     size_t parameter_count;
     /* Whole SysV aggregate parameters assigned to the incoming stack area. */
     RccSysvMemoryArgument* sysv_memory_parameters;

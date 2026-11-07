@@ -36044,6 +36044,10 @@ static bool lower_parameters(RccIrLowerContext* context,
             context->unsupported = true;
             return false;
         }
+        if (!indirect_class && !aggregate && !wide_scalar &&
+            item->type->kind == TYPE_PTR) {
+            context->function->parameter_source_declarations[index] = item;
+        }
         if (indirect_class) {
             type = rcc_ir_type_pointer(0u);
             if (!lower_add_local(
