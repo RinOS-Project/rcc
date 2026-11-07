@@ -15261,7 +15261,10 @@ Continue in this order:
       `co_await` may throw. Body await protocol calls may also throw; publish
       the current await state before `await_ready` and destroy that awaiter on
       the exception edge. The expression surrounding a single body await must
-      keep its non-protocol operations non-throwing.
+      keep its non-protocol operations non-throwing. `while`, `do`, `for`, and
+      `switch` statements now lower with suspend plans in their expressions
+      and bodies; `break` and `continue` retain the ordinary loop/switch
+      targets across resumed continuations.
       Scalar and supported aggregate `throw` statements use that resume
       exception frame; class exception payloads retain a destructor callback.
       No-suspend `try/catch` regions and rethrow from their handlers are

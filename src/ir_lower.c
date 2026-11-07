@@ -36803,6 +36803,92 @@ static bool lower_coroutine_body_supported(
                 statement->if_else, found_return, body_await_count,
                 inside_catch_handler);
     }
+    if (statement->kind == STMT_WHILE || statement->kind == STMT_DO) {
+        size_t await_count_before_condition = *body_await_count;
+        if (!statement->while_cond || !statement->while_cond->type ||
+            !lower_coroutine_scalar_frame_value_supported(
+                statement->while_cond->type) ||
+            !lower_coroutine_count_expression_awaits(
+                statement->while_cond, body_await_count) ||
+            *body_await_count - await_count_before_condition > 1u ||
+            (*body_await_count - await_count_before_condition != 0u &&
+             !lower_coroutine_expression_nothrow_around_await(
+                 statement->while_cond))) {
+            return false;
+        }
+        return lower_coroutine_body_supported(
+            statement->while_body, found_return, body_await_count,
+            inside_catch_handler);
+    }
+    if (statement->kind == STMT_FOR) {
+        if (statement->for_init &&
+            !lower_coroutine_body_supported(
+                statement->for_init, found_return, body_await_count,
+                inside_catch_handler)) {
+            return false;
+        }
+        if (statement->for_cond) {
+            size_t await_count_before_condition = *body_await_count;
+            if (!statement->for_cond->type ||
+                !lower_coroutine_scalar_frame_value_supported(
+                    statement->for_cond->type) ||
+                !lower_coroutine_count_expression_awaits(
+                    statement->for_cond, body_await_count) ||
+                *body_await_count - await_count_before_condition > 1u ||
+                (*body_await_count - await_count_before_condition != 0u &&
+                 !lower_coroutine_expression_nothrow_around_await(
+                     statement->for_cond))) {
+                return false;
+            }
+        }
+        if (statement->for_inc) {
+            size_t await_count_before_increment = *body_await_count;
+            if (!lower_coroutine_count_expression_awaits(
+                    statement->for_inc, body_await_count) ||
+                *body_await_count - await_count_before_increment > 1u ||
+                (*body_await_count - await_count_before_increment != 0u &&
+                 !lower_coroutine_expression_nothrow_around_await(
+                     statement->for_inc))) {
+                return false;
+            }
+        }
+        return lower_coroutine_body_supported(
+            statement->for_body, found_return, body_await_count,
+            inside_catch_handler);
+    }
+    if (statement->kind == STMT_SWITCH) {
+        size_t await_count_before_switch = *body_await_count;
+        if (!statement->switch_expr || !statement->switch_expr->type ||
+            !lower_coroutine_scalar_frame_value_supported(
+                statement->switch_expr->type) ||
+            !lower_coroutine_count_expression_awaits(
+                statement->switch_expr, body_await_count) ||
+            *body_await_count - await_count_before_switch > 1u ||
+            (*body_await_count - await_count_before_switch != 0u &&
+             !lower_coroutine_expression_nothrow_around_await(
+                 statement->switch_expr))) {
+            return false;
+        }
+        return lower_coroutine_body_supported(
+            statement->switch_body, found_return, body_await_count,
+            inside_catch_handler);
+    }
+    if (statement->kind == STMT_CASE) {
+        return lower_coroutine_body_supported(
+            statement->case_stmt, found_return, body_await_count,
+            inside_catch_handler);
+    }
+    if (statement->kind == STMT_DEFAULT) {
+        return lower_coroutine_body_supported(
+            statement->default_stmt, found_return, body_await_count,
+            inside_catch_handler);
+    }
+    if (statement->kind == STMT_BREAK ||
+        statement->kind == STMT_CONTINUE) {
+        /* Sema verifies the target construct; verified statement lowering
+         * retains that target while building resumed continuations. */
+        return true;
+    }
     if (statement->kind == STMT_BLOCK) {
         for (const StmtList* item = statement->block_stmts;
              item; item = item->next) {
