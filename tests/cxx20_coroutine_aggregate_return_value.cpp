@@ -22,6 +22,9 @@ int rcc_coroutine_aggregate_return_value_promise_destroy_count;
 int rcc_coroutine_aggregate_return_value_lifetime_order_error;
 int rcc_coroutine_suspended_return_value_payload;
 int rcc_coroutine_suspended_return_value_operation_count;
+int rcc_coroutine_awaited_aggregate_return_value_low;
+int rcc_coroutine_awaited_aggregate_return_value_high;
+int rcc_coroutine_awaited_aggregate_return_value_operation_count;
 void* rin_coro_handle_from_promise(void* promise);
 }
 
@@ -57,6 +60,23 @@ struct rcc_coroutine_suspended_return_value_awaiter {
     int await_resume() const noexcept { return value; }
 };
 
+struct rcc_coroutine_awaited_aggregate_payload {
+    int low;
+    int high;
+};
+
+struct rcc_coroutine_awaited_aggregate_awaiter {
+    bool await_ready() const noexcept { return false; }
+
+    template<class Promise>
+    void await_suspend(std::coroutine_handle<Promise>) const noexcept {}
+
+    rcc_coroutine_awaited_aggregate_payload
+    await_resume() const noexcept {
+        return {47, 83};
+    }
+};
+
 struct rcc_coroutine_aggregate_return_value_promise {
     int get_return_object() noexcept {
         rcc_coroutine_aggregate_return_value_last_frame =
@@ -84,6 +104,13 @@ struct rcc_coroutine_aggregate_return_value_promise {
         ++rcc_coroutine_suspended_return_value_operation_count;
     }
 
+    void return_value(
+        rcc_coroutine_awaited_aggregate_payload payload) noexcept {
+        rcc_coroutine_awaited_aggregate_return_value_low = payload.low;
+        rcc_coroutine_awaited_aggregate_return_value_high = payload.high;
+        ++rcc_coroutine_awaited_aggregate_return_value_operation_count;
+    }
+
     void unhandled_exception() noexcept {}
 
     ~rcc_coroutine_aggregate_return_value_promise() noexcept {
@@ -104,4 +131,8 @@ extern "C" int rcc_coroutine_aggregate_return_value() {
 
 extern "C" int rcc_coroutine_suspended_return_value() {
     co_return co_await rcc_coroutine_suspended_return_value_awaiter{113};
+}
+
+extern "C" int rcc_coroutine_awaited_aggregate_return_value() {
+    co_return co_await rcc_coroutine_awaited_aggregate_awaiter{};
 }

@@ -4611,13 +4611,17 @@ test-cxx20-coroutine-return-value: $(RCXX_TARGET)
 test-cxx20-coroutine-aggregate-return-value: $(RCXX_TARGET) \
 	test-cxx20-coroutine-aggregate-return-value-runtime
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-aggregate-return-value,cxx20_coroutine_aggregate_return_value.cpp,20)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-aggregate-return-value,cxx20_coroutine_aggregate_return_value.cpp,27)
 	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_aggregate_return_value_resume,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_aggregate_return_value_destroy,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_suspended_return_value_resume,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_suspended_return_value_destroy,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_suspended_return_value_resume,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_suspended_return_value_destroy,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_awaited_aggregate_return_value_resume,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_awaited_aggregate_return_value_destroy,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_awaited_aggregate_return_value_resume,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro_rcc_coroutine_awaited_aggregate_return_value_destroy,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,_ZN44rcc_coroutine_aggregate_return_value_promise12return_valueERK44rcc_coroutine_aggregate_return_value_payload,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value/verified-x64.ro)
 	@echo "C++20 coroutine aggregate return_value tests completed"
 
@@ -4634,7 +4638,7 @@ test-cxx20-coroutine-aggregate-return-value-runtime: $(RCXX_TARGET) \
 		-o $(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.ro \
 		tests/cxx20_coroutine_aggregate_return_value.cpp \
 		>$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.log
-	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 27 function(s) emitted' \
 		$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x86.log,0)
 	$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-backend-asm$(EXE_SUFFIX) \
@@ -4645,7 +4649,7 @@ test-cxx20-coroutine-aggregate-return-value-runtime: $(RCXX_TARGET) \
 		-o $(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.ro \
 		tests/cxx20_coroutine_aggregate_return_value.cpp \
 		>$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.log
-	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 27 function(s) emitted' \
 		$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-x64.log,0)
 	$(TEST_OUT)/cxx20-coroutine-aggregate-return-value-runtime/verified-backend-asm$(EXE_SUFFIX) \

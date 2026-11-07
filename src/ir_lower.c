@@ -36607,6 +36607,19 @@ static bool lower_coroutine_scalar_frame_value_supported(
         lower_abi_native_scalar_type(type, &ir_type);
 }
 
+static bool lower_coroutine_await_resume_result_supported(
+    const Type* type) {
+    if (lower_coroutine_scalar_frame_value_supported(type)) return true;
+    if (!type || type->is_reference ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        lower_cxx_type_has_destructor_cleanup(type) ||
+        !rcc_sema_cxx_trivially_copyable((Type*)type) ||
+        !lower_storage_type_supported_internal(type, 0u)) {
+        return false;
+    }
+    return true;
+}
+
 static bool lower_coroutine_assignment_await_target_supported(
     const Expr* expression) {
     const Expr* target;
@@ -38329,10 +38342,10 @@ static bool lower_coroutine_minimal_function_supported(
                    !await_plan->await_resume_call ||
                    !await_plan->await_resume_call->type ||
                    (await_plan->await_resume_call->type->kind != TYPE_VOID &&
-                    !lower_coroutine_scalar_frame_value_supported(
+                    !lower_coroutine_await_resume_result_supported(
                         await_plan->await_resume_call->type))) {
             if (reason_out) {
-                *reason_out = "body await_resume results must be void or discarded scalar values";
+                *reason_out = "body await_resume results must be void, scalar, or trivially copyable aggregates";
             }
             return false;
         } else {
