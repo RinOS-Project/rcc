@@ -936,6 +936,76 @@ bool type_is_compatible(Type* a, Type* b) {
     return true;
 }
 
+static bool type_c_effective_alias_character_type(const Type* type) {
+    return type && type->kind == TYPE_CHAR && !type->is_char8;
+}
+
+static bool type_c_effective_alias_compatible_impl(
+    const Type* a, const Type* b, unsigned depth) {
+    const TypeField* field;
+    if (!a || !b || depth >= 128u) return true;
+    if (a->may_alias || b->may_alias ||
+        type_c_effective_alias_character_type(a) ||
+        type_c_effective_alias_character_type(b) ||
+        type_is_compatible((Type*)a, (Type*)b)) {
+        return true;
+    }
+    if (type_is_integer((Type*)a) && type_is_integer((Type*)b) &&
+        a->kind == b->kind && a->kind != TYPE_BOOL &&
+        a->is_bit_precise == b->is_bit_precise &&
+        (!a->is_bit_precise || a->bit_width == b->bit_width) &&
+        a->is_unsigned != b->is_unsigned) {
+        return true;
+    }
+    if (a->kind == TYPE_ENUM && a->enum_underlying_type &&
+        type_c_effective_alias_compatible_impl(
+            a->enum_underlying_type, b, depth + 1u)) {
+        return true;
+    }
+    if (b->kind == TYPE_ENUM && b->enum_underlying_type &&
+        type_c_effective_alias_compatible_impl(
+            a, b->enum_underlying_type, depth + 1u)) {
+        return true;
+    }
+    if (a->kind == TYPE_ARRAY) {
+        if (!a->base) return true;
+        if (type_c_effective_alias_compatible_impl(
+                a->base, b, depth + 1u)) {
+            return true;
+        }
+    }
+    if (b->kind == TYPE_ARRAY) {
+        if (!b->base) return true;
+        if (type_c_effective_alias_compatible_impl(
+                a, b->base, depth + 1u)) {
+            return true;
+        }
+    }
+    if (a->kind == TYPE_STRUCT || a->kind == TYPE_UNION) {
+        if (!a->fields && a->size <= 0) return true;
+        for (field = a->fields; field; field = field->next) {
+            if (type_c_effective_alias_compatible_impl(
+                    field->type, b, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    if (b->kind == TYPE_STRUCT || b->kind == TYPE_UNION) {
+        if (!b->fields && b->size <= 0) return true;
+        for (field = b->fields; field; field = field->next) {
+            if (type_c_effective_alias_compatible_impl(
+                    a, field->type, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool type_c_effective_alias_compatible(const Type* a, const Type* b) {
+    return type_c_effective_alias_compatible_impl(a, b, 0u);
+}
+
 /* Generic-association matching needs the C-compatible type relation with
  * qualifiers retained at nested pointer/array/function layers. The general
  * compatibility predicate intentionally erases those qualifiers for other

@@ -2665,6 +2665,8 @@ static bool ir_pass_licm_initialized_local_load(
     RccIrValue address;
     RccIrInstruction* allocation;
     RccIrInstruction* initializing_store = NULL;
+    const Type* source_load_type;
+    bool c_declared_type_aliasing = false;
     size_t address_block;
     size_t store_count = 0u;
     size_t block_index;
@@ -2689,6 +2691,19 @@ static bool ir_pass_licm_initialized_local_load(
     }
     allocation = definitions[address];
     if (!allocation || allocation->opcode != RCC_IR_ALLOCA) return false;
+    source_load_type = load->source_access_type;
+    if (!g_opts.cxx_mode && source_load_type &&
+        allocation->source_declaration) {
+        const Decl* declaration =
+            (const Decl*)allocation->source_declaration;
+        if (!declaration || declaration->kind != DECL_VAR ||
+            !declaration->type ||
+            !type_c_effective_alias_compatible(
+                declaration->type, source_load_type)) {
+            return false;
+        }
+        c_declared_type_aliasing = true;
+    }
     load_bytes = ((size_t)load->type.bit_width + 7u) / 8u;
     if (allocation->immediate < load_bytes) return false;
 
@@ -2714,6 +2729,13 @@ static bool ir_pass_licm_initialized_local_load(
                 RccIrValue stored_value = instruction->operands[0];
                 size_t store_block = instruction->block
                     ? instruction->block->id : SIZE_MAX;
+                if (c_declared_type_aliasing &&
+                    instruction->source_access_type &&
+                    !type_c_effective_alias_compatible(
+                        source_load_type,
+                        instruction->source_access_type)) {
+                    continue;
+                }
                 if (instruction->volatile_access ||
                     stored_value >= function->value_count ||
                     !rcc_ir_type_equal(

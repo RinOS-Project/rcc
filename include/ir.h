@@ -9,6 +9,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct Type;
+
 #define RCC_IR_VALUE_NONE UINT32_MAX
 #define RCC_IR_BLOCK_NONE UINT32_MAX
 #define RCC_IR_SYSV_VA_SAVE_AREA_SIZE 176u
@@ -210,6 +212,9 @@ struct RccIrInstruction {
     /* Borrowed AST declaration owning this stack allocation, when it is a
      * source variable or parameter rather than compiler scratch storage. */
     const void* source_declaration;
+    /* Borrowed C access type for a load/store.  Optimizer alias reasoning
+     * uses it only while the owning AST is alive and only in C mode. */
+    const struct Type* source_access_type;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
     /* One-based IR-module inline-call index, or zero outside an inline body. */

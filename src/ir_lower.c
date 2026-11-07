@@ -4489,6 +4489,7 @@ static RccIrLowerValue lower_load_address(RccIrLowerContext* context,
     load = lower_append(context, RCC_IR_LOAD, type, &address.value, 1u,
                         NULL, 0u);
     if (!load) return lower_invalid_value();
+    load->source_access_type = ast_type;
     rcc_ir_set_volatile_access(
         load, address.volatile_access || ast_type->is_volatile ||
             address.atomic_access || ast_type->is_atomic);
@@ -4673,6 +4674,17 @@ static bool lower_store_address(RccIrLowerContext* context,
             store, address.atomic_access);
         return true;
     }
+}
+
+static bool lower_store_typed_address(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    RccIrLowerValue value, const Type* source_access_type) {
+    if (!lower_store_address(context, address, value)) return false;
+    if (context && context->current && context->current->last &&
+        context->current->last->opcode == RCC_IR_STORE) {
+        context->current->last->source_access_type = source_access_type;
+    }
+    return true;
 }
 
 static bool lower_bitfield_storage_layout(
@@ -5024,7 +5036,8 @@ static bool lower_store_lvalue(RccIrLowerContext* context,
     if (field && field->is_bitfield) {
         return lower_store_bitfield_value(context, address, field, value);
     }
-    return lower_store_address(context, address, value);
+    return lower_store_typed_address(
+        context, address, value, expression ? expression->type : NULL);
 }
 
 static bool lower_i686_wide_scalar_type(const Type* type) {
@@ -10575,7 +10588,8 @@ static RccIrLowerValue lower_compound_assignment(
             expression->kind == EXPR_SUB_ASSIGN,
             lower_vla_owner(expression->binary_lhs));
         if (!result.valid ||
-            !lower_store_address(context, address, result)) {
+            !lower_store_typed_address(
+                context, address, result, expression->binary_lhs->type)) {
             return lower_invalid_value();
         }
         return result;
@@ -10616,7 +10630,9 @@ static RccIrLowerValue lower_compound_assignment(
             ? lhs->member_field : NULL;
         if (!result.valid || !(field && field->is_bitfield
                 ? lower_store_bitfield_value(context, address, field, result)
-                : lower_store_address(context, address, result))) {
+                : lower_store_typed_address(
+                      context, address, result,
+                      expression->binary_lhs->type))) {
             return lower_invalid_value();
         }
     }
@@ -23890,8 +23906,8 @@ static bool lower_copy_aggregate_with_volatile_fields(
         {
             RccIrLowerValue value = lower_load_address(
                 context, source_address, (Type*)type);
-            return value.valid && lower_store_address(
-                context, destination_address, value);
+            return value.valid && lower_store_typed_address(
+                context, destination_address, value, type);
         }
     }
 }
@@ -23931,7 +23947,8 @@ static bool lower_zero_scalar_storage(
     }
     {
         RccIrLowerValue zero = lower_zero_initializer(context, type);
-        return zero.valid && lower_store_address(context, address, zero);
+        return zero.valid && lower_store_typed_address(
+            context, address, zero, type);
     }
 }
 
@@ -24018,7 +24035,8 @@ static bool lower_initialize_scalar_storage(
     {
         RccIrLowerValue value = lower_expression(context, expression);
         value = lower_cast(context, value, type);
-        return value.valid && lower_store_address(context, address, value);
+        return value.valid && lower_store_typed_address(
+            context, address, value, type);
     }
 }
 
@@ -37100,6 +37118,15 @@ static RccIrLowerValue lower_coroutine_await_expression(
          continuation && continuation->plan != await_plan;
          continuation = continuation->next) {}
     if (!continuation || !continuation->block) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    /* The continuation can be entered by a later resume invocation.  Values
+     * held only in the i686 wide-scalar SSA cache must therefore be mirrored
+     * into their frame-backed local slots before the await splits control
+     * flow.  The flush also invalidates those cached definitions so lowering
+     * the continuation reloads the value from the frame. */
+    if (!lower_flush_wide_locals(context)) {
         context->unsupported = true;
         return lower_invalid_value();
     }

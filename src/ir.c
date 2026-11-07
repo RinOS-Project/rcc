@@ -409,6 +409,8 @@ RccIrInstruction* rcc_ir_append(RccIrBlock* block, RccIrOpcode opcode,
     instruction->volatile_access = false;
     instruction->seq_cst_atomic_store = false;
     instruction->callee_value = RCC_IR_VALUE_NONE;
+    instruction->source_declaration = NULL;
+    instruction->source_access_type = NULL;
     instruction->block = block;
     if (operand_count != 0u) {
         if (operand_count > SIZE_MAX / sizeof(*instruction->operands)) {
@@ -1668,8 +1670,10 @@ static bool ir_value_dominates_use(RccIrVerifier* verifier,
     }
     if (!ir_dominator_contains(verifier, use_block, definition_block)) {
         return ir_verify_error(verifier,
-                               "SSA value %u does not dominate its use",
-                               value);
+                               "SSA value %u from block %zu (%s) does not dominate its use in block %zu (%s)",
+                               value, definition_block,
+                               verifier->blocks[definition_block]->name,
+                               use_block, verifier->blocks[use_block]->name);
     }
     return true;
 }

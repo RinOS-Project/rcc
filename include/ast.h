@@ -532,6 +532,9 @@ bool type_is_function(Type* t);
 bool type_is_complete(Type* t);
 bool type_is_compatible(Type* a, Type* b);
 bool type_is_compatible_qualified(Type* a, Type* b);
+/* C's effective-type access rule for two source access types.  This is an
+ * alias relation, not a general type-compatibility predicate. */
+bool type_c_effective_alias_compatible(const Type* a, const Type* b);
 Type* type_generic_selection_control(Type* type);
 /* Returns the value-range-sensitive promotion for a C++ integral bit-field
  * or C unsigned-int bit-field, or NULL when ordinary promotion applies. */
