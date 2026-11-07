@@ -15246,6 +15246,12 @@ Continue in this order:
       handle-transfer regression targets pass on i686/x86-64 at `-O0` and
       `-O2`, with zero verified fallback. Runtime execution, throwing lifetime
       operations, and unsupported reference/union lifetimes remain open.
+- [x] Support a boolean `await_suspend` result from `final_suspend()`. A true
+      result leaves the completed frame suspended for its owner to destroy; a
+      false result continues through `await_resume`, awaiter cleanup, and frame
+      destruction. The final-suspend fixture uses a runtime-selected boolean
+      and passes the i686/x86-64 `-O0`/`-O2` verified matrix with 14 emitted
+      functions and zero fallback. Runtime execution remains open.
 - [ ] Route exceptions from coroutine body expressions and local initializers
       through a resume-entry exception frame to the promise's
       `unhandled_exception()`. Preserve locals across normal suspension by

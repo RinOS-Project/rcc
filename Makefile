@@ -1455,6 +1455,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx20-unsupported-boundaries \
 	test-cxx-class-template-forward-definition \
 	test-cxx20-coroutine-eager \
+	test-cxx20-coroutine-final-suspend-bool \
 	test-cxx20-coroutine-suspended-awaits \
 	test-cxx20-coroutine-return-object \
 	test-cxx20-coroutine-awaiter-lifetime \
@@ -4362,6 +4363,16 @@ test-cxx20-coroutine-eager: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z24rcc_eager_void_coroutinev_destroy,$(TEST_OUT)/cxx20-coroutine-eager/verified-x64.ro)
 	@echo "C++20 eager coroutine verified-backend tests completed"
 
+.PHONY: test-cxx20-coroutine-final-suspend-bool
+test-cxx20-coroutine-final-suspend-bool: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-final-suspend-bool)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-final-suspend-bool,cxx20_coroutine_final_suspend_bool.cpp,14)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z32rcc_coroutine_final_suspend_boolv_resume,$(TEST_OUT)/cxx20-coroutine-final-suspend-bool/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z32rcc_coroutine_final_suspend_boolv_destroy,$(TEST_OUT)/cxx20-coroutine-final-suspend-bool/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z32rcc_coroutine_final_suspend_boolv_resume,$(TEST_OUT)/cxx20-coroutine-final-suspend-bool/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z32rcc_coroutine_final_suspend_boolv_destroy,$(TEST_OUT)/cxx20-coroutine-final-suspend-bool/verified-x64.ro)
+	@echo "C++20 coroutine final-suspend bool tests completed"
+
 .PHONY: test-cxx20-coroutine-suspended-awaits
 test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-suspended-awaits)
@@ -4424,8 +4435,8 @@ test-cxx20-coroutine-local-lifetime: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_local_lifetimesv_destroy,$(TEST_OUT)/cxx20-coroutine-local-lifetime/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,_ZN27rcc_coroutine_tracked_localD1v,$(TEST_OUT)/cxx20-coroutine-local-lifetime/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,_ZN27rcc_coroutine_tracked_localD1v,$(TEST_OUT)/cxx20-coroutine-local-lifetime/verified-x64.ro)
-	$(call CHECK_BINARY_STRING,rin_cpp_exception_register_current_cleanup,$(TEST_OUT)/cxx20-coroutine-local-lifetime/verified-x86.ro)
-	$(call CHECK_BINARY_STRING,rin_cpp_exception_register_current_cleanup,$(TEST_OUT)/cxx20-coroutine-local-lifetime/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,rin_cpp_exception_register_current_coroutine_cleanup,$(TEST_OUT)/cxx20-coroutine-local-lifetime/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,rin_cpp_exception_register_current_coroutine_cleanup,$(TEST_OUT)/cxx20-coroutine-local-lifetime/verified-x64.ro)
 	@echo "C++20 coroutine local lifetime tests completed"
 
 .PHONY: test-cxx20-coroutine-parameters
