@@ -36557,6 +36557,14 @@ static RccIrLowerValue lower_coroutine_await_expression(
         context->unsupported = true;
         return lower_invalid_value();
     }
+    /* A body awaiter is a live frame object while await_ready, await_suspend,
+     * and await_resume run.  Publish its state before any of those calls so
+     * the resume exception handler can destroy it if a protocol operation
+     * throws. */
+    if (!lower_coroutine_set_state(context, await_plan->suspend_index)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
     ready = lower_truth_expression(
         context, await_plan->await_ready_condition);
     suspend_block = rcc_ir_block_add(
@@ -36570,10 +36578,6 @@ static RccIrLowerValue lower_coroutine_await_expression(
     }
     context->current = suspend_block;
     context->terminated = false;
-    if (!lower_coroutine_set_state(context, await_plan->suspend_index)) {
-        context->unsupported = true;
-        return lower_invalid_value();
-    }
     suspend_result = lower_expression(
         context, await_plan->await_suspend_call);
     if (context->unsupported || !suspend_result.valid) {
@@ -36698,6 +36702,43 @@ static bool lower_coroutine_count_expression_awaits(
     }
 }
 
+static bool lower_coroutine_expression_nothrow_around_await(
+    const Expr* expression) {
+    if (!expression) return true;
+    if (expression->kind == EXPR_CXX_CO_AWAIT) return true;
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+            return lower_coroutine_expression_nothrow_around_await(
+                       expression->binary_lhs) &&
+                lower_coroutine_expression_nothrow_around_await(
+                    expression->binary_rhs);
+        case EXPR_ASSIGN:
+            return lower_noexcept_expression(expression->binary_lhs) &&
+                lower_coroutine_expression_nothrow_around_await(
+                    expression->binary_rhs);
+        case EXPR_CAST:
+            return lower_coroutine_expression_nothrow_around_await(
+                expression->cast_expr);
+        case EXPR_CALL:
+            if (!expression->cxx_call_is_noexcept ||
+                !lower_noexcept_expression(expression->call_func)) {
+                return false;
+            }
+            for (const ExprList* argument = expression->call_args;
+                 argument; argument = argument->next) {
+                if (!lower_coroutine_expression_nothrow_around_await(
+                        argument->expr)) {
+                    return false;
+                }
+            }
+            return true;
+        default:
+            return lower_noexcept_expression(expression);
+    }
+}
+
 static bool lower_coroutine_body_supported(
     const Stmt* statement, bool* found_return,
     size_t* body_await_count) {
@@ -36736,7 +36777,8 @@ static bool lower_coroutine_body_supported(
                 local->var_init, body_await_count) ||
             *body_await_count - await_count_before_initializer > 1u ||
             (*body_await_count - await_count_before_initializer != 0u &&
-             !lower_noexcept_expression(local->var_init))) {
+             !lower_coroutine_expression_nothrow_around_await(
+                 local->var_init))) {
             return false;
         }
         return true;
@@ -36750,7 +36792,8 @@ static bool lower_coroutine_body_supported(
                 statement->if_cond, body_await_count) ||
             *body_await_count - await_count_before_condition > 1u ||
             (*body_await_count - await_count_before_condition != 0u &&
-             !lower_noexcept_expression(statement->if_cond))) {
+             !lower_coroutine_expression_nothrow_around_await(
+                 statement->if_cond))) {
             return false;
         }
         return lower_coroutine_body_supported(
@@ -36816,7 +36859,8 @@ static bool lower_coroutine_body_supported(
                 statement->expr, body_await_count) &&
             *body_await_count - await_count_before_expression <= 1u &&
             (*body_await_count - await_count_before_expression == 0u ||
-             lower_noexcept_expression(statement->expr))) {
+             lower_coroutine_expression_nothrow_around_await(
+                 statement->expr))) {
             return true;
         }
         *body_await_count = await_count_before_expression;
@@ -36830,7 +36874,8 @@ static bool lower_coroutine_body_supported(
                 statement->return_val, body_await_count) ||
             *body_await_count - await_count_before_return > 1u ||
             (*body_await_count - await_count_before_return != 0u &&
-             !lower_noexcept_expression(statement->return_val))) {
+             !lower_coroutine_expression_nothrow_around_await(
+                 statement->return_val))) {
             return false;
         }
         *found_return = true;
@@ -37023,9 +37068,11 @@ static bool lower_coroutine_minimal_function_supported(
               await_plan->await_suspend_call->type->size !=
                   (g_opts.target_arch == ARCH_X64 ? 8 : 4))) ||
             !lower_coroutine_awaiter_initializer_nothrow(await_plan) ||
-            !lower_noexcept_expression(await_plan->await_ready_condition) ||
-            !lower_noexcept_expression(await_plan->await_suspend_call) ||
-            !lower_noexcept_expression(await_plan->await_resume_call) ||
+            (!body_await_plan &&
+             (!lower_noexcept_expression(
+                  await_plan->await_ready_condition) ||
+              !lower_noexcept_expression(await_plan->await_suspend_call) ||
+              !lower_noexcept_expression(await_plan->await_resume_call))) ||
             !lower_coroutine_awaiter_materialization_supported(
                 await_plan) ||
             (await_plan->awaiter_object_storage &&
@@ -37036,7 +37083,7 @@ static bool lower_coroutine_minimal_function_supported(
               !lower_cxx_destructor_subobjects_supported(
                   await_plan->awaiter_type->cxx_class, 0u)))) {
             if (reason_out) {
-                *reason_out = "await protocol requires unsupported throwing operations or awaiter materialization";
+                *reason_out = "await protocol requires unsupported awaiter materialization";
             }
             return false;
         }
@@ -37937,7 +37984,9 @@ static bool lower_coroutine_emit_resume_function(
      * remaining active byte belongs to an object preserved across a previous
      * suspension and is destroyed here before promise::unhandled_exception. */
     context.active_exception_frame = RCC_IR_VALUE_NONE;
-    if (!lower_coroutine_emit_destroy_local_cleanups(
+    if (!lower_coroutine_emit_destroy_awaiter_dispatch(
+            &context, declaration) ||
+        !lower_coroutine_emit_destroy_local_cleanups(
             &context, declaration)) {
         goto done;
     }
