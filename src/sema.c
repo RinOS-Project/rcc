@@ -737,6 +737,11 @@ static Expr* sema_cxx_coroutine_awaiter_call(
     SourceLoc loc);
 static bool sema_cxx_is_coroutine_handle_type(Type* type);
 static void sema_append_cxx_coroutine_fallthrough_return(Decl* declaration);
+static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
+    Decl* declaration, Expr* awaitable, bool apply_operator_co_await,
+    bool from_yield, bool is_initial_suspend, bool is_final_suspend,
+    SourceLoc loc);
+static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration);
 static bool sema_cxx_coroutine_class_has_member_name(
     Type* aggregate, const char* name);
 static Type* sema_expr_impl(Expr* expr);
@@ -23237,6 +23242,9 @@ static TypeMethod* sema_cxx_type_trait_assignment_method(
         declaration->func_is_coroutine = false;
         declaration->func_coroutine_promise_type = NULL;
         declaration->func_coroutine_promise_object = NULL;
+        declaration->func_coroutine_initial_suspend_plan = NULL;
+        declaration->func_coroutine_final_suspend_plan = NULL;
+        declaration->func_coroutine_unhandled_exception_call = NULL;
         declaration->func_coroutine_promise_lookup_attempted = false;
         declaration->name = rcc_intern("__rcc_type_trait_operator_assign");
         declaration->loc = loc;
@@ -31996,103 +32004,16 @@ static Type* sema_expr_impl(Expr* expr) {
                 current_cxx_function_decl->func_coroutine_promise_type &&
                 expr->unary_operand &&
                 !expr->cxx_coroutine_awaiter_protocol_checked) {
-                Type* handle_type = NULL;
-                Type* awaiter_type = sema_cxx_object_type(
-                    expr->unary_operand->type);
                 CxxCoroutineAwaitPlan* await_plan =
-                    ast_arena_alloc(sizeof(*await_plan));
-                Decl* awaiter_object;
-                Expr* awaiter_expression;
-                Expr* await_ready_call;
-                Expr* await_suspend_call;
-                Expr* await_resume_call;
-
-                await_plan->awaiter_initializer = expr->unary_operand;
-                await_plan->awaiter_type = awaiter_type;
-                await_plan->awaiter_initializer_is_lvalue =
-                    is_lvalue(expr->unary_operand);
-                await_plan->awaiter_initializer_is_xvalue =
-                    is_xvalue(expr->unary_operand);
-                await_plan->awaiter_initializer_is_reference =
-                    expr->unary_operand->type &&
-                    expr->unary_operand->type->is_reference;
-                await_plan->from_yield = is_yield;
-                awaiter_object = decl_var(
-                    "__rcc_coroutine_awaiter", awaiter_type, NULL,
-                    expr->loc);
-                await_plan->awaiter_storage = awaiter_object;
-                awaiter_expression = expr_ident(
-                    awaiter_object->name, expr->loc);
-                awaiter_expression->ident_decl = awaiter_object;
-                awaiter_expression->type = awaiter_type;
-
-#if defined(__GNUC__) || defined(__clang__)
-                if (rcc_parser_cxx_resolve_coroutine_handle) {
-                    handle_type = rcc_parser_cxx_resolve_coroutine_handle(
-                        current_cxx_function_decl
-                            ->func_coroutine_promise_type,
-                        expr->loc);
+                    sema_cxx_coroutine_resolve_awaiter_plan(
+                        current_cxx_function_decl, expr->unary_operand,
+                        false, is_yield, false, false, expr->loc);
+                if (await_plan) {
+                    expr->type = await_plan->result_type
+                        ? await_plan->result_type : type_int;
+                    expr->cxx_coroutine_await_plan = await_plan;
+                    expr->cxx_coroutine_awaiter_protocol_checked = true;
                 }
-#else
-                handle_type = rcc_parser_cxx_resolve_coroutine_handle(
-                    current_cxx_function_decl->func_coroutine_promise_type,
-                    expr->loc);
-#endif
-                if (!handle_type) {
-                    rcc_error(expr->loc,
-                              "std::coroutine_handle<promise_type> is unavailable");
-                } else {
-                    await_plan->coroutine_handle_type = handle_type;
-                }
-
-                await_ready_call = sema_cxx_coroutine_awaiter_call(
-                    awaiter_expression, "await_ready", NULL, expr->loc);
-                await_plan->await_ready_call = await_ready_call;
-                await_plan->await_ready_condition =
-                    sema_contextual_bool_after_analysis(
-                    await_ready_call, await_ready_call->type);
-
-                if (handle_type) {
-                    Decl* handle_object = decl_var(
-                        "__rcc_coroutine_handle", handle_type, NULL,
-                        expr->loc);
-                    Expr* handle_argument = expr_ident(
-                        handle_object->name, expr->loc);
-                    handle_argument->ident_decl = handle_object;
-                    handle_argument->type = handle_type;
-                    await_plan->coroutine_handle_storage = handle_object;
-                    await_suspend_call = sema_cxx_coroutine_awaiter_call(
-                        awaiter_expression, "await_suspend",
-                        exprlist_new(handle_argument), expr->loc);
-                    await_plan->await_suspend_call = await_suspend_call;
-                    Type* suspend_type = await_suspend_call->type;
-                    Type* suspend_value_type = suspend_type;
-                    bool suspend_returns_reference = suspend_type &&
-                        suspend_type->kind == TYPE_PTR &&
-                        suspend_type->is_reference;
-                    if (suspend_returns_reference) {
-                        suspend_value_type = suspend_type->base;
-                    }
-                    suspend_value_type = generic_selection_type(
-                        suspend_value_type);
-                    if (suspend_returns_reference || !suspend_value_type ||
-                        (suspend_value_type->kind != TYPE_VOID &&
-                         suspend_value_type->kind != TYPE_BOOL &&
-                         !sema_cxx_is_coroutine_handle_type(
-                             suspend_value_type))) {
-                        rcc_error(expr->loc,
-                                  "await_suspend must return void, bool, or std::coroutine_handle<Z>");
-                    }
-                }
-
-                await_resume_call = sema_cxx_coroutine_awaiter_call(
-                    awaiter_expression, "await_resume", NULL, expr->loc);
-                await_plan->await_resume_call = await_resume_call;
-                await_plan->result_type = await_resume_call->type;
-                expr->type = await_resume_call->type
-                    ? await_resume_call->type : type_int;
-                expr->cxx_coroutine_await_plan = await_plan;
-                expr->cxx_coroutine_awaiter_protocol_checked = true;
             }
             if (!current_cxx_function_decl ||
                 !current_cxx_function_decl
@@ -41050,6 +40971,142 @@ static Expr* sema_cxx_coroutine_awaiter_call(
     return call;
 }
 
+static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
+    Decl* declaration, Expr* awaitable, bool apply_operator_co_await,
+    bool from_yield, bool is_initial_suspend, bool is_final_suspend,
+    SourceLoc loc) {
+    Type* handle_type = NULL;
+    Type* awaiter_type;
+    CxxCoroutineAwaitPlan* await_plan;
+    Decl* awaiter_object;
+    Expr* awaiter_expression;
+    Expr* await_ready_call;
+    Expr* await_suspend_call;
+    Expr* await_resume_call;
+
+    if (!declaration || !declaration->func_coroutine_promise_type ||
+        !awaitable) {
+        return NULL;
+    }
+    if (apply_operator_co_await) {
+        Expr* operator_call =
+            sema_cxx_coroutine_apply_operator_co_await(awaitable, loc);
+        if (operator_call) awaitable = operator_call;
+    }
+    awaiter_type = sema_cxx_object_type(awaitable->type);
+    await_plan = ast_arena_alloc(sizeof(*await_plan));
+    await_plan->awaiter_initializer = awaitable;
+    await_plan->awaiter_type = awaiter_type;
+    await_plan->awaiter_initializer_is_lvalue = is_lvalue(awaitable);
+    await_plan->awaiter_initializer_is_xvalue = is_xvalue(awaitable);
+    await_plan->awaiter_initializer_is_reference =
+        awaitable->type && awaitable->type->is_reference;
+    await_plan->from_yield = from_yield;
+    await_plan->is_initial_suspend = is_initial_suspend;
+    await_plan->is_final_suspend = is_final_suspend;
+
+    awaiter_object = decl_var(
+        "__rcc_coroutine_awaiter", awaiter_type, NULL, loc);
+    await_plan->awaiter_storage = awaiter_object;
+    awaiter_expression = expr_ident(awaiter_object->name, loc);
+    awaiter_expression->ident_decl = awaiter_object;
+    awaiter_expression->type = awaiter_type;
+
+#if defined(__GNUC__) || defined(__clang__)
+    if (rcc_parser_cxx_resolve_coroutine_handle) {
+        handle_type = rcc_parser_cxx_resolve_coroutine_handle(
+            declaration->func_coroutine_promise_type, loc);
+    }
+#else
+    handle_type = rcc_parser_cxx_resolve_coroutine_handle(
+        declaration->func_coroutine_promise_type, loc);
+#endif
+    if (!handle_type) {
+        rcc_error(loc,
+                  "std::coroutine_handle<promise_type> is unavailable");
+    } else {
+        await_plan->coroutine_handle_type = handle_type;
+    }
+
+    await_ready_call = sema_cxx_coroutine_awaiter_call(
+        awaiter_expression, "await_ready", NULL, loc);
+    await_plan->await_ready_call = await_ready_call;
+    await_plan->await_ready_condition = sema_contextual_bool_after_analysis(
+        await_ready_call, await_ready_call->type);
+
+    if (handle_type) {
+        Decl* handle_object = decl_var(
+            "__rcc_coroutine_handle", handle_type, NULL, loc);
+        Expr* handle_argument = expr_ident(handle_object->name, loc);
+        handle_argument->ident_decl = handle_object;
+        handle_argument->type = handle_type;
+        await_plan->coroutine_handle_storage = handle_object;
+        await_suspend_call = sema_cxx_coroutine_awaiter_call(
+            awaiter_expression, "await_suspend",
+            exprlist_new(handle_argument), loc);
+        await_plan->await_suspend_call = await_suspend_call;
+        Type* suspend_type = await_suspend_call->type;
+        Type* suspend_value_type = suspend_type;
+        bool suspend_returns_reference = suspend_type &&
+            suspend_type->kind == TYPE_PTR && suspend_type->is_reference;
+        if (suspend_returns_reference) {
+            suspend_value_type = suspend_type->base;
+        }
+        suspend_value_type = generic_selection_type(suspend_value_type);
+        if (suspend_returns_reference || !suspend_value_type ||
+            (suspend_value_type->kind != TYPE_VOID &&
+             suspend_value_type->kind != TYPE_BOOL &&
+             !sema_cxx_is_coroutine_handle_type(suspend_value_type))) {
+            rcc_error(loc,
+                      "await_suspend must return void, bool, or std::coroutine_handle<Z>");
+        }
+    }
+
+    await_resume_call = sema_cxx_coroutine_awaiter_call(
+        awaiter_expression, "await_resume", NULL, loc);
+    await_plan->await_resume_call = await_resume_call;
+    await_plan->result_type = await_resume_call->type;
+    return await_plan;
+}
+
+static void sema_resolve_cxx_coroutine_lifecycle(Decl* declaration) {
+    Expr* call;
+    SourceLoc loc;
+    if (!declaration || !declaration->func_is_coroutine ||
+        !declaration->func_coroutine_promise_type) {
+        return;
+    }
+    loc = declaration->loc;
+    if (!declaration->func_coroutine_initial_suspend_plan) {
+        call = sema_cxx_coroutine_promise_call(
+            declaration, "initial_suspend", NULL, loc);
+        if (call) {
+            (void)sema_expr(call);
+            declaration->func_coroutine_initial_suspend_plan =
+                sema_cxx_coroutine_resolve_awaiter_plan(
+                    declaration, call, true, false, true, false, loc);
+        }
+    }
+    if (!declaration->func_coroutine_final_suspend_plan) {
+        call = sema_cxx_coroutine_promise_call(
+            declaration, "final_suspend", NULL, loc);
+        if (call) {
+            (void)sema_expr(call);
+            declaration->func_coroutine_final_suspend_plan =
+                sema_cxx_coroutine_resolve_awaiter_plan(
+                    declaration, call, true, false, false, true, loc);
+        }
+    }
+    if (!declaration->func_coroutine_unhandled_exception_call) {
+        call = sema_cxx_coroutine_promise_call(
+            declaration, "unhandled_exception", NULL, loc);
+        if (call) {
+            (void)sema_expr(call);
+            declaration->func_coroutine_unhandled_exception_call = call;
+        }
+    }
+}
+
 static bool sema_cxx_is_coroutine_handle_type(Type* type) {
     CxxTemplate* handle_template;
     CxxNamespace* std_namespace;
@@ -41166,6 +41223,10 @@ static void sema_lower_cxx_coroutine_co_returns(Decl* declaration,
                     statement->loc);
                 if (call) {
                     (void)sema_expr(call);
+                    if (call->type && call->type->kind != TYPE_VOID) {
+                        rcc_error(statement->loc,
+                                  "coroutine promise return operation must return void");
+                    }
                     statement->return_val = call;
                     statement->cxx_coroutine_return_semantics_processed =
                         true;
@@ -41942,6 +42003,7 @@ analyze_function_body:
                 sema_append_cxx_coroutine_fallthrough_return(decl);
                 sema_lower_cxx_coroutine_co_returns(
                     decl, decl->func_body);
+                sema_resolve_cxx_coroutine_lifecycle(decl);
 
                 /* Check for undefined labels */
                 for (Symbol* label = g_symtab->labels; label; label = label->next) {

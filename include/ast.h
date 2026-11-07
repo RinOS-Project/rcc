@@ -1719,6 +1719,9 @@ struct Decl {
             Type* func_coroutine_promise_type;
             /* Stable semantic object used by generated promise calls. */
             Decl* func_coroutine_promise_object;
+            CxxCoroutineAwaitPlan* func_coroutine_initial_suspend_plan;
+            CxxCoroutineAwaitPlan* func_coroutine_final_suspend_plan;
+            Expr* func_coroutine_unhandled_exception_call;
             /* Avoid repeating a failed, non-dependent traits lookup at each
              * coroutine expression; dependent lookups remain retryable. */
             bool func_coroutine_promise_lookup_attempted;
