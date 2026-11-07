@@ -752,6 +752,7 @@ struct CxxCoroutineFrameField {
     Decl* declaration;
     Type* type;
     size_t offset;
+    size_t cleanup_active_offset;
     size_t size;
     size_t alignment;
     CxxCoroutineFrameFieldKind kind;

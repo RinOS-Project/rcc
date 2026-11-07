@@ -41645,6 +41645,12 @@ static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
                 cursor, field->alignment, &field->offset) ||
             field->size > SIZE_MAX - field->offset) return false;
         cursor = field->offset + field->size;
+        if (field->kind == CXX_COROUTINE_FRAME_LOCAL &&
+            field->declaration->var_cleanups) {
+            field->cleanup_active_offset = cursor;
+            if (cursor == SIZE_MAX) return false;
+            ++cursor;
+        }
     }
     for (field = plan->frame_fields; field; field = field->next) {
         if (field->kind != CXX_COROUTINE_FRAME_PROMISE) continue;

@@ -239,6 +239,8 @@ typedef struct {
 
 static bool lower_coroutine_emit_pending_awaiter_cleanups(
     RccIrLowerContext* context);
+static bool lower_coroutine_set_cleanup_active(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan, bool active);
 
 static bool lower_statement(RccIrLowerContext* context,
                             const Stmt* statement);
@@ -13316,7 +13318,7 @@ static bool lower_push_scope_cleanup_plan(
     cleanup->allocated_next = context->allocated_scope_cleanups;
     context->scope_cleanups = cleanup;
     context->allocated_scope_cleanups = cleanup;
-    return true;
+    return lower_coroutine_set_cleanup_active(context, plan, true);
 }
 
 static bool lower_emit_scope_cleanups_until(
@@ -13327,7 +13329,9 @@ static bool lower_emit_scope_cleanups_until(
          cleanup && cleanup != marker; cleanup = cleanup->previous_scope) {
         if (!lower_emit_temporary_cleanup_plan_list(
                 context, cleanup->plan,
-                cleanup->exception_registered)) {
+                cleanup->exception_registered) ||
+            !lower_coroutine_set_cleanup_active(
+                context, cleanup->plan, false)) {
             return false;
         }
     }
@@ -35026,6 +35030,9 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                         return false;
                     }
                 }
+                if (!lower_emit_scope_cleanups_until(context, NULL)) {
+                    return false;
+                }
                 return lower_coroutine_emit_final_suspend(context);
             }
             if (context->ast_return_type &&
@@ -35690,6 +35697,50 @@ static const CxxCoroutineFrameField* lower_coroutine_frame_find_field(
     return NULL;
 }
 
+static bool lower_coroutine_set_cleanup_active(
+    RccIrLowerContext* context, const CxxCleanupPlan* cleanup_plan,
+    bool active) {
+    const CxxCoroutineLoweringPlan* plan;
+    if (!context || !cleanup_plan) return false;
+    if (!context->coroutine_resume || !context->declaration ||
+        !context->declaration->func_is_coroutine) {
+        return true;
+    }
+    plan = context->declaration->func_coroutine_lowering_plan;
+    if (!plan || context->coroutine_frame == RCC_IR_VALUE_NONE) {
+        context->unsupported = true;
+        return false;
+    }
+    for (const CxxCoroutineFrameField* field = plan->frame_fields;
+         field; field = field->next) {
+        RccIrLowerValue frame;
+        RccIrLowerValue active_address;
+        RccIrLowerValue active_value;
+        if (field->kind != CXX_COROUTINE_FRAME_LOCAL ||
+            !field->declaration ||
+            field->declaration->var_cleanups != cleanup_plan) {
+            continue;
+        }
+        if (field->cleanup_active_offset == 0u) {
+            context->unsupported = true;
+            return false;
+        }
+        frame = lower_value(
+            context->coroutine_frame, rcc_ir_type_pointer(0u), true);
+        active_address = lower_byte_offset_address(
+            context, frame, field->cleanup_active_offset);
+        active_value = lower_integer_constant(
+            context, rcc_ir_type_integer(8u), true, active ? 1u : 0u);
+        if (!frame.valid || !active_address.valid || !active_value.valid ||
+            !lower_store_address(context, active_address, active_value)) {
+            context->unsupported = true;
+            return false;
+        }
+        return true;
+    }
+    return true;
+}
+
 static bool lower_coroutine_await_plans_valid(
     const CxxCoroutineLoweringPlan* plan) {
     const CxxCoroutineAwaitPlan* await_plan;
@@ -35823,10 +35874,22 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
             field->offset < RIN_CXX_CORO_FRAME_HEADER_SIZE ||
             field->offset % field->alignment != 0u ||
             field->offset > plan->frame_size ||
-            field->size > plan->frame_size - field->offset) {
+            field->size > plan->frame_size - field->offset ||
+            (field->cleanup_active_offset != 0u &&
+             (field->kind != CXX_COROUTINE_FRAME_LOCAL ||
+              !field->declaration->var_cleanups ||
+              field->cleanup_active_offset <
+                  RIN_CXX_CORO_FRAME_HEADER_SIZE ||
+              field->cleanup_active_offset >= promise_backpointer_start ||
+              field->cleanup_active_offset >= plan->frame_size))) {
             return false;
         }
         field_end = field->offset + field->size;
+        if (field->cleanup_active_offset != 0u &&
+            field->cleanup_active_offset >= field->offset &&
+            field->cleanup_active_offset < field_end) {
+            return false;
+        }
         if (field->kind == CXX_COROUTINE_FRAME_PROMISE) {
             if (promise || field->offset != plan->promise_offset) {
                 return false;
@@ -35846,6 +35909,17 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
             other_end = other->offset + other->size;
             if (field->size != 0u && other->size != 0u &&
                 field->offset < other_end && other->offset < field_end) {
+                return false;
+            }
+            if ((field->cleanup_active_offset != 0u &&
+                 field->cleanup_active_offset >= other->offset &&
+                 field->cleanup_active_offset < other_end) ||
+                (other->cleanup_active_offset != 0u &&
+                 other->cleanup_active_offset >= field->offset &&
+                 other->cleanup_active_offset < field_end) ||
+                (field->cleanup_active_offset != 0u &&
+                 field->cleanup_active_offset ==
+                     other->cleanup_active_offset)) {
                 return false;
             }
         }
@@ -36002,6 +36076,9 @@ static bool lower_coroutine_initialize_awaiter(
     RccIrLowerValue initializer;
     RccIrLowerValue handle_address;
     RccIrLowerValue frame_value;
+    const Expr* previous_aggregate_destination_expression;
+    RccIrLowerValue previous_aggregate_destination;
+    bool materialize_aggregate_in_place;
     if (!context || !context->coroutine_resume || !await_plan ||
         !await_plan->awaiter_initializer || !plan ||
         !(awaiter_local = lower_find_local(
@@ -36042,8 +36119,29 @@ static bool lower_coroutine_initialize_awaiter(
         }
         object_address = lower_value(
             object_local->address, rcc_ir_type_pointer(0u), true);
+        materialize_aggregate_in_place =
+            (await_plan->awaiter_type->kind == TYPE_STRUCT ||
+             await_plan->awaiter_type->kind == TYPE_UNION) &&
+            !await_plan->awaiter_initializer_is_lvalue &&
+            !await_plan->awaiter_initializer_is_xvalue &&
+            !await_plan->awaiter_initializer_is_reference;
+        previous_aggregate_destination_expression =
+            context->aggregate_result_destination_expression;
+        previous_aggregate_destination =
+            context->aggregate_result_destination;
+        if (materialize_aggregate_in_place) {
+            context->aggregate_result_destination_expression =
+                await_plan->awaiter_initializer;
+            context->aggregate_result_destination = object_address;
+        }
         initializer = lower_expression(
             context, await_plan->awaiter_initializer);
+        if (materialize_aggregate_in_place) {
+            context->aggregate_result_destination_expression =
+                previous_aggregate_destination_expression;
+            context->aggregate_result_destination =
+                previous_aggregate_destination;
+        }
         if (!initializer.valid) {
             if (error && error_size != 0u) {
                 snprintf(error, error_size,
@@ -36054,9 +36152,12 @@ static bool lower_coroutine_initialize_awaiter(
         if (await_plan->awaiter_type->kind == TYPE_STRUCT ||
             await_plan->awaiter_type->kind == TYPE_UNION) {
             if (initializer.type.kind != RCC_IR_TYPE_POINTER ||
-                !lower_copy_abi_aggregate_storage(
-                    context, object_address.value, initializer.value,
-                    await_plan->awaiter_type)) {
+                (initializer.value != object_address.value &&
+                 (!rcc_sema_cxx_trivially_copyable(
+                      (Type*)await_plan->awaiter_type) ||
+                  !lower_copy_abi_aggregate_storage(
+                      context, object_address.value, initializer.value,
+                      await_plan->awaiter_type)))) {
                 if (error && error_size != 0u) {
                     snprintf(error, error_size,
                              "coroutine awaiter aggregate materialization failed");
@@ -36486,15 +36587,30 @@ static bool lower_coroutine_body_supported(
     if (statement->kind == STMT_NULL) return true;
     if (statement->kind == STMT_DECL) {
         size_t await_count_before_initializer = *body_await_count;
+        const Decl* cleanup_indices[32];
+        bool has_cleanup;
         local = statement->decl;
+        has_cleanup = local && local->var_cleanups != NULL;
         if (!local || local->kind != DECL_VAR ||
             local->var_is_global || local->var_is_static_local ||
             local->var_is_thread_local || local->var_is_block_extern ||
-            local->var_is_vla || local->var_cleanup || local->var_cleanups ||
+            local->var_is_vla || local->var_cleanup ||
             local->var_dynamic_initializer ||
             local->var_reference_temporary_guard ||
             local->var_reference_temporary_owner ||
-            !lower_coroutine_scalar_frame_value_supported(local->type)) {
+            (has_cleanup && local->type && local->type->is_volatile) ||
+            (!lower_coroutine_scalar_frame_value_supported(local->type) &&
+             (!has_cleanup || !local->type ||
+              (local->type->kind != TYPE_STRUCT &&
+               local->type->kind != TYPE_ARRAY) ||
+              !lower_storage_type_supported_internal(
+                  local->type, 0u))) ||
+            (lower_cxx_type_has_destructor_cleanup(local->type) &&
+             !has_cleanup) ||
+            (has_cleanup &&
+             !lower_temporary_cleanup_plan_list_supported(
+                 local->var_cleanups, local, cleanup_indices, 0u,
+                 false))) {
             return false;
         }
         if (local->var_init &&
@@ -36573,7 +36689,7 @@ static bool lower_coroutine_minimal_body_supported(
             statement, &found_return, body_await_count) || !found_return) {
         if (reason_out) {
             *reason_out =
-                "coroutine body supports only scalar local declarations, "
+                "coroutine body supports scalar or cleanup-tracked local declarations, "
                 "void or discarded-scalar co_await expression statements, "
                 "and void co_return";
         }
@@ -36581,6 +36697,42 @@ static bool lower_coroutine_minimal_body_supported(
     }
     if (reason_out) *reason_out = NULL;
     return true;
+}
+
+static bool lower_coroutine_awaiter_initializer_nothrow(
+    const CxxCoroutineAwaitPlan* await_plan) {
+    const Expr* initializer = await_plan
+        ? await_plan->awaiter_initializer : NULL;
+    return lower_noexcept_expression(initializer) ||
+        (initializer &&
+         lower_cleanup_initializer_supported(initializer) &&
+         !lower_cleanup_initializer_may_throw(initializer));
+}
+
+static bool lower_coroutine_awaiter_materialization_supported(
+    const CxxCoroutineAwaitPlan* await_plan) {
+    const Type* type = await_plan ? await_plan->awaiter_type : NULL;
+    const Expr* initializer = await_plan
+        ? await_plan->awaiter_initializer : NULL;
+    bool aggregate_type = type &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+    bool prvalue_aggregate = await_plan && initializer && aggregate_type &&
+        !await_plan->awaiter_initializer_is_lvalue &&
+        !await_plan->awaiter_initializer_is_xvalue &&
+        !await_plan->awaiter_initializer_is_reference &&
+        initializer->type &&
+        type_is_compatible(initializer->type, (Type*)type) &&
+        type_is_compatible((Type*)type, initializer->type);
+    if (!await_plan || !type) return false;
+    if (!await_plan->awaiter_object_storage || !aggregate_type ||
+        rcc_sema_cxx_trivially_copyable((Type*)type)) {
+        return true;
+    }
+    return prvalue_aggregate &&
+        (initializer->kind == EXPR_COMPOUND ||
+         initializer->kind == EXPR_CALL) &&
+        lower_cleanup_initializer_supported(initializer) &&
+        !lower_cleanup_initializer_may_throw(initializer);
 }
 
 static bool lower_coroutine_minimal_function_supported(
@@ -36708,16 +36860,12 @@ static bool lower_coroutine_minimal_function_supported(
              (await_plan->await_suspend_call->type->kind != TYPE_STRUCT ||
               await_plan->await_suspend_call->type->size !=
                   (g_opts.target_arch == ARCH_X64 ? 8 : 4))) ||
-            !lower_noexcept_expression(await_plan->awaiter_initializer) ||
+            !lower_coroutine_awaiter_initializer_nothrow(await_plan) ||
             !lower_noexcept_expression(await_plan->await_ready_condition) ||
             !lower_noexcept_expression(await_plan->await_suspend_call) ||
             !lower_noexcept_expression(await_plan->await_resume_call) ||
-            (await_plan->awaiter_object_storage &&
-             (!await_plan->awaiter_type ||
-              ((await_plan->awaiter_type->kind == TYPE_STRUCT ||
-                await_plan->awaiter_type->kind == TYPE_UNION) &&
-               !rcc_sema_cxx_trivially_copyable(
-                   (Type*)await_plan->awaiter_type)))) ||
+            !lower_coroutine_awaiter_materialization_supported(
+                await_plan) ||
             (await_plan->awaiter_object_storage &&
              lower_cxx_type_has_destructor_cleanup(
                  await_plan->awaiter_type) &&
@@ -36740,11 +36888,23 @@ static bool lower_coroutine_minimal_function_supported(
     for (const CxxCoroutineFrameField* field = plan->frame_fields;
          field; field = field->next) {
         if ((field->kind == CXX_COROUTINE_FRAME_LOCAL &&
-             !lower_coroutine_scalar_frame_value_supported(field->type)) ||
+             ((!lower_coroutine_scalar_frame_value_supported(field->type) &&
+               (!field->declaration->var_cleanups ||
+                field->cleanup_active_offset == 0u ||
+                (field->type->kind != TYPE_STRUCT &&
+                 field->type->kind != TYPE_ARRAY) ||
+                !lower_storage_type_supported_internal(
+                    field->type, 0u) ||
+                !lower_temporary_cleanup_plan_list_supported(
+                    field->declaration->var_cleanups,
+                    field->declaration, cleanup_indices, 0u, false))) ||
+              (field->declaration->var_cleanups &&
+               field->cleanup_active_offset == 0u))) ||
             (field->kind != CXX_COROUTINE_FRAME_PROMISE &&
              field->kind != CXX_COROUTINE_FRAME_AWAITER_OBJECT &&
+             field->kind != CXX_COROUTINE_FRAME_LOCAL &&
              lower_cxx_type_has_destructor_cleanup(field->type))) {
-            if (reason_out) *reason_out = "frame local lifetime handling is not lowered yet";
+            if (reason_out) *reason_out = "coroutine frame local cleanup plan is unsupported";
             return false;
         }
     }
@@ -37293,6 +37453,95 @@ static bool lower_coroutine_emit_destroy_awaiter_dispatch(
     return true;
 }
 
+static bool lower_coroutine_emit_destroy_local_cleanups(
+    RccIrLowerContext* context, const Decl* declaration) {
+    const CxxCoroutineLoweringPlan* plan = declaration
+        ? declaration->func_coroutine_lowering_plan : NULL;
+    const CxxCoroutineFrameField** cleanup_fields;
+    RccIrLowerValue frame;
+    size_t cleanup_count = 0u;
+    size_t field_index = 0u;
+    if (!context || !plan) return false;
+    for (const CxxCoroutineFrameField* field = plan->frame_fields;
+         field; field = field->next) {
+        if (field->kind == CXX_COROUTINE_FRAME_LOCAL &&
+            field->cleanup_active_offset != 0u) {
+            ++cleanup_count;
+        }
+    }
+    if (cleanup_count == 0u) return true;
+    if (cleanup_count > SIZE_MAX / sizeof(*cleanup_fields)) return false;
+    cleanup_fields = rcc_alloc(cleanup_count * sizeof(*cleanup_fields));
+    for (const CxxCoroutineFrameField* field = plan->frame_fields;
+         field; field = field->next) {
+        if (field->kind == CXX_COROUTINE_FRAME_LOCAL &&
+            field->cleanup_active_offset != 0u) {
+            cleanup_fields[field_index++] = field;
+        }
+    }
+    frame = lower_value(
+        context->coroutine_frame, rcc_ir_type_pointer(0u), true);
+    if (!frame.valid) {
+        rcc_free(cleanup_fields);
+        return false;
+    }
+    while (field_index > 0u) {
+        const CxxCoroutineFrameField* field =
+            cleanup_fields[--field_index];
+        RccIrLowerValue active_address = lower_byte_offset_address(
+            context, frame, field->cleanup_active_offset);
+        RccIrInstruction* active_load = active_address.valid
+            ? lower_append(context, RCC_IR_LOAD,
+                           rcc_ir_type_integer(8u),
+                           &active_address.value, 1u, NULL, 0u)
+            : NULL;
+        RccIrLowerValue zero = lower_integer_constant(
+            context, rcc_ir_type_integer(8u), true, 0u);
+        RccIrValue compare_operands[2];
+        RccIrInstruction* is_active;
+        RccIrBlock* cleanup_block = rcc_ir_block_add(
+            context->function, "coroutine.destroy.local");
+        RccIrBlock* next_block = rcc_ir_block_add(
+            context->function, "coroutine.destroy.local.next");
+        if (!active_address.valid || !active_load || !zero.valid ||
+            !cleanup_block || !next_block) {
+            rcc_free(cleanup_fields);
+            return false;
+        }
+        compare_operands[0] = active_load->result;
+        compare_operands[1] = zero.value;
+        is_active = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            compare_operands, 2u, NULL, 0u);
+        if (!is_active) {
+            rcc_free(cleanup_fields);
+            return false;
+        }
+        rcc_ir_set_predicate(is_active, RCC_IR_ICMP_NE);
+        if (!lower_conditional_branch(
+                context,
+                lower_value(is_active->result,
+                            rcc_ir_type_integer(1u), true),
+                cleanup_block->id, next_block->id)) {
+            rcc_free(cleanup_fields);
+            return false;
+        }
+        context->current = cleanup_block;
+        context->terminated = false;
+        if (!lower_store_address(context, active_address, zero) ||
+            !lower_emit_temporary_cleanup_plan_list(
+                context, field->declaration->var_cleanups, false) ||
+            !lower_branch(context, next_block->id)) {
+            rcc_free(cleanup_fields);
+            return false;
+        }
+        context->current = next_block;
+        context->terminated = false;
+    }
+    rcc_free(cleanup_fields);
+    return true;
+}
+
 static bool lower_coroutine_emit_destroy_function(
     RccIrModule* module, RccIrFunction* function,
     const Decl* declaration, char* error, size_t error_size) {
@@ -37306,6 +37555,8 @@ static bool lower_coroutine_emit_destroy_function(
         &context, module, function, declaration, entry);
     if (!lower_coroutine_bind_frame_fields(&context, declaration) ||
         !lower_coroutine_emit_destroy_awaiter_dispatch(
+            &context, declaration) ||
+        !lower_coroutine_emit_destroy_local_cleanups(
             &context, declaration) ||
         (promise && promise->var_cleanups &&
          !lower_emit_temporary_cleanup_plan_list(
