@@ -41556,10 +41556,14 @@ static bool sema_cxx_coroutine_set_allocation_size(
     if (!plan || !plan->allocation_call ||
         !plan->allocation_call->call_args ||
         !(size_argument = plan->allocation_call->call_args->expr) ||
-        size_argument->kind != EXPR_INT_LIT || frame_size > INT64_MAX ||
+        frame_size > INT64_MAX ||
         (g_opts.target_arch != ARCH_X64 && frame_size > UINT32_MAX)) {
         return false;
     }
+    while (size_argument && size_argument->kind == EXPR_CAST) {
+        size_argument = size_argument->cast_expr;
+    }
+    if (!size_argument || size_argument->kind != EXPR_INT_LIT) return false;
     size_argument->int_val = (int64_t)frame_size;
     return true;
 }
