@@ -41555,7 +41555,8 @@ static bool sema_cxx_coroutine_set_allocation_size(
     if (!plan || !plan->allocation_call ||
         !plan->allocation_call->call_args ||
         !(size_argument = plan->allocation_call->call_args->expr) ||
-        size_argument->kind != EXPR_INT_LIT || frame_size > INT64_MAX) {
+        size_argument->kind != EXPR_INT_LIT || frame_size > INT64_MAX ||
+        (g_opts.target_arch != ARCH_X64 && frame_size > UINT32_MAX)) {
         return false;
     }
     size_argument->int_val = (int64_t)frame_size;
@@ -41640,6 +41641,10 @@ static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
     }
     if (!sema_cxx_coroutine_frame_align(cursor, max_alignment,
                                          &plan->frame_size)) return false;
+    /* RinOS max_align_t is 8-byte aligned. Coroutine allocation lookup does
+     * not yet pass std::align_val_t, so larger frames must not use an
+     * under-aligned ordinary allocation call. */
+    if (max_alignment > 8u) return false;
     if (!sema_cxx_coroutine_set_allocation_size(plan, plan->frame_size)) {
         return false;
     }
