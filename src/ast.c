@@ -2281,6 +2281,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_defined = (body != NULL);
     d->func_is_coroutine = false;
     d->func_coroutine_promise_type = NULL;
+    d->func_coroutine_promise_object = NULL;
     d->func_coroutine_promise_lookup_attempted = false;
     d->func_is_template_instance = false;
     d->func_is_explicit_template_specialization = false;

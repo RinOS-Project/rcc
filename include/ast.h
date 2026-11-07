@@ -11,6 +11,7 @@
 /* Forward declarations */
 typedef struct Type Type;
 typedef struct Expr Expr;
+typedef struct CxxCoroutineAwaitPlan CxxCoroutineAwaitPlan;
 typedef struct Stmt Stmt;
 typedef struct Decl Decl;
 typedef struct DeclList DeclList;
@@ -710,6 +711,28 @@ typedef struct ExprList {
     struct ExprList* next;
 } ExprList;
 
+/* Semantic plan retained for a C++20 await-expression.  The initializer is
+ * evaluated once into awaiter_storage before the protocol calls execute. */
+struct CxxCoroutineAwaitPlan {
+    Expr* awaiter_initializer;
+    Expr* await_ready_call;
+    Expr* await_ready_condition;
+    Expr* await_suspend_call;
+    Expr* await_resume_call;
+    Decl* awaiter_storage;
+    Decl* coroutine_handle_storage;
+    Type* awaiter_type;
+    Type* coroutine_handle_type;
+    Type* result_type;
+    unsigned suspend_index;
+    bool awaiter_initializer_is_lvalue;
+    bool awaiter_initializer_is_xvalue;
+    bool awaiter_initializer_is_reference;
+    bool from_yield;
+    bool is_initial_suspend;
+    bool is_final_suspend;
+};
+
 typedef enum {
     CXX_CLEANUP_EXPRESSION,
     CXX_CLEANUP_ARRAY_LOOP,
@@ -834,6 +857,7 @@ struct Expr {
     bool cxx_coroutine_await_transform_checked;
     bool cxx_coroutine_operator_co_await_checked;
     bool cxx_coroutine_awaiter_protocol_checked;
+    CxxCoroutineAwaitPlan* cxx_coroutine_await_plan;
     /* A defaulted assignment expanded to generated operations. */
     bool cxx_synthesized_defaulted_assignment;
     /* A large defaulted array assignment of plain scalars is lowered as a
@@ -1691,6 +1715,8 @@ struct Decl {
             bool func_is_coroutine;
             /* Resolved from the coroutine return type's promise_type. */
             Type* func_coroutine_promise_type;
+            /* Stable semantic object used by generated promise calls. */
+            Decl* func_coroutine_promise_object;
             /* Avoid repeating a failed, non-dependent traits lookup at each
              * coroutine expression; dependent lookups remain retryable. */
             bool func_coroutine_promise_lookup_attempted;
