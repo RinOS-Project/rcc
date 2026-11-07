@@ -32032,14 +32032,6 @@ static Type* sema_expr_impl(Expr* expr) {
                     expr->cxx_coroutine_awaiter_protocol_checked = true;
                 }
             }
-            if (!current_cxx_function_decl ||
-                !current_cxx_function_decl
-                     ->func_coroutine_promise_lookup_attempted ||
-                current_cxx_function_decl
-                    ->func_coroutine_promise_type) {
-                rcc_error(expr->loc,
-                          "coroutine expression requires coroutine lowering");
-            }
             if (!expr->type) expr->type = type_int;
             break;
         }
@@ -41580,7 +41572,7 @@ static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
     size_t target_pointer_size =
         g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     size_t cursor = RIN_CXX_CORO_FRAME_HEADER_SIZE;
-    size_t max_alignment = 8u;
+    size_t max_alignment = RIN_CXX_CORO_FRAME_ALIGNMENT;
     if (!declaration || !declaration->func_is_coroutine) return true;
     plan = declaration->func_coroutine_lowering_plan;
     if (!plan) {
@@ -41654,10 +41646,10 @@ static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
     }
     if (!sema_cxx_coroutine_frame_align(cursor, max_alignment,
                                          &plan->frame_size)) return false;
-    /* RinOS max_align_t is 8-byte aligned. Coroutine allocation lookup does
-     * not yet pass std::align_val_t, so larger frames must not use an
-     * under-aligned ordinary allocation call. */
-    if (max_alignment > 8u) return false;
+    /* The current coroutine allocation lookup supports the shared 8-byte ABI
+     * alignment, but does not yet pass std::align_val_t. Larger frames must
+     * not use an under-aligned ordinary allocation call. */
+    if (max_alignment > RIN_CXX_CORO_FRAME_ALIGNMENT) return false;
     if (!sema_cxx_coroutine_set_allocation_size(plan, plan->frame_size)) {
         return false;
     }

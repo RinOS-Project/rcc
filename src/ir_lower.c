@@ -35647,7 +35647,7 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
         !plan->frame_layout_supported ||
         plan->frame_size < RIN_CXX_CORO_FRAME_HEADER_SIZE ||
         plan->frame_size > target_size_limit ||
-        plan->frame_alignment < 8u || plan->frame_alignment > 8u ||
+        plan->frame_alignment != RIN_CXX_CORO_FRAME_ALIGNMENT ||
         (plan->frame_size & (plan->frame_alignment - 1u)) != 0u ||
         plan->promise_offset < RIN_CXX_CORO_FRAME_HEADER_SIZE +
                                    target_pointer_size ||
