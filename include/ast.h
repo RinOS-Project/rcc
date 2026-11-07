@@ -774,6 +774,9 @@ struct CxxCoroutineLoweringPlan {
     size_t frame_size;
     size_t frame_alignment;
     size_t promise_offset;
+    size_t expression_spill_offset;
+    size_t expression_spill_size;
+    size_t expression_spill_count;
     bool has_allocation_failure_return;
     bool allocation_checked;
     bool frame_layout_checked;

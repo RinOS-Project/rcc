@@ -15275,10 +15275,15 @@ Continue in this order:
       destroyed after suspension, and exceptions from `await_ready`,
       `await_suspend`, and `await_resume`. Its i686/x86-64 `-O0`/`-O2` verified
       matrix emits 35 functions with zero fallback.
+      Source lowering now reserves one aligned frame spill slot per body await
+      and uses those slots to preserve scalar arithmetic operands across nested
+      or multiple awaits. General pointer, wide-scalar, and other expression
+      liveness still needs implementation and acceptance.
 - [ ] Execute the coroutine exception paths against the RinOS runtime, checking
       `unhandled_exception()`, caught values, exception payload destruction,
       and live-local cleanup after resumption.
 - [ ] Extend the verified subset to throwing awaiter initialization/destruction,
       throwing final-suspend operations and destructors during unwind,
       reference/union lifetimes, suspend-spanning `try/catch`/`co_return`, and
-      general nested or multiple-await expression liveness.
+      general pointer/wide expression liveness and end-to-end nested or
+      multiple-await acceptance.

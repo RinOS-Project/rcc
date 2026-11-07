@@ -41586,6 +41586,7 @@ static bool sema_cxx_coroutine_set_allocation_size(
 static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
     CxxCoroutineLoweringPlan* plan;
     CxxCoroutineFrameField* field;
+    size_t body_await_count = 0u;
     size_t target_pointer_size =
         g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     size_t cursor = RIN_CXX_CORO_FRAME_HEADER_SIZE;
@@ -41666,6 +41667,32 @@ static bool sema_cxx_coroutine_build_frame_layout(Decl* declaration) {
             field->size > SIZE_MAX - field->offset) return false;
         plan->promise_offset = field->offset;
         cursor = field->offset + field->size;
+    }
+    for (CxxCoroutineAwaitPlan* await_plan = plan->await_plans;
+         await_plan; await_plan = await_plan->next) {
+        if (!await_plan->is_initial_suspend &&
+            !await_plan->is_final_suspend) {
+            ++body_await_count;
+        }
+    }
+    plan->expression_spill_count = body_await_count;
+    plan->expression_spill_size = 0u;
+    plan->expression_spill_offset = 0u;
+    if (body_await_count != 0u) {
+        if (body_await_count > SIZE_MAX / RIN_CXX_CORO_FRAME_ALIGNMENT ||
+            !sema_cxx_coroutine_frame_align(
+                cursor, RIN_CXX_CORO_FRAME_ALIGNMENT,
+                &plan->expression_spill_offset)) {
+            return false;
+        }
+        plan->expression_spill_size =
+            body_await_count * RIN_CXX_CORO_FRAME_ALIGNMENT;
+        if (plan->expression_spill_size >
+            SIZE_MAX - plan->expression_spill_offset) {
+            return false;
+        }
+        cursor = plan->expression_spill_offset +
+            plan->expression_spill_size;
     }
     if (!sema_cxx_coroutine_frame_align(cursor, max_alignment,
                                          &plan->frame_size)) return false;

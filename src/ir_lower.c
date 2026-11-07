@@ -229,6 +229,7 @@ typedef struct {
     RccIrValue cxx_implicit_default_member_owner;
     RccIrValue coroutine_frame;
     RccIrLowerCoroutineContinuation* coroutine_continuations;
+    size_t coroutine_expression_spill_depth;
     bool cxx_implicit_default_member_active;
     bool coroutine_resume;
     int aggregate_return_kind;
@@ -8743,6 +8744,95 @@ static RccIrOpcode lower_float_binary_opcode(ExprKind kind) {
     }
 }
 
+static bool lower_coroutine_binary_spill_type_supported(const Type* type) {
+    if (!type || type->size <= 0 ||
+        type->size > (int)RIN_CXX_CORO_FRAME_ALIGNMENT ||
+        type->is_reference || type->is_volatile || type->is_atomic) {
+        return false;
+    }
+    return type->kind == TYPE_PTR || type_is_integer((Type*)type) ||
+        type_is_floating((Type*)type);
+}
+
+/* Lower ordinary arithmetic operands while preserving any left value that
+ * must survive a suspension in the right operand.  Each nested live value
+ * uses a distinct frame slot, so a resumed entry never relies on an SSA value
+ * from the previous invocation. */
+static bool lower_coroutine_binary_operands(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerValue* left, RccIrLowerValue* right) {
+    bool left_has_await;
+    bool right_has_await;
+    if (!context || !expression || !expression->type || !left || !right ||
+        !expression->binary_lhs || !expression->binary_rhs) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    left_has_await = context->coroutine_resume &&
+        lower_coroutine_expression_contains_await(expression->binary_lhs);
+    right_has_await = context->coroutine_resume &&
+        lower_coroutine_expression_contains_await(expression->binary_rhs);
+    if (left_has_await && right_has_await) {
+        const CxxCoroutineLoweringPlan* plan = context->declaration
+            ? context->declaration->func_coroutine_lowering_plan : NULL;
+        RccIrLowerValue frame;
+        RccIrLowerValue spill_address;
+        size_t spill_offset;
+        if (!plan || context->coroutine_frame == RCC_IR_VALUE_NONE ||
+            context->coroutine_expression_spill_depth >=
+                plan->expression_spill_count ||
+            !lower_coroutine_binary_spill_type_supported(
+                expression->binary_lhs->type) ||
+            expression->type->kind == TYPE_PTR ||
+            (expression->type->kind != TYPE_FLOAT &&
+             expression->type->kind != TYPE_DOUBLE &&
+             !type_is_integer(expression->type)) ||
+            context->coroutine_expression_spill_depth >
+                (SIZE_MAX - plan->expression_spill_offset) /
+                    RIN_CXX_CORO_FRAME_ALIGNMENT) {
+            context->unsupported = true;
+            return false;
+        }
+        spill_offset = plan->expression_spill_offset +
+            context->coroutine_expression_spill_depth *
+                RIN_CXX_CORO_FRAME_ALIGNMENT;
+        if (spill_offset > plan->expression_spill_offset +
+                plan->expression_spill_size ||
+            RIN_CXX_CORO_FRAME_ALIGNMENT >
+                plan->expression_spill_offset +
+                    plan->expression_spill_size - spill_offset) {
+            context->unsupported = true;
+            return false;
+        }
+        *left = lower_expression(context, expression->binary_lhs);
+        if (!left->valid) return false;
+        frame = lower_value(context->coroutine_frame,
+                            rcc_ir_type_pointer(0u), true);
+        spill_address = lower_byte_offset_address(
+            context, frame, (uint64_t)spill_offset);
+        if (!spill_address.valid ||
+            !lower_store_address(context, spill_address, *left)) {
+            context->unsupported = true;
+            return false;
+        }
+        ++context->coroutine_expression_spill_depth;
+        *right = lower_expression(context, expression->binary_rhs);
+        --context->coroutine_expression_spill_depth;
+        if (!right->valid) return false;
+        *left = lower_load_address(
+            context, spill_address, expression->binary_lhs->type);
+        return left->valid;
+    }
+    if (!left_has_await && right_has_await) {
+        *right = lower_expression(context, expression->binary_rhs);
+        *left = lower_expression(context, expression->binary_lhs);
+    } else {
+        *left = lower_expression(context, expression->binary_lhs);
+        *right = lower_expression(context, expression->binary_rhs);
+    }
+    return left->valid && right->valid;
+}
+
 static RccIrLowerValue lower_float_binary(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue left;
@@ -8763,16 +8853,9 @@ static RccIrLowerValue lower_float_binary(
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
-    if (context->coroutine_resume &&
-        !lower_coroutine_expression_contains_await(
-            expression->binary_lhs) &&
-        lower_coroutine_expression_contains_await(
-            expression->binary_rhs)) {
-        right = lower_expression(context, expression->binary_rhs);
-        left = lower_expression(context, expression->binary_lhs);
-    } else {
-        left = lower_expression(context, expression->binary_lhs);
-        right = lower_expression(context, expression->binary_rhs);
+    if (!lower_coroutine_binary_operands(
+            context, expression, &left, &right)) {
+        return lower_invalid_value();
     }
     if (!left.valid || !right.valid) return lower_invalid_value();
     left = lower_cast(context, left, expression->type);
@@ -8805,16 +8888,9 @@ static RccIrLowerValue lower_integer_binary(
     RccIrValue operands[2];
     RccIrInstruction* instruction;
     RccIrOpcode opcode;
-    if (context->coroutine_resume &&
-        !lower_coroutine_expression_contains_await(
-            expression->binary_lhs) &&
-        lower_coroutine_expression_contains_await(
-            expression->binary_rhs)) {
-        right = lower_expression(context, expression->binary_rhs);
-        left = lower_expression(context, expression->binary_lhs);
-    } else {
-        left = lower_expression(context, expression->binary_lhs);
-        right = lower_expression(context, expression->binary_rhs);
+    if (!lower_coroutine_binary_operands(
+            context, expression, &left, &right)) {
+        return lower_invalid_value();
     }
     if (!left.valid || !right.valid ||
         left.type.kind == RCC_IR_TYPE_POINTER ||
@@ -35904,6 +35980,7 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
         g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     size_t promise_backpointer_start;
     size_t field_count = 0u;
+    size_t body_await_count = 0u;
     bool has_initial_suspend = false;
     bool has_final_suspend = false;
     uint64_t target_size_limit = g_opts.target_arch == ARCH_X64
@@ -35945,6 +36022,10 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
         }
         if (await_plan == declaration->func_coroutine_final_suspend_plan) {
             has_final_suspend = await_plan->is_final_suspend;
+        }
+        if (!await_plan->is_initial_suspend &&
+            !await_plan->is_final_suspend) {
+            ++body_await_count;
         }
     }
     if (!has_initial_suspend || !has_final_suspend) return false;
@@ -36024,6 +36105,38 @@ static bool lower_coroutine_frame_layout_valid(const Decl* declaration) {
         promise->declaration != declaration->func_coroutine_promise_object ||
         plan->frame_field_count == 0u ||
         field_count != plan->frame_field_count) return false;
+    if (body_await_count != plan->expression_spill_count ||
+        (body_await_count == 0u &&
+         (plan->expression_spill_offset != 0u ||
+          plan->expression_spill_size != 0u)) ||
+        (body_await_count != 0u &&
+         (body_await_count >
+              SIZE_MAX / RIN_CXX_CORO_FRAME_ALIGNMENT ||
+          plan->expression_spill_size !=
+              body_await_count * RIN_CXX_CORO_FRAME_ALIGNMENT ||
+          plan->expression_spill_offset %
+              RIN_CXX_CORO_FRAME_ALIGNMENT != 0u ||
+          plan->expression_spill_offset <
+              promise->offset + promise->size ||
+          plan->expression_spill_offset > plan->frame_size ||
+          plan->expression_spill_size >
+              plan->frame_size - plan->expression_spill_offset))) {
+        return false;
+    }
+    if (plan->expression_spill_size != 0u) {
+        size_t spill_end = plan->expression_spill_offset +
+            plan->expression_spill_size;
+        for (field = plan->frame_fields; field; field = field->next) {
+            size_t field_end = field->offset + field->size;
+            if ((field->offset < spill_end &&
+                 plan->expression_spill_offset < field_end) ||
+                (field->cleanup_active_offset >=
+                     plan->expression_spill_offset &&
+                 field->cleanup_active_offset < spill_end)) {
+                return false;
+            }
+        }
+    }
     allocation_size = plan->allocation_call &&
             plan->allocation_call->call_args
         ? plan->allocation_call->call_args->expr : NULL;
@@ -36702,6 +36815,69 @@ static bool lower_coroutine_count_expression_awaits(
     }
 }
 
+static bool lower_coroutine_expression_liveness_supported(
+    const Expr* expression) {
+    if (!expression) return true;
+    switch (expression->kind) {
+        case EXPR_CXX_CO_AWAIT:
+            return true;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL: {
+            bool left_has_await =
+                lower_coroutine_expression_contains_await(
+                    expression->binary_lhs);
+            bool right_has_await =
+                lower_coroutine_expression_contains_await(
+                    expression->binary_rhs);
+            if (left_has_await && right_has_await &&
+                (!expression->type ||
+                 expression->type->kind == TYPE_PTR ||
+                 (expression->binary_lhs &&
+                  expression->binary_lhs->type &&
+                  (expression->binary_lhs->type->kind == TYPE_PTR ||
+                   expression->binary_lhs->type->kind == TYPE_ARRAY)) ||
+                 (expression->binary_rhs &&
+                  expression->binary_rhs->type &&
+                  (expression->binary_rhs->type->kind == TYPE_PTR ||
+                   expression->binary_rhs->type->kind == TYPE_ARRAY)) ||
+                 (expression->type->kind != TYPE_FLOAT &&
+                  expression->type->kind != TYPE_DOUBLE &&
+                  !type_is_integer(expression->type)) ||
+                 !lower_coroutine_binary_spill_type_supported(
+                     expression->binary_lhs
+                         ? expression->binary_lhs->type : NULL))) {
+                return false;
+            }
+            return lower_coroutine_expression_liveness_supported(
+                       expression->binary_lhs) &&
+                lower_coroutine_expression_liveness_supported(
+                    expression->binary_rhs);
+        }
+        case EXPR_ASSIGN:
+            return lower_coroutine_expression_liveness_supported(
+                expression->binary_rhs);
+        case EXPR_CAST:
+            return lower_coroutine_expression_liveness_supported(
+                expression->cast_expr);
+        case EXPR_CALL:
+            if (!lower_coroutine_expression_liveness_supported(
+                    expression->call_func)) {
+                return false;
+            }
+            for (const ExprList* argument = expression->call_args;
+                 argument; argument = argument->next) {
+                if (!lower_coroutine_expression_liveness_supported(
+                        argument->expr)) {
+                    return false;
+                }
+            }
+            return true;
+        default:
+            return true;
+    }
+}
+
 static bool lower_coroutine_expression_nothrow_around_await(
     const Expr* expression) {
     if (!expression) return true;
@@ -36775,10 +36951,11 @@ static bool lower_coroutine_body_supported(
         }
         if (!lower_coroutine_count_expression_awaits(
                 local->var_init, body_await_count) ||
-            *body_await_count - await_count_before_initializer > 1u ||
             (*body_await_count - await_count_before_initializer != 0u &&
-             !lower_coroutine_expression_nothrow_around_await(
-                 local->var_init))) {
+             (!lower_coroutine_expression_liveness_supported(
+                  local->var_init) ||
+              !lower_coroutine_expression_nothrow_around_await(
+                  local->var_init)))) {
             return false;
         }
         return true;
@@ -36790,10 +36967,11 @@ static bool lower_coroutine_body_supported(
                 statement->if_cond->type) ||
             !lower_coroutine_count_expression_awaits(
                 statement->if_cond, body_await_count) ||
-            *body_await_count - await_count_before_condition > 1u ||
             (*body_await_count - await_count_before_condition != 0u &&
-             !lower_coroutine_expression_nothrow_around_await(
-                 statement->if_cond))) {
+             (!lower_coroutine_expression_liveness_supported(
+                  statement->if_cond) ||
+              !lower_coroutine_expression_nothrow_around_await(
+                  statement->if_cond)))) {
             return false;
         }
         return lower_coroutine_body_supported(
@@ -36810,10 +36988,11 @@ static bool lower_coroutine_body_supported(
                 statement->while_cond->type) ||
             !lower_coroutine_count_expression_awaits(
                 statement->while_cond, body_await_count) ||
-            *body_await_count - await_count_before_condition > 1u ||
             (*body_await_count - await_count_before_condition != 0u &&
-             !lower_coroutine_expression_nothrow_around_await(
-                 statement->while_cond))) {
+             (!lower_coroutine_expression_liveness_supported(
+                  statement->while_cond) ||
+              !lower_coroutine_expression_nothrow_around_await(
+                  statement->while_cond)))) {
             return false;
         }
         return lower_coroutine_body_supported(
@@ -36834,10 +37013,11 @@ static bool lower_coroutine_body_supported(
                     statement->for_cond->type) ||
                 !lower_coroutine_count_expression_awaits(
                     statement->for_cond, body_await_count) ||
-                *body_await_count - await_count_before_condition > 1u ||
                 (*body_await_count - await_count_before_condition != 0u &&
-                 !lower_coroutine_expression_nothrow_around_await(
-                     statement->for_cond))) {
+                 (!lower_coroutine_expression_liveness_supported(
+                      statement->for_cond) ||
+                  !lower_coroutine_expression_nothrow_around_await(
+                      statement->for_cond)))) {
                 return false;
             }
         }
@@ -36845,10 +37025,11 @@ static bool lower_coroutine_body_supported(
             size_t await_count_before_increment = *body_await_count;
             if (!lower_coroutine_count_expression_awaits(
                     statement->for_inc, body_await_count) ||
-                *body_await_count - await_count_before_increment > 1u ||
                 (*body_await_count - await_count_before_increment != 0u &&
-                 !lower_coroutine_expression_nothrow_around_await(
-                     statement->for_inc))) {
+                 (!lower_coroutine_expression_liveness_supported(
+                      statement->for_inc) ||
+                  !lower_coroutine_expression_nothrow_around_await(
+                      statement->for_inc)))) {
                 return false;
             }
         }
@@ -36863,10 +37044,11 @@ static bool lower_coroutine_body_supported(
                 statement->switch_expr->type) ||
             !lower_coroutine_count_expression_awaits(
                 statement->switch_expr, body_await_count) ||
-            *body_await_count - await_count_before_switch > 1u ||
             (*body_await_count - await_count_before_switch != 0u &&
-             !lower_coroutine_expression_nothrow_around_await(
-                 statement->switch_expr))) {
+             (!lower_coroutine_expression_liveness_supported(
+                  statement->switch_expr) ||
+              !lower_coroutine_expression_nothrow_around_await(
+                  statement->switch_expr)))) {
             return false;
         }
         return lower_coroutine_body_supported(
@@ -36948,10 +37130,11 @@ static bool lower_coroutine_body_supported(
         size_t await_count_before_expression = *body_await_count;
         if (lower_coroutine_count_expression_awaits(
                 statement->expr, body_await_count) &&
-            *body_await_count - await_count_before_expression <= 1u &&
             (*body_await_count - await_count_before_expression == 0u ||
-             lower_coroutine_expression_nothrow_around_await(
-                 statement->expr))) {
+             (lower_coroutine_expression_liveness_supported(
+                  statement->expr) &&
+              lower_coroutine_expression_nothrow_around_await(
+                  statement->expr))) {
             return true;
         }
         *body_await_count = await_count_before_expression;
@@ -36963,10 +37146,11 @@ static bool lower_coroutine_body_supported(
             statement->return_val->type->kind != TYPE_VOID ||
             !lower_coroutine_count_expression_awaits(
                 statement->return_val, body_await_count) ||
-            *body_await_count - await_count_before_return > 1u ||
             (*body_await_count - await_count_before_return != 0u &&
-             !lower_coroutine_expression_nothrow_around_await(
-                 statement->return_val))) {
+             (!lower_coroutine_expression_liveness_supported(
+                  statement->return_val) ||
+              !lower_coroutine_expression_nothrow_around_await(
+                  statement->return_val)))) {
             return false;
         }
         *found_return = true;
