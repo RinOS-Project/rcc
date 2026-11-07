@@ -15259,9 +15259,12 @@ Continue in this order:
       invocation cleanup runs and destroy still-live locals from earlier
       suspensions before the promise handler. Body expressions without
       `co_await` may throw; await protocol operations remain non-throwing.
-      Final `await_suspend(bool)` now distinguishes suspension from immediate
-      completion. Compiler/build/runtime acceptance has not been run, so this
-      item remains open along with throwing await operations, throwing
-      destructors during unwind, reference/union lifetimes, explicit nested
-      exception constructs, and general nested/multiple-await expression
+      Scalar and supported aggregate `throw` statements use that resume
+      exception frame; class exception payloads retain a destructor callback.
+      No-suspend `try/catch` regions are admitted in coroutine bodies. Final
+      `await_suspend(bool)` distinguishes suspension from immediate completion.
+      Compiler/build/runtime acceptance has not been run, so this item remains
+      open along with throwing await operations, throwing destructors during
+      unwind, reference/union lifetimes, rethrow and suspend-spanning
+      `try/catch`/`co_return`, and general nested/multiple-await expression
       liveness.

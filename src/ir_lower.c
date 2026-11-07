@@ -34715,13 +34715,24 @@ static bool lower_cxx_catch_body(RccIrLowerContext* context,
     return lower_statement(context, handler->body);
 }
 
+static Decl* lower_cxx_exception_object_destructor(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    CxxMethod* method = cls ? cls->destructor_method : NULL;
+    Decl* destructor = method ? method->decl : NULL;
+    if (!destructor || !destructor->func_body || !destructor->link_name ||
+        !destructor->func_this_param) {
+        return NULL;
+    }
+    return destructor;
+}
+
 static bool lower_cxx_throw(RccIrLowerContext* context,
                             const Stmt* statement) {
     RccIrLowerValue value;
     RccIrLowerValue word;
     RccIrLowerValue tag;
     RccIrLowerValue size;
-    RccIrValue operands[3];
+    RccIrValue operands[4];
     if (!statement) {
         if (context) context->unsupported = true;
         return false;
@@ -34751,6 +34762,9 @@ static bool lower_cxx_throw(RccIrLowerContext* context,
     if (statement->throw_expr->type &&
         (statement->throw_expr->type->kind == TYPE_STRUCT ||
          statement->throw_expr->type->kind == TYPE_UNION)) {
+        Decl* destructor = lower_cxx_exception_object_destructor(
+            statement->throw_expr->type);
+        RccIrInstruction* cleanup_address = NULL;
         size = lower_integer_constant(
             context, lower_cxx_exception_word_type(), true,
             (uint64_t)statement->throw_expr->type->size);
@@ -34763,9 +34777,21 @@ static bool lower_cxx_throw(RccIrLowerContext* context,
         operands[0] = value.value;
         operands[1] = size.value;
         operands[2] = tag.value;
+        if (destructor) {
+            cleanup_address = lower_append(
+                context, RCC_IR_SYMBOL_ADDRESS,
+                rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+            if (!cleanup_address) return false;
+            rcc_ir_set_callee(
+                cleanup_address, decl_link_name(destructor));
+            cleanup_address->symbol_is_code = true;
+            operands[3] = cleanup_address->result;
+        }
         (void)lower_cxx_runtime_call(
-            context, "rin_cpp_exception_throw_object", rcc_ir_type_void(),
-            operands, 3u);
+            context,
+            destructor ? "rin_cpp_exception_throw_object_with_cleanup"
+                       : "rin_cpp_exception_throw_object",
+            rcc_ir_type_void(), operands, destructor ? 4u : 3u);
     } else {
         word = lower_cast(context, value, type_ulong);
         if (!word.valid) return false;
@@ -36737,6 +36763,46 @@ static bool lower_coroutine_body_supported(
              item; item = item->next) {
             if (!lower_coroutine_body_supported(
                     item->stmt, found_return, body_await_count)) return false;
+        }
+        return true;
+    }
+    if (statement->kind == STMT_TRY) {
+        size_t await_count_before_try = *body_await_count;
+        bool found_return_before_try = *found_return;
+        if (!statement->try_body || !statement->try_catches ||
+            !lower_coroutine_body_supported(
+                statement->try_body, found_return, body_await_count) ||
+            *body_await_count != await_count_before_try ||
+            *found_return != found_return_before_try) {
+            return false;
+        }
+        for (const CxxCatch* handler = statement->try_catches;
+             handler; handler = handler->next) {
+            if (!handler->body ||
+                !lower_coroutine_body_supported(
+                    handler->body, found_return, body_await_count) ||
+                *body_await_count != await_count_before_try ||
+                *found_return != found_return_before_try) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (statement->kind == STMT_THROW) {
+        Type* thrown_type = statement->throw_expr
+            ? statement->throw_expr->type : NULL;
+        size_t await_count_before_throw = *body_await_count;
+        bool aggregate_payload = thrown_type &&
+            (thrown_type->kind == TYPE_STRUCT ||
+             thrown_type->kind == TYPE_UNION) &&
+            lower_storage_type_supported_internal(thrown_type, 0u);
+        if (!statement->throw_expr || !thrown_type ||
+            (!lower_coroutine_scalar_frame_value_supported(thrown_type) &&
+             !aggregate_payload) ||
+            !lower_coroutine_count_expression_awaits(
+                statement->throw_expr, body_await_count) ||
+            *body_await_count != await_count_before_throw) {
+            return false;
         }
         return true;
     }
