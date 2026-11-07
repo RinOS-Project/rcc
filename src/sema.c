@@ -41032,6 +41032,7 @@ static CxxCoroutineAwaitPlan* sema_cxx_coroutine_resolve_awaiter_plan(
     }
     awaiter_type = sema_cxx_object_type(awaitable->type);
     await_plan = ast_arena_alloc(sizeof(*await_plan));
+    memset(await_plan, 0, sizeof(*await_plan));
     await_plan->awaiter_initializer = awaitable;
     await_plan->awaiter_type = awaiter_type;
     await_plan->awaiter_initializer_is_lvalue = is_lvalue(awaitable);
