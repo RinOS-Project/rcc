@@ -4362,7 +4362,7 @@ test-cxx20-coroutine-eager: $(RCXX_TARGET)
 .PHONY: test-cxx20-coroutine-suspended-awaits
 test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-suspended-awaits)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-suspended-awaits,cxx20_coroutine_suspended_awaits.cpp,14)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-suspended-awaits,cxx20_coroutine_suspended_awaits.cpp,15)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_resume,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_destroy,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_resume,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
@@ -4371,6 +4371,8 @@ test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,_ZNK28rcc_coroutine_manual_awaiter12await_resumeEv,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,rcc_coroutine_suspended_await_result_count,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
 	$(call CHECK_BINARY_STRING,rcc_coroutine_suspended_await_result_count,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,_Z28rcc_coroutine_await_identityi,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,_Z28rcc_coroutine_await_identityi,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	@echo "C++20 suspended coroutine await tests completed"
 
 .PHONY: test-cxx20-coroutine-parameters

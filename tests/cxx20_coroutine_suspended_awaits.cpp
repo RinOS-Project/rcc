@@ -45,10 +45,16 @@ struct coroutine_traits {
 };
 }
 
+int rcc_coroutine_await_identity(int value) noexcept {
+    return value;
+}
+
 void rcc_coroutine_two_suspensions() {
     int resumed_result =
-        ((short)(co_await rcc_coroutine_manual_awaiter{}) + 7) * 2;
-    co_await rcc_coroutine_manual_awaiter{};
+        rcc_coroutine_await_identity(
+            ((short)(co_await rcc_coroutine_manual_awaiter{}) + 7) * 2);
+    resumed_result = rcc_coroutine_await_identity(
+        resumed_result + (int)(co_await rcc_coroutine_manual_awaiter{}));
     int retained_result = resumed_result;
     if ((co_await rcc_coroutine_manual_awaiter{}) - 1) {
         int resumed_condition_true = 1;

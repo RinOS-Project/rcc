@@ -257,6 +257,10 @@ static RccIrLowerValue lower_expression_impl(
     RccIrLowerContext* context, const Expr* expression);
 static RccIrLowerValue lower_coroutine_await_expression(
     RccIrLowerContext* context, const Expr* expression);
+static bool lower_coroutine_count_expression_awaits(
+    const Expr* expression, size_t* body_await_count);
+static bool lower_coroutine_expression_contains_await(
+    const Expr* expression);
 static bool lower_coroutine_emit_final_suspend(
     RccIrLowerContext* context);
 static bool lower_typeof_runtime_evaluations(
@@ -2554,17 +2558,30 @@ static RccIrLowerValue lower_atomic_pointer_result(
         instruction->result, rcc_ir_type_pointer(0u), true);
 }
 
+static bool lower_coroutine_expression_contains_await(
+    const Expr* expression) {
+    size_t await_count = 0u;
+    return lower_coroutine_count_expression_awaits(
+               expression, &await_count) && await_count != 0u;
+}
+
 static RccIrLowerValue lower_pointer_gep(
     RccIrLowerContext* context, const Expr* pointer_expression,
     const Expr* index_expression, bool subtract_index) {
     RccIrLowerValue pointer;
     RccIrLowerValue index;
     RccIrLowerWideValue wide_index;
+    bool evaluate_index_first = context && context->coroutine_resume &&
+        !lower_coroutine_expression_contains_await(pointer_expression) &&
+        lower_coroutine_expression_contains_await(index_expression);
     if (!pointer_expression || !index_expression) {
         context->unsupported = true;
         return lower_invalid_value();
     }
-    pointer = lower_expression(context, pointer_expression);
+    if (!evaluate_index_first) {
+        pointer = lower_expression(context, pointer_expression);
+        if (!pointer.valid) return lower_invalid_value();
+    }
     if (g_opts.target_arch == ARCH_X86 && index_expression->type &&
         type_is_integer(index_expression->type) &&
         index_expression->type->size == 8 &&
@@ -2581,6 +2598,11 @@ static RccIrLowerValue lower_pointer_gep(
     } else {
         index = lower_expression(context, index_expression);
     }
+    if (evaluate_index_first) {
+        pointer = lower_expression(context, pointer_expression);
+        if (!pointer.valid) return lower_invalid_value();
+    }
+    if (!index.valid) return lower_invalid_value();
     return lower_pointer_offset(context, pointer, index,
                                 pointer_expression->type,
                                 subtract_index,
@@ -8720,8 +8742,17 @@ static RccIrLowerValue lower_float_binary(
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
-    left = lower_expression(context, expression->binary_lhs);
-    right = lower_expression(context, expression->binary_rhs);
+    if (context->coroutine_resume &&
+        !lower_coroutine_expression_contains_await(
+            expression->binary_lhs) &&
+        lower_coroutine_expression_contains_await(
+            expression->binary_rhs)) {
+        right = lower_expression(context, expression->binary_rhs);
+        left = lower_expression(context, expression->binary_lhs);
+    } else {
+        left = lower_expression(context, expression->binary_lhs);
+        right = lower_expression(context, expression->binary_rhs);
+    }
     if (!left.valid || !right.valid) return lower_invalid_value();
     left = lower_cast(context, left, expression->type);
     right = lower_cast(context, right, expression->type);
@@ -8747,14 +8778,23 @@ static RccIrLowerValue lower_float_binary(
 
 static RccIrLowerValue lower_integer_binary(
     RccIrLowerContext* context, const Expr* expression) {
-    RccIrLowerValue left = lower_expression(context,
-                                            expression->binary_lhs);
-    RccIrLowerValue right = lower_expression(context,
-                                             expression->binary_rhs);
+    RccIrLowerValue left;
+    RccIrLowerValue right;
     RccIrType result_type;
     RccIrValue operands[2];
     RccIrInstruction* instruction;
     RccIrOpcode opcode;
+    if (context->coroutine_resume &&
+        !lower_coroutine_expression_contains_await(
+            expression->binary_lhs) &&
+        lower_coroutine_expression_contains_await(
+            expression->binary_rhs)) {
+        right = lower_expression(context, expression->binary_rhs);
+        left = lower_expression(context, expression->binary_lhs);
+    } else {
+        left = lower_expression(context, expression->binary_lhs);
+        right = lower_expression(context, expression->binary_rhs);
+    }
     if (!left.valid || !right.valid ||
         left.type.kind == RCC_IR_TYPE_POINTER ||
         right.type.kind == RCC_IR_TYPE_POINTER ||
@@ -11335,6 +11375,20 @@ static bool lower_noexcept_expression(const Expr* expression) {
                 lower_noexcept_expression(expression->cond_else);
         case EXPR_CAST:
             return lower_noexcept_expression(expression->cast_expr);
+        case EXPR_CXX_CO_AWAIT: {
+            const CxxCoroutineAwaitPlan* await_plan =
+                expression->cxx_coroutine_await_plan;
+            return await_plan && !await_plan->is_initial_suspend &&
+                !await_plan->is_final_suspend &&
+                lower_noexcept_expression(
+                    await_plan->awaiter_initializer) &&
+                lower_noexcept_expression(
+                    await_plan->await_ready_condition) &&
+                lower_noexcept_expression(
+                    await_plan->await_suspend_call) &&
+                lower_noexcept_expression(
+                    await_plan->await_resume_call);
+        }
         case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
@@ -36291,9 +36345,55 @@ static bool lower_coroutine_count_expression_awaits(
                        expression->binary_lhs, body_await_count) &&
                 lower_coroutine_count_expression_awaits(
                     expression->binary_rhs, body_await_count);
+        case EXPR_ASSIGN: {
+            size_t await_count_before_assignment = *body_await_count;
+            const Expr* target = expression->binary_lhs;
+            if (!lower_coroutine_count_expression_awaits(
+                    expression->binary_rhs, body_await_count)) {
+                return false;
+            }
+            if (*body_await_count != await_count_before_assignment &&
+                (!target || target->kind != EXPR_IDENT ||
+                 !target->ident_decl ||
+                 target->ident_decl->kind != DECL_VAR ||
+                 target->ident_decl->var_is_global ||
+                 target->ident_decl->var_is_static_local ||
+                 target->ident_decl->var_is_thread_local ||
+                 target->ident_decl->var_is_block_extern ||
+                 !lower_coroutine_scalar_frame_value_supported(
+                     target->type))) {
+                return false;
+            }
+            return true;
+        }
         case EXPR_CAST:
             return lower_coroutine_count_expression_awaits(
                 expression->cast_expr, body_await_count);
+        case EXPR_CALL: {
+            size_t await_count_before_call = *body_await_count;
+            size_t argument_count = 0u;
+            if (!lower_coroutine_count_expression_awaits(
+                    expression->call_func, body_await_count)) {
+                return false;
+            }
+            for (const ExprList* argument = expression->call_args;
+                 argument; argument = argument->next) {
+                ++argument_count;
+                if (!lower_coroutine_count_expression_awaits(
+                        argument->expr, body_await_count)) {
+                    return false;
+                }
+            }
+            if (*body_await_count != await_count_before_call &&
+                (argument_count != 1u || !expression->call_func ||
+                 expression->call_func->kind != EXPR_IDENT ||
+                 !expression->call_func->ident_decl ||
+                 expression->call_func->ident_decl->kind != DECL_FUNC ||
+                 !expression->cxx_call_is_noexcept)) {
+                return false;
+            }
+            return true;
+        }
         default:
             return true;
     }
@@ -36306,6 +36406,7 @@ static bool lower_coroutine_body_supported(
     if (!statement) return true;
     if (statement->kind == STMT_NULL) return true;
     if (statement->kind == STMT_DECL) {
+        size_t await_count_before_initializer = *body_await_count;
         local = statement->decl;
         if (!local || local->kind != DECL_VAR ||
             local->var_is_global || local->var_is_static_local ||
@@ -36317,8 +36418,13 @@ static bool lower_coroutine_body_supported(
             !lower_coroutine_scalar_frame_value_supported(local->type)) {
             return false;
         }
+        if (local->var_init &&
+            !lower_noexcept_expression(local->var_init)) {
+            return false;
+        }
         if (!lower_coroutine_count_expression_awaits(
-                local->var_init, body_await_count)) {
+                local->var_init, body_await_count) ||
+            *body_await_count - await_count_before_initializer > 1u) {
             return false;
         }
         return true;
@@ -36328,9 +36434,10 @@ static bool lower_coroutine_body_supported(
         if (!statement->if_cond || !statement->if_cond->type ||
             !lower_coroutine_scalar_frame_value_supported(
                 statement->if_cond->type) ||
+            !lower_noexcept_expression(statement->if_cond) ||
             !lower_coroutine_count_expression_awaits(
                 statement->if_cond, body_await_count) ||
-            *body_await_count == await_count_before_condition) {
+            *body_await_count - await_count_before_condition != 1u) {
             return false;
         }
         return lower_coroutine_body_supported(
@@ -36352,21 +36459,29 @@ static bool lower_coroutine_body_supported(
          lower_coroutine_scalar_frame_value_supported(
              statement->expr->type))) {
         size_t await_count_before_expression = *body_await_count;
-        if (lower_coroutine_count_expression_awaits(
+        if (lower_noexcept_expression(statement->expr) &&
+            lower_coroutine_count_expression_awaits(
                 statement->expr, body_await_count) &&
-            *body_await_count > await_count_before_expression) {
+            *body_await_count - await_count_before_expression == 1u) {
             return true;
         }
         *body_await_count = await_count_before_expression;
     }
-    if (statement->kind != STMT_RETURN ||
-        !statement->cxx_is_co_return || !statement->return_val ||
-        !statement->return_val->type ||
-        statement->return_val->type->kind != TYPE_VOID) {
-        return false;
+    if (statement->kind == STMT_RETURN) {
+        size_t await_count_before_return = *body_await_count;
+        if (!statement->cxx_is_co_return || !statement->return_val ||
+            !statement->return_val->type ||
+            statement->return_val->type->kind != TYPE_VOID ||
+            !lower_noexcept_expression(statement->return_val) ||
+            !lower_coroutine_count_expression_awaits(
+                statement->return_val, body_await_count) ||
+            *body_await_count - await_count_before_return > 1u) {
+            return false;
+        }
+        *found_return = true;
+        return true;
     }
-    *found_return = true;
-    return true;
+    return false;
 }
 
 static bool lower_coroutine_minimal_body_supported(
