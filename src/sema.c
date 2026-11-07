@@ -41380,6 +41380,11 @@ static bool sema_resolve_cxx_coroutine_frame_operations(
                         size_type, false, true);
             }
         } else {
+            allocation_call = sema_cxx_coroutine_operator_call(
+                "operator new",
+                sema_cxx_coroutine_allocation_arguments(
+                    declaration, size_type, false),
+                loc);
             allocation_function = sema_cxx_resolve_global_allocation_function(
                 allocation_call, "operator new", "rin_cxx_operator_new",
                 size_type, false, true);

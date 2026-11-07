@@ -35822,6 +35822,60 @@ static RccIrLowerValue lower_coroutine_frame_field_address(
     return lower_invalid_value();
 }
 
+static bool lower_coroutine_scalar_frame_value_supported(
+    const Type* type) {
+    RccIrType ir_type;
+    if (!type || type->is_reference || type->kind == TYPE_VOID ||
+        type->kind == TYPE_FUNC || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
+        lower_cxx_type_has_destructor_cleanup(type) ||
+        !lower_abi_native_scalar_type(type, &ir_type)) {
+        return false;
+    }
+    return true;
+}
+
+static bool lower_coroutine_copy_scalar_parameters_to_frame(
+    RccIrLowerContext* context, const Decl* declaration) {
+    const CxxCoroutineLoweringPlan* plan = declaration
+        ? declaration->func_coroutine_lowering_plan : NULL;
+    const CxxCoroutineFrameField* field;
+    if (!context || !plan || context->coroutine_frame == RCC_IR_VALUE_NONE) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    for (field = plan->frame_fields; field; field = field->next) {
+        RccIrLowerLocal* local;
+        RccIrType expected_type;
+        RccIrLowerValue source_address;
+        RccIrLowerValue value;
+        RccIrLowerValue destination;
+        if (field->kind != CXX_COROUTINE_FRAME_PARAMETER &&
+            field->kind != CXX_COROUTINE_FRAME_THIS) {
+            continue;
+        }
+        if (!lower_coroutine_scalar_frame_value_supported(field->type) ||
+            !lower_abi_native_scalar_type(field->type, &expected_type) ||
+            !(local = lower_find_local(context, field->declaration)) ||
+            !rcc_ir_type_equal(local->type, expected_type)) {
+            context->unsupported = true;
+            return false;
+        }
+        source_address = lower_value(
+            local->address, rcc_ir_type_pointer(0u), true);
+        value = lower_load_address(context, source_address, field->type);
+        destination = lower_coroutine_frame_field_address(
+            context, plan, field->declaration);
+        if (!value.valid || !destination.valid ||
+            !rcc_ir_type_equal(value.type, expected_type) ||
+            !lower_store_address(context, destination, value)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_coroutine_bind_frame_fields(
     RccIrLowerContext* context, const Decl* declaration) {
     const CxxCoroutineLoweringPlan* plan = declaration
@@ -36235,9 +36289,24 @@ static bool lower_coroutine_minimal_function_supported(
         if (reason_out) *reason_out = "coroutine return object is not void";
         return false;
     }
-    if (declaration->func_params || declaration->func_this_param) {
-        if (reason_out) *reason_out = "coroutine parameters are not lowered yet";
+    if (declaration->func_this_param &&
+        !lower_coroutine_scalar_frame_value_supported(
+            declaration->func_this_param->type)) {
+        if (reason_out) {
+            *reason_out = "coroutine this parameter must be a scalar frame value";
+        }
         return false;
+    }
+    for (const DeclList* parameter = declaration->func_params;
+         parameter; parameter = parameter->next) {
+        if (!parameter->decl ||
+            !lower_coroutine_scalar_frame_value_supported(
+                parameter->decl->type)) {
+            if (reason_out) {
+                *reason_out = "coroutine parameters must be scalar frame values";
+            }
+            return false;
+        }
     }
     if (plan->has_allocation_failure_return) {
         if (reason_out) *reason_out = "allocation-failure return is not lowered yet";
@@ -36307,8 +36376,6 @@ static bool lower_coroutine_minimal_function_supported(
     for (const CxxCoroutineFrameField* field = plan->frame_fields;
          field; field = field->next) {
         if (field->kind == CXX_COROUTINE_FRAME_LOCAL ||
-            field->kind == CXX_COROUTINE_FRAME_PARAMETER ||
-            field->kind == CXX_COROUTINE_FRAME_THIS ||
             lower_cxx_type_has_destructor_cleanup(field->type)) {
             if (reason_out) *reason_out = "frame local lifetime handling is not lowered yet";
             return false;
@@ -36766,6 +36833,8 @@ static bool lower_coroutine_lower_minimal(
     failure_stage = "frame header and field binding";
     if (!lower_coroutine_emit_frame_init(
             source_context, plan, resume_name, destroy_name) ||
+        !lower_coroutine_copy_scalar_parameters_to_frame(
+            source_context, declaration) ||
         !lower_coroutine_bind_frame_fields(
             source_context, declaration)) {
         source_context->unsupported = true;

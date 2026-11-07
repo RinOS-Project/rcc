@@ -1456,6 +1456,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-class-template-forward-definition \
 	test-cxx20-coroutine-eager \
 	test-cxx20-coroutine-suspended-awaits \
+	test-cxx20-coroutine-parameters \
 	test-cxx-named-concepts \
 	test-cxx-alias-templates \
 	test-cxx-nested-class-templates \
@@ -4366,6 +4367,16 @@ test-cxx20-coroutine-suspended-awaits: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_resume,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	$(call CHECK_BINARY_STRING,__rcc_coro__Z29rcc_coroutine_two_suspensionsv_destroy,$(TEST_OUT)/cxx20-coroutine-suspended-awaits/verified-x64.ro)
 	@echo "C++20 suspended coroutine await tests completed"
+
+.PHONY: test-cxx20-coroutine-parameters
+test-cxx20-coroutine-parameters: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx20-coroutine-parameters)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx20-coroutine-parameters,cxx20_coroutine_parameters.cpp,14)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z31rcc_coroutine_scalar_parametersij_resume,$(TEST_OUT)/cxx20-coroutine-parameters/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z31rcc_coroutine_scalar_parametersij_destroy,$(TEST_OUT)/cxx20-coroutine-parameters/verified-x86.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z31rcc_coroutine_scalar_parametersij_resume,$(TEST_OUT)/cxx20-coroutine-parameters/verified-x64.ro)
+	$(call CHECK_BINARY_STRING,__rcc_coro__Z31rcc_coroutine_scalar_parametersij_destroy,$(TEST_OUT)/cxx20-coroutine-parameters/verified-x64.ro)
+	@echo "C++20 coroutine scalar parameter tests completed"
 
 .PHONY: test-syntax-only
 test-syntax-only: $(RCC_TARGET) $(RCXX_TARGET)
