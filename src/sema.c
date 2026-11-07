@@ -33158,7 +33158,8 @@ static Type* sema_expr_impl(Expr* expr) {
                     if (!has_class_allocator_candidates) {
                         allocation_function =
                             sema_cxx_resolve_global_allocation_function(
-                                expr, allocation_operator_name, "rin_malloc",
+                                expr, allocation_operator_name,
+                                "rin_cxx_operator_new",
                                 g_opts.target_arch == ARCH_X64
                                     ? type_ullong : type_uint,
                                 false, true);
@@ -41362,8 +41363,8 @@ static bool sema_resolve_cxx_coroutine_frame_operations(
             }
         } else {
             allocation_function = sema_cxx_resolve_global_allocation_function(
-                allocation_call, "operator new", "rin_malloc", size_type,
-                false, true);
+                allocation_call, "operator new", "rin_cxx_operator_new",
+                size_type, false, true);
         }
     }
     if (allocation_function) {
