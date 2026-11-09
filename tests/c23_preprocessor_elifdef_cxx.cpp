@@ -1,0 +1,2 @@
+#elifdef RCC_CXX_PRESENT
+int cxx20_elifdef_is_a_diagnosed_unknown_directive;

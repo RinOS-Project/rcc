@@ -1917,7 +1917,7 @@ test-cxx-rinos-header-identity: $(RCXX_TARGET)
 	@echo "C++ RinOS uchar/wchar/locale tag identity tested"
 
 .PHONY: test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-embed
-test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-va-start test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes test-c23-utf8-character-literals
+test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-va-start test-c23-preprocessor-elifdef test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes test-c23-utf8-character-literals
 	@echo "RCC C23 _BitInt, UTF-8 character literals, nullptr, empty-initialization, typeof, attributes, and binary-resource regressions completed"
 
 .PHONY: test-c23-utf8-character-literals
@@ -1968,10 +1968,41 @@ test-c23-va-start: $(RCC_TARGET)
 		-Ibootstrap/include -S \
 		-o $(TEST_OUT)/c23-va-start/x64.s tests/c23_va_start.c
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/c23-va-start/x64-host,$(TEST_OUT)/c23-va-start/x64.s)
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-va-start/c17-invalid.ro tests/invalid_c17_va_start_one_argument.c,$(TEST_OUT)/c23-va-start/c17-invalid.log)
+	$(call EXPECT_FAILURE,$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-va-start/c17-invalid.ro tests/invalid_c17_va_start_one_argument.c,$(TEST_OUT)/c23-va-start/c17-invalid.log)
 	$(GREP) -F -q 'expected expression' $(TEST_OUT)/c23-va-start/c17-invalid.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-va-start/c17-invalid.ro)
 	@echo "C23 optional va_start parameter ABI and C17 rejection tests passed"
+
+.PHONY: test-c23-preprocessor-elifdef
+test-c23-preprocessor-elifdef: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-preprocessor-elifdef)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c \
+		-o $(TEST_OUT)/c23-preprocessor-elifdef/x86.ro \
+		tests/c23_preprocessor_elifdef.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c \
+		-o $(TEST_OUT)/c23-preprocessor-elifdef/x64.ro \
+		tests/c23_preprocessor_elifdef.c
+	$(call EXPECT_FAILURE,$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c23-preprocessor-elifdef/c17.ro tests/c23_preprocessor_elifdef.c,$(TEST_OUT)/c23-preprocessor-elifdef/c17.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-preprocessor-elifdef/c17.ro)
+	$(call EXPECT_FAILURE,$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -DRCC_TEST_ELIFDEF_MISSING_NAME -c -o $(TEST_OUT)/c23-preprocessor-elifdef/missing-name.ro tests/c23_preprocessor_elifdef_invalid.c,$(TEST_OUT)/c23-preprocessor-elifdef/missing-name.log)
+	$(GREP) -F -q 'expected an identifier' $(TEST_OUT)/c23-preprocessor-elifdef/missing-name.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-preprocessor-elifdef/missing-name.ro)
+	$(call EXPECT_FAILURE,$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -DRCC_TEST_ELIFDEF_TRAILING -c -o $(TEST_OUT)/c23-preprocessor-elifdef/trailing.ro tests/c23_preprocessor_elifdef_invalid.c,$(TEST_OUT)/c23-preprocessor-elifdef/trailing.log)
+	$(GREP) -F -q 'unexpected trailing text' $(TEST_OUT)/c23-preprocessor-elifdef/trailing.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-preprocessor-elifdef/trailing.ro)
+	$(call EXPECT_FAILURE,$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -DRCC_TEST_ELIFDEF_AFTER_ELSE -c -o $(TEST_OUT)/c23-preprocessor-elifdef/after-else.ro tests/c23_preprocessor_elifdef_invalid.c,$(TEST_OUT)/c23-preprocessor-elifdef/after-else.log)
+	$(GREP) -F -q '#elifdef after #else' $(TEST_OUT)/c23-preprocessor-elifdef/after-else.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-preprocessor-elifdef/after-else.ro)
+	$(call EXPECT_FAILURE,$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-preprocessor-elifdef/no-if.ro tests/c23_preprocessor_elifdef_no_if.c,$(TEST_OUT)/c23-preprocessor-elifdef/no-if.log)
+	$(GREP) -F -q '#elifdef without #if' $(TEST_OUT)/c23-preprocessor-elifdef/no-if.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-preprocessor-elifdef/no-if.ro)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/c23-preprocessor-elifdef/cxx20.ro \
+		tests/c23_preprocessor_elifdef_cxx.cpp \
+		>$(TEST_OUT)/c23-preprocessor-elifdef/cxx20.log 2>&1
+	$(GREP) -F -q 'unknown preprocessor directive: #elifdef' \
+		$(TEST_OUT)/c23-preprocessor-elifdef/cxx20.log
+	@echo "C23 #elifdef/#elifndef selection and diagnostics tests passed"
 
 test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-bitint)
