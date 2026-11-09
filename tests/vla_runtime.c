@@ -19,6 +19,60 @@ int vla_typedef_multiple_declarators(void);
 int vla_parameter_qualifiers(int values[static const 3],
                              int other[volatile restrict 3]);
 
+static int stack_probe_vla_extent(unsigned int bytes)
+{
+    volatile unsigned char values[bytes];
+    volatile unsigned int preserved = 0x51a7c39du;
+    unsigned int offset;
+    unsigned int checksum = 0;
+
+    if (bytes == 0) return -1;
+    for (offset = 0; offset < bytes; offset += 4096u) {
+        unsigned char value = (unsigned char)(offset / 4096u + 17u);
+        values[offset] = value;
+        checksum += values[offset];
+    }
+    values[bytes - 1u] = 93u;
+    checksum += values[bytes - 1u];
+    if (preserved != 0x51a7c39du) return -2;
+    return (int)checksum;
+}
+
+static int stack_probe_aligned_vla_extent(unsigned int bytes)
+{
+    _Alignas(64) volatile unsigned char values[bytes];
+    volatile unsigned int preserved = 0xa92d6e41u;
+    unsigned int offset;
+
+    if (bytes == 0) return -1;
+    if ((unsigned long)(void*)values % 64ul != 0ul) return -2;
+    for (offset = 0; offset < bytes; offset += 4096u)
+        values[offset] = (unsigned char)(offset / 4096u + 29u);
+    values[bytes - 1u] = 117u;
+    if (preserved != 0xa92d6e41u) return -3;
+    return (int)values[0] + (int)values[bytes - 1u];
+}
+
+int stack_probe_vla_boundaries(void)
+{
+    static const unsigned int sizes[] = {
+        1u, 15u, 16u, 17u, 4095u, 4096u, 4097u, 8191u, 8192u,
+        8193u, 16383u, 16384u, 16385u, 32769u, 65537u
+    };
+    unsigned int index;
+
+    for (index = 0; index < sizeof(sizes) / sizeof(sizes[0]); ++index) {
+        int result = stack_probe_vla_extent(sizes[index]);
+        if (result < 0) return (int)(index * 2u + 1u);
+        result = stack_probe_aligned_vla_extent(sizes[index]);
+        if (result < 0)
+            return (int)(index * 3u + (result == -2 ? 2u : 3u));
+    }
+    return 0;
+}
+
+int stack_probe_vla_boundaries_abi(void);
+
 int main(void)
 {
     int input[2][3];
@@ -43,6 +97,7 @@ int main(void)
     if (vla_typedef_reached_per_iteration(1) != 0) return 26;
     if (vla_typedef_alias_extents(2, 3) != 0) return 27;
     if (vla_typedef_multiple_declarators() != 0) return 28;
+    if (stack_probe_vla_boundaries_abi() != 0) return 29;
     return 0;
 }
 

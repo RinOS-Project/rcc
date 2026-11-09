@@ -34661,7 +34661,9 @@ static bool lower_declaration(RccIrLowerContext* context,
         }
         rcc_ir_set_immediate(
             dynamic_allocation,
-            (uint64_t)declaration->type->base->align);
+            (uint64_t)(declaration->type->align > 0
+                ? declaration->type->align
+                : declaration->type->base->align));
         dynamic_allocation->source_declaration = declaration;
         vla_allocation->stack_pointer = stack_pointer.value;
         vla_allocation->has_dynamic_storage = true;

@@ -236,7 +236,15 @@ int main(int argc, char** argv)
     if (!rint_only) {
         entry_address = (uint8_t*)memory + entry_symbol->value;
         memcpy(&entry, &entry_address, sizeof(entry));
-        assert(entry() == 0);
+        {
+            int entry_result = entry();
+            if (entry_result != 0) {
+                fprintf(stderr,
+                        "RCC object entry returned %d instead of zero\n",
+                        entry_result);
+            }
+            assert(entry_result == 0);
+        }
     }
     if (entry_only) {
 #ifdef _WIN32

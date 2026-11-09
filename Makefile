@@ -2872,7 +2872,7 @@ test-static-stack-probe: $(RCC_TARGET)
 		$(TEST_OUT)/static-stack-probe/x86.s
 	$(GREP) -F -q "0x88, 0x04, 0x24" \
 		$(TEST_OUT)/static-stack-probe/x86.s
-	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/static-stack-probe/x86,$(TEST_OUT)/static-stack-probe/x86.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/static-stack-probe/x86,$(TEST_OUT)/static-stack-probe/x86.s tests/compiler_static_stack_probe_abi_i686.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/static-stack-probe/x64.s \
 		tests/compiler_static_stack_probe.c
@@ -2880,7 +2880,7 @@ test-static-stack-probe: $(RCC_TARGET)
 		$(TEST_OUT)/static-stack-probe/x64.s
 	$(GREP) -F -q "0x88, 0x04, 0x24" \
 		$(TEST_OUT)/static-stack-probe/x64.s
-	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/static-stack-probe/x64,$(TEST_OUT)/static-stack-probe/x64.s)
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/static-stack-probe/x64,$(TEST_OUT)/static-stack-probe/x64.s tests/compiler_static_stack_probe_abi_x64.s)
 	@echo "C17 large static stack frame probing tests completed"
 
 test-cxx-multi-declarator: $(RCXX_TARGET)
@@ -18376,10 +18376,10 @@ test-vla-runtime: $(RCC_TARGET)
 		-o $(TEST_OUT)/vla-runtime/x86.s tests/vla_runtime.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/vla-runtime/x64.s tests/vla_runtime.c
-	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/vla-runtime/x86.exe,$(TEST_OUT)/vla-runtime/x86.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/vla-runtime/x86.exe,$(TEST_OUT)/vla-runtime/x86.s tests/vla_runtime_abi_i686.s)
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
 		-o $(TEST_OUT)/vla-runtime/x64.exe \
-		$(TEST_OUT)/vla-runtime/x64.s
+		$(TEST_OUT)/vla-runtime/x64.s tests/vla_runtime_abi_x64.s
 	$(TEST_OUT)/vla-runtime/x64.exe
 	@echo "C17 VLA runtime tests completed"
 else
@@ -18391,19 +18391,25 @@ test-vla-runtime: $(RCC_TARGET)
 		-o $(TEST_OUT)/vla-runtime/x64.s tests/vla_runtime.c
 	$(CC) -m32 -c -o $(TEST_OUT)/vla-runtime/x86.o \
 		$(TEST_OUT)/vla-runtime/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/vla-runtime/x86-abi.o \
+		tests/vla_runtime_abi_i686.s
 	$(CC) -m32 -c -o $(TEST_OUT)/vla-runtime/x86-start.o \
 		tests/vla_runtime_i686_start.s
 	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/vla-runtime/x86 \
-		$(TEST_OUT)/vla-runtime/x86-start.o $(TEST_OUT)/vla-runtime/x86.o
+		$(TEST_OUT)/vla-runtime/x86-start.o $(TEST_OUT)/vla-runtime/x86.o \
+		$(TEST_OUT)/vla-runtime/x86-abi.o
 	$(TEST_OUT)/vla-runtime/x86
 	$(CC) -c -o $(TEST_OUT)/vla-runtime/x64.o \
 		$(TEST_OUT)/vla-runtime/x64.s
+	$(CC) -c -o $(TEST_OUT)/vla-runtime/x64-abi.o \
+		tests/vla_runtime_abi_x64.s
 	$(CC) -c -o $(TEST_OUT)/vla-runtime/x64-start.o \
 		tests/vla_runtime_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/vla-runtime/x64 \
-		$(TEST_OUT)/vla-runtime/x64-start.o $(TEST_OUT)/vla-runtime/x64.o
+		$(TEST_OUT)/vla-runtime/x64-start.o $(TEST_OUT)/vla-runtime/x64.o \
+		$(TEST_OUT)/vla-runtime/x64-abi.o
 	$(TEST_OUT)/vla-runtime/x64
 	@echo "C17 VLA runtime tests completed"
 endif
@@ -26502,42 +26508,42 @@ test-verified-vla-local-bound: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-x64.ro \
 		tests/verified_backend_vla_local_bound.c \
 		>$(TEST_OUT)/verified-backend/vla-local-bound-x64.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/vla-local-bound-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/vla-local-bound-x64.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -O1 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-x64-o1.ro \
 		tests/verified_backend_vla_local_bound.c \
 		>$(TEST_OUT)/verified-backend/vla-local-bound-x64-o1.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/vla-local-bound-x64-o1.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/vla-local-bound-x64-o1.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-x64-o2.ro \
 		tests/verified_backend_vla_local_bound.c \
 		>$(TEST_OUT)/verified-backend/vla-local-bound-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/vla-local-bound-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/vla-local-bound-x64-o2.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-x86.ro \
 		tests/verified_backend_vla_local_bound.c \
 		>$(TEST_OUT)/verified-backend/vla-local-bound-x86.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/vla-local-bound-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/vla-local-bound-x86.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -O1 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-x86-o1.ro \
 		tests/verified_backend_vla_local_bound.c \
 		>$(TEST_OUT)/verified-backend/vla-local-bound-x86-o1.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/vla-local-bound-x86-o1.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/vla-local-bound-x86-o1.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-x86-o2.ro \
 		tests/verified_backend_vla_local_bound.c \
 		>$(TEST_OUT)/verified-backend/vla-local-bound-x86-o2.log
-	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/vla-local-bound-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/vla-local-bound-x86-o2.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \

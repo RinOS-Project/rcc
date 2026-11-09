@@ -1820,12 +1820,33 @@ static void gen64_vla_alloc(Module* mod, Decl* decl) {
     int probe_loop_label;
     int probe_partial_label;
     int probe_done_label;
+    unsigned alignment = decl->type && decl->type->align > 0
+        ? (unsigned)decl->type->align : 1u;
     gen64_typeof_runtime_evaluations(mod, decl->type);
     gen64_vla_extents(mod, decl->type, NULL, NULL, decl, &slot_index);
     emit64_mov_mem_reg(mod, RBP, decl->var_vla_size_offset, RAX);
 
+    /* Compute the aligned low address first, then probe the full distance to
+     * it.  R10 keeps the target while RAX becomes the extent including the
+     * alignment padding; probing only the source byte count can otherwise
+     * skip the guard page introduced by that padding. */
+    if (alignment > 1) {
+        if (alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
+            (alignment & (alignment - 1u)) != 0u) {
+            rcc_error(decl->loc, "VLA alignment is unsupported");
+            return;
+        }
+        emit64_mov_reg_reg(mod, R10, RSP);
+        emit64_sub_reg_reg(mod, R10, RAX);
+        emit64_mov_reg_imm64(mod, R11, ~(uint64_t)(alignment - 1u));
+        emit64_and_reg_reg(mod, R10, R11);
+        emit64_mov_reg_reg(mod, RAX, RSP);
+        emit64_sub_reg_reg(mod, RAX, R10);
+    }
+
     /* Probe downward in page-sized steps so a large VLA cannot jump over
-     * the stack guard.  Keep the original byte extent in its VLA slot. */
+     * the stack guard.  Keep the original object byte extent in its VLA
+     * slot, while RAX includes any padding needed for object alignment. */
     probe_loop_label = new_label64();
     probe_partial_label = new_label64();
     probe_done_label = new_label64();

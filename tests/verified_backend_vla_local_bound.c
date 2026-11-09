@@ -88,6 +88,29 @@ static int vla_pointer_parameter_stride(int count, int (*rows)[count])
         ? 0 : 1;
 }
 
+static int verified_vla_stack_probe_boundary(unsigned int bytes)
+{
+    _Alignas(64) volatile unsigned char values[bytes];
+    if ((unsigned long long)(void*)values % 64ull != 0ull) return 1;
+    values[0] = 31u;
+    values[bytes - 1u] = 73u;
+    if (bytes == 1u) return values[0] == 73u ? 0 : 2;
+    return values[0] == 31u && values[bytes - 1u] == 73u ? 0 : 2;
+}
+
+static int verified_fixed_stack_probe_boundaries(void)
+{
+    _Alignas(8192) volatile unsigned char values[16385];
+
+    if ((unsigned long long)(void*)values % 8192ull != 0ull) return 1;
+    values[0] = 19u;
+    values[4096] = 20u;
+    values[8192] = 21u;
+    values[12288] = 22u;
+    values[sizeof(values) - 1u] = 107u;
+    return values[sizeof(values) - 1u] == 107u ? 0 : 2;
+}
+
 int main(void)
 {
     int count = 3;
@@ -98,10 +121,35 @@ int main(void)
     values[2] = 9;
     rows[1][2] = 43;
 
-    return count == 3 && values[0] == 7 && values[2] == 9 &&
+    if (!(count == 3 && values[0] == 7 && values[2] == 9 &&
         vla_array_expression_stride() == 0 &&
         vla_pointer_declaration() == 0 &&
         vla_pointer_scope_exit() == 0 &&
         vla_pointer_stride() == 0 &&
-        vla_pointer_parameter_stride(3, rows) == 0 ? 0 : 1;
+        vla_pointer_parameter_stride(3, rows) == 0)) return 1;
+    {
+        int result = verified_vla_stack_probe_boundary(1u);
+        if (result != 0) return 10 + result;
+    }
+    {
+        int result = verified_vla_stack_probe_boundary(4096u);
+        if (result != 0) return 20 + result;
+    }
+    {
+        int result = verified_vla_stack_probe_boundary(4097u);
+        if (result != 0) return 30 + result;
+    }
+    {
+        int result = verified_vla_stack_probe_boundary(16385u);
+        if (result != 0) return 40 + result;
+    }
+    {
+        int result = verified_vla_stack_probe_boundary(32769u);
+        if (result != 0) return 50 + result;
+    }
+    {
+        int result = verified_fixed_stack_probe_boundaries();
+        if (result != 0) return 60 + result;
+    }
+    return 0;
 }

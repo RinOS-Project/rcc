@@ -6028,14 +6028,35 @@ static void gen_vla_alloc(Module* mod, Decl* decl) {
     int probe_loop_label;
     int probe_partial_label;
     int probe_done_label;
+    unsigned alignment = decl->type && decl->type->align > 0
+        ? (unsigned)decl->type->align : 1u;
     gen_typeof_runtime_evaluations(mod, decl->type);
     gen_vla_extents(mod, decl->type, NULL, NULL, decl, &slot_index);
     emit_mov_mem_reg(mod, EBP, decl->var_vla_size_offset, EAX);
 
+    /* Subtract the extent and round the resulting address down to the
+     * declared object alignment before probing.  Aligning ESP first and then
+     * subtracting the byte extent leaves an explicitly aligned VLA misaligned
+     * whenever its size is not itself an alignment multiple. */
+    if (alignment > 1u) {
+        if (alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
+            (alignment & (alignment - 1u)) != 0u) {
+            rcc_error(decl->loc, "VLA alignment is unsupported");
+            return;
+        }
+        emit_mov_reg_reg(mod, ECX, ESP);
+        emit_sub_reg_reg(mod, ECX, EAX);
+        emit_mov_reg_imm(mod, EDX, ~(alignment - 1u));
+        emit_and_reg_reg(mod, ECX, EDX);
+        emit_mov_reg_reg(mod, EDX, ESP);
+        emit_sub_reg_reg(mod, EDX, ECX);
+        emit_mov_reg_reg(mod, EAX, EDX);
+    }
+
     /* A single ESP adjustment can jump over the stack guard.  Keep the
-     * original size in its VLA slot and touch each 4 KiB step while moving
-     * the stack pointer.  The final byte store stays inside the allocation,
-     * including for one-byte VLAs. */
+     * original object size in its VLA slot and touch each 4 KiB step while
+     * moving the stack pointer.  EAX includes any alignment padding, so the
+     * final byte store remains within the reserved extent. */
     probe_loop_label = new_label();
     probe_partial_label = new_label();
     probe_done_label = new_label();
