@@ -25745,7 +25745,8 @@ test-weak-attribute: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 
 test-comdat-link:
 	$(call MKDIR_P,$(TEST_OUT)/comdat)
-	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/comdat_link_test \
+	$(CC) $(CFLAGS) -DRCC_LINKER_TESTING -I$(INCDIR) \
+		-o $(TEST_OUT)/comdat_link_test \
 		tests/comdat_link_test.c $(SRCDIR)/linker.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/archive.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/comdat_link_test \

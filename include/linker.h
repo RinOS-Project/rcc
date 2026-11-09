@@ -111,6 +111,9 @@ typedef struct Linker {
     const char** comdat_keys;
     size_t comdat_key_count;
     size_t comdat_key_capacity;
+#ifdef RCC_LINKER_TESTING
+    size_t test_comdat_slot_probes; /* Test-only lookup work counter. */
+#endif
 
     /* Open-addressed index of accepted input definitions and references. */
     LinkerInputSymbol* input_symbol_slots;

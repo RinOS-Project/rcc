@@ -21,7 +21,7 @@ static bool linker_section_emitted(const ObjSection* section);
 static ObjSection* object_section_at(const ObjectFile* object, int index);
 static bool linker_sort_global_initializer_array(Linker* ld);
 static uint64_t linker_comdat_hash(const char* key);
-static bool linker_comdat_contains(const Linker* ld, const char* key);
+static bool linker_comdat_contains(Linker* ld, const char* key);
 static void linker_comdat_insert(Linker* ld, const char* key);
 static void linker_input_symbol_update_object(Linker* ld,
                                               const ObjectFile* object);
@@ -38,6 +38,9 @@ Linker* linker_new(void) {
     ld->comdat_keys = NULL;
     ld->comdat_key_count = 0u;
     ld->comdat_key_capacity = 0u;
+#ifdef RCC_LINKER_TESTING
+    ld->test_comdat_slot_probes = 0u;
+#endif
     ld->input_symbol_slots = NULL;
     ld->input_symbol_count = 0u;
     ld->input_symbol_capacity = 0u;
@@ -180,7 +183,7 @@ static uint64_t linker_comdat_hash(const char* key)
     return hash;
 }
 
-static size_t linker_comdat_slot(const Linker* ld, const char* key,
+static size_t linker_comdat_slot(Linker* ld, const char* key,
                                  bool* found)
 {
     size_t bucket;
@@ -189,16 +192,22 @@ static size_t linker_comdat_slot(const Linker* ld, const char* key,
     bucket = (size_t)linker_comdat_hash(key) &
              (ld->comdat_key_capacity - 1u);
     while (ld->comdat_keys[bucket] != NULL) {
+#ifdef RCC_LINKER_TESTING
+        ++ld->test_comdat_slot_probes;
+#endif
         if (strcmp(ld->comdat_keys[bucket], key) == 0) {
             *found = true;
             return bucket;
         }
         bucket = (bucket + 1u) & (ld->comdat_key_capacity - 1u);
     }
+#ifdef RCC_LINKER_TESTING
+    ++ld->test_comdat_slot_probes;
+#endif
     return bucket;
 }
 
-static bool linker_comdat_contains(const Linker* ld, const char* key)
+static bool linker_comdat_contains(Linker* ld, const char* key)
 {
     bool found;
     if (key == NULL) return false;
@@ -224,8 +233,15 @@ static void linker_grow_comdat_index(Linker* ld)
         const char* key = ld->comdat_keys[index];
         if (key != NULL) {
             size_t bucket = (size_t)linker_comdat_hash(key) & (capacity - 1u);
-            while (slots[bucket] != NULL)
+            while (slots[bucket] != NULL) {
+#ifdef RCC_LINKER_TESTING
+                ++ld->test_comdat_slot_probes;
+#endif
                 bucket = (bucket + 1u) & (capacity - 1u);
+            }
+#ifdef RCC_LINKER_TESTING
+            ++ld->test_comdat_slot_probes;
+#endif
             slots[bucket] = key;
         }
     }
@@ -241,6 +257,8 @@ static void linker_comdat_insert(Linker* ld, const char* key)
     if (key == NULL) return;
     if (ld->comdat_key_count == SIZE_MAX)
         rcc_fatal("too many linker COMDAT groups");
+    bucket = linker_comdat_slot(ld, key, &found);
+    if (found) return;
     if (!ld->comdat_key_capacity ||
         ld->comdat_key_count + 1u >
             ld->comdat_key_capacity - ld->comdat_key_capacity / 4u)
