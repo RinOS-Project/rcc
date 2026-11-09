@@ -245,6 +245,8 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__LONG_LONG_MAX__", "9223372036854775807LL");
     pp_define(pp, "__DBL_MIN__",
               "((double)2.22507385850720138309023271733240406e-308L)");
+    pp_define(pp, "__DBL_MAX__",
+              "1.79769313486231570814527423731704357e+308");
     /* RinOS keeps long double distinct in the type system but uses the
      * binary64 representation and calling convention on both x86 targets.
      * Publish the ABI properties consumed by libc++ codecs and headers. */

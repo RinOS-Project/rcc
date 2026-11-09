@@ -4679,6 +4679,7 @@ static void codegen_add_vtable_pointer(Module* mod,
     CxxClass* cls;
     uint32_t width;
     if (!mod || !type) return;
+    if (!codegen_type_has_vtable_storage(type)) return;
     if (type->kind == TYPE_ARRAY) {
         if (!type->base || type->base->size <= 0 || type->array_len < 0 ||
             type->array_len > 4096) {
@@ -4699,7 +4700,6 @@ static void codegen_add_vtable_pointer(Module* mod,
         }
         return;
     }
-    if (!codegen_type_has_vtable_storage(type)) return;
     width = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
         module_add_relocation(mod, source_section, offset, 0u, false,
@@ -9251,6 +9251,7 @@ static void gen_local_vtable_init(Module* mod, Type* type,
                                   int32_t displacement) {
     CxxClass* cls;
     if (!mod || !type) return;
+    if (!codegen_type_has_vtable_storage(type)) return;
     if (type->kind == TYPE_ARRAY) {
         if (!type->base || type->base->size <= 0 || type->array_len < 0 ||
             type->array_len > 4096) {
@@ -9272,7 +9273,6 @@ static void gen_local_vtable_init(Module* mod, Type* type,
         }
         return;
     }
-    if (!codegen_type_has_vtable_storage(type)) return;
     if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
         gen_symbol_address(mod, type->cxx_vtable_symbol, 0u);
         emit_mov_mem_reg(mod, base_register, displacement, EAX);

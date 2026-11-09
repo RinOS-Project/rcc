@@ -5955,6 +5955,7 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
                                     int32_t displacement) {
     CxxClass* cls;
     if (!mod || !type) return;
+    if (!gen64_type_has_vtable_storage(type)) return;
     if (type->kind == TYPE_ARRAY) {
         if (!type->base || type->base->size <= 0 || type->array_len < 0 ||
             type->array_len > 4096) {
@@ -5976,7 +5977,6 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
         }
         return;
     }
-    if (!gen64_type_has_vtable_storage(type)) return;
     if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
         gen64_symbol_address(mod, type->cxx_vtable_symbol, 0u);
         emit64_mov_mem_reg(mod, base_register, displacement, RAX);
