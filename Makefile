@@ -1917,7 +1917,7 @@ test-cxx-rinos-header-identity: $(RCXX_TARGET)
 	@echo "C++ RinOS uchar/wchar/locale tag identity tested"
 
 .PHONY: test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-embed
-test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-va-start test-c23-preprocessor-elifdef test-c23-stdckdint test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes test-c23-utf8-character-literals
+test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-va-start test-c23-preprocessor-elifdef test-c23-stdckdint test-c23-stdbit-bitint test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes test-c23-utf8-character-literals
 	@echo "RCC C23 _BitInt, UTF-8 character literals, nullptr, empty-initialization, typeof, attributes, and binary-resource regressions completed"
 
 .PHONY: test-c23-utf8-character-literals
@@ -2026,6 +2026,51 @@ test-c23-stdckdint: $(RCC_TARGET)
 	$(call EXPECT_FAILURE,$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -I../../libs/libc -c -o $(TEST_OUT)/c23-stdckdint/invalid-result.ro tests/c23_stdckdint_invalid_result.c,$(TEST_OUT)/c23-stdckdint/invalid-result.log)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-stdckdint/invalid-result.ro)
 	@echo "C23 checked arithmetic integer-type boundary tests passed"
+
+.PHONY: test-c23-stdbit-bitint
+test-c23-stdbit-bitint: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-stdbit-bitint)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -nostdinc \
+		-Iinclude/rcc -I../../libs/libc -S \
+		-o $(TEST_OUT)/c23-stdbit-bitint/rcc-c17-x86.s \
+		tests/c23_stdbit_bitint.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/c23-stdbit-bitint/rcc-c17-x86.exe,$(TEST_OUT)/c23-stdbit-bitint/rcc-c17-x86.s)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -nostdinc \
+		-Iinclude/rcc -I../../libs/libc -S \
+		-o $(TEST_OUT)/c23-stdbit-bitint/rcc-c17-x64.s \
+		tests/c23_stdbit_bitint.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/c23-stdbit-bitint/rcc-c17-x64.exe,$(TEST_OUT)/c23-stdbit-bitint/rcc-c17-x64.s)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Iinclude/rcc -I../../libs/libc -S \
+		-o $(TEST_OUT)/c23-stdbit-bitint/rcc-c23-x86.s \
+		tests/c23_stdbit_bitint.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/c23-stdbit-bitint/rcc-c23-x86.exe,$(TEST_OUT)/c23-stdbit-bitint/rcc-c23-x86.s)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Iinclude/rcc -I../../libs/libc -S \
+		-o $(TEST_OUT)/c23-stdbit-bitint/rcc-c23-x64.s \
+		tests/c23_stdbit_bitint.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/c23-stdbit-bitint/rcc-c23-x64.exe,$(TEST_OUT)/c23-stdbit-bitint/rcc-c23-x64.s)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -nostdinc \
+		-I../../libs/libc -Iinclude/rcc -S \
+		-o $(TEST_OUT)/c23-stdbit-bitint/libc-c17-x86.s \
+		tests/c23_stdbit_bitint.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/c23-stdbit-bitint/libc-c17-x86.exe,$(TEST_OUT)/c23-stdbit-bitint/libc-c17-x86.s)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -nostdinc \
+		-I../../libs/libc -Iinclude/rcc -S \
+		-o $(TEST_OUT)/c23-stdbit-bitint/libc-c17-x64.s \
+		tests/c23_stdbit_bitint.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/c23-stdbit-bitint/libc-c17-x64.exe,$(TEST_OUT)/c23-stdbit-bitint/libc-c17-x64.s)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-I../../libs/libc -Iinclude/rcc -S \
+		-o $(TEST_OUT)/c23-stdbit-bitint/libc-c23-x86.s \
+		tests/c23_stdbit_bitint.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/c23-stdbit-bitint/libc-c23-x86.exe,$(TEST_OUT)/c23-stdbit-bitint/libc-c23-x86.s)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-I../../libs/libc -Iinclude/rcc -S \
+		-o $(TEST_OUT)/c23-stdbit-bitint/libc-c23-x64.s \
+		tests/c23_stdbit_bitint.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/c23-stdbit-bitint/libc-c23-x64.exe,$(TEST_OUT)/c23-stdbit-bitint/libc-c23-x64.s)
+	@echo "C23 stdbit generic _BitInt and standard unsigned type tests passed"
 
 test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-bitint)
