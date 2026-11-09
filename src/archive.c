@@ -40,8 +40,10 @@ Archive* archive_new(const char* filename) {
     Archive* ar = rcc_alloc(sizeof(Archive));
     ar->filename = rcc_strdup(filename);
     ar->members = NULL;
+    ar->members_tail = NULL;
     ar->member_count = 0;
     ar->symbols = NULL;
+    ar->symbols_tail = NULL;
     ar->symbol_count = 0;
     ar->strtab = rcc_alloc(256);
     ar->strtab[0] = '\0';
@@ -144,13 +146,9 @@ bool archive_add_member(Archive* ar, const char* filename) {
     m->next = NULL;
 
     /* Append to list */
-    if (!ar->members) {
-        ar->members = m;
-    } else {
-        ArchiveMember* last = ar->members;
-        while (last->next) last = last->next;
-        last->next = m;
-    }
+    if (!ar->members) ar->members = m;
+    else ar->members_tail->next = m;
+    ar->members_tail = m;
     ar->member_count++;
 
     return true;
@@ -212,13 +210,9 @@ bool archive_build_symtab(Archive* ar) {
             as->member_idx = member_idx;
             as->next = NULL;
 
-            if (!ar->symbols) {
-                ar->symbols = as;
-            } else {
-                ArchiveSymbol* last = ar->symbols;
-                while (last->next) last = last->next;
-                last->next = as;
-            }
+            if (!ar->symbols) ar->symbols = as;
+            else ar->symbols_tail->next = as;
+            ar->symbols_tail = as;
             ar->symbol_count++;
         }
     }
@@ -417,13 +411,9 @@ Archive* archive_read(const char* filename) {
 
         m->next = NULL;
 
-        if (!ar->members) {
-            ar->members = m;
-        } else {
-            ArchiveMember* last = ar->members;
-            while (last->next) last = last->next;
-            last->next = m;
-        }
+        if (!ar->members) ar->members = m;
+        else ar->members_tail->next = m;
+        ar->members_tail = m;
         ar->member_count++;
     }
 
@@ -443,13 +433,9 @@ Archive* archive_read(const char* filename) {
         s->member_idx = rs.member;
         s->next = NULL;
 
-        if (!ar->symbols) {
-            ar->symbols = s;
-        } else {
-            ArchiveSymbol* last = ar->symbols;
-            while (last->next) last = last->next;
-            last->next = s;
-        }
+        if (!ar->symbols) ar->symbols = s;
+        else ar->symbols_tail->next = s;
+        ar->symbols_tail = s;
         ar->symbol_count++;
     }
 

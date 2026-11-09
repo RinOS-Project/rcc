@@ -40,6 +40,10 @@ Linker* linker_new(void) {
     ld->comdat_key_capacity = 0u;
 #ifdef RCC_LINKER_TESTING
     ld->test_comdat_slot_probes = 0u;
+    ld->test_archive_heap_comparisons = 0u;
+    ld->test_archive_candidate_pops = 0u;
+    ld->test_archive_selected_members = 0u;
+    ld->test_archive_needed_symbol_probes = 0u;
 #endif
     ld->input_symbol_slots = NULL;
     ld->input_symbol_count = 0u;
@@ -545,6 +549,12 @@ typedef struct ArchiveResolutionIndex {
     bool* selected;
     bool* in_heap;
     size_t member_count;
+#ifdef RCC_LINKER_TESTING
+    size_t test_heap_comparisons;
+    size_t test_candidate_pops;
+    size_t test_selected_members;
+    size_t test_needed_symbol_probes;
+#endif
 } ArchiveResolutionIndex;
 
 static size_t archive_resolution_symbol_slot(
@@ -571,6 +581,9 @@ static void archive_resolution_heap_push(ArchiveResolutionIndex* index,
     size_t child = index->candidate_heap_count++;
     while (child != 0u) {
         size_t parent = (child - 1u) / 2u;
+#ifdef RCC_LINKER_TESTING
+        ++index->test_heap_comparisons;
+#endif
         if (index->candidate_heap[parent] <= member) break;
         index->candidate_heap[child] = index->candidate_heap[parent];
         child = parent;
@@ -587,10 +600,17 @@ static size_t archive_resolution_heap_pop(ArchiveResolutionIndex* index)
     index->in_heap[result] = false;
     while (parent < index->candidate_heap_count / 2u) {
         size_t child = parent * 2u + 1u;
+#ifdef RCC_LINKER_TESTING
+        if (child + 1u < index->candidate_heap_count)
+            ++index->test_heap_comparisons;
+#endif
         if (child + 1u < index->candidate_heap_count &&
             index->candidate_heap[child + 1u] <
                 index->candidate_heap[child])
             ++child;
+#ifdef RCC_LINKER_TESTING
+        ++index->test_heap_comparisons;
+#endif
         if (last <= index->candidate_heap[child]) break;
         index->candidate_heap[parent] = index->candidate_heap[child];
         parent = child;
@@ -757,12 +777,15 @@ static bool archive_resolution_symbol_state_update(
 }
 
 static const char* archive_resolution_member_needed_symbol(
-    const ArchiveResolutionIndex* index, size_t member)
+    ArchiveResolutionIndex* index, size_t member)
 {
     for (size_t item = index->member_heads[member]; item != SIZE_MAX;
          item = index->occurrences[item].next_member) {
         const ArchiveResolutionOccurrence* occurrence =
             &index->occurrences[item];
+#ifdef RCC_LINKER_TESTING
+        ++index->test_needed_symbol_probes;
+#endif
         if (index->symbols[occurrence->symbol_index].unresolved)
             return occurrence->symbol->name;
     }
@@ -797,6 +820,9 @@ static bool linker_add_archive(Linker* ld, const char* filename) {
     }
 
     while (index.candidate_heap_count != 0u) {
+#ifdef RCC_LINKER_TESTING
+        ++index.test_candidate_pops;
+#endif
         size_t candidate = archive_resolution_heap_pop(&index);
         const char* needed;
         ArchiveMember* member;
@@ -844,6 +870,9 @@ static bool linker_add_archive(Linker* ld, const char* filename) {
         }
         index.selected[candidate] = true;
         if (!linker_append_object(ld, obj)) goto done;
+#ifdef RCC_LINKER_TESTING
+        ++index.test_selected_members;
+#endif
         if (!archive_resolution_update_object(&index, ld, obj)) {
             fprintf(stderr, "rld: archive symbol index overflow in %s\n",
                     filename);
@@ -853,6 +882,12 @@ static bool linker_add_archive(Linker* ld, const char* filename) {
 
     ok = true;
 done:
+#ifdef RCC_LINKER_TESTING
+    ld->test_archive_heap_comparisons += index.test_heap_comparisons;
+    ld->test_archive_candidate_pops += index.test_candidate_pops;
+    ld->test_archive_selected_members += index.test_selected_members;
+    ld->test_archive_needed_symbol_probes += index.test_needed_symbol_probes;
+#endif
     archive_resolution_index_destroy(&index);
     archive_free(archive);
     return ok;

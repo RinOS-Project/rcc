@@ -24998,7 +24998,8 @@ test-archive: $(RCC_TARGET) $(RAR_TARGET)
 	$(RAR_TARGET) t $(TEST_OUT)/libtest.ra
 	@echo "RAR archive test completed"
 
-test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
+test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET) \
+		test-archive-resolution-scaling
 	$(call MKDIR_P,$(TEST_OUT)/archive-x86)
 	$(call MKDIR_P,$(TEST_OUT)/archive-x64)
 	$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/archive-x86/main.ro tests/archive_link_main.c
@@ -25031,6 +25032,19 @@ test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 	$(call EXPECT_FAILURE,$(RLD_TARGET) -m64 --emit-unsigned-v3 -o $(TEST_OUT)/archive-x64/wrong-arch.rin \
 		$(TEST_OUT)/archive-x64/main.ro $(TEST_OUT)/archive-x86/libselect.ra,$(TEST_OUT)/archive-x64/wrong-arch.log)
 	@echo "RLD unresolved-symbol archive selection tests completed"
+
+.PHONY: test-archive-resolution-scaling
+test-archive-resolution-scaling:
+	$(call MKDIR_P,$(TEST_OUT)/archive-scaling/x86)
+	$(call MKDIR_P,$(TEST_OUT)/archive-scaling/x64)
+	$(CC) $(CFLAGS) -DRCC_LINKER_TESTING -I$(INCDIR) \
+		-o $(TEST_OUT)/archive_link_scaling_test \
+		tests/archive_link_scaling_test.c $(SRCDIR)/linker.c \
+		$(SRCDIR)/emit_ro.c $(SRCDIR)/archive.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/archive_link_scaling_test \
+		$(TEST_OUT)/archive-scaling/x86 x86
+	$(TEST_OUT)/archive_link_scaling_test \
+		$(TEST_OUT)/archive-scaling/x64 x64
 
 test-static-assert: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))

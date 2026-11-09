@@ -72,8 +72,10 @@ typedef struct ArchiveSymbol {
 typedef struct Archive {
     char* filename;
     ArchiveMember* members;
+    ArchiveMember* members_tail;
     int member_count;
     ArchiveSymbol* symbols;
+    ArchiveSymbol* symbols_tail;
     int symbol_count;
 
     /* String table */

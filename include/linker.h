@@ -113,6 +113,10 @@ typedef struct Linker {
     size_t comdat_key_capacity;
 #ifdef RCC_LINKER_TESTING
     size_t test_comdat_slot_probes; /* Test-only lookup work counter. */
+    size_t test_archive_heap_comparisons;
+    size_t test_archive_candidate_pops;
+    size_t test_archive_selected_members;
+    size_t test_archive_needed_symbol_probes;
 #endif
 
     /* Open-addressed index of accepted input definitions and references. */
