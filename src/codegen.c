@@ -6771,6 +6771,111 @@ static void gen_complex_push_component32(Module* mod, int32_t offset,
     emit_push_reg(mod, EAX);
 }
 
+static void gen_complex_arithmetic_guard32(
+    Module* mod, int32_t left_offset, int32_t right_offset,
+    Type* component_type, int fallback_label) {
+    int width = gen_float_width(component_type);
+    uint32_t exponent_mask = width == 4
+        ? UINT32_C(0x7f800000) : UINT32_C(0x7ff00000);
+    uint32_t minimum_exponent = width == 4
+        ? UINT32_C(0x33800000) : UINT32_C(0x30500000);
+    uint32_t exponent_range = width == 4
+        ? UINT32_C(0x18000000) : UINT32_C(0x1f400000);
+    int32_t offsets[4] = {
+        left_offset, left_offset + component_type->size,
+        right_offset, right_offset + component_type->size
+    };
+    for (size_t index = 0u; index < 4u; ++index) {
+        int32_t exponent_offset = offsets[index] + (width == 8 ? 4 : 0);
+        emit_mov_reg_mem(mod, EAX, EBP, exponent_offset);
+        emit_and_reg_imm(mod, EAX, exponent_mask);
+        emit_sub_reg_imm(mod, EAX, (int32_t)minimum_exponent);
+        emit_cmp_reg_imm(mod, EAX, (int32_t)exponent_range);
+        emit_jcc_label(mod, CC_A, fallback_label);
+    }
+}
+
+static void gen_complex_arithmetic_inline32(
+    Module* mod, ExprKind operation, int32_t left_offset,
+    int32_t right_offset, int32_t result_offset, Type* component_type) {
+    int width = gen_float_width(component_type);
+    int32_t left_real = left_offset;
+    int32_t left_imaginary = left_offset + component_type->size;
+    int32_t right_real = right_offset;
+    int32_t right_imaginary = right_offset + component_type->size;
+
+    if (operation == EXPR_MUL) {
+        emit_x87_load_memory(mod, width, EBP, left_real);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_real);
+        emit_x87_load_memory(mod, width, EBP, left_imaginary);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_imaginary);
+        emit_byte(mod, 0xDE); emit_byte(mod, 0xE9); /* FSUBP ST(1), ST(0) */
+        emit_x87_load_memory(mod, width, EBP, left_real);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_imaginary);
+        emit_x87_load_memory(mod, width, EBP, left_imaginary);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_real);
+        emit_byte(mod, 0xDE); emit_byte(mod, 0xC1); /* FADDP ST(1), ST(0) */
+    } else {
+        /* Keep the rounded real result on the x87 stack while computing the
+         * imaginary numerator and a second copy of the safe denominator. */
+        emit_x87_load_memory(mod, width, EBP, left_real);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_real);
+        emit_x87_load_memory(mod, width, EBP, left_imaginary);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_imaginary);
+        emit_byte(mod, 0xDE); emit_byte(mod, 0xC1); /* FADDP ST(1), ST(0) */
+        emit_x87_load_memory(mod, width, EBP, right_real);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_real);
+        emit_x87_load_memory(mod, width, EBP, right_imaginary);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_imaginary);
+        emit_byte(mod, 0xDE); emit_byte(mod, 0xC1); /* FADDP ST(1), ST(0) */
+        emit_byte(mod, 0xDE); emit_byte(mod, 0xF9); /* FDIVP ST(1), ST(0) */
+        emit_x87_load_memory(mod, width, EBP, left_imaginary);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_real);
+        emit_x87_load_memory(mod, width, EBP, left_real);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_imaginary);
+        emit_byte(mod, 0xDE); emit_byte(mod, 0xE9); /* FSUBP ST(1), ST(0) */
+        emit_x87_load_memory(mod, width, EBP, right_real);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_real);
+        emit_x87_load_memory(mod, width, EBP, right_imaginary);
+        emit_x87_binary_memory(mod, EXPR_MUL, width, EBP, right_imaginary);
+        emit_byte(mod, 0xDE); emit_byte(mod, 0xC1); /* FADDP ST(1), ST(0) */
+        emit_byte(mod, 0xDE); emit_byte(mod, 0xF9); /* FDIVP ST(1), ST(0) */
+    }
+    emit_x87_store_pop_memory(mod, width, EBP,
+                              result_offset + component_type->size);
+    emit_x87_store_pop_memory(mod, width, EBP, result_offset);
+}
+
+static void gen_complex_arithmetic_helper32(
+    Module* mod, ExprKind operation, int32_t left_offset,
+    int32_t right_offset, int32_t result_offset, Type* component_type) {
+    int width = gen_float_width(component_type);
+    int argument_bytes = width == 8 ? 40 : 24;
+    uint32_t call_offset;
+    const char* helper = operation == EXPR_MUL
+        ? (width == 4 ? "__rin_cmul_f32" : "__rin_cmul_f64")
+        : (width == 4 ? "__rin_cdiv_f32" : "__rin_cdiv_f64");
+    emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+    emit_byte(mod, modrm(2, EAX, EBP));
+    emit_dword(mod, (uint32_t)(result_offset + component_type->size));
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0x8D);
+    emit_byte(mod, modrm(2, EAX, EBP));
+    emit_dword(mod, (uint32_t)result_offset);
+    emit_push_reg(mod, EAX);
+    gen_complex_push_component32(
+        mod, right_offset + component_type->size, component_type);
+    gen_complex_push_component32(mod, right_offset, component_type);
+    gen_complex_push_component32(
+        mod, left_offset + component_type->size, component_type);
+    gen_complex_push_component32(mod, left_offset, component_type);
+    emit_byte(mod, 0xE8);
+    call_offset = code_offset(mod);
+    emit_dword(mod, 0u);
+    add_func_call_ref(helper, call_offset);
+    emit_add_reg_imm(mod, ESP, argument_bytes);
+}
+
 static void gen_complex_binary32(Module* mod, Expr* expression) {
     Type* complex_type = expression ? expression->type : NULL;
     Type* component_type = type_is_complex(complex_type)
@@ -6807,31 +6912,20 @@ static void gen_complex_binary32(Module* mod, Expr* expression) {
         }
     } else if (expression->kind == EXPR_MUL ||
                expression->kind == EXPR_DIV) {
-        int argument_bytes = component_width == 8 ? 40 : 24;
-        uint32_t call_offset;
-        const char* helper = expression->kind == EXPR_MUL
-            ? (component_width == 4 ? "__rin_cmul_f32" : "__rin_cmul_f64")
-            : (component_width == 4 ? "__rin_cdiv_f32" : "__rin_cdiv_f64");
-
-        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
-        emit_byte(mod, modrm(2, EAX, EBP));
-        emit_dword(mod, (uint32_t)(result_offset + component_type->size));
-        emit_push_reg(mod, EAX);
-        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
-        emit_byte(mod, modrm(2, EAX, EBP));
-        emit_dword(mod, (uint32_t)result_offset);
-        emit_push_reg(mod, EAX);
-        gen_complex_push_component32(
-            mod, right_offset + component_type->size, component_type);
-        gen_complex_push_component32(mod, right_offset, component_type);
-        gen_complex_push_component32(
-            mod, result_offset + component_type->size, component_type);
-        gen_complex_push_component32(mod, result_offset, component_type);
-        emit_byte(mod, 0xE8);
-        call_offset = code_offset(mod);
-        emit_dword(mod, 0u);
-        add_func_call_ref(helper, call_offset);
-        emit_add_reg_imm(mod, ESP, argument_bytes);
+        int fallback_label = new_label();
+        int done_label = new_label();
+        gen_complex_arithmetic_guard32(
+            mod, result_offset, right_offset, component_type,
+            fallback_label);
+        gen_complex_arithmetic_inline32(
+            mod, expression->kind, result_offset, right_offset,
+            result_offset, component_type);
+        emit_jmp_label(mod, done_label);
+        emit_label(mod, fallback_label);
+        gen_complex_arithmetic_helper32(
+            mod, expression->kind, result_offset, right_offset,
+            result_offset, component_type);
+        emit_label(mod, done_label);
     }
 
     emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
@@ -6893,31 +6987,20 @@ static void gen_complex_compound32(Module* mod, Expr* expression) {
                                       result_offset + component_offset);
         }
     } else {
-        int component_width = gen_float_width(component_type);
-        int argument_bytes = component_width == 8 ? 40 : 24;
-        uint32_t call_offset;
-        const char* helper = operation == EXPR_MUL
-            ? (component_width == 4 ? "__rin_cmul_f32" : "__rin_cmul_f64")
-            : (component_width == 4 ? "__rin_cdiv_f32" : "__rin_cdiv_f64");
-        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
-        emit_byte(mod, modrm(2, EAX, EBP));
-        emit_dword(mod, (uint32_t)(result_offset + component_type->size));
-        emit_push_reg(mod, EAX);
-        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
-        emit_byte(mod, modrm(2, EAX, EBP));
-        emit_dword(mod, (uint32_t)result_offset);
-        emit_push_reg(mod, EAX);
-        gen_complex_push_component32(
-            mod, right_offset + component_type->size, component_type);
-        gen_complex_push_component32(mod, right_offset, component_type);
-        gen_complex_push_component32(
-            mod, result_offset + component_type->size, component_type);
-        gen_complex_push_component32(mod, result_offset, component_type);
-        emit_byte(mod, 0xE8);
-        call_offset = code_offset(mod);
-        emit_dword(mod, 0u);
-        add_func_call_ref(helper, call_offset);
-        emit_add_reg_imm(mod, ESP, argument_bytes);
+        int fallback_label = new_label();
+        int done_label = new_label();
+        gen_complex_arithmetic_guard32(
+            mod, result_offset, right_offset, component_type,
+            fallback_label);
+        gen_complex_arithmetic_inline32(
+            mod, operation, result_offset, right_offset, result_offset,
+            component_type);
+        emit_jmp_label(mod, done_label);
+        emit_label(mod, fallback_label);
+        gen_complex_arithmetic_helper32(
+            mod, operation, result_offset, right_offset, result_offset,
+            component_type);
+        emit_label(mod, done_label);
     }
 
     emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */

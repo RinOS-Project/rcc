@@ -188,6 +188,36 @@ int rcc_complex_local_arithmetic(void) {
     return value != __builtin_complex(13.0f, 13.0f);
 }
 
+int rcc_complex_fast_arithmetic_abi_test(void) {
+    RccComplexFloat float_left = __builtin_complex(2.0f, 3.0f);
+    RccComplexFloat float_right = __builtin_complex(4.0f, -1.0f);
+    RccComplexFloat float_product = float_left * float_right;
+    RccComplexFloat float_quotient = float_left / __builtin_complex(1.0f, 1.0f);
+    RccComplexDouble double_left = __builtin_complex(2.0, 3.0);
+    RccComplexDouble double_right = __builtin_complex(4.0, -1.0);
+    RccComplexDouble double_product = double_left * double_right;
+    RccComplexDouble double_quotient =
+        double_left / __builtin_complex(1.0, 1.0);
+    RccComplexLongDouble long_double_left = __builtin_complex(2.0L, 3.0L);
+    RccComplexLongDouble long_double_right = __builtin_complex(4.0L, -1.0L);
+    RccComplexLongDouble long_double_product =
+        long_double_left * long_double_right;
+    RccComplexLongDouble long_double_quotient =
+        long_double_left / __builtin_complex(1.0L, 1.0L);
+    return __real__ float_product == 11.0f &&
+        __imag__ float_product == 10.0f &&
+        __real__ float_quotient == 2.5f &&
+        __imag__ float_quotient == 0.5f &&
+        __real__ double_product == 11.0 &&
+        __imag__ double_product == 10.0 &&
+        __real__ double_quotient == 2.5 &&
+        __imag__ double_quotient == 0.5 &&
+        __real__ long_double_product == 11.0L &&
+        __imag__ long_double_product == 10.0L &&
+        __real__ long_double_quotient == 2.5L &&
+        __imag__ long_double_quotient == 0.5L;
+}
+
 int rcc_complex_static_initializer(void) {
     return rcc_complex_static_value != CMPLX(7.0, -8.0);
 }

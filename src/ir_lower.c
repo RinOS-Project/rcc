@@ -9204,9 +9204,12 @@ static RccIrIntPredicate lower_comparison_predicate(ExprKind kind,
 static bool lower_complex_components(
     RccIrLowerContext* context, const Expr* expression,
     Type* component_type, RccIrLowerValue* real,
-    RccIrLowerValue* imaginary) {
+    RccIrLowerValue* imaginary, RccIrLowerValue* real_address,
+    RccIrLowerValue* imaginary_address) {
     RccIrLowerValue value;
     RccIrLowerValue address;
+    RccIrLowerValue source_real;
+    RccIrLowerValue source_imaginary;
     if (!context || !expression || !expression->type ||
         !component_type || !real || !imaginary ||
         (component_type->kind != TYPE_FLOAT &&
@@ -9222,21 +9225,37 @@ static bool lower_complex_components(
             return false;
         }
         address = lower_byte_offset_address(context, value, 0u);
-        *real = lower_load_address(
+        source_real = lower_load_address(
             context, address, expression->type->complex_component_type);
         address = lower_byte_offset_address(
             context, value, (uint64_t)expression->type->complex_component_type->size);
-        *imaginary = lower_load_address(
+        source_imaginary = lower_load_address(
             context, address, expression->type->complex_component_type);
-        if (!real->valid || !imaginary->valid) return false;
-        *real = lower_cast(context, *real, component_type);
-        *imaginary = lower_cast(context, *imaginary, component_type);
+        if (!source_real.valid || !source_imaginary.valid) return false;
+        *real = lower_cast(context, source_real, component_type);
+        *imaginary = lower_cast(context, source_imaginary, component_type);
+        if (real_address) {
+            *real_address = !expression->type->is_volatile &&
+                rcc_ir_type_equal(source_real.type, real->type)
+                ? lower_value(value.value, rcc_ir_type_pointer(0u), true)
+                : lower_invalid_value();
+        }
+        if (imaginary_address) {
+            RccIrLowerValue component_address = lower_byte_offset_address(
+                context, value,
+                (uint64_t)expression->type->complex_component_type->size);
+            *imaginary_address = !expression->type->is_volatile &&
+                rcc_ir_type_equal(source_imaginary.type, imaginary->type)
+                ? component_address : lower_invalid_value();
+        }
         return real->valid && imaginary->valid;
     }
     if (type_is_integer(expression->type) ||
         type_is_floating(expression->type)) {
         *real = lower_cast(context, value, component_type);
         *imaginary = lower_float_constant(context, component_type, 0.0);
+        if (real_address) *real_address = lower_invalid_value();
+        if (imaginary_address) *imaginary_address = lower_invalid_value();
         return real->valid && imaginary->valid;
     }
     context->unsupported = true;
@@ -9254,7 +9273,8 @@ static RccIrLowerValue lower_truth_expression(
         RccIrInstruction* combined;
         Type* component_type = expression->type->complex_component_type;
         if (!lower_complex_components(
-                context, expression, component_type, &real, &imaginary)) {
+                context, expression, component_type, &real, &imaginary,
+                NULL, NULL)) {
             return lower_invalid_value();
         }
         zero = lower_float_constant(context, component_type, 0.0);
@@ -9424,16 +9444,16 @@ static RccIrLowerValue lower_complex_convert(
 static RccIrLowerValue lower_complex_multiply_or_divide_runtime(
     RccIrLowerContext* context, Type* complex_type,
     RccIrLowerValue ar, RccIrLowerValue ai,
-    RccIrLowerValue br, RccIrLowerValue bi, bool divide) {
-    RccIrInstruction* allocation;
+    RccIrLowerValue br, RccIrLowerValue bi, bool divide,
+    RccIrLowerValue storage) {
     RccIrInstruction* call;
-    RccIrLowerValue storage;
     RccIrLowerValue imaginary_address;
     RccIrValue operands[6];
     Type* component_type;
     const char* callee;
     if (!context || !type_is_complex(complex_type) || !ar.valid ||
-        !ai.valid || !br.valid || !bi.valid) {
+        !ai.valid || !br.valid || !bi.valid || !storage.valid ||
+        storage.type.kind != RCC_IR_TYPE_POINTER) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
@@ -9441,14 +9461,6 @@ static RccIrLowerValue lower_complex_multiply_or_divide_runtime(
     callee = component_type->kind == TYPE_FLOAT
         ? (divide ? "__rin_cdiv_f32" : "__rin_cmul_f32")
         : (divide ? "__rin_cdiv_f64" : "__rin_cmul_f64");
-    allocation = lower_append(
-        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
-        NULL, 0u, NULL, 0u);
-    if (!allocation) return lower_invalid_value();
-    rcc_ir_set_immediate(allocation, (uint64_t)complex_type->size);
-    allocation->alignment = (uint32_t)complex_type->align;
-    storage = lower_value(
-        allocation->result, rcc_ir_type_pointer(0u), true);
     imaginary_address = lower_byte_offset_address(
         context, storage, (uint64_t)component_type->size);
     if (!storage.valid || !imaginary_address.valid) {
@@ -9468,16 +9480,155 @@ static RccIrLowerValue lower_complex_multiply_or_divide_runtime(
     return storage;
 }
 
+/* Keep the inline complex formulas away from cases where intermediate
+ * products or quotients can overflow, underflow, or need Annex G recovery.
+ * Inspecting exponent bits does not itself raise floating-point exceptions. */
+static RccIrLowerValue lower_complex_multiply_divide_fast_guard(
+    RccIrLowerContext* context, Type* component_type,
+    const RccIrLowerValue values[4],
+    const RccIrLowerValue addresses[4]) {
+    uint16_t bit_width;
+    uint64_t exponent_mask;
+    uint64_t minimum_exponent;
+    uint64_t exponent_range;
+    RccIrType exponent_type = rcc_ir_type_integer(32u);
+    RccIrLowerValue mask;
+    RccIrLowerValue minimum;
+    RccIrLowerValue range;
+    RccIrLowerValue combined = lower_invalid_value();
+    if (!context || !component_type || !values || !addresses ||
+        (component_type->kind != TYPE_FLOAT &&
+         component_type->kind != TYPE_DOUBLE)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    bit_width = component_type->kind == TYPE_FLOAT ? 32u : 64u;
+    if (bit_width == 64u && g_opts.target_arch == ARCH_X86) {
+        for (unsigned index = 0u; index < 4u; ++index) {
+            /* Avoid creating scratch spills just to inspect a converted,
+             * volatile, or scalar-derived double component. */
+            if (!addresses[index].valid) {
+                return lower_integer_constant(
+                    context, rcc_ir_type_integer(1u), true, 0u);
+            }
+        }
+    }
+    if (bit_width == 32u) {
+        exponent_mask = UINT32_C(0x7f800000);
+        minimum_exponent = UINT32_C(0x33800000); /* 2^-24 */
+        exponent_range = UINT32_C(0x18000000); /* through 2^24 */
+    } else {
+        exponent_mask = UINT32_C(0x7ff00000);
+        minimum_exponent = UINT32_C(0x30500000); /* 2^-250 */
+        exponent_range = UINT32_C(0x1f400000); /* through 2^250 */
+    }
+    mask = lower_integer_constant(context, exponent_type, true,
+                                  exponent_mask);
+    minimum = lower_integer_constant(context, exponent_type, true,
+                                     minimum_exponent);
+    range = lower_integer_constant(context, exponent_type, true,
+                                   exponent_range);
+    if (!mask.valid || !minimum.valid || !range.valid) {
+        return lower_invalid_value();
+    }
+    for (unsigned index = 0u; index < 4u; ++index) {
+        RccIrInstruction* bits;
+        RccIrValue exponent_value;
+        RccIrInstruction* exponent;
+        RccIrInstruction* offset;
+        RccIrInstruction* in_range;
+        RccIrValue operands[2];
+        RccIrLowerValue safe;
+        if (!values[index].valid ||
+            values[index].type.kind != RCC_IR_TYPE_FLOAT ||
+            values[index].type.bit_width != bit_width) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (bit_width == 64u && g_opts.target_arch == ARCH_X86) {
+            RccIrLowerValue high_address = lower_byte_offset_address(
+                context, addresses[index], 4u);
+            RccIrLowerValue high_word = lower_load_address(
+                context, high_address, type_uint);
+            if (!high_word.valid) return lower_invalid_value();
+            exponent_value = high_word.value;
+        } else {
+            bits = lower_append(context, RCC_IR_BITCAST,
+                                rcc_ir_type_integer(bit_width),
+                                &values[index].value, 1u, NULL, 0u);
+            if (!bits) return lower_invalid_value();
+            exponent_value = bits->result;
+            if (bit_width == 64u) {
+                RccIrLowerValue shift = lower_integer_constant(
+                    context, rcc_ir_type_integer(64u), true, 32u);
+                RccIrInstruction* high_word;
+                RccIrInstruction* truncated;
+                if (!shift.valid) return lower_invalid_value();
+                operands[0] = bits->result;
+                operands[1] = shift.value;
+                high_word = lower_append(
+                    context, RCC_IR_LSHR, rcc_ir_type_integer(64u),
+                    operands, 2u, NULL, 0u);
+                if (!high_word) return lower_invalid_value();
+                truncated = lower_append(
+                    context, RCC_IR_TRUNC, exponent_type,
+                    &high_word->result, 1u, NULL, 0u);
+                if (!truncated) return lower_invalid_value();
+                exponent_value = truncated->result;
+            }
+        }
+        operands[0] = exponent_value;
+        operands[1] = mask.value;
+        exponent = lower_append(context, RCC_IR_AND, exponent_type,
+                                 operands, 2u, NULL, 0u);
+        if (!exponent) return lower_invalid_value();
+        operands[0] = exponent->result;
+        operands[1] = minimum.value;
+        offset = lower_append(context, RCC_IR_SUB, exponent_type,
+                              operands, 2u, NULL, 0u);
+        if (!offset) return lower_invalid_value();
+        operands[0] = offset->result;
+        operands[1] = range.value;
+        in_range = lower_append(context, RCC_IR_ICMP,
+                                rcc_ir_type_integer(1u), operands, 2u,
+                                NULL, 0u);
+        if (!in_range) return lower_invalid_value();
+        rcc_ir_set_predicate(in_range, RCC_IR_ICMP_ULE);
+        safe = lower_value(in_range->result,
+                           rcc_ir_type_integer(1u), true);
+        if (!combined.valid) {
+            combined = safe;
+        } else {
+            RccIrInstruction* both;
+            operands[0] = combined.value;
+            operands[1] = safe.value;
+            both = lower_append(context, RCC_IR_AND,
+                                rcc_ir_type_integer(1u), operands, 2u,
+                                NULL, 0u);
+            if (!both) return lower_invalid_value();
+            combined = lower_value(both->result,
+                                   rcc_ir_type_integer(1u), true);
+        }
+    }
+    return combined;
+}
+
 static RccIrLowerValue lower_complex_binary(
     RccIrLowerContext* context, const Expr* expression) {
     Type* component_type = expression && expression->type &&
         type_is_complex(expression->type)
         ? expression->type->complex_component_type : NULL;
     RccIrLowerValue ar, ai, br, bi;
+    RccIrLowerValue ar_address, ai_address, br_address, bi_address;
     RccIrLowerValue real, imaginary;
+    RccIrLowerValue operation_storage = lower_invalid_value();
     RccIrValue operands[2];
     RccIrInstruction* operation;
     RccIrOpcode opcode;
+    RccIrBlock* fast_block = NULL;
+    RccIrBlock* fallback_block = NULL;
+    RccIrBlock* merge_block = NULL;
+    bool guarded_operation;
     bool evaluate_right_first = context && context->coroutine_resume &&
         expression &&
         !lower_coroutine_expression_contains_await(
@@ -9489,27 +9640,54 @@ static RccIrLowerValue lower_complex_binary(
         if (evaluate_right_first) {
             operands_valid = lower_complex_components(
                     context, expression->binary_rhs, component_type,
-                    &br, &bi) &&
+                    &br, &bi, &br_address, &bi_address) &&
                 lower_complex_components(
                     context, expression->binary_lhs, component_type,
-                    &ar, &ai);
+                    &ar, &ai, &ar_address, &ai_address);
         } else {
             operands_valid = lower_complex_components(
                     context, expression->binary_lhs, component_type,
-                    &ar, &ai) &&
+                    &ar, &ai, &ar_address, &ai_address) &&
                 lower_complex_components(
                     context, expression->binary_rhs, component_type,
-                    &br, &bi);
+                    &br, &bi, &br_address, &bi_address);
         }
     }
     if (!operands_valid) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
-    if (expression->kind == EXPR_MUL || expression->kind == EXPR_DIV) {
-        return lower_complex_multiply_or_divide_runtime(
-            context, expression->type, ar, ai, br, bi,
-            expression->kind == EXPR_DIV);
+    guarded_operation = expression->kind == EXPR_MUL ||
+        expression->kind == EXPR_DIV;
+    if (guarded_operation) {
+        RccIrInstruction* allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        RccIrLowerValue values[4] = {ar, ai, br, bi};
+        RccIrLowerValue addresses[4] = {
+            ar_address, ai_address, br_address, bi_address};
+        RccIrLowerValue fast_guard;
+        if (!allocation) return lower_invalid_value();
+        rcc_ir_set_immediate(allocation, (uint64_t)expression->type->size);
+        allocation->alignment = (uint32_t)expression->type->align;
+        operation_storage = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+        fast_guard = lower_complex_multiply_divide_fast_guard(
+            context, component_type, values, addresses);
+        fast_block = rcc_ir_block_add(context->function,
+                                      "complex.arithmetic.fast");
+        fallback_block = rcc_ir_block_add(context->function,
+                                          "complex.arithmetic.fallback");
+        merge_block = rcc_ir_block_add(context->function,
+                                       "complex.arithmetic.end");
+        if (!operation_storage.valid || !fast_guard.valid || !fast_block ||
+            !fallback_block || !merge_block ||
+            !lower_conditional_branch(context, fast_guard, fast_block->id,
+                                      fallback_block->id)) {
+            return lower_invalid_value();
+        }
+        context->current = fast_block;
+        context->terminated = false;
     }
     if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) {
         opcode = expression->kind == EXPR_ADD ? RCC_IR_FADD : RCC_IR_FSUB;
@@ -9620,6 +9798,30 @@ static RccIrLowerValue lower_complex_binary(
     } else {
         context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (guarded_operation) {
+        RccIrLowerValue imaginary_address = lower_byte_offset_address(
+            context, operation_storage,
+            (uint64_t)component_type->size);
+        RccIrLowerValue fallback_result;
+        if (!imaginary_address.valid ||
+            !lower_store_address(context, operation_storage, real) ||
+            !lower_store_address(context, imaginary_address, imaginary) ||
+            !lower_branch(context, merge_block->id)) {
+            return lower_invalid_value();
+        }
+        context->current = fallback_block;
+        context->terminated = false;
+        fallback_result = lower_complex_multiply_or_divide_runtime(
+            context, expression->type, ar, ai, br, bi,
+            expression->kind == EXPR_DIV, operation_storage);
+        if (!fallback_result.valid ||
+            !lower_branch(context, merge_block->id)) {
+            return lower_invalid_value();
+        }
+        context->current = merge_block;
+        context->terminated = false;
+        return operation_storage;
     }
     return lower_complex_pack(context, expression->type, real, imaginary);
 }
@@ -9861,19 +10063,19 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
             ? lower_complex_components(
                   context, expression->binary_rhs,
                   comparison_type->complex_component_type,
-                  &right_real, &right_imaginary) &&
+                  &right_real, &right_imaginary, NULL, NULL) &&
                   lower_complex_components(
                       context, expression->binary_lhs,
                       comparison_type->complex_component_type,
-                      &left_real, &left_imaginary)
+                      &left_real, &left_imaginary, NULL, NULL)
             : lower_complex_components(
                   context, expression->binary_lhs,
                   comparison_type->complex_component_type,
-                  &left_real, &left_imaginary) &&
+                  &left_real, &left_imaginary, NULL, NULL) &&
                   lower_complex_components(
                       context, expression->binary_rhs,
                       comparison_type->complex_component_type,
-                      &right_real, &right_imaginary);
+                      &right_real, &right_imaginary, NULL, NULL);
         if (!components_valid) {
             return lower_invalid_value();
         }
@@ -20452,7 +20654,7 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                     expression->type->complex_component_type;
                 if (!lower_complex_components(
                         context, expression->unary_operand,
-                        component_type, &real, &imaginary)) {
+                        component_type, &real, &imaginary, NULL, NULL)) {
                     return lower_invalid_value();
                 }
                 real = lower_complex_float_negate(context, real);

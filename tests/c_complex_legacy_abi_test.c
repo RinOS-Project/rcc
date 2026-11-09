@@ -453,23 +453,32 @@ extern void rcc_host_complex_div_f32(
 extern void rcc_host_complex_div_f64(
     double, double, double, double, double*, double*);
 
+static unsigned int rcc_host_complex_mul_f32_calls;
+static unsigned int rcc_host_complex_mul_f64_calls;
+static unsigned int rcc_host_complex_div_f32_calls;
+static unsigned int rcc_host_complex_div_f64_calls;
+
 void RINOS_ABI __rin_cmul_f32(float a, float b, float c, float d,
                               float* real, float* imaginary) {
+    ++rcc_host_complex_mul_f32_calls;
     rcc_host_complex_mul_f32(a, b, c, d, real, imaginary);
 }
 
 void RINOS_ABI __rin_cmul_f64(double a, double b, double c, double d,
                               double* real, double* imaginary) {
+    ++rcc_host_complex_mul_f64_calls;
     rcc_host_complex_mul_f64(a, b, c, d, real, imaginary);
 }
 
 void RINOS_ABI __rin_cdiv_f32(float a, float b, float c, float d,
                               float* real, float* imaginary) {
+    ++rcc_host_complex_div_f32_calls;
     rcc_host_complex_div_f32(a, b, c, d, real, imaginary);
 }
 
 void RINOS_ABI __rin_cdiv_f64(double a, double b, double c, double d,
                               double* real, double* imaginary) {
+    ++rcc_host_complex_div_f64_calls;
     rcc_host_complex_div_f64(a, b, c, d, real, imaginary);
 }
 
@@ -2642,6 +2651,7 @@ int main(void) {
     RccLegacyComplexDouble double_right = __builtin_complex(4.0, -1.0);
     RccLegacyComplexDouble double_result;
     RccLegacyComplexBinary64Pair long_double_result;
+    unsigned int helper_calls_before;
 
     check_annexg_cacos_cacosh_infinity_matrix();
     float_result = rcc_legacy_complex_call_local_initializer();
@@ -2749,21 +2759,29 @@ int main(void) {
     float_result = rcc_legacy_complex_float_subtract(float_left, float_right);
     assert(near_float(__real__ float_result, -2.0f) &&
            near_float(__imag__ float_result, 4.0f));
+    helper_calls_before = rcc_host_complex_mul_f32_calls;
     float_result = rcc_legacy_complex_float_multiply(float_left, float_right);
     assert(near_float(__real__ float_result, 11.0f) &&
            near_float(__imag__ float_result, 10.0f));
+    assert(rcc_host_complex_mul_f32_calls == helper_calls_before);
+    helper_calls_before = rcc_host_complex_mul_f32_calls;
     float_result = rcc_legacy_complex_float_multiply(
         __builtin_complex(HUGE_VALF, HUGE_VALF),
         __builtin_complex(1.0f, 0.0f));
     assert(isinf(__real__ float_result) && isinf(__imag__ float_result));
+    assert(rcc_host_complex_mul_f32_calls == helper_calls_before + 1u);
+    helper_calls_before = rcc_host_complex_div_f32_calls;
     float_result = rcc_legacy_complex_float_divide(
         float_left, __builtin_complex(1.0f, 1.0f));
     assert(near_float(__real__ float_result, 2.5f) &&
            near_float(__imag__ float_result, 0.5f));
+    assert(rcc_host_complex_div_f32_calls == helper_calls_before);
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    helper_calls_before = rcc_host_complex_div_f32_calls;
     float_result = rcc_legacy_complex_float_divide(
         float_left, __builtin_complex(0.0f, 0.0f));
     assert(isinf(__real__ float_result) && isinf(__imag__ float_result));
+    assert(rcc_host_complex_div_f32_calls == helper_calls_before + 1u);
     assert((fetestexcept(FE_ALL_EXCEPT) & FE_DIVBYZERO) != 0);
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
     float_result = rcc_legacy_complex_float_divide(
@@ -2813,22 +2831,30 @@ int main(void) {
         double_left, double_right);
     assert(near_double(__real__ double_result, -2.0) &&
            near_double(__imag__ double_result, 4.0));
+    helper_calls_before = rcc_host_complex_mul_f64_calls;
     double_result = rcc_legacy_complex_double_multiply(
         double_left, double_right);
     assert(near_double(__real__ double_result, 11.0) &&
            near_double(__imag__ double_result, 10.0));
+    assert(rcc_host_complex_mul_f64_calls == helper_calls_before);
+    helper_calls_before = rcc_host_complex_mul_f64_calls;
     double_result = rcc_legacy_complex_double_multiply(
         __builtin_complex(HUGE_VAL, HUGE_VAL),
         __builtin_complex(1.0, 0.0));
     assert(isinf(__real__ double_result) && isinf(__imag__ double_result));
+    assert(rcc_host_complex_mul_f64_calls == helper_calls_before + 1u);
+    helper_calls_before = rcc_host_complex_div_f64_calls;
     double_result = rcc_legacy_complex_double_divide(
         double_left, __builtin_complex(1.0, 1.0));
     assert(near_double(__real__ double_result, 2.5) &&
            near_double(__imag__ double_result, 0.5));
+    assert(rcc_host_complex_div_f64_calls == helper_calls_before);
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    helper_calls_before = rcc_host_complex_div_f64_calls;
     double_result = rcc_legacy_complex_double_divide(
         double_left, __builtin_complex(0.0, 0.0));
     assert(isinf(__real__ double_result) && isinf(__imag__ double_result));
+    assert(rcc_host_complex_div_f64_calls == helper_calls_before + 1u);
     assert((fetestexcept(FE_ALL_EXCEPT) & FE_DIVBYZERO) != 0);
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
     double_result = rcc_legacy_complex_double_divide(
@@ -2921,14 +2947,18 @@ int main(void) {
         float_left, float_right);
     assert(near_float(__real__ float_result, -2.0f) &&
            near_float(__imag__ float_result, 4.0f));
+    helper_calls_before = rcc_host_complex_mul_f32_calls;
     float_result = rcc_legacy_complex_float_multiply_assign(
         float_left, float_right);
     assert(near_float(__real__ float_result, 11.0f) &&
            near_float(__imag__ float_result, 10.0f));
+    assert(rcc_host_complex_mul_f32_calls == helper_calls_before);
+    helper_calls_before = rcc_host_complex_div_f32_calls;
     float_result = rcc_legacy_complex_float_divide_assign(
         float_left, __builtin_complex(1.0f, 1.0f));
     assert(near_float(__real__ float_result, 2.5f) &&
            near_float(__imag__ float_result, 0.5f));
+    assert(rcc_host_complex_div_f32_calls == helper_calls_before);
     double_result = rcc_legacy_complex_double_add_assign(
         double_left, double_right);
     assert(near_double(__real__ double_result, 6.0) &&
@@ -2937,14 +2967,18 @@ int main(void) {
         double_left, double_right);
     assert(near_double(__real__ double_result, -2.0) &&
            near_double(__imag__ double_result, 4.0));
+    helper_calls_before = rcc_host_complex_mul_f64_calls;
     double_result = rcc_legacy_complex_double_multiply_assign(
         double_left, double_right);
     assert(near_double(__real__ double_result, 11.0) &&
            near_double(__imag__ double_result, 10.0));
+    assert(rcc_host_complex_mul_f64_calls == helper_calls_before);
+    helper_calls_before = rcc_host_complex_div_f64_calls;
     double_result = rcc_legacy_complex_double_divide_assign(
         double_left, __builtin_complex(1.0, 1.0));
     assert(near_double(__real__ double_result, 2.5) &&
            near_double(__imag__ double_result, 0.5));
+    assert(rcc_host_complex_div_f64_calls == helper_calls_before);
     float_result = rcc_legacy_complex_float_prefix_increment(float_left);
     assert(near_float(__real__ float_result, 3.0f) &&
            near_float(__imag__ float_result, 3.0f));

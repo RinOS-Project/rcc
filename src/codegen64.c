@@ -10625,6 +10625,110 @@ static bool gen64_complex_store_operand(Module* mod, Expr* expression,
     return true;
 }
 
+static void gen64_complex_arithmetic_guard(
+    Module* mod, int32_t left_offset, int32_t right_offset,
+    Type* component_type, int fallback_label) {
+    int width = gen64_float_width(component_type);
+    uint32_t exponent_mask = width == 4
+        ? UINT32_C(0x7f800000) : UINT32_C(0x7ff00000);
+    uint32_t minimum_exponent = width == 4
+        ? UINT32_C(0x33800000) : UINT32_C(0x30500000);
+    uint32_t exponent_range = width == 4
+        ? UINT32_C(0x18000000) : UINT32_C(0x1f400000);
+    int32_t offsets[4] = {
+        left_offset, left_offset + component_type->size,
+        right_offset, right_offset + component_type->size
+    };
+    for (size_t index = 0u; index < 4u; ++index) {
+        int32_t exponent_offset = offsets[index] + (width == 8 ? 4 : 0);
+        emit64_load_typed(mod, RAX, RBP, exponent_offset, type_uint);
+        emit64_and_reg_imm32(mod, RAX, exponent_mask);
+        emit64_sub_reg_imm(mod, RAX, (int32_t)minimum_exponent);
+        emit64_cmp_reg_imm(mod, RAX, (int32_t)exponent_range);
+        emit64_jcc_label(mod, CC64_A, fallback_label);
+    }
+}
+
+static void gen64_complex_arithmetic_inline(
+    Module* mod, ExprKind operation, int32_t left_offset,
+    int32_t right_offset, int32_t result_offset, Type* component_type) {
+    int width = gen64_float_width(component_type);
+    int32_t left_imaginary = left_offset + component_type->size;
+    int32_t right_imaginary = right_offset + component_type->size;
+
+    if (operation == EXPR_MUL) {
+        emit64_mov_xmm_from_memory(mod, 0, RBP, left_offset, width);
+        emit64_mov_xmm_from_memory(mod, 2, RBP, right_offset, width);
+        emit64_sse_binary(mod, 0x59, 0, 2, width); /* ar * br */
+        emit64_mov_xmm_from_memory(mod, 1, RBP, left_imaginary, width);
+        emit64_mov_xmm_from_memory(mod, 3, RBP, right_imaginary, width);
+        emit64_sse_binary(mod, 0x59, 1, 3, width); /* ai * bi */
+        emit64_sse_binary(mod, 0x5C, 0, 1, width); /* real */
+
+        emit64_mov_xmm_from_memory(mod, 4, RBP, left_offset, width);
+        emit64_sse_binary(mod, 0x59, 4, 3, width); /* ar * bi */
+        emit64_mov_xmm_from_memory(mod, 5, RBP, left_imaginary, width);
+        emit64_sse_binary(mod, 0x59, 5, 2, width); /* ai * br */
+        emit64_sse_binary(mod, 0x58, 4, 5, width); /* imaginary */
+        emit64_mov_memory_from_xmm(
+            mod, RBP, result_offset + component_type->size, 4, width);
+        emit64_mov_memory_from_xmm(mod, RBP, result_offset, 0, width);
+        return;
+    }
+
+    /* The exponent guard makes the direct numerator/denominator formulas
+     * finite and keeps every intermediate in the normal range. */
+    emit64_mov_xmm_from_memory(mod, 0, RBP, left_offset, width);
+    emit64_mov_xmm_from_memory(mod, 2, RBP, right_offset, width);
+    emit64_sse_binary(mod, 0x59, 0, 2, width); /* ar * br */
+    emit64_mov_xmm_from_memory(mod, 1, RBP, left_imaginary, width);
+    emit64_mov_xmm_from_memory(mod, 3, RBP, right_imaginary, width);
+    emit64_sse_binary(mod, 0x59, 1, 3, width); /* ai * bi */
+    emit64_sse_binary(mod, 0x58, 0, 1, width); /* real numerator */
+
+    emit64_mov_xmm_from_memory(mod, 4, RBP, right_offset, width);
+    emit64_sse_binary(mod, 0x59, 4, 4, width); /* br * br */
+    emit64_mov_xmm_from_memory(mod, 5, RBP, right_imaginary, width);
+    emit64_sse_binary(mod, 0x59, 5, 5, width); /* bi * bi */
+    emit64_sse_binary(mod, 0x58, 4, 5, width); /* denominator */
+    emit64_sse_binary(mod, 0x5E, 0, 4, width);
+
+    emit64_mov_xmm_from_memory(mod, 6, RBP, left_imaginary, width);
+    emit64_mov_xmm_from_memory(mod, 2, RBP, right_offset, width);
+    emit64_sse_binary(mod, 0x59, 6, 2, width); /* ai * br */
+    emit64_mov_xmm_from_memory(mod, 7, RBP, left_offset, width);
+    emit64_mov_xmm_from_memory(mod, 3, RBP, right_imaginary, width);
+    emit64_sse_binary(mod, 0x59, 7, 3, width); /* ar * bi */
+    emit64_sse_binary(mod, 0x5C, 6, 7, width); /* imaginary numerator */
+    emit64_sse_binary(mod, 0x5E, 6, 4, width);
+    emit64_mov_memory_from_xmm(
+        mod, RBP, result_offset + component_type->size, 6, width);
+    emit64_mov_memory_from_xmm(mod, RBP, result_offset, 0, width);
+}
+
+static void gen64_complex_arithmetic_helper(
+    Module* mod, ExprKind operation, int32_t left_offset,
+    int32_t right_offset, int32_t result_offset, Type* component_type) {
+    int width = gen64_float_width(component_type);
+    const char* helper = operation == EXPR_MUL
+        ? (width == 4 ? "__rin_cmul_f32" : "__rin_cmul_f64")
+        : (width == 4 ? "__rin_cdiv_f32" : "__rin_cdiv_f64");
+    uint32_t call_offset;
+    emit64_mov_xmm_from_memory(mod, 0, RBP, left_offset, width);
+    emit64_mov_xmm_from_memory(
+        mod, 1, RBP, left_offset + component_type->size, width);
+    emit64_mov_xmm_from_memory(mod, 2, RBP, right_offset, width);
+    emit64_mov_xmm_from_memory(
+        mod, 3, RBP, right_offset + component_type->size, width);
+    emit64_lea(mod, RDI, RBP, result_offset);
+    emit64_lea(mod, RSI, RBP,
+               result_offset + component_type->size);
+    emit_byte(mod, 0xE8);
+    call_offset = code_offset(mod);
+    emit_dword(mod, 0u);
+    add_func_call_ref64(helper, call_offset);
+}
+
 static void gen64_complex_binary(Module* mod, Expr* expression) {
     Type* complex_type = expression ? expression->type : NULL;
     Type* component_type = type_is_complex(complex_type)
@@ -10633,8 +10737,6 @@ static void gen64_complex_binary(Module* mod, Expr* expression) {
         ? expression->call_result_offset : 0;
     int32_t right_offset;
     int width;
-    uint32_t call_offset;
-    const char* helper;
     if (!mod || !expression || !component_type || result_offset >= 0 ||
         complex_type->size <= 0 || complex_type->size > INT32_MAX / 2) {
         rcc_error(expression ? expression->loc : (SourceLoc){NULL, 0, 0},
@@ -10672,22 +10774,20 @@ static void gen64_complex_binary(Module* mod, Expr* expression) {
                       "invalid complex arithmetic operation");
             return;
         }
-        helper = expression->kind == EXPR_MUL
-            ? (width == 4 ? "__rin_cmul_f32" : "__rin_cmul_f64")
-            : (width == 4 ? "__rin_cdiv_f32" : "__rin_cdiv_f64");
-        emit64_mov_xmm_from_memory(mod, 0, RBP, result_offset, width);
-        emit64_mov_xmm_from_memory(
-            mod, 1, RBP, result_offset + component_type->size, width);
-        emit64_mov_xmm_from_memory(mod, 2, RBP, right_offset, width);
-        emit64_mov_xmm_from_memory(
-            mod, 3, RBP, right_offset + component_type->size, width);
-        emit64_lea(mod, RDI, RBP, result_offset);
-        emit64_lea(mod, RSI, RBP,
-                   result_offset + component_type->size);
-        emit_byte(mod, 0xE8);
-        call_offset = code_offset(mod);
-        emit_dword(mod, 0u);
-        add_func_call_ref64(helper, call_offset);
+        int fallback_label = new_label64();
+        int done_label = new_label64();
+        gen64_complex_arithmetic_guard(
+            mod, result_offset, right_offset, component_type,
+            fallback_label);
+        gen64_complex_arithmetic_inline(
+            mod, expression->kind, result_offset, right_offset,
+            result_offset, component_type);
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, fallback_label);
+        gen64_complex_arithmetic_helper(
+            mod, expression->kind, result_offset, right_offset,
+            result_offset, component_type);
+        emit64_label(mod, done_label);
     }
     emit64_lea(mod, RAX, RBP, result_offset);
 }
@@ -10703,8 +10803,6 @@ static void gen64_complex_compound(Module* mod, Expr* expression) {
     int32_t component_offset;
     int operation;
     int width;
-    uint32_t call_offset;
-    const char* helper;
 
     if (!mod || !expression || !component_type || result_offset >= 0 ||
         complex_type->size <= 0 || complex_type->size > INT32_MAX / 2) {
@@ -10757,22 +10855,20 @@ static void gen64_complex_compound(Module* mod, Expr* expression) {
                 mod, RBP, result_offset + component_offset, 0, width);
         }
     } else {
-        helper = operation == EXPR_MUL
-            ? (width == 4 ? "__rin_cmul_f32" : "__rin_cmul_f64")
-            : (width == 4 ? "__rin_cdiv_f32" : "__rin_cdiv_f64");
-        emit64_mov_xmm_from_memory(mod, 0, RBP, result_offset, width);
-        emit64_mov_xmm_from_memory(
-            mod, 1, RBP, result_offset + component_type->size, width);
-        emit64_mov_xmm_from_memory(mod, 2, RBP, right_offset, width);
-        emit64_mov_xmm_from_memory(
-            mod, 3, RBP, right_offset + component_type->size, width);
-        emit64_lea(mod, RDI, RBP, result_offset);
-        emit64_lea(mod, RSI, RBP,
-                   result_offset + component_type->size);
-        emit_byte(mod, 0xE8);
-        call_offset = code_offset(mod);
-        emit_dword(mod, 0u);
-        add_func_call_ref64(helper, call_offset);
+        int fallback_label = new_label64();
+        int done_label = new_label64();
+        gen64_complex_arithmetic_guard(
+            mod, result_offset, right_offset, component_type,
+            fallback_label);
+        gen64_complex_arithmetic_inline(
+            mod, (ExprKind)operation, result_offset, right_offset,
+            result_offset, component_type);
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, fallback_label);
+        gen64_complex_arithmetic_helper(
+            mod, (ExprKind)operation, result_offset, right_offset,
+            result_offset, component_type);
+        emit64_label(mod, done_label);
     }
 
     emit64_lea(mod, RAX, RBP, result_offset);

@@ -77,27 +77,38 @@ extern void rcc_host_complex_div_f32(float, float, float, float,
                                      float*, float*);
 extern void rcc_host_complex_div_f64(double, double, double, double,
                                      double*, double*);
+static unsigned int complex_cmul_f32_bridge_calls;
+static unsigned int complex_cmul_f64_bridge_calls;
+static unsigned int complex_cdiv_f32_bridge_calls;
+static unsigned int complex_cdiv_f64_bridge_calls;
+static unsigned int complex_x87_exception_status;
+static unsigned int complex_sse_exception_status;
+static unsigned int complex_mxcsr_status;
 
 /* The loaded RCC code follows the target SysV ABI.  Bridge to the host C
  * runtime's calling convention while delegating arithmetic to RinOS libc's
  * real complex helpers, not test-only replacement arithmetic. */
 void RINOS_ABI __rin_cmul_f32(float a, float b, float c, float d,
                              float* real, float* imaginary) {
+    ++complex_cmul_f32_bridge_calls;
     rcc_host_complex_mul_f32(a, b, c, d, real, imaginary);
 }
 
 void RINOS_ABI __rin_cmul_f64(double a, double b, double c, double d,
                              double* real, double* imaginary) {
+    ++complex_cmul_f64_bridge_calls;
     rcc_host_complex_mul_f64(a, b, c, d, real, imaginary);
 }
 
 void RINOS_ABI __rin_cdiv_f32(float a, float b, float c, float d,
                              float* real, float* imaginary) {
+    ++complex_cdiv_f32_bridge_calls;
     rcc_host_complex_div_f32(a, b, c, d, real, imaginary);
 }
 
 void RINOS_ABI __rin_cdiv_f64(double a, double b, double c, double d,
                              double* real, double* imaginary) {
+    ++complex_cdiv_f64_bridge_calls;
     rcc_host_complex_div_f64(a, b, c, d, real, imaginary);
 }
 
@@ -114,6 +125,11 @@ typedef int RINOS_ABI (*ComplexFloatTruth)(RccComplexFloat);
 typedef int RINOS_ABI (*ComplexFloatEqual)(RccComplexFloat,
                                            RccComplexFloat);
 typedef int RINOS_ABI (*ComplexLocalTest)(void);
+typedef int RINOS_ABI (*ComplexLegacyArithmeticTest)(
+    float, float, float, float, float, float,
+    double, double, double, double, double, double);
+typedef int RINOS_ABI (*ComplexLegacyEdgeCasesTest)(
+    float, float, float, float, double, double, double, double);
 typedef RccComplexDouble RINOS_ABI (*ComplexFloatToDouble)(
     RccComplexFloat);
 typedef RccComplexFloat RINOS_ABI (*ComplexFloatNoArg)(void);
@@ -186,12 +202,33 @@ static int RINOS_ABI complex_import_feclearexcept(int excepts) {
 #endif
 }
 
+#if defined(__i386__) || defined(_M_IX86)
+static unsigned int complex_win32_fenv_exceptions_to_rinos(
+    unsigned int status) {
+    unsigned int rinos_status = 0u;
+    /* _statusfp2 reports Microsoft CRT masks, while RinOS and MXCSR use
+     * IEEE exception bit positions. */
+    if (status & 0x00000010u) rinos_status |= 0x01u; /* invalid */
+    if (status & 0x00080000u) rinos_status |= 0x02u; /* denormal */
+    if (status & 0x00000008u) rinos_status |= 0x04u; /* divide by zero */
+    if (status & 0x00000004u) rinos_status |= 0x08u; /* overflow */
+    if (status & 0x00000002u) rinos_status |= 0x10u; /* underflow */
+    if (status & 0x00000001u) rinos_status |= 0x20u; /* inexact */
+    return rinos_status;
+}
+#endif
+
 static int RINOS_ABI complex_import_fetestexcept(int excepts) {
 #if defined(__i386__) || defined(_M_IX86)
     unsigned int x87_status = 0u;
     unsigned int sse_status = 0u;
     _statusfp2(&x87_status, &sse_status);
-    return (int)(x87_status | sse_status | _mm_getcsr()) & excepts;
+    complex_x87_exception_status = x87_status;
+    complex_sse_exception_status = sse_status;
+    complex_mxcsr_status = _mm_getcsr();
+    return (int)(complex_win32_fenv_exceptions_to_rinos(x87_status) |
+                 complex_win32_fenv_exceptions_to_rinos(sse_status) |
+                 (complex_mxcsr_status & 0x3fu)) & excepts;
 #else
     return fetestexcept(excepts);
 #endif
@@ -719,6 +756,99 @@ int main(int argc, char** argv) {
     RccComplexDouble y = __builtin_complex(4.0, -1.0);
     RccComplexDouble value_double;
 
+    if (argc == 3 && strcmp(argv[1], "--legacy-arithmetic") == 0) {
+        ComplexLegacyArithmeticTest arithmetic_test;
+        ComplexLegacyEdgeCasesTest edge_cases_test;
+        ComplexLocalTest rounding_test;
+        object = objfile_read(argv[2]);
+        assert(object != NULL);
+#if defined(__i386__) || defined(_M_IX86)
+        assert(object->arch == ARCH_X86);
+#else
+        assert(object->arch == ARCH_X64);
+#endif
+        mapped = map_object(object);
+        address = symbol_address(
+            mapped, object, "rcc_complex_legacy_arithmetic_test");
+        memcpy(&arithmetic_test, &address, sizeof(arithmetic_test));
+        complex_cmul_f32_bridge_calls = 0u;
+        complex_cmul_f64_bridge_calls = 0u;
+        complex_cdiv_f32_bridge_calls = 0u;
+        complex_cdiv_f64_bridge_calls = 0u;
+        {
+            int arithmetic_status = arithmetic_test(
+            2.0f, 3.0f, 4.0f, -1.0f, __builtin_huge_valf(), 0.0f,
+            2.0, 3.0, 4.0, -1.0, __builtin_huge_val(), 0.0);
+            if (arithmetic_status != 1) {
+                fprintf(stderr,
+                        "legacy arithmetic status=%d helpers=%u/%u/%u/%u\n",
+                        arithmetic_status, complex_cmul_f32_bridge_calls,
+                        complex_cmul_f64_bridge_calls,
+                        complex_cdiv_f32_bridge_calls,
+                        complex_cdiv_f64_bridge_calls);
+            }
+            assert(arithmetic_status == 1);
+        }
+        assert(complex_cmul_f32_bridge_calls == 1u);
+        assert(complex_cmul_f64_bridge_calls == 1u);
+        assert(complex_cdiv_f32_bridge_calls == 1u);
+        assert(complex_cdiv_f64_bridge_calls == 1u);
+        address = symbol_address(
+            mapped, object, "rcc_complex_legacy_rounding_test");
+        memcpy(&rounding_test, &address, sizeof(rounding_test));
+        complex_cmul_f32_bridge_calls = 0u;
+        complex_cmul_f64_bridge_calls = 0u;
+        complex_cdiv_f32_bridge_calls = 0u;
+        complex_cdiv_f64_bridge_calls = 0u;
+        {
+            int rounding_status = rounding_test();
+            if (rounding_status != 0) {
+                fprintf(stderr,
+                        "legacy rounding stage %d failed helpers=%u/%u/%u/%u\n",
+                        rounding_status, complex_cmul_f32_bridge_calls,
+                        complex_cmul_f64_bridge_calls,
+                        complex_cdiv_f32_bridge_calls,
+                        complex_cdiv_f64_bridge_calls);
+                fprintf(stderr,
+                        "legacy fenv x87=%08x sse=%08x mxcsr=%08x\n",
+                        complex_x87_exception_status,
+                        complex_sse_exception_status,
+                        complex_mxcsr_status);
+            }
+            assert(rounding_status == 0);
+        }
+        assert(complex_cmul_f32_bridge_calls == 0u);
+        assert(complex_cmul_f64_bridge_calls == 0u);
+        assert(complex_cdiv_f32_bridge_calls == 0u);
+        assert(complex_cdiv_f64_bridge_calls == 0u);
+        address = symbol_address(
+            mapped, object, "rcc_complex_legacy_edge_cases_test");
+        memcpy(&edge_cases_test, &address, sizeof(edge_cases_test));
+        complex_cmul_f32_bridge_calls = 0u;
+        complex_cmul_f64_bridge_calls = 0u;
+        complex_cdiv_f32_bridge_calls = 0u;
+        complex_cdiv_f64_bridge_calls = 0u;
+        {
+            int edge_status = edge_cases_test(
+                __builtin_huge_valf(), __builtin_nan(""), 0.0f,
+                __builtin_nextafterf(0.0f, 1.0f),
+                __builtin_huge_val(), __builtin_nan(""), 0.0,
+                __builtin_nextafter(0.0, 1.0));
+            if (edge_status != 0) {
+                fprintf(stderr, "legacy edge-case stage %d failed\n",
+                        edge_status);
+            }
+            assert(edge_status == 0);
+        }
+        assert(complex_cmul_f32_bridge_calls == 4u);
+        assert(complex_cdiv_f32_bridge_calls == 2u);
+        assert(complex_cmul_f64_bridge_calls == 4u);
+        assert(complex_cdiv_f64_bridge_calls == 2u);
+        unmap_object(mapped);
+        objfile_free(object);
+        puts("RCC legacy complex arithmetic lowering execution passed");
+        return 0;
+    }
     assert(argc == 2 || argc == 3);
     object = objfile_read(argv[1]);
     assert(object != NULL);
@@ -727,6 +857,7 @@ int main(int argc, char** argv) {
         ComplexLocalTest double_variadic_abi_test;
         ComplexLocalTest long_double_variadic_abi_test;
         ComplexLocalTest rounding_abi_test;
+        ComplexLocalTest fast_arithmetic_abi_test;
         assert(argc == 2);
         mapped = map_object(object);
         address = symbol_address(
@@ -744,6 +875,19 @@ int main(int argc, char** argv) {
         address = symbol_address(
             mapped, object, "rcc_complex_rounding_abi_test");
         memcpy(&rounding_abi_test, &address, sizeof(rounding_abi_test));
+        address = symbol_address(
+            mapped, object, "rcc_complex_fast_arithmetic_abi_test");
+        memcpy(&fast_arithmetic_abi_test, &address,
+               sizeof(fast_arithmetic_abi_test));
+        complex_cmul_f32_bridge_calls = 0u;
+        complex_cmul_f64_bridge_calls = 0u;
+        complex_cdiv_f32_bridge_calls = 0u;
+        complex_cdiv_f64_bridge_calls = 0u;
+        assert(fast_arithmetic_abi_test() == 1);
+        assert(complex_cmul_f32_bridge_calls == 0u);
+        assert(complex_cmul_f64_bridge_calls == 0u);
+        assert(complex_cdiv_f32_bridge_calls == 0u);
+        assert(complex_cdiv_f64_bridge_calls == 0u);
         assert(float_variadic_abi_test() == 1);
         assert(double_variadic_abi_test() == 1);
         assert(long_double_variadic_abi_test() == 1);
@@ -899,25 +1043,50 @@ int main(int argc, char** argv) {
     address = symbol_address(mapped, object, "rcc_complex_api_csqrtl");
     memcpy(&api_csqrtl, &address, sizeof(api_csqrtl));
 
+    {
+        ComplexLocalTest fast_arithmetic_abi_test;
+        address = symbol_address(
+            mapped, object, "rcc_complex_fast_arithmetic_abi_test");
+        memcpy(&fast_arithmetic_abi_test, &address,
+               sizeof(fast_arithmetic_abi_test));
+        complex_cmul_f32_bridge_calls = 0u;
+        complex_cmul_f64_bridge_calls = 0u;
+        complex_cdiv_f32_bridge_calls = 0u;
+        complex_cdiv_f64_bridge_calls = 0u;
+        assert(fast_arithmetic_abi_test() == 1);
+        assert(complex_cmul_f32_bridge_calls == 0u);
+        assert(complex_cmul_f64_bridge_calls == 0u);
+        assert(complex_cdiv_f32_bridge_calls == 0u);
+        assert(complex_cdiv_f64_bridge_calls == 0u);
+    }
+
     value_float = float_identity(a);
     assert(close_float(__real__ value_float, 2.0f) &&
            close_float(__imag__ value_float, 3.0f));
     value_float = float_add(a, b);
     assert(close_float(__real__ value_float, 6.0f) &&
            close_float(__imag__ value_float, 2.0f));
+    complex_cmul_f32_bridge_calls = 0u;
     value_float = float_multiply(a, b);
     assert(close_float(__real__ value_float, 11.0f) &&
            close_float(__imag__ value_float, 10.0f));
+    assert(complex_cmul_f32_bridge_calls == 0u);
+    complex_cmul_f32_bridge_calls = 0u;
     value_float = float_multiply(
         __builtin_complex(HUGE_VALF, HUGE_VALF),
         __builtin_complex(1.0f, 0.0f));
     assert(isinf(__real__ value_float) && isinf(__imag__ value_float));
+    assert(complex_cmul_f32_bridge_calls == 1u);
+    complex_cdiv_f32_bridge_calls = 0u;
     value_float = float_divide(a, __builtin_complex(1.0f, 1.0f));
     assert(close_float(__real__ value_float, 2.5f) &&
            close_float(__imag__ value_float, 0.5f));
+    assert(complex_cdiv_f32_bridge_calls == 0u);
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    complex_cdiv_f32_bridge_calls = 0u;
     value_float = float_divide(a, __builtin_complex(0.0f, 0.0f));
     assert(isinf(__real__ value_float) && isinf(__imag__ value_float));
+    assert(complex_cdiv_f32_bridge_calls == 1u);
     assert((fetestexcept(FE_ALL_EXCEPT) & FE_DIVBYZERO) != 0);
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
     value_float = float_divide(__builtin_complex(0.0f, 0.0f),
@@ -1031,9 +1200,11 @@ int main(int argc, char** argv) {
     value_double = double_add(x, y);
     assert(close_double(__real__ value_double, 6.0) &&
            close_double(__imag__ value_double, 2.0));
+    complex_cmul_f64_bridge_calls = 0u;
     value_double = double_multiply(x, y);
     assert(close_double(__real__ value_double, 11.0) &&
            close_double(__imag__ value_double, 10.0));
+    assert(complex_cmul_f64_bridge_calls == 0u);
     {
         int original_rounding = fegetround();
         double unit = nextafter(1.0, 2.0);
@@ -1055,9 +1226,11 @@ int main(int argc, char** argv) {
         __builtin_complex(HUGE_VAL, HUGE_VAL),
         __builtin_complex(1.0, 0.0));
     assert(isinf(__real__ value_double) && isinf(__imag__ value_double));
+    complex_cdiv_f64_bridge_calls = 0u;
     value_double = double_divide(x, __builtin_complex(1.0, 1.0));
     assert(close_double(__real__ value_double, 2.5) &&
            close_double(__imag__ value_double, 0.5));
+    assert(complex_cdiv_f64_bridge_calls == 0u);
     assert(close_double(api_creal(x), 2.0));
     assert(close_double(api_cimag(x), 3.0));
     assert(close_double(api_cabs(__builtin_complex(3.0, 4.0)), 5.0));
@@ -1100,8 +1273,10 @@ int main(int argc, char** argv) {
                close_double(api_long_result.imaginary, 1.0));
     }
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    complex_cdiv_f64_bridge_calls = 0u;
     value_double = double_divide(x, __builtin_complex(0.0, 0.0));
     assert(isinf(__real__ value_double) && isinf(__imag__ value_double));
+    assert(complex_cdiv_f64_bridge_calls == 1u);
     assert((fetestexcept(FE_ALL_EXCEPT) & FE_DIVBYZERO) != 0);
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
     value_double = double_divide(__builtin_complex(0.0, 0.0),

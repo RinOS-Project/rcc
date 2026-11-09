@@ -15,6 +15,8 @@
 #include "verified_codegen.h"
 #include <getopt.h>
 
+static bool g_force_classic_backend;
+
 /* Print usage */
 static void print_usage(void) {
     printf("RCC - RinOS C Compiler v%d.%d.%d\n",
@@ -65,6 +67,7 @@ static void print_usage(void) {
     printf("  -frounding-math  Honor dynamic floating-point rounding modes\n");
     printf("  --dynamic-tls/-fdynamic-tls  Use RinOS DTV/__tls_get_addr TLS model\n");
     printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
+    printf("  -fclassic-backend   Force classic codegen for .ro output\n");
     printf("\n");
     printf("Other:\n");
     printf("  -v              Verbose output\n");
@@ -92,6 +95,7 @@ static int parse_args(int argc, char** argv) {
     g_opts.undef_count = 0;
     g_opts.input_count = 0;
     g_opts.syntax_only = false;
+    g_force_classic_backend = false;
 
     /* Manual argument parsing for better GCC compatibility */
     for (int i = 1; i < argc; i++) {
@@ -409,6 +413,8 @@ static int parse_args(int argc, char** argv) {
         } else if (strcmp(arg, "-fverified-backend") == 0 ||
                    strcmp(arg, "--verified-backend") == 0) {
             g_opts.verified_backend = true;
+        } else if (strcmp(arg, "-fclassic-backend") == 0) {
+            g_force_classic_backend = true;
         } else if (strncmp(arg, "-f", 2) == 0) {
             fprintf(stderr, "rcc: error: unsupported code-generation option: %s\n",
                     arg);
@@ -470,6 +476,17 @@ static int parse_args(int argc, char** argv) {
         g_opts.output_format != OUTPUT_OBJ) {
         fprintf(stderr,
                 "rcc: error: -fverified-backend currently requires -c\n");
+        return -1;
+    }
+    if (g_force_classic_backend && !g_opts.preprocess_only &&
+        !g_opts.syntax_only && g_opts.output_format != OUTPUT_OBJ) {
+        fprintf(stderr,
+                "rcc: error: -fclassic-backend currently requires -c\n");
+        return -1;
+    }
+    if (g_force_classic_backend && g_opts.verified_backend) {
+        fprintf(stderr,
+                "rcc: error: -fclassic-backend conflicts with -fverified-backend\n");
         return -1;
     }
     /* Default output file */
@@ -656,7 +673,8 @@ static int compile_current_input(char** argv) {
             complex_translation_unit = true;
         }
     }
-    if (fenv_round_translation_unit && !g_opts.preprocess_only &&
+    if (!g_force_classic_backend && fenv_round_translation_unit &&
+        !g_opts.preprocess_only &&
         g_opts.output_format == OUTPUT_OBJ &&
         !use_verified_backend) {
         use_verified_backend = true;
@@ -664,7 +682,7 @@ static int compile_current_input(char** argv) {
             printf("FENV_ROUND: selecting typed SSA object backend\n");
         }
     }
-    if (!use_verified_backend &&
+    if (!g_force_classic_backend && !use_verified_backend &&
         g_opts.output_format == OUTPUT_OBJ && complex_translation_unit) {
         use_verified_backend = true;
         if (g_opts.verbose) {
