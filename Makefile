@@ -970,6 +970,7 @@ CXX_NESTED_STRUCTURAL_UNION_ARRAY_MEMBER_PACK_SYMBOLS = \
 .PHONY: test-verified-cxx-throwing-temporary
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-complex
+.PHONY: test-complex-i686-runtime
 .PHONY: test-complex-legacy
 .PHONY: test-long-double
 .PHONY: test-long-double-builtins
@@ -22203,23 +22204,23 @@ test-complex: $(RCC_TARGET)
 		tests/c_complex_abi.c \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x86.log
-	$(GREP) -F -q 'Verified backend: 68 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 60 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x86.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
 		-fverified-backend -v -c -o $(TEST_OUT)/complex/complex-x64.ro \
 		tests/c_complex_abi.c \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x64.log
-	$(GREP) -F -q 'Verified backend: 68 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 60 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x64.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/complex/complex-x64-o2.ro \
 		tests/c_complex_abi.c -I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 68 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 60 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x64-o2.log
-	$(CC) $(CFLAGS) -I$(RINOS_ROOT)/RinOS-SDK/include \
+	$(CC) $(CFLAGS) -frounding-math -I$(RINOS_ROOT)/RinOS-SDK/include \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-D__rin_cmul_f32=rcc_host_complex_mul_f32 \
 		-D__rin_cmul_f64=rcc_host_complex_mul_f64 \
@@ -22227,7 +22228,8 @@ test-complex: $(RCC_TARGET)
 		-D__rin_cdiv_f64=rcc_host_complex_div_f64 \
 		-c -o $(TEST_OUT)/complex/complex_runtime.o \
 		$(RINOS_ROOT)/public-base/libs/libc/complex_runtime.c
-	$(CC) $(CFLAGS) -Werror -I$(RINOS_ROOT)/RinOS-SDK/include \
+	$(CC) $(CFLAGS) -frounding-math -Werror \
+		-I$(RINOS_ROOT)/RinOS-SDK/include \
 		-I$(INCDIR) -o $(TEST_OUT)/complex/run-complex$(EXE_SUFFIX) \
 		tests/c_complex_abi_test.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c $(TEST_OUT)/complex/complex_runtime.o -lm
@@ -22237,6 +22239,35 @@ test-complex: $(RCC_TARGET)
 	$(TEST_OUT)/complex/run-complex$(EXE_SUFFIX) \
 		$(TEST_OUT)/complex/complex-x64-o2.ro \
 		$(TEST_OUT)/complex/complex-x86.ro
+
+
+.PHONY: test-complex-i686-runtime
+ifeq ($(OS),Windows_NT)
+test-complex-i686-runtime: test-complex
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File \
+		scripts/run_complex_i686_runtime.ps1 \
+		-CompilerRoot "$(CURDIR)" \
+		-RinosRoot "$(abspath $(RINOS_ROOT))" \
+		-TestOut "$(abspath $(TEST_OUT)/complex)"
+else
+test-complex-i686-runtime: test-complex
+	$(CC) -m32 $(CFLAGS) -frounding-math \
+		-I$(RINOS_ROOT)/RinOS-SDK/include \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-D__rin_cmul_f32=rcc_host_complex_mul_f32 \
+		-D__rin_cmul_f64=rcc_host_complex_mul_f64 \
+		-D__rin_cdiv_f32=rcc_host_complex_div_f32 \
+		-D__rin_cdiv_f64=rcc_host_complex_div_f64 \
+		-c -o $(TEST_OUT)/complex/complex_runtime-i686.o \
+		$(RINOS_ROOT)/public-base/libs/libc/complex_runtime.c
+	$(CC) -m32 $(CFLAGS) -frounding-math -Werror \
+		-I$(RINOS_ROOT)/RinOS-SDK/include \
+		-I$(INCDIR) -o $(TEST_OUT)/complex/run-complex-i686$(EXE_SUFFIX) \
+		tests/c_complex_abi_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(TEST_OUT)/complex/complex_runtime-i686.o -lm
+	$(TEST_OUT)/complex/run-complex-i686$(EXE_SUFFIX) \
+		$(TEST_OUT)/complex/complex-x86.ro
+endif
 
 RCC_COMPLEX_LEGACY_LONG_DOUBLE_HOST_API = \
 	-Dcreall=rcc_host_native_creall \

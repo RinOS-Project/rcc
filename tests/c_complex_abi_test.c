@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(__i386__) || defined(_M_IX86)
+#include <xmmintrin.h>
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -113,6 +116,7 @@ typedef int RINOS_ABI (*ComplexFloatEqual)(RccComplexFloat,
 typedef int RINOS_ABI (*ComplexLocalTest)(void);
 typedef RccComplexDouble RINOS_ABI (*ComplexFloatToDouble)(
     RccComplexFloat);
+typedef RccComplexFloat RINOS_ABI (*ComplexFloatNoArg)(void);
 typedef RccComplexDouble RINOS_ABI (*ComplexDoubleNoArg)(void);
 
 /* RinOS long double uses the binary64 ABI.  Keep the host harness independent
@@ -129,6 +133,7 @@ typedef ComplexBinary64Pair RINOS_ABI (*ComplexPairBinary)(
 typedef double RINOS_ABI (*ComplexLongDoubleToReal)(ComplexBinary64Pair);
 typedef ComplexBinary64Pair RINOS_ABI (*ComplexLongDoubleUnary)(
     ComplexBinary64Pair);
+typedef ComplexBinary64Pair RINOS_ABI (*ComplexPairNoArg)(void);
 
 static RccHostComplexLongDouble complex_pair_to_host(
     ComplexBinary64Pair value) {
@@ -168,6 +173,53 @@ static ComplexBinary64Pair RINOS_ABI complex_import_conjl(
 static ComplexBinary64Pair RINOS_ABI complex_import_csqrtl(
     ComplexBinary64Pair value) {
     return complex_host_to_pair(csqrtl(complex_pair_to_host(value)));
+}
+
+static int RINOS_ABI complex_import_feclearexcept(int excepts) {
+#if defined(__i386__) || defined(_M_IX86)
+    (void)excepts;
+    (void)_clearfp();
+    _mm_setcsr(_mm_getcsr() & ~(unsigned int)excepts);
+    return 0;
+#else
+    return feclearexcept(excepts);
+#endif
+}
+
+static int RINOS_ABI complex_import_fetestexcept(int excepts) {
+#if defined(__i386__) || defined(_M_IX86)
+    unsigned int x87_status = 0u;
+    unsigned int sse_status = 0u;
+    _statusfp2(&x87_status, &sse_status);
+    return (int)(x87_status | sse_status | _mm_getcsr()) & excepts;
+#else
+    return fetestexcept(excepts);
+#endif
+}
+
+static int RINOS_ABI complex_import_fegetround(void) {
+    int mode = fegetround();
+    if (mode == FE_TONEAREST) return 0x0000;
+    if (mode == FE_DOWNWARD) return 0x0400;
+    if (mode == FE_UPWARD) return 0x0800;
+    if (mode == FE_TOWARDZERO) return 0x0c00;
+    return -1;
+}
+
+static int RINOS_ABI complex_import_fesetround(int mode) {
+    switch (mode) {
+        case 0x0000: return fesetround(FE_TONEAREST);
+        case 0x0400: return fesetround(FE_DOWNWARD);
+        case 0x0800: return fesetround(FE_UPWARD);
+        case 0x0c00: return fesetround(FE_TOWARDZERO);
+        default: return -1;
+    }
+}
+
+static int complex_runtime_errno;
+
+int* __errno_location(void) {
+    return &complex_runtime_errno;
 }
 
 #define RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(name) \
@@ -258,6 +310,8 @@ typedef struct MappedObject {
 
 typedef union ComplexRuntimeAddress {
     void* object;
+    int (RINOS_ABI *fenv)(int);
+    int (RINOS_ABI *fenv_getround)(void);
     void (RINOS_ABI *f32)(float, float, float, float, float*, float*);
     void (RINOS_ABI *f64)(double, double, double, double, double*, double*);
     float (RINOS_ABI *complex_float_real)(RccComplexFloat);
@@ -277,7 +331,15 @@ typedef union ComplexRuntimeAddress {
 
 static void* complex_runtime_import(const char* name) {
     ComplexRuntimeAddress address = {0};
-    if (strcmp(name, "__rin_cmul_f32") == 0) {
+    if (strcmp(name, "feclearexcept") == 0) {
+        address.fenv = complex_import_feclearexcept;
+    } else if (strcmp(name, "fetestexcept") == 0) {
+        address.fenv = complex_import_fetestexcept;
+    } else if (strcmp(name, "fegetround") == 0) {
+        address.fenv_getround = complex_import_fegetround;
+    } else if (strcmp(name, "fesetround") == 0) {
+        address.fenv = complex_import_fesetround;
+    } else if (strcmp(name, "__rin_cmul_f32") == 0) {
         address.f32 = __rin_cmul_f32;
     } else if (strcmp(name, "__rin_cmul_f64") == 0) {
         address.f64 = __rin_cmul_f64;
@@ -637,6 +699,10 @@ int main(int argc, char** argv) {
     ComplexFloatToDouble float_to_double;
     ComplexDoubleNoArg standard_imaginary_unit;
     ComplexDoubleNoArg standard_constructor;
+    ComplexFloatNoArg float_variadic_round_trip;
+    ComplexDoubleNoArg double_variadic_round_trip;
+    ComplexPairNoArg long_double_variadic_round_trip;
+    ComplexLocalTest rounding_abi_test;
     ComplexLocalTest local_scalar_initializer;
     ComplexLocalTest local_constructor_initializer;
     ComplexLocalTest local_arithmetic;
@@ -655,7 +721,45 @@ int main(int argc, char** argv) {
 
     assert(argc == 2 || argc == 3);
     object = objfile_read(argv[1]);
-    assert(object != NULL && object->arch == ARCH_X64);
+    assert(object != NULL);
+    if (object->arch == ARCH_X86) {
+        ComplexLocalTest float_variadic_abi_test;
+        ComplexLocalTest double_variadic_abi_test;
+        ComplexLocalTest long_double_variadic_abi_test;
+        ComplexLocalTest rounding_abi_test;
+        assert(argc == 2);
+        mapped = map_object(object);
+        address = symbol_address(
+            mapped, object, "rcc_complex_float_variadic_abi_test");
+        memcpy(&float_variadic_abi_test, &address,
+               sizeof(float_variadic_abi_test));
+        address = symbol_address(
+            mapped, object, "rcc_complex_double_variadic_abi_test");
+        memcpy(&double_variadic_abi_test, &address,
+               sizeof(double_variadic_abi_test));
+        address = symbol_address(
+            mapped, object, "rcc_complex_long_double_variadic_abi_test");
+        memcpy(&long_double_variadic_abi_test, &address,
+               sizeof(long_double_variadic_abi_test));
+        address = symbol_address(
+            mapped, object, "rcc_complex_rounding_abi_test");
+        memcpy(&rounding_abi_test, &address, sizeof(rounding_abi_test));
+        assert(float_variadic_abi_test() == 1);
+        assert(double_variadic_abi_test() == 1);
+        assert(long_double_variadic_abi_test() == 1);
+        {
+            int rounding_status = rounding_abi_test();
+            if (rounding_status != 0) {
+                fprintf(stderr, "i686 complex rounding stage %d failed\n",
+                        rounding_status);
+            }
+            assert(rounding_status == 0);
+        }
+        puts("RCC complex i686 variadic ABI execution passed");
+        unmap_object(mapped);
+        return 0;
+    }
+    assert(object->arch == ARCH_X64);
     assert_complex_object_data(object, "rcc_complex_static_value",
                                SECT_DATA, 7.0, -8.0);
     assert_complex_object_data(object, "rcc_complex_tls_value",
@@ -732,6 +836,21 @@ int main(int argc, char** argv) {
     address = symbol_address(mapped, object,
                              "rcc_complex_long_double_divide");
     memcpy(&long_double_divide, &address, sizeof(long_double_divide));
+    address = symbol_address(mapped, object,
+                             "rcc_complex_float_variadic_round_trip");
+    memcpy(&float_variadic_round_trip, &address,
+           sizeof(float_variadic_round_trip));
+    address = symbol_address(mapped, object,
+                             "rcc_complex_double_variadic_round_trip");
+    memcpy(&double_variadic_round_trip, &address,
+           sizeof(double_variadic_round_trip));
+    address = symbol_address(mapped, object,
+                             "rcc_complex_long_double_variadic_round_trip");
+    memcpy(&long_double_variadic_round_trip, &address,
+           sizeof(long_double_variadic_round_trip));
+    address = symbol_address(
+        mapped, object, "rcc_complex_rounding_abi_test");
+    memcpy(&rounding_abi_test, &address, sizeof(rounding_abi_test));
     address = symbol_address(mapped, object,
                              "rcc_complex_double_identity");
     memcpy(&double_identity, &address, sizeof(double_identity));
@@ -852,6 +971,20 @@ int main(int argc, char** argv) {
     assert(local_arithmetic() == 0);
     assert(static_initializer() == 0);
     assert(standard_api_all() == 0);
+    {
+        int rounding_status = rounding_abi_test();
+        if (rounding_status != 0) {
+            fprintf(stderr, "x86_64 complex rounding stage %d failed\n",
+                    rounding_status);
+        }
+        assert(rounding_status == 0);
+    }
+    value_float = float_variadic_round_trip();
+    assert(close_float(__real__ value_float, 1.25f) &&
+           close_float(__imag__ value_float, -2.5f));
+    value_double = double_variadic_round_trip();
+    assert(close_double(__real__ value_double, 3.5) &&
+           close_double(__imag__ value_double, -4.75));
 
     {
         ComplexBinary64Pair lhs = {2.0, 3.0};
@@ -887,6 +1020,9 @@ int main(int argc, char** argv) {
         assert((fetestexcept(FE_ALL_EXCEPT) &
                 (FE_UNDERFLOW | FE_INEXACT)) ==
                (FE_UNDERFLOW | FE_INEXACT));
+        value = long_double_variadic_round_trip();
+        assert(close_double(value.real, 6.25) &&
+               close_double(value.imaginary, -7.5));
     }
 
     value_double = double_identity(x);
@@ -898,6 +1034,23 @@ int main(int argc, char** argv) {
     value_double = double_multiply(x, y);
     assert(close_double(__real__ value_double, 11.0) &&
            close_double(__imag__ value_double, 10.0));
+    {
+        int original_rounding = fegetround();
+        double unit = nextafter(1.0, 2.0);
+        RccComplexDouble tie = __builtin_complex(unit, 0.0);
+        assert(original_rounding != -1);
+        assert(fesetround(FE_TONEAREST) == 0);
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        value_double = double_multiply(tie, tie);
+        assert(__real__ value_double == 0x1.0000000000002p0);
+        assert((fetestexcept(FE_INEXACT) & FE_INEXACT) != 0);
+        assert(fesetround(FE_UPWARD) == 0);
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        value_double = double_multiply(tie, tie);
+        assert(__real__ value_double == 0x1.0000000000003p0);
+        assert((fetestexcept(FE_INEXACT) & FE_INEXACT) != 0);
+        assert(fesetround(original_rounding) == 0);
+    }
     value_double = double_multiply(
         __builtin_complex(HUGE_VAL, HUGE_VAL),
         __builtin_complex(1.0, 0.0));

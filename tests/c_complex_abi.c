@@ -3,7 +3,27 @@
 #endif
 
 #include <complex.h>
-#include <fenv.h>
+#include <stdarg.h>
+
+/* These tests execute through the host harness, which supplies fenv calls at
+ * the target ABI boundary. Keep the fixture from pulling unrelated x87 inline
+ * assembly helpers into the verified-backend translation unit. */
+extern int feclearexcept(int excepts);
+extern int fetestexcept(int excepts);
+extern int fegetround(void);
+extern int fesetround(int mode);
+#define FE_INVALID 0x01
+#define FE_DENORMAL 0x02
+#define FE_DIVBYZERO 0x04
+#define FE_OVERFLOW 0x08
+#define FE_UNDERFLOW 0x10
+#define FE_INEXACT 0x20
+#define FE_ALL_EXCEPT (FE_INVALID | FE_DENORMAL | FE_DIVBYZERO | \
+                       FE_OVERFLOW | FE_UNDERFLOW | FE_INEXACT)
+#define FE_TONEAREST 0x0000
+#define FE_DOWNWARD 0x0400
+#define FE_UPWARD 0x0800
+#define FE_TOWARDZERO 0x0c00
 
 typedef float complex RccComplexFloat;
 typedef double complex RccComplexDouble;
@@ -190,6 +210,116 @@ RccComplexLongDouble rcc_complex_long_double_multiply(
 RccComplexLongDouble rcc_complex_long_double_divide(
     RccComplexLongDouble left, RccComplexLongDouble right) {
     return left / right;
+}
+
+static RccComplexFloat rcc_complex_read_float_variadic(int marker, ...) {
+    va_list arguments;
+    RccComplexFloat value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, RccComplexFloat);
+    va_end(arguments);
+    return value;
+}
+
+static RccComplexDouble rcc_complex_read_double_variadic(int marker, ...) {
+    va_list arguments;
+    RccComplexDouble value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, RccComplexDouble);
+    va_end(arguments);
+    return value;
+}
+
+static RccComplexLongDouble rcc_complex_read_long_double_variadic(
+    int marker, ...) {
+    va_list arguments;
+    RccComplexLongDouble value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, RccComplexLongDouble);
+    va_end(arguments);
+    return value;
+}
+
+RccComplexFloat rcc_complex_float_variadic_round_trip(void) {
+    return rcc_complex_read_float_variadic(17, CMPLXF(1.25f, -2.5f));
+}
+
+RccComplexDouble rcc_complex_double_variadic_round_trip(void) {
+    return rcc_complex_read_double_variadic(23, CMPLX(3.5, -4.75));
+}
+
+RccComplexLongDouble rcc_complex_long_double_variadic_round_trip(void) {
+    return rcc_complex_read_long_double_variadic(
+        31, CMPLXL(6.25L, -7.5L));
+}
+
+int rcc_complex_float_variadic_abi_test(void) {
+    RccComplexFloat value =
+        rcc_complex_read_float_variadic(17, CMPLXF(1.25f, -2.5f));
+    return __real__ value == 1.25f && __imag__ value == -2.5f;
+}
+
+int rcc_complex_double_variadic_abi_test(void) {
+    RccComplexDouble value =
+        rcc_complex_read_double_variadic(23, CMPLX(3.5, -4.75));
+    return __real__ value == 3.5 && __imag__ value == -4.75;
+}
+
+int rcc_complex_long_double_variadic_abi_test(void) {
+    RccComplexLongDouble value = rcc_complex_read_long_double_variadic(
+        31, CMPLXL(6.25L, -7.5L));
+    return __real__ value == 6.25L && __imag__ value == -7.5L;
+}
+
+int rcc_complex_rounding_abi_test(void) {
+    int original_rounding = fegetround();
+    RccComplexDouble tie =
+        __builtin_complex(0x1.0000000000001p0, 0.0);
+    RccComplexDouble value;
+    int failure = 0;
+    if (original_rounding == -1) return 1;
+
+    if (fesetround(FE_TONEAREST) != 0) { failure = 2; goto done; }
+    if (feclearexcept(FE_ALL_EXCEPT) != 0) { failure = 3; goto done; }
+    value = rcc_complex_double_multiply(tie, tie);
+    if (__real__ value != 0x1.0000000000002p0 || __imag__ value != 0.0) {
+        failure = 4; goto done;
+    }
+    if ((fetestexcept(FE_INEXACT) & FE_INEXACT) == 0) {
+        failure = 5; goto done;
+    }
+
+    if (fesetround(FE_UPWARD) != 0) { failure = 6; goto done; }
+    if (feclearexcept(FE_ALL_EXCEPT) != 0) { failure = 7; goto done; }
+    value = rcc_complex_double_multiply(tie, tie);
+    if (__real__ value != 0x1.0000000000003p0 || __imag__ value != 0.0) {
+        failure = 8; goto done;
+    }
+    if ((fetestexcept(FE_INEXACT) & FE_INEXACT) == 0) {
+        failure = 9; goto done;
+    }
+
+    if (fesetround(FE_DOWNWARD) != 0) { failure = 10; goto done; }
+    if (feclearexcept(FE_ALL_EXCEPT) != 0) { failure = 11; goto done; }
+    value = rcc_complex_double_multiply(tie, tie);
+    if (__real__ value != 0x1.0000000000002p0 || __imag__ value != 0.0) {
+        failure = 12; goto done;
+    }
+    if ((fetestexcept(FE_INEXACT) & FE_INEXACT) == 0) {
+        failure = 13; goto done;
+    }
+
+    if (fesetround(FE_TOWARDZERO) != 0) { failure = 14; goto done; }
+    if (feclearexcept(FE_ALL_EXCEPT) != 0) { failure = 15; goto done; }
+    value = rcc_complex_double_multiply(tie, tie);
+    if (__real__ value != 0x1.0000000000002p0 || __imag__ value != 0.0) {
+        failure = 16; goto done;
+    }
+    if ((fetestexcept(FE_INEXACT) & FE_INEXACT) == 0) failure = 17;
+
+done:
+    if (fesetround(original_rounding) != 0 && failure == 0) failure = 18;
+    return failure;
 }
 
 static int rcc_complex_annex_g_hyperbolic(void) {

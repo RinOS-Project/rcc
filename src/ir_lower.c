@@ -14018,16 +14018,15 @@ static bool lower_sysv_call_memory_arguments(
     if (!arguments_out || !count_out) return false;
     *arguments_out = NULL;
     *count_out = 0u;
+    /* C99's default argument promotions do not convert float _Complex to
+     * double _Complex. Preserve the source type when assigning vararg ABI
+     * registers and overflow slots. */
     for (const ExprList* argument = arguments; argument;
          argument = argument->next) {
         const Type* type = parameter && parameter->type
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
         size_t units = 1u;
-        if (!parameter && type_is_complex((Type*)type) &&
-            type->complex_component_type->kind == TYPE_FLOAT) {
-            type = type_complex(type_double);
-        }
         if (lower_abi_indirect_class_parameter(type)) {
             if (gp_arguments_used < 6u) ++gp_arguments_used;
         } else if (lower_abi_is_aggregate(type)) {
@@ -14071,10 +14070,6 @@ static bool lower_sysv_call_memory_arguments(
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
         size_t units = 1u;
-        if (!parameter && type_is_complex((Type*)type) &&
-            type->complex_component_type->kind == TYPE_FLOAT) {
-            type = type_complex(type_double);
-        }
         if (lower_abi_indirect_class_parameter(type)) {
             if (gp_arguments_used < 6u) ++gp_arguments_used;
         } else if (lower_abi_is_aggregate(type)) {
@@ -17519,17 +17514,14 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         sysv_flatten_gp_arguments_used = 1u;
     }
     parameter = function_type->params;
+    /* Keep variadic complex arguments at their declared width: unlike real
+     * float, float _Complex is not promoted by the default argument rules. */
     for (argument = expression->call_args; argument;
          argument = argument->next) {
         size_t units = 1u;
         const Type* argument_type = parameter && parameter->type
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
-        if (!parameter && argument->expr &&
-            type_is_complex(argument->expr->type) &&
-            argument->expr->type->complex_component_type->kind == TYPE_FLOAT) {
-            argument_type = type_complex(type_double);
-        }
         if (parameter &&
             lower_abi_indirect_class_parameter(parameter->type)) {
             if (!argument->expr || !argument->expr->type ||
@@ -17677,11 +17669,6 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         const Type* argument_type = parameter && parameter->type
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
-        if (!parameter && argument->expr &&
-            type_is_complex(argument->expr->type) &&
-            argument->expr->type->complex_component_type->kind == TYPE_FLOAT) {
-            argument_type = type_complex(type_double);
-        }
         LowerSysvAggregateClass sysv_aggregate_classification;
         bool sysv_aggregate_on_stack = false;
         if (g_opts.target_arch == ARCH_X64 && argument_type &&
