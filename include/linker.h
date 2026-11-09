@@ -117,6 +117,12 @@ typedef struct Linker {
     size_t test_archive_candidate_pops;
     size_t test_archive_selected_members;
     size_t test_archive_needed_symbol_probes;
+    size_t test_undefined_relocation_slot_probes;
+    size_t test_undefined_relocation_queries;
+    size_t test_undefined_relocation_unique_names;
+    size_t test_undefined_symbol_entries;
+    size_t test_undefined_definition_lookups;
+    size_t test_undefined_unresolved_entries;
 #endif
 
     /* Open-addressed index of accepted input definitions and references. */

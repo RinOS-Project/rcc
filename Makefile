@@ -24957,13 +24957,26 @@ endif
 	$(GREP) -q "expected expression" $(TEST_OUT)/parser-recovery/invalid.log
 	@echo "C17 parser progress and null-type recovery tests completed"
 
-test-link: $(RCC_TARGET) $(RLD_TARGET)
+test-link: $(RCC_TARGET) $(RLD_TARGET) test-undefined-relocation-scan
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -c -o $(TEST_OUT)/main.ro tests/main.c
 	$(RCC_TARGET) -c -o $(TEST_OUT)/lib.ro tests/lib.c
 	$(RLD_TARGET) -v --emit-unsigned-v3 -o $(TEST_OUT)/linked.rin \
 		$(TEST_OUT)/main.ro $(TEST_OUT)/lib.ro
 	@echo "RLD link test completed"
+
+.PHONY: test-undefined-relocation-scan
+test-undefined-relocation-scan:
+	$(call MKDIR_P,$(TEST_OUT)/undefined-relocation-scan/x86)
+	$(call MKDIR_P,$(TEST_OUT)/undefined-relocation-scan/x64)
+	$(CC) $(CFLAGS) -DRCC_LINKER_TESTING -I$(INCDIR) \
+		-o $(TEST_OUT)/undefined_relocation_scan_test \
+		tests/undefined_relocation_scan_test.c $(SRCDIR)/linker.c \
+		$(SRCDIR)/emit_ro.c $(SRCDIR)/archive.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/undefined_relocation_scan_test \
+		$(TEST_OUT)/undefined-relocation-scan/x86 x86
+	$(TEST_OUT)/undefined_relocation_scan_test \
+		$(TEST_OUT)/undefined-relocation-scan/x64 x64
 
 test-executable-imports: $(RCC_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/executable-imports)

@@ -44,6 +44,12 @@ Linker* linker_new(void) {
     ld->test_archive_candidate_pops = 0u;
     ld->test_archive_selected_members = 0u;
     ld->test_archive_needed_symbol_probes = 0u;
+    ld->test_undefined_relocation_slot_probes = 0u;
+    ld->test_undefined_relocation_queries = 0u;
+    ld->test_undefined_relocation_unique_names = 0u;
+    ld->test_undefined_symbol_entries = 0u;
+    ld->test_undefined_definition_lookups = 0u;
+    ld->test_undefined_unresolved_entries = 0u;
 #endif
     ld->input_symbol_slots = NULL;
     ld->input_symbol_count = 0u;
@@ -301,20 +307,33 @@ typedef struct LinkerUndefinedRelocationIndex {
     LinkerUndefinedRelocationReference* slots;
     size_t count;
     size_t capacity;
+#ifdef RCC_LINKER_TESTING
+    size_t test_slot_probes;
+    size_t test_queries;
+#endif
 } LinkerUndefinedRelocationIndex;
 
 static LinkerUndefinedRelocationReference* linker_undefined_relocation_find(
-    const LinkerUndefinedRelocationIndex* index, const char* name)
+    LinkerUndefinedRelocationIndex* index, const char* name)
 {
     size_t bucket;
+#ifdef RCC_LINKER_TESTING
+    ++index->test_queries;
+#endif
     if (!index->capacity || !name) return NULL;
     bucket = (size_t)linker_input_symbol_hash(name) &
              (index->capacity - 1u);
     while (index->slots[bucket].name != NULL) {
+#ifdef RCC_LINKER_TESTING
+        ++index->test_slot_probes;
+#endif
         if (strcmp(index->slots[bucket].name, name) == 0)
             return &index->slots[bucket];
         bucket = (bucket + 1u) & (index->capacity - 1u);
     }
+#ifdef RCC_LINKER_TESTING
+    ++index->test_slot_probes;
+#endif
     return NULL;
 }
 
@@ -338,8 +357,15 @@ static void linker_undefined_relocation_grow(
             size_t bucket =
                 (size_t)linker_input_symbol_hash(reference.name) &
                 (capacity - 1u);
-            while (slots[bucket].name != NULL)
+            while (slots[bucket].name != NULL) {
+#ifdef RCC_LINKER_TESTING
+                ++index->test_slot_probes;
+#endif
                 bucket = (bucket + 1u) & (capacity - 1u);
+            }
+#ifdef RCC_LINKER_TESTING
+            ++index->test_slot_probes;
+#endif
             slots[bucket] = reference;
         }
     }
@@ -363,8 +389,15 @@ static LinkerUndefinedRelocationReference* linker_undefined_relocation_add(
         linker_undefined_relocation_grow(index);
     bucket = (size_t)linker_input_symbol_hash(name) &
              (index->capacity - 1u);
-    while (index->slots[bucket].name != NULL)
+    while (index->slots[bucket].name != NULL) {
+#ifdef RCC_LINKER_TESTING
+        ++index->test_slot_probes;
+#endif
         bucket = (bucket + 1u) & (index->capacity - 1u);
+    }
+#ifdef RCC_LINKER_TESTING
+    ++index->test_slot_probes;
+#endif
     index->slots[bucket].name = name;
     index->slots[bucket].retained_reference = false;
     ++index->count;
@@ -1665,18 +1698,33 @@ bool linker_resolve_symbols(Linker* ld) {
         for (ObjSymbol* sym = obj->symbols; sym; sym = sym->next) {
             LinkerUndefinedRelocationReference* reference;
             if (sym->type != SYM_UNDEF) continue;
+#ifdef RCC_LINKER_TESTING
+            ++ld->test_undefined_symbol_entries;
+#endif
             reference = linker_undefined_relocation_find(&references,
                                                           sym->name);
             if (reference != NULL && !reference->retained_reference) continue;
 
             /* Look for definition */
+#ifdef RCC_LINKER_TESTING
+            ++ld->test_undefined_definition_lookups;
+#endif
             GlobalSymbol* def = find_symbol(ld, sym->name);
             if (!def || !def->resolved) {
+#ifdef RCC_LINKER_TESTING
+                ++ld->test_undefined_unresolved_entries;
+#endif
                 fprintf(stderr, "rld: undefined reference to '%s'\n", sym->name);
                 fprintf(stderr, "     referenced from %s\n", obj->filename);
                 unresolved++;
             }
         }
+#ifdef RCC_LINKER_TESTING
+        ld->test_undefined_relocation_slot_probes +=
+            references.test_slot_probes;
+        ld->test_undefined_relocation_queries += references.test_queries;
+        ld->test_undefined_relocation_unique_names += references.count;
+#endif
         rcc_free(references.slots);
     }
 
