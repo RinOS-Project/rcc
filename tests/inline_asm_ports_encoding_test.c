@@ -87,37 +87,115 @@ static bool contains_compare_immediate_memory(const uint8_t* data,
     return false;
 }
 
+static bool contains_i686_compare_immediate_memory(const uint8_t* data,
+                                                   uint64_t size)
+{
+    for (uint64_t offset = 0u; offset < size; ++offset) {
+        uint64_t opcode_offset = offset;
+        uint8_t modrm;
+        uint64_t displacement_offset;
+        uint64_t immediate_offset;
+        if (data[opcode_offset] != 0x81u || size - opcode_offset < 7u) {
+            continue;
+        }
+        modrm = data[opcode_offset + 1u];
+        if (((modrm >> 3) & 7u) != 7u || (modrm >> 6) != 2u) continue;
+        displacement_offset = opcode_offset + 2u;
+        if ((modrm & 7u) == 4u) ++displacement_offset;
+        immediate_offset = displacement_offset + 4u;
+        if (immediate_offset + 4u <= size &&
+            data[displacement_offset] == 0x04u &&
+            data[displacement_offset + 1u] == 0x03u &&
+            data[displacement_offset + 2u] == 0x00u &&
+            data[displacement_offset + 3u] == 0x00u &&
+            data[immediate_offset] == 0x02u &&
+            data[immediate_offset + 1u] == 0x00u &&
+            data[immediate_offset + 2u] == 0x00u &&
+            data[immediate_offset + 3u] == 0x00u) return true;
+    }
+    return false;
+}
+
+static bool contains_xstate_memory_group(const uint8_t* data, uint64_t size,
+                                        uint8_t extension)
+{
+    for (uint64_t offset = 0u; offset + 2u < size; ++offset) {
+        uint8_t modrm;
+        if (data[offset] != 0x0Fu || data[offset + 1u] != 0xAEu) continue;
+        modrm = data[offset + 2u];
+        if (((modrm >> 3) & 7u) == extension && (modrm >> 6) != 3u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void verify_xstate_and_compare(const char* path, uint16_t architecture)
+{
+    static const uint8_t xgetbv[] = {0x0Fu, 0x01u, 0xD0u};
+    ObjectFile* object = objfile_read(path);
+    ObjSection* code;
+    ObjSymbol* xgetbv_function;
+    ObjSymbol* compare_function;
+    ObjSymbol* xsave_function;
+    ObjSymbol* xrstor_function;
+    uint64_t xgetbv_end;
+    uint64_t compare_end;
+    uint64_t xsave_end;
+    uint64_t xrstor_end;
+    assert(object != NULL && object->arch == architecture);
+    code = code_section(object);
+    xgetbv_function = objfile_find_symbol(object, "asm_xgetbv_instruction");
+    compare_function = objfile_find_symbol(object, "asm_cmp_memory_immediate");
+    xsave_function = objfile_find_symbol(object, "asm_xsave_state");
+    xrstor_function = objfile_find_symbol(object, "asm_xrstor_state");
+    assert(code != NULL && xgetbv_function != NULL && compare_function != NULL &&
+           xsave_function != NULL && xrstor_function != NULL);
+    xgetbv_end = function_end(object, xgetbv_function);
+    compare_end = function_end(object, compare_function);
+    xsave_end = function_end(object, xsave_function);
+    xrstor_end = function_end(object, xrstor_function);
+    assert(xgetbv_end > xgetbv_function->value && xgetbv_end <= code->size &&
+           compare_end > compare_function->value && compare_end <= code->size &&
+           xsave_end > xsave_function->value && xsave_end <= code->size &&
+           xrstor_end > xrstor_function->value && xrstor_end <= code->size);
+    assert(contains_bytes(code->data + xgetbv_function->value,
+                          xgetbv_end - xgetbv_function->value,
+                          xgetbv, sizeof(xgetbv)));
+    if (architecture == ARCH_X86) {
+        assert(contains_i686_compare_immediate_memory(
+            code->data + compare_function->value,
+            compare_end - compare_function->value));
+    } else {
+        assert(contains_compare_immediate_memory(
+            code->data + compare_function->value,
+            compare_end - compare_function->value));
+    }
+    assert(contains_xstate_memory_group(code->data + xsave_function->value,
+                                        xsave_end - xsave_function->value, 4u));
+    assert(contains_xstate_memory_group(code->data + xrstor_function->value,
+                                        xrstor_end - xrstor_function->value, 5u));
+    objfile_free(object);
+}
+
 static void verify_vector_moves(const char* path)
 {
     static const uint8_t vzeroupper[] = {0xC5u, 0xF8u, 0x77u};
-    static const uint8_t xgetbv[] = {0x0Fu, 0x01u, 0xD0u};
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
     ObjSymbol* ymm_function;
     ObjSymbol* xmm_function;
-    ObjSymbol* xgetbv_function;
-    ObjSymbol* compare_function;
     uint64_t ymm_end;
     uint64_t xmm_end;
-    uint64_t xgetbv_end;
-    uint64_t compare_end;
     assert(object != NULL && object->arch == ARCH_X64);
     code = code_section(object);
     ymm_function = objfile_find_symbol(object, "asm_vector_ymm_move");
     xmm_function = objfile_find_symbol(object, "asm_vector_xmm_move");
-    xgetbv_function = objfile_find_symbol(object, "asm_xgetbv_instruction");
-    compare_function = objfile_find_symbol(object,
-                                           "asm_cmp_memory_immediate");
-    assert(code != NULL && ymm_function != NULL && xmm_function != NULL &&
-           xgetbv_function != NULL && compare_function != NULL);
+    assert(code != NULL && ymm_function != NULL && xmm_function != NULL);
     ymm_end = function_end(object, ymm_function);
     xmm_end = function_end(object, xmm_function);
-    xgetbv_end = function_end(object, xgetbv_function);
-    compare_end = function_end(object, compare_function);
     assert(ymm_end > ymm_function->value && ymm_end <= code->size &&
-           xmm_end > xmm_function->value && xmm_end <= code->size &&
-           xgetbv_end > xgetbv_function->value && xgetbv_end <= code->size &&
-           compare_end > compare_function->value && compare_end <= code->size);
+           xmm_end > xmm_function->value && xmm_end <= code->size);
     assert(contains_vector_encoding(code->data + ymm_function->value,
                                     ymm_end - ymm_function->value, true, true));
     assert(contains_vector_encoding(code->data + ymm_function->value,
@@ -129,12 +207,6 @@ static void verify_vector_moves(const char* path)
                                     xmm_end - xmm_function->value, false, true));
     assert(contains_vector_encoding(code->data + xmm_function->value,
                                     xmm_end - xmm_function->value, false, false));
-    assert(contains_bytes(code->data + xgetbv_function->value,
-                          xgetbv_end - xgetbv_function->value,
-                          xgetbv, sizeof(xgetbv)));
-    assert(contains_compare_immediate_memory(
-        code->data + compare_function->value,
-        compare_end - compare_function->value));
     objfile_free(object);
 }
 
@@ -211,7 +283,9 @@ int main(int argc, char** argv)
 {
     assert(argc == 4);
     verify_architecture(argv[1], ARCH_X86);
+    verify_xstate_and_compare(argv[1], ARCH_X86);
     verify_architecture(argv[2], ARCH_X64);
+    verify_xstate_and_compare(argv[2], ARCH_X64);
     verify_vector_moves(argv[2]);
     verify_cpp(argv[3]);
     return 0;

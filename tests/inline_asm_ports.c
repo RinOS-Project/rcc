@@ -89,6 +89,7 @@ void asm_vector_xmm_move(void* destination, const void* source)
         "movdqu %%xmm0, 0(%0)"
         : : "r"(destination), "r"(source) : "xmm0", "memory");
 }
+#endif
 
 void asm_xgetbv_instruction(void)
 {
@@ -99,4 +100,21 @@ void asm_cmp_memory_immediate(const unsigned int* value)
 {
     __asm__ volatile("cmpl $2, 772(%0)" : : "r"(value) : "cc");
 }
+
+void asm_xsave_state(void* state)
+{
+#if defined(__x86_64__)
+    __asm__ volatile("xsave64 0(%0)" : : "r"(state) : "memory");
+#else
+    __asm__ volatile("xsave 0(%0)" : : "r"(state) : "memory");
 #endif
+}
+
+void asm_xrstor_state(const void* state)
+{
+#if defined(__x86_64__)
+    __asm__ volatile("xrstor64 0(%0)" : : "r"(state) : "memory");
+#else
+    __asm__ volatile("xrstor 0(%0)" : : "r"(state) : "memory");
+#endif
+}
